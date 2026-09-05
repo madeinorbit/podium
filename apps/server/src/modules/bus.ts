@@ -241,9 +241,9 @@ export class EventBus {
     const pending: Promise<unknown>[] = []
     for (const listener of [...set]) {
       try {
-        pending.push(Promise.resolve(listener(payload)))
+        pending.push(await Promise.resolve(listener(payload)))
       } catch (err) {
-        pending.push(Promise.reject(err))
+        pending.push(await Promise.reject(err))
       }
     }
     const settled = await Promise.allSettled(pending)

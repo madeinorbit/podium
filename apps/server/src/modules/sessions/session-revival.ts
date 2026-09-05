@@ -245,10 +245,10 @@ export class SessionRevival {
               ]
             : [],
         ),
-      listRepos: () => this.ports.store.repos.listRepos(),
-      listMachines: () => this.ports.machines.listMachines(),
+      listRepos: async () => await this.ports.store.repos.listRepos(),
+      listMachines: async () => await this.ports.machines.listMachines(),
       waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
-      issueMeta: (issueId) => this.ports.issueAccess.getMeta(issueId) ?? undefined,
+      issueMeta: async (issueId) => await this.ports.issueAccess.getMeta(issueId) ?? undefined,
       rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
       ensureTargetRepo: async (sourceRepo, targetMachineId) =>
         await this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
@@ -263,8 +263,8 @@ export class SessionRevival {
         this.ports.onWorktreesChanged(repoPath, machineId),
       resumeSession: async (resumeInput) => await this.resumeSession(resumeInput, issues),
       resurrectSession: async (resurrectInput) => await this.resurrectSession(resurrectInput, issues),
-      recordEvent: (event) => {
-        this.ports.store.events.appendEvent(event)
+      recordEvent: async (event) => {
+        await this.ports.store.events.appendEvent(event)
       },
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     }
@@ -286,8 +286,8 @@ export class SessionRevival {
     issues: SessionIssueWorkflowPort,
   ): Promise<Promise<{ ok: boolean; reason?: string }>> {
     const session = this.ports.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
-    if (session.archived) return Promise.resolve({ ok: false, reason: 'session is archived' })
+    if (!session) return await Promise.resolve({ ok: false, reason: 'unknown session' })
+    if (session.archived) return await Promise.resolve({ ok: false, reason: 'session is archived' })
     const pending = this.pendingResurrections.get(sessionId)
     if (pending) return pending
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -302,7 +302,7 @@ export class SessionRevival {
       // misleading "process still running" error. Republish the current row so
       // the client converges immediately.
       this.ports.broadcastSessions()
-      return Promise.resolve({ ok: true })
+      return await Promise.resolve({ ok: true })
     }
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one
@@ -329,7 +329,7 @@ export class SessionRevival {
     // with it, which is what spawn-on-wake already builds. This verb is the
     // operator's retry, not that one.
     if (session.agentKind !== 'shell' && !session.resume && !session.neverBound) {
-      return Promise.resolve({ ok: false, reason: 'no resume ref' })
+      return await Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
@@ -345,7 +345,7 @@ export class SessionRevival {
       ? { ok: true, cwd: session.cwd }
       : await this.ports.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
-      const resurrection = ensured
+      const resurrection = await ensured
         .then(async (e) => await this.finishResurrect(session, e, adoptedBinding))
         .finally(() => {
           this.pendingResurrections.delete(sessionId)
@@ -353,7 +353,7 @@ export class SessionRevival {
       this.pendingResurrections.set(sessionId, resurrection)
       return resurrection
     }
-    return Promise.resolve(await this.finishResurrect(session, ensured, adoptedBinding))
+    return await Promise.resolve(await this.finishResurrect(session, ensured, adoptedBinding))
   }
 
   async finishResurrect(

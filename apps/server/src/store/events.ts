@@ -236,7 +236,7 @@ export class EventsRepository {
     // puts them back in ascending order. Both orderings are load-bearing: taking
     // the newest is what bounds the read, and returning them oldest-first is what
     // the transcript reader expects.
-    const recent = this.db
+    const recent = (await this.db
       .select({ id: podiumEvents.id, payload: podiumEvents.payload })
       .from(podiumEvents)
       .where(
@@ -248,7 +248,7 @@ export class EventsRepository {
         ),
       )
       .orderBy(desc(podiumEvents.id))
-      .limit(limit)
+      .limit(limit))
       .as('recent')
     const rows = await this.db
       .select({ payload: recent.payload })
@@ -559,11 +559,11 @@ export class EventsRepository {
     // The projector's head fences runtime rows: anything above it has not been
     // projected yet and must survive retention. COALESCE covers the projector
     // never having run, where the head is 0 and nothing is fenced.
-    const projectedThrough = this.db
+    const projectedThrough = await this.db
       .select({ head: runtimeEventProjectionCursors.lastEventId })
       .from(runtimeEventProjectionCursors)
       .where(eq(runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
-    const victims = this.db
+    const victims = await this.db
       .select({ id: podiumEvents.id })
       .from(podiumEvents)
       .where(

@@ -54,13 +54,13 @@ export function attentionNotice(
 }
 
 /** Fire-and-forget mobile push via ntfy.sh. Failures are logged, never thrown. */
-export function pushNtfy(topic: string, notice: AttentionNotice): void {
+export async function pushNtfy(topic: string, notice: AttentionNotice): Promise<void> {
   // Publish as a JSON body, NOT via the X-Title header: titles carry the session
   // name, and Claude sets non-ASCII spinner titles (e.g. '✳ …'). undici rejects
   // any header value > U+00FF ('Cannot convert … to a ByteString'), which threw
   // synchronously and dropped the push for exactly the events this exists for.
   // The JSON body is UTF-8 and has no such restriction.
-  fetch('https://ntfy.sh', {
+  await fetch('https://ntfy.sh', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -104,18 +104,18 @@ async function telegramDescription(res: Pick<Response, 'json'>): Promise<string 
 }
 
 /** Fire-and-forget Telegram push (bare sendMessage). Failures are logged, never thrown. */
-export function pushTelegramText(
+export async function pushTelegramText(
   config: TelegramConfig,
   text: string,
   opts: PushTelegramOptions = {},
-): void {
+): Promise<void> {
   const botToken = config.botToken.trim()
   const chatId = config.chatId.trim()
   if (!botToken || !chatId) return
 
   const send = opts.fetch ?? fetch
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
-  send(url, {
+  await send(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({

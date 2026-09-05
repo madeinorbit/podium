@@ -1113,7 +1113,7 @@ export class IssuesRepository {
     // The ESCAPE clause is what makes `%` and `_` in a user's query LITERAL.
     // drizzle's `like()` emits no ESCAPE, so this stays a fragment; dropping it
     // would make a query of `100%` match every comment.
-    const base = this.db
+    const base = await this.db
       .select({
         issueId: issueComments.issueId,
         body: issueComments.body,
@@ -1188,7 +1188,7 @@ export class IssuesRepository {
       )
       .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
       .all()
-    return rows.map((r) => this.mapIssueMessage(r))
+    return rows.map(async (r) => await this.mapIssueMessage(r))
   }
 
   async countUnreadIssueMessages(issueId: IssueId): Promise<number> {

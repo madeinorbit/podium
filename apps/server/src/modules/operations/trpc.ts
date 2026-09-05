@@ -22,8 +22,8 @@ export function operationProcedures() {
     /** The one live operation, or null. Null is the ordinary answer. */
     active: t.procedure
       .input(z.object({ group: z.string().optional() }).optional())
-      .query(({ ctx, input }) => {
-        const row = operationsModule(ctx).engine.active(input?.group)
+      .query(async ({ ctx, input }) => {
+        const row = await operationsModule(ctx).engine.active(input?.group)
         return row ? (JSON.parse(row.payload) as unknown) : null
       }),
 

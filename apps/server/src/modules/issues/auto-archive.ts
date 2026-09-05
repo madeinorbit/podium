@@ -25,9 +25,9 @@ export class IssueAutoArchive {
   constructor(private readonly issues: Pick<IssueService, 'sweepAutoArchive'>) {}
 
   start(): void {
-    this.bootTimer = setTimeout(() => {
-      this.sweep()
-      this.timer = setInterval(() => this.sweep(), AUTO_ARCHIVE_INTERVAL_MS)
+    this.bootTimer = setTimeout(async () => {
+      await this.sweep()
+      this.timer = setInterval(async () => await this.sweep(), AUTO_ARCHIVE_INTERVAL_MS)
       this.timer.unref?.()
     }, AUTO_ARCHIVE_BOOT_DELAY_MS)
     this.bootTimer.unref?.()

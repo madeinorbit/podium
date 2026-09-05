@@ -594,8 +594,8 @@ export class SessionDaemonLifecycle {
           // the live session (which is what this did) both published the new ref
           // before the commit and left it standing when the commit threw.
           const draft = this.draft(session)
-          this.persistDraft(session, draft, () => {
-            outcome = this.store.observationCheckpoints.rebindExact({
+          this.persistDraft(session, draft, async () => {
+            outcome = await this.store.observationCheckpoints.rebindExact({
               sessionId: session.sessionId,
               provider: msg.provider,
               providerSessionId: msg.providerSessionId,
@@ -609,13 +609,13 @@ export class SessionDaemonLifecycle {
             session.setResume({ kind: msg.resumeKind, value: msg.nextProviderSessionId }, draft)
             if (outcome.disposition !== 'advanced') return
             draft.conversationPodiumId = msg.providerSessionId
-              ? this.ports.memory.linkConversationSegment({
+              ? await this.ports.memory.linkConversationSegment({
                   machineId: session.machineId,
                   newNativeId: msg.nextProviderSessionId,
                   priorNativeId: msg.providerSessionId,
                   providerId: session.agentKind,
                 })
-              : this.ports.memory.ensureConversationIdentity({
+              : await this.ports.memory.ensureConversationIdentity({
                   machineId: session.machineId,
                   nativeId: msg.nextProviderSessionId,
                   providerId: session.agentKind,
@@ -750,16 +750,16 @@ export class SessionDaemonLifecycle {
           outcome.checkpoint,
           draft,
         )
-        this.persistDraft(session, draft, () => {
-          this.store.observationCheckpoints.save(outcome.checkpoint)
+        this.persistDraft(session, draft, async () => {
+          await this.store.observationCheckpoints.save(outcome.checkpoint)
           if (acceptedLive) {
             if (candidateFacts) {
-              this.store.observationCheckpoints.recordTerminalCandidate(
+              await this.store.observationCheckpoints.recordTerminalCandidate(
                 candidateFacts,
                 outcome.checkpoint.acceptedAt,
               )
             } else {
-              this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+              await this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
             }
           }
         })

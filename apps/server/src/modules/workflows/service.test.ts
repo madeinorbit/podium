@@ -69,11 +69,11 @@ describe('WorkflowService', () => {
   afterEach(() => store.close())
 
   it('stores immutable revisions and resolves one exact binding by task → repo → global', async () => {
-    const global = service.create(
+    const global = (await service.create(
       { name: 'Global', description: '', scope: 'global', instructions: 'global rules', steps: [] },
       operator,
-    )
-    const repo = service.create(
+    ))
+    const repo = (await service.create(
       {
         name: 'Repo',
         description: '',
@@ -83,8 +83,8 @@ describe('WorkflowService', () => {
         steps: [],
       },
       operator,
-    )
-    const task = service.create(
+    ))
+    const task = (await service.create(
       {
         name: 'Task',
         description: '',
@@ -94,18 +94,18 @@ describe('WorkflowService', () => {
         steps: [],
       },
       operator,
-    )
-    service.publish({ revisionId: global.revision.id }, operator)
-    service.publish({ revisionId: repo.revision.id }, operator)
-    service.assign({ targetKind: 'global', targetId: '', revisionId: global.revision.id }, operator)
-    service.assign(
+    ))
+    ;(await service.publish({ revisionId: global.revision.id }, operator))
+    ;(await service.publish({ revisionId: repo.revision.id }, operator))
+    ;(await service.assign({ targetKind: 'global', targetId: '', revisionId: global.revision.id }, operator))
+    ;(await service.assign(
       { targetKind: 'repository', targetId: 'repo-1', revisionId: repo.revision.id },
       operator,
-    )
-    service.assign(
+    ))
+    ;(await service.assign(
       { targetKind: 'issue', targetId: 'issue-1', revisionId: task.revision.id },
       operator,
-    )
+    ))
 
     expect(
       (await service.resolveRevision({
@@ -115,10 +115,10 @@ describe('WorkflowService', () => {
       }))?.id,
     ).toBe(task.revision.id)
 
-    const revised = service.revise(
+    const revised = (await service.revise(
       { workflowId: task.workflow.id, instructions: 'new task rules', steps: [] },
       agent('s1'),
-    )
+    ))
     expect(revised.version).toBe(2)
     expect((await store.workflows.getRevision(task.revision.id))?.instructions).toBe('task rules')
     // The binding points at an exact revision; editing never changes unstarted tasks silently.
@@ -131,7 +131,7 @@ describe('WorkflowService', () => {
     ).toBe(task.revision.id)
   })
 
-  it('requires approval authority for agent global publication/default changes', () => {
+  it('requires approval authority for agent global publication/default changes', async () => {
     // POD-731: the global-scope hole is closed, so the SETUP changes — an agent
     // can no longer create the global workflow this case needs. The brake it
     // asserts is unchanged and now covers create as well as publish.
@@ -141,10 +141,10 @@ describe('WorkflowService', () => {
         agent('s1'),
       ),
     ).toThrow('approval required')
-    const created = service.create(
+    const created = (await service.create(
       { name: 'Candidate', description: '', scope: 'global', instructions: 'rules', steps: [] },
       operator,
-    )
+    ))
     expect(() => service.publish({ revisionId: created.revision.id }, agent('s1'))).toThrow(
       'approval required',
     )
@@ -155,11 +155,11 @@ describe('WorkflowService', () => {
       ),
     ).toThrow('approval required')
     expect(
-      service.publish({ revisionId: created.revision.id }, operator).publishedAt,
+      (await service.publish({ revisionId: created.revision.id }, operator)).publishedAt,
     ).not.toBeNull()
   })
   it('filters task-scoped workflow reads and bindings at the agent boundary', async () => {
-    const own = service.create(
+    const own = (await service.create(
       {
         name: 'Own task',
         description: '',
@@ -169,8 +169,8 @@ describe('WorkflowService', () => {
         steps: [],
       },
       operator,
-    )
-    const other = service.create(
+    ))
+    const other = (await service.create(
       {
         name: 'Other task',
         description: '',
@@ -180,15 +180,15 @@ describe('WorkflowService', () => {
         steps: [],
       },
       operator,
-    )
-    service.assign(
+    ))
+    ;(await service.assign(
       { targetKind: 'issue', targetId: 'issue-1', revisionId: own.revision.id },
       operator,
-    )
-    service.assign(
+    ))
+    ;(await service.assign(
       { targetKind: 'issue', targetId: 'issue-other', revisionId: other.revision.id },
       operator,
-    )
+    ))
     expect((await service.list({}, agent('s1'))).map((workflow) => workflow.id)).toContain(own.workflow.id)
     expect((await service.list({}, agent('s1'))).map((workflow) => workflow.id)).not.toContain(
       other.workflow.id,
@@ -196,7 +196,7 @@ describe('WorkflowService', () => {
     // POD-731 CONVERGENCE (ADR 3 Amendment 1 D20.2): an invisible workflow id
     // fails identically to an unknown one.
     expect(() => service.get({ id: other.workflow.id }, agent('s1'))).toThrow('unknown workflow')
-    expect(await service.bindings(agent('s1'))).toMatchObject([
+    expect((await service.bindings(agent('s1')))).toMatchObject([
       { targetKind: 'issue', targetId: 'issue-1' },
     ])
     expect(
@@ -210,7 +210,7 @@ describe('WorkflowService', () => {
   })
 
   it('reports an unavailable execution profile in prime and checkpoint responses', async () => {
-    const created = service.create(
+    const created = (await service.create(
       {
         name: 'Missing profile',
         description: '',
@@ -228,17 +228,17 @@ describe('WorkflowService', () => {
         ],
       },
       operator,
-    )
-    const run = await service.startRun({
+    ))
+    const run = (await service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
-    })
-    expect(await service.prime(agent('s1'))).toContain('Execution profile unavailable: profile-missing')
+    }))
+    expect((await service.prime(agent('s1')))).toContain('Execution profile unavailable: profile-missing')
     // POD-731: an advance against a stepped run must name its step or carry a
     // mutation id, so an unnamed delivery cannot be told apart from a duplicate.
-    const checkpoint = service.checkpoint(
+    const checkpoint = (await service.checkpoint(
       {
         runId: run.id,
         stepId: 'review',
@@ -247,12 +247,12 @@ describe('WorkflowService', () => {
         evidence: { summary: '', tests: [], artifacts: [] },
       },
       agent('s1'),
-    )
+    ))
     expect(checkpoint.warnings).toContain('execution profile profile-missing is unavailable')
   })
 
   it('checkpoints linear steps, records observations, and tells the coordinator what is next', async () => {
-    const profile = service.profileSave(
+    const profile = (await service.profileSave(
       {
         name: 'Codex review',
         accountId: 'native:codex',
@@ -261,8 +261,8 @@ describe('WorkflowService', () => {
         effort: 'medium',
       },
       operator,
-    )
-    const created = service.create(
+    ))
+    const created = (await service.create(
       {
         name: 'Build',
         description: '',
@@ -286,22 +286,22 @@ describe('WorkflowService', () => {
         ],
       },
       operator,
-    )
-    const run = await service.startRun({
+    ))
+    const run = (await service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
-    })
+    }))
     expect(
-      await service.executionProfileForLaunch({
+      (await service.executionProfileForLaunch({
         caller: operator,
         profileId: profile.id,
         runId: run.id,
         stepId: 'review',
-      }),
+      })),
     ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
-    service.profileSave(
+    ;(await service.profileSave(
       {
         id: profile.id,
         name: 'Codex review updated',
@@ -311,22 +311,22 @@ describe('WorkflowService', () => {
         effort: 'high',
       },
       operator,
-    )
+    ))
     expect(
-      await service.executionProfileForLaunch({
+      (await service.executionProfileForLaunch({
         caller: operator,
         profileId: profile.id,
         runId: run.id,
         stepId: 'review',
-      }),
+      })),
     ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
     expect(
-      await service.executionProfileForLaunch({ caller: operator, profileId: profile.id }),
+      (await service.executionProfileForLaunch({ caller: operator, profileId: profile.id })),
     ).toMatchObject({
       harness: 'claude-code',
       model: 'claude-fable-5',
     })
-    const first = service.checkpoint(
+    const first = (await service.checkpoint(
       {
         runId: run.id,
         stepId: 'implement',
@@ -345,23 +345,23 @@ describe('WorkflowService', () => {
         },
       },
       agent('s1'),
-    )
+    ))
     expect(first.message).toBe('Step complete. Next: Review')
     expect(first.warnings).toContain('step completed with uncommitted worktree changes')
     expect(first.nextStep?.stepId).toBe('review')
     expect((await service.runs({}, operator)).map((item) => item.id)).toEqual([run.id])
-    expect(await service.renderRunPrime(first.run, asSessionId('s1'))).toContain(
+    expect((await service.renderRunPrime(first.run, asSessionId('s1')))).toContain(
       `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review --execution-profile-id ${profile.id}`,
     )
-    expect(await service.renderRunPrime(first.run, asSessionId('s1'))).toContain(
+    expect((await service.renderRunPrime(first.run, asSessionId('s1')))).toContain(
       `podium workflow assign-step review <child-session-id> --run ${run.id}`,
     )
 
-    service.assignStep(
+    ;(await service.assignStep(
       { runId: run.id, stepId: 'review', sessionId: asSessionId('s2') },
       agent('s1'),
-    )
-    const completed = service.checkpoint(
+    ))
+    const completed = (await service.checkpoint(
       {
         runId: run.id,
         stepId: 'review',
@@ -370,18 +370,18 @@ describe('WorkflowService', () => {
         evidence: { summary: '', tests: [], artifacts: [] },
       },
       agent('s2'),
-    )
+    ))
     expect(completed.run.status).toBe('complete')
     expect(completed.message).toBe('Workflow complete.')
     expect(notices).toEqual([
       { sessionId: asSessionId('s1'), text: 'Workflow step "Review" complete: reviewed' },
     ])
-    expect(await service.runs({}, operator)).toEqual([])
-    expect(await service.runs({ includeTerminal: true }, operator)).toHaveLength(1)
+    expect((await service.runs({}, operator))).toEqual([])
+    expect((await service.runs({ includeTerminal: true }, operator))).toHaveLength(1)
   })
 
   it('keeps later issue sessions on the active run revision until explicit adoption', async () => {
-    const created = service.create(
+    const created = (await service.create(
       {
         name: 'Pinned issue workflow',
         description: '',
@@ -391,37 +391,37 @@ describe('WorkflowService', () => {
         steps: [{ id: 'build', title: 'Build', instructions: '', completionGuidance: '' }],
       },
       operator,
-    )
-    const run = await service.startRun({
+    ))
+    const run = (await service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
-    })
-    const revised = service.revise(
+    }))
+    const revised = (await service.revise(
       {
         workflowId: created.workflow.id,
         instructions: 'version two',
         steps: [{ id: 'build', title: 'Build', instructions: '', completionGuidance: '' }],
       },
       agent('s1'),
-    )
+    ))
 
-    const prepared = await service.prepareStart({
+    const prepared = (await service.prepareStart({
       sessionId: asSessionId('s2'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
-    })
+    }))
     expect(prepared?.revision.id).toBe(created.revision.id)
     expect(prepared?.prompt).toContain('version one')
-    const rehydrated = await service.prepareExistingSession({
+    const rehydrated = (await service.prepareExistingSession({
       sessionId: asSessionId('s1'),
       issueId: asIssueId('issue-1'),
-    })
+    }))
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
     expect(rehydrated?.prompt).not.toContain('version two')
-    expect(await service.prime(agent('s2'))).toContain('role: issue participant')
+    expect((await service.prime(agent('s2')))).toContain('role: issue participant')
     expect((await service.status({}, agent('s2'))).id).toBe(run.id)
     expect(() =>
       service.checkpoint(
@@ -446,7 +446,7 @@ describe('WorkflowService', () => {
   })
 
   it('validates adoption completely before superseding the live run', async () => {
-    const created = service.create(
+    const created = (await service.create(
       {
         name: 'Safe adoption',
         description: '',
@@ -456,13 +456,13 @@ describe('WorkflowService', () => {
         steps: [{ id: 'build', title: 'Build', instructions: '', completionGuidance: '' }],
       },
       operator,
-    )
-    const run = await service.startRun({
+    ))
+    const run = (await service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
-    })
+    }))
     expect(() => service.adopt({ revisionId: 'missing' }, agent('s1'))).toThrow(
       'unknown workflow revision',
     )
@@ -473,7 +473,7 @@ describe('WorkflowService', () => {
     expect((await store.workflows.getRun(run.id))?.status).toBe('active')
   })
 
-  it('rejects duplicate step ids and keeps execution profiles operator-managed', () => {
+  it('rejects duplicate step ids and keeps execution profiles operator-managed', async () => {
     expect(() =>
       WORKFLOW_CONTRACTS.create.input.parse({
         name: 'Invalid steps',
@@ -502,7 +502,7 @@ describe('WorkflowService', () => {
   })
 
   it('adopts a new revision explicitly and preserves the superseded run', async () => {
-    const created = service.create(
+    const created = (await service.create(
       {
         name: 'Adoptable',
         description: '',
@@ -515,14 +515,14 @@ describe('WorkflowService', () => {
         ],
       },
       operator,
-    )
-    const first = await service.startRun({
+    ))
+    const first = (await service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
-    })
-    const secondRevision = service.revise(
+    }))
+    const secondRevision = (await service.revise(
       {
         workflowId: created.workflow.id,
         instructions: 'v2',
@@ -532,11 +532,11 @@ describe('WorkflowService', () => {
         ],
       },
       agent('s1'),
-    )
-    const adopted = service.adopt(
+    ))
+    const adopted = (await service.adopt(
       { revisionId: secondRevision.id, startStepId: 'build' },
       agent('s1'),
-    )
+    ))
     expect(adopted.supersedesRunId).toBe(first.id)
     expect(adopted.revision.id).toBe(secondRevision.id)
     expect(adopted.steps[0]?.status).toBe('skipped')

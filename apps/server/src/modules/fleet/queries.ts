@@ -29,8 +29,8 @@ export const REPO_QUERIES = {
    *  source for the linkify prefix set and the prefix editor. */
   listDetailed: q(noInput, async (s) => await s.store.repos.listRepos()),
   /** cwd → repo inference for the CLI: longest registered root containing `path`. */
-  inferFromPath: q(z.object({ path: z.string() }), (s, input) => ({
-    repoPath: s.repos.inferFromPath(input.path) ?? null,
+  inferFromPath: q(z.object({ path: z.string() }), async (s, input) => ({
+    repoPath: await s.repos.inferFromPath(input.path) ?? null,
   })),
   /**
    * Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
@@ -96,7 +96,7 @@ export const REPO_QUERIES = {
 } as const
 
 export const serverTransferStatusQuery = async (ctx: Context) =>
-  mods(ctx).serverTransfer.publicStatus(await visibleMachinesFor(mods(ctx), ctx.capability))
+  await mods(ctx).serverTransfer.publicStatus(await visibleMachinesFor(mods(ctx), ctx.capability))
 
 export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect

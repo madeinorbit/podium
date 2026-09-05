@@ -173,13 +173,13 @@ const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA]): Cli
 })
 
 const commitIssue = (
-  plumbing: ReturnType<typeof feedTestPlumbing>,
+  plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>,
   id: string,
   value: unknown,
   op: 'upsert' | 'remove' = 'upsert',
 ) =>
   plumbing.ledger.commit({
-    write: () => {},
+    write: async () => {},
     changes: () => [{ entity: 'issue', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })
 
@@ -238,7 +238,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const alice = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
     const seq = await g.plumbing.authority.cursor()
 
@@ -266,9 +266,9 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const g = await gateway(owners)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-bob', { id: 'issue-bob', title: 'mine' })
+    await commitIssue(g.plumbing, 'issue-bob', { id: 'issue-bob', title: 'mine' })
     await settle()
-    commitIssue(g.plumbing, 'issue-bob', undefined, 'remove')
+    await commitIssue(g.plumbing, 'issue-bob', undefined, 'remove')
     await settle()
 
     // The instrument CAN say "removed". So the previous case's "no remove reached
@@ -283,7 +283,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const alice = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
     await settle()
 
     // Both, this time. A suite whose every scoped assertion is negative passes
@@ -304,7 +304,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const owners = new Map([['issue-shared', ALICE]])
     const grants = new Map([['issue-shared', [BOB]]])
     const g = await gateway(owners, grants)
-    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
     const head = await g.plumbing.authority.cursor()
     const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
 
@@ -357,7 +357,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     // RE-SERVES THE WORLD, so a scope taken from the payload hands over everything
     // already committed, in the bootstrap, before any delta is published. A test
     // that only commits afterwards can never observe that theft.
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
 
     // THE FORGERY. `hello.clientId` is a real payload field and it names Alice's
@@ -368,7 +368,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
     // ...and again afterwards, so the delta path is covered as well as the
     // bootstrap one.
-    commitIssue(g.plumbing, 'issue-alice2', { id: 'issue-alice2', title: 'also private' })
+    await commitIssue(g.plumbing, 'issue-alice2', { id: 'issue-alice2', title: 'also private' })
     await settle()
 
     // THE DATA QUESTION FIRST. Ordered deliberately: the identity assertion below
@@ -407,7 +407,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const phone = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
 
     // One authority subscription, two connections — `feedPrincipalOf` keys on the
@@ -437,7 +437,7 @@ describe('the single-user deployment is not tightened into an empty screen', () 
     const g = await gateway(owners)
     const solo = g.signIn(FIRST_ADMIN_USER_ID)
 
-    commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
+    await commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
     await settle()
 
     expect(

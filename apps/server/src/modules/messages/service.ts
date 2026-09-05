@@ -538,8 +538,8 @@ export class MessageDeliveryService {
       messages: deps.messages,
       events: deps.events,
       now: deps.now,
-      onCooldownElapsed: (targets) => {
-        for (const target of targets) this.queueDeliveryTarget(target)
+      onCooldownElapsed: async (targets) => {
+        for (const target of targets) await this.queueDeliveryTarget(target)
       },
     })
     this.scheduler = new DeliveryScheduler({
@@ -560,14 +560,14 @@ export class MessageDeliveryService {
               deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
-      send: (from, input, opts) => this.send(from, input, opts),
+      send: async (from, input, opts) => await this.send(from, input, opts),
       cancelQueuedInput: (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
         if (sessionId) deps.sessions.cancelQueuedMessage?.(asSessionId(sessionId), message.id)
       },
-      emitTransition: (message, kind, extra) => this.emitTransition(message, kind, extra),
-      fromLabel: (message) => this.render.fromLabel(message),
+      emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
+      fromLabel: async (message) => await this.render.fromLabel(message),
     })
     this.render = new MessageRenderer({
       issues: deps.issues,
@@ -768,11 +768,11 @@ export class MessageDeliveryService {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
       nowMs: () => this.nowMs(),
-      drainPreferred: (session, messages, nowMs) => this.drainPreferred(session, messages, nowMs),
-      attemptOne: (message, nowMs) => {
-        if (!this.prepareQueuedAttemptSafely(message, nowMs)) return
+      drainPreferred: async (session, messages, nowMs) => await this.drainPreferred(session, messages, nowMs),
+      attemptOne: async (message, nowMs) => {
+        if (!await this.prepareQueuedAttemptSafely(message, nowMs)) return
         this.attemptDelivery(message, { viaSweep: true })
-        this.scheduleQueuedWakeRetry(message)
+        await this.scheduleQueuedWakeRetry(message)
       },
     }
   }
@@ -791,7 +791,7 @@ export class MessageDeliveryService {
     if (this.stateOf(session) !== 'idle') return []
     const handled = messages.map((message) => message.id)
     if (this.draftHoldActive(session)) return handled
-    const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
+    const eligible = messages.filter(async (message) => await this.prepareQueuedAttemptSafely(message, nowMs))
     eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     try {
       await this.deliverBatch(session, eligible)
@@ -1072,7 +1072,7 @@ export class MessageDeliveryService {
         await this.deps.messages.markAcked(message.inReplyTo, id)
       }
     }
-    if (this.deps.transact) this.deps.transact(write)
+    if (this.deps.transact) await this.deps.transact(write)
     else await write()
     if (stampsAck && original) {
       await this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
@@ -1168,11 +1168,11 @@ export class MessageDeliveryService {
    * share, and no caller can reintroduce the per-page cost by forgetting to
    * pass one.
    */
-  private attemptDelivery(
+  private async attemptDelivery(
     message: MessageRow,
     opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
-  ): DeliveryOutcome {
-    return withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
+  ): Promise<DeliveryOutcome> {
+    return await withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
   }
 
   private async attemptDeliveryInScope(
@@ -1447,10 +1447,10 @@ export class MessageDeliveryService {
       )
     }
     const r = sessions.receiptSend
-      ? sessions.receiptSend(via, input, (receipt) => {
-          if (recorded) settleReceipt(receipt, true)
+      ? sessions.receiptSend(via, input, async (receipt) => {
+          if (recorded) await settleReceipt(receipt, true)
           else if (awaitReceipt) pendingReceipts.push(receipt)
-          else settleReceipt(receipt, false)
+          else await settleReceipt(receipt, false)
         })
       : via === 'now'
         ? sessions.sendText(input)
@@ -1736,8 +1736,8 @@ export class MessageDeliveryService {
     // enqueue the same durable target keys and synchronously flush so existing
     // turn-boundary ordering remains exact. The keyed gate handles confirmation,
     // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
-    await this.scheduler.runBoundaryDrain([...boundaryThrough.keys()], session.sessionId, () => {
-      this.onSessionEligibilityChanged(session.sessionId, session, {
+    await this.scheduler.runBoundaryDrain([...boundaryThrough.keys()], session.sessionId, async () => {
+      await this.onSessionEligibilityChanged(session.sessionId, session, {
         preferThisIdleSession: true,
         boundaryThrough,
       })
@@ -1912,8 +1912,8 @@ export class MessageDeliveryService {
       reconcile: string,
     ): { ok: boolean; queued?: boolean; reason?: string; position?: number } =>
       sessions.receiptSend
-        ? sessions.receiptSend('now', input, (receipt) => {
-            this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
+        ? sessions.receiptSend('now', input, async (receipt) => {
+            await this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
           })
         : sessions.sendText(input)
     for (const m of inlineRows) {
@@ -2049,7 +2049,7 @@ export class MessageDeliveryService {
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
-    return (await this.mailbox.ledger(q)).map((message) => this.withQueuePosition(message))
+    return (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message))
   }
 
   private async withQueuePosition(message: MessageRow): Promise<MessageRow> {

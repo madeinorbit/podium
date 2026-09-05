@@ -41,13 +41,13 @@ import {
 import { isWorkflowCommand, isWorkflowProcExposedOn } from './registry'
 import type { WorkflowCaller, WorkflowService } from './service'
 
-export function dispatchWorkflowRpc(
+export async function dispatchWorkflowRpc(
   service: WorkflowService,
   caller: WorkflowCaller,
   proc: string,
   raw: unknown,
   transport: TransportTag = 'relay',
-): Promise<unknown> | undefined {
+): Promise<unknown | undefined> {
   if (isWorkflowCommand(proc)) {
     // NOT `undefined`. A proc that exists but is not served here is a REFUSAL,
     // not an absence: returning `undefined` would let the relay fall through to
@@ -57,7 +57,7 @@ export function dispatchWorkflowRpc(
     if (!isWorkflowProcExposedOn(proc, transport)) {
       throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
     }
-    return Promise.resolve(service.execute(caller, proc, raw ?? {}))
+    return await Promise.resolve(service.execute(caller, proc, raw ?? {}))
   }
   if (isWorkflowQuery(proc)) {
     if (!isWorkflowQueryExposedOn(proc, transport)) {
@@ -66,7 +66,7 @@ export function dispatchWorkflowRpc(
     const query = WORKFLOW_QUERIES[proc as WorkflowQueryName]
     const input = query.input.parse(raw ?? {})
     const run = query.run as (s: WorkflowService, i: unknown, c: WorkflowCaller) => unknown
-    return Promise.resolve(run(service, input, caller))
+    return await Promise.resolve(run(service, input, caller))
   }
   return undefined
 }

@@ -217,7 +217,7 @@ export class QueuedRecordWriter {
     while (this.pending.length > 0) this.drainSlice()
     const open = [...this.sinks.values()]
     this.sinks.clear()
-    await Promise.all(open.map((sink) => sink.close().catch(() => undefined)))
+    await Promise.all(open.map(async (sink) => await sink.close().catch(() => undefined)))
   }
 
   /** The rotating file for a name, opened on first WRITE — not on first batch.

@@ -166,7 +166,7 @@ export class IssueEpicIntegrationModule {
           }
           nestedTips.push({ issueId: descendant.id, approvedHeadSha: nestedTip.output.trim() })
         }
-        const childReceipt = this.integrationReceipts.rootIntegrationReceipt(
+        const childReceipt = await this.integrationReceipts.rootIntegrationReceipt(
           child.id,
           approvedHeadSha,
         )
@@ -279,7 +279,7 @@ export class IssueEpicIntegrationModule {
         ...input.provenDescendants,
       ])
       try {
-        this.integrationReceipts.recordRootIntegrationReceipt({
+        await this.integrationReceipts.recordRootIntegrationReceipt({
           rootIssueId: row.id,
           approvedHeadSha: rootHead.output.trim(),
           descendants: descendantTips,

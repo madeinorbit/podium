@@ -183,7 +183,7 @@ async function runSettingsCommand(
     return await fail(e)
   }
   if (result instanceof Promise) {
-    return result.then(
+    return await result.then(
       async (value) => {
         await record('applied')
         return value

@@ -277,7 +277,7 @@ async function twoStepRun(
   const issueId = extra.issueId ?? 'issue-1'
   const sessionId = extra.sessionId ?? 's1'
   const cwd = extra.cwd ?? '/repo-a/wt'
-  const created = h.service.create(
+  const created = (await h.service.create(
     {
       name: `Two step ${Math.random()}`,
       description: '',
@@ -296,13 +296,13 @@ async function twoStepRun(
       ],
     },
     operator,
-  )
-  const run = await h.service.startRun({
+  ))
+  const run = (await h.service.startRun({
     sessionId: asSessionId(sessionId),
     cwd,
     issueId: asIssueId(issueId),
     revisionId: created.revision.id,
-  })
+  }))
   return { created, run }
 }
 
@@ -318,7 +318,7 @@ async function threeStepRun(h: Harness, name = 'Double advance', subjectSession 
   const session = SESSIONS.get(subjectSession)
   if (!session) throw new Error(`test harness has no session ${subjectSession}`)
   const scopeRef = session.issueId ?? session.sessionId
-  const created = h.service.create(
+  const created = (await h.service.create(
     {
       name: `${name} ${Math.random()}`,
       description: '',
@@ -332,13 +332,13 @@ async function threeStepRun(h: Harness, name = 'Double advance', subjectSession 
       ],
     },
     operator,
-  )
-  const run = await h.service.startRun({
+  ))
+  const run = (await h.service.startRun({
     sessionId: session.sessionId,
     cwd: session.cwd,
     ...(session.issueId ? { issueId: session.issueId } : {}),
     revisionId: created.revision.id,
-  })
+  }))
   return { created, run }
 }
 
@@ -375,8 +375,8 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('library CRUD', () => {
-    it('create writes workflow + v1 revision + workflow.created, and the revision starts unpublished', () => {
-      const created = h.service.create(
+    it('create writes workflow + v1 revision + workflow.created, and the revision starts unpublished', async () => {
+      const created = (await h.service.create(
         {
           name: 'Ship it',
           description: 'desc',
@@ -386,7 +386,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [{ id: 'a', title: 'A', instructions: 'i', completionGuidance: 'c' }],
         },
         operator,
-      )
+      ))
       expect(created.workflow.id).toMatch(/^wf_/)
       expect(created.revision.id).toMatch(/^wfr_/)
       expect(created.revision.version).toBe(1)
@@ -408,7 +408,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('revise appends a new version and never edits a prior revision in place', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Immutable',
           description: '',
@@ -418,15 +418,15 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [{ id: 'a', title: 'A', instructions: '', completionGuidance: '' }],
         },
         operator,
-      )
-      const v2 = h.service.revise(
+      ))
+      const v2 = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2 body', steps: [] },
         operator,
-      )
-      const v3 = h.service.revise(
+      ))
+      const v3 = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v3 body', steps: [] },
         operator,
-      )
+      ))
       expect([v2.version, v3.version]).toEqual([2, 3])
       // The v1 row is byte-identical after two revisions: revisions are immutable.
       const v1 = await h.store.workflows.getRevision(created.revision.id)
@@ -441,7 +441,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('revise on a PUBLISHED revision still only appends — publication is not a lock', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Published',
           description: '',
@@ -451,12 +451,12 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      h.service.publish({ revisionId: created.revision.id }, operator)
-      const v2 = h.service.revise(
+      ))
+      ;(await h.service.publish({ revisionId: created.revision.id }, operator))
+      const v2 = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2', steps: [] },
         operator,
-      )
+      ))
       expect(v2.version).toBe(2)
       expect(v2.publishedAt).toBeNull()
       // The published v1 is untouched, and stays published.
@@ -465,8 +465,8 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(v1?.publishedAt).toBe(NOW)
     })
 
-    it('KNOWN-DEFECT: fork copies the body but records NO lineage link to its source', () => {
-      const source = h.service.create(
+    it('KNOWN-DEFECT: fork copies the body but records NO lineage link to its source', async () => {
+      const source = (await h.service.create(
         {
           name: 'Source',
           description: 'src desc',
@@ -475,8 +475,8 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [{ id: 'a', title: 'A', instructions: 'i', completionGuidance: 'c' }],
         },
         operator,
-      )
-      const forked = h.service.fork(
+      ))
+      const forked = (await h.service.fork(
         {
           revisionId: source.revision.id,
           name: 'Forked',
@@ -485,7 +485,7 @@ describe('POD-730 workflow mutation characterization', () => {
           scopeRef: 'issue-1',
         },
         operator,
-      )
+      ))
       // The body is copied verbatim from the SOURCE REVISION (not the latest).
       expect(forked.revision.instructions).toBe('source body')
       expect(forked.revision.steps).toEqual(source.revision.steps)
@@ -519,8 +519,8 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('fork forks a NON-LATEST revision faithfully', () => {
-      const source = h.service.create(
+    it('fork forks a NON-LATEST revision faithfully', async () => {
+      const source = (await h.service.create(
         {
           name: 'Drifting',
           description: '',
@@ -530,9 +530,9 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      h.service.revise({ workflowId: source.workflow.id, instructions: 'v2', steps: [] }, operator)
-      const forked = h.service.fork(
+      ))
+      ;(await h.service.revise({ workflowId: source.workflow.id, instructions: 'v2', steps: [] }, operator))
+      const forked = (await h.service.fork(
         {
           revisionId: source.revision.id,
           name: 'Fork of v1',
@@ -541,7 +541,7 @@ describe('POD-730 workflow mutation characterization', () => {
           scopeRef: 'issue-1',
         },
         operator,
-      )
+      ))
       expect(forked.revision.instructions).toBe('v1')
     })
 
@@ -554,11 +554,11 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: unknown workflow revision: wfr_nope | code=undefined')
-      expect(await h.service.list({}, operator)).toEqual([])
+      expect((await h.service.list({}, operator))).toEqual([])
     })
 
-    it('publish stamps publishedAt and is idempotent under duplicate delivery', () => {
-      const created = h.service.create(
+    it('publish stamps publishedAt and is idempotent under duplicate delivery', async () => {
+      const created = (await h.service.create(
         {
           name: 'Publishable',
           description: '',
@@ -568,13 +568,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       h.clock.value = '2026-07-30T01:00:00.000Z'
-      const first = h.service.publish({ revisionId: created.revision.id }, operator)
+      const first = (await h.service.publish({ revisionId: created.revision.id }, operator))
       expect(first.publishedAt).toBe('2026-07-30T01:00:00.000Z')
       // Duplicate delivery: publish again at a LATER clock.
       h.clock.value = '2026-07-30T02:00:00.000Z'
-      const second = h.service.publish({ revisionId: created.revision.id }, operator)
+      const second = (await h.service.publish({ revisionId: created.revision.id }, operator))
       // publishRevision does not re-stamp an already-published revision, so
       // the second delivery is value-idempotent...
       expect(second.publishedAt).toBe('2026-07-30T01:00:00.000Z')
@@ -586,14 +586,14 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('publish of an unknown revision, and of a revision whose workflow is gone', () => {
+    it('publish of an unknown revision, and of a revision whose workflow is gone', async () => {
       expect(thrown(() => h.service.publish({ revisionId: 'wfr_nope' }, operator))).toBe(
         'Error: unknown workflow revision: wfr_nope | code=undefined',
       )
     })
 
-    it('duplicate create with the same scope + name is refused by the unique index', () => {
-      h.service.create(
+    it('duplicate create with the same scope + name is refused by the unique index', async () => {
+      ;(await h.service.create(
         {
           name: 'Same name',
           description: '',
@@ -603,7 +603,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // uniqueness is enforced only by `workflows_scope_name_active`, so the
       // failure surfaces as a raw SQLite constraint error, not a domain error.
       // The service has no pre-check and no friendly message.
@@ -624,7 +624,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toMatch(/UNIQUE constraint failed|constraint/i)
     })
 
-    it('input validation: duplicate step ids are rejected at the schema, not the service', () => {
+    it('input validation: duplicate step ids are rejected at the schema, not the service', async () => {
       expect(() =>
         WORKFLOW_CONTRACTS.create.input.parse({
           name: 'Invalid',
@@ -650,8 +650,8 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('scope resolution', () => {
-    it('scopeRef is forced null for global and required for repository and task', () => {
-      const global = h.service.create(
+    it('scopeRef is forced null for global and required for repository and task', async () => {
+      const global = (await h.service.create(
         {
           name: 'G',
           description: '',
@@ -661,7 +661,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // a scopeRef supplied for a global workflow is silently DISCARDED,
       // not rejected.
       expect(global.workflow.scopeRef).toBeNull()
@@ -717,7 +717,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * publish brake rather than a second approval notion; see the commit and
      * `packages/commands/src/workflows/contracts.ts`.
      */
-    it('POD-731 a member may NOT create a global workflow; an admin may', () => {
+    it('POD-731 a member may NOT create a global workflow; an admin may', async () => {
       const global = {
         name: 'Agent global',
         description: '',
@@ -731,14 +731,14 @@ describe('POD-730 workflow mutation characterization', () => {
       // The COUNTERFACTUAL: the same call by an admin-grade principal is
       // allowed, so the refusal above is the grade rule firing and not the
       // create path being broken for everyone.
-      const created = h.service.create(global, operator)
+      const created = (await h.service.create(global, operator))
       expect(created.workflow.scope).toBe('global')
       expect(created.revision.instructions).toBe('agent wrote this')
       // …and a TASK-scoped create by the same member session still works, so
       // the refusal is scoped to the global arm and is not a role floor on
       // creating workflows at all.
       expect(
-        h.service.create(
+        (await h.service.create(
           {
             name: 'Agent task',
             description: '',
@@ -748,7 +748,7 @@ describe('POD-730 workflow mutation characterization', () => {
             steps: [],
           },
           agent('s1'),
-        ).workflow.scope,
+        )).workflow.scope,
       ).toBe('task')
     })
 
@@ -762,11 +762,11 @@ describe('POD-730 workflow mutation characterization', () => {
      * D20.2 exception — a global entry is readable, so saying "approval
      * required" discloses nothing a read did not already give.
      */
-    it('POD-731 a member may NOT revise a global workflow; an admin may', () => {
-      const created = h.service.create(
+    it('POD-731 a member may NOT revise a global workflow; an admin may', async () => {
+      const created = (await h.service.create(
         { name: 'Global body', description: '', scope: 'global', instructions: 'v1', steps: [] },
         operator,
-      )
+      ))
       expect(
         thrown(() =>
           h.service.revise(
@@ -775,23 +775,23 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: approval required to change a global workflow | code=undefined')
-      const revised = h.service.revise(
+      const revised = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2 by an admin', steps: [] },
         operator,
-      )
+      ))
       expect(revised.version).toBe(2)
       expect(revised.instructions).toBe('v2 by an admin')
     })
 
     it('SINGLE-OPERATOR: any caller may READ a global workflow — canReadWorkflow returns true on scope=global', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         { name: 'Global read', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
-      expect((await h.service.get({ id: created.workflow.id }, agent('s3', 'issue-2'))).workflow.id).toBe(
+      ))
+      expect(((await h.service.get({ id: created.workflow.id }, agent('s3', 'issue-2')))).workflow.id).toBe(
         created.workflow.id,
       )
-      expect((await h.service.list({}, agent('s3', 'issue-2'))).map((w) => w.id)).toContain(
+      expect(((await h.service.list({}, agent('s3', 'issue-2')))).map((w) => w.id)).toContain(
         created.workflow.id,
       )
     })
@@ -805,23 +805,23 @@ describe('POD-730 workflow mutation characterization', () => {
      *     create the global workflow this test needs;
      *   - the message is the guard's, since publish no longer carries its own.
      */
-    it('the one existing brake on global content: publish refuses a session without protectedWrite', () => {
-      const created = h.service.create(
+    it('the one existing brake on global content: publish refuses a session without protectedWrite', async () => {
+      const created = (await h.service.create(
         { name: 'Needs approval', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
+      ))
       expect(
         thrown(() => h.service.publish({ revisionId: created.revision.id }, agent('s1'))),
       ).toBe('Error: approval required to change a global workflow | code=undefined')
       // The SAME session with protectedWrite granted at the edge gets through.
       expect(
-        h.service.publish({ revisionId: created.revision.id }, protectedAgent('s1')).publishedAt,
+        ((await h.service.publish({ revisionId: created.revision.id }, protectedAgent('s1')))).publishedAt,
       ).toBe(NOW)
     })
 
-    it('repository scope resolves through repoIdForPath against the caller session cwd — create', () => {
+    it('repository scope resolves through repoIdForPath against the caller session cwd — create', async () => {
       // s1 is in /repo-a/wt → repo-a. Its own repo is allowed...
-      const mine = h.service.create(
+      const mine = (await h.service.create(
         {
           name: 'Repo a',
           description: '',
@@ -831,7 +831,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         agent('s1'),
-      )
+      ))
       expect(mine.workflow.scopeRef).toBe('repo-a')
       // ...another repo is not.
       expect(
@@ -869,7 +869,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('repository scope on the WRITE side and the READ side', async () => {
-      const repoB = h.service.create(
+      const repoB = (await h.service.create(
         {
           name: 'Repo b write',
           description: '',
@@ -879,7 +879,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // write: s1 (repo-a) may not revise a repo-b workflow.
       expect(
         thrown(() =>
@@ -905,20 +905,20 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       // s3 IS in repo-b and may do both.
       expect(
-        h.service.revise(
+        ((await h.service.revise(
           { workflowId: repoB.workflow.id, instructions: 'x', steps: [] },
           agent('s3', 'issue-2'),
-        ).version,
+        ))).version,
       ).toBe(2)
-      expect((await h.service.get({ id: repoB.workflow.id }, agent('s3', 'issue-2'))).workflow.id).toBe(
+      expect(((await h.service.get({ id: repoB.workflow.id }, agent('s3', 'issue-2')))).workflow.id).toBe(
         repoB.workflow.id,
       )
-      expect((await h.service.list({}, agent('s1'))).map((w) => w.id)).not.toContain(repoB.workflow.id)
+      expect(((await h.service.list({}, agent('s1')))).map((w) => w.id)).not.toContain(repoB.workflow.id)
     })
 
     it('task scope matches the SESSION id or the session issue id, on create/write/read', async () => {
       // scopeRef = the session id itself.
-      const bySession = h.service.create(
+      const bySession = (await h.service.create(
         {
           name: 'By session',
           description: '',
@@ -928,10 +928,10 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         agent('s1'),
-      )
+      ))
       expect(bySession.workflow.scopeRef).toBe('s1')
       // scopeRef = the session's issue id.
-      const byIssue = h.service.create(
+      const byIssue = (await h.service.create(
         {
           name: 'By issue',
           description: '',
@@ -941,7 +941,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         agent('s1'),
-      )
+      ))
       expect(byIssue.workflow.scopeRef).toBe('issue-1')
       // Neither → refused.
       expect(
@@ -961,19 +961,19 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: task workflow is outside this session | code=undefined')
       // write side: both of the caller's own refs are writable.
       expect(
-        h.service.revise(
+        ((await h.service.revise(
           { workflowId: bySession.workflow.id, instructions: 'x', steps: [] },
           agent('s1'),
-        ).version,
+        ))).version,
       ).toBe(2)
       expect(
-        h.service.revise(
+        ((await h.service.revise(
           { workflowId: byIssue.workflow.id, instructions: 'x', steps: [] },
           agent('s1'),
-        ).version,
+        ))).version,
       ).toBe(2)
       // read side: s3 sees neither.
-      expect((await h.service.list({}, agent('s3', 'issue-2'))).map((w) => w.id)).toEqual([])
+      expect(((await h.service.list({}, agent('s3', 'issue-2')))).map((w) => w.id)).toEqual([])
     })
 
     it('SINGLE-OPERATOR: the task READ arm ALSO accepts the capability subtree root, which the WRITE arm does not', async () => {
@@ -981,7 +981,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // does not look at the capability at all. A caller can therefore READ a
       // task workflow it cannot WRITE — an asymmetry POD-731 should make
       // deliberate rather than incidental.
-      const subtree = h.service.create(
+      const subtree = (await h.service.create(
         {
           name: 'Subtree root',
           description: '',
@@ -991,9 +991,9 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       const caller = agent('s1', 'issue-root')
-      expect((await h.service.get({ id: subtree.workflow.id }, caller)).workflow.id).toBe(
+      expect(((await h.service.get({ id: subtree.workflow.id }, caller))).workflow.id).toBe(
         subtree.workflow.id,
       )
       expect(
@@ -1010,8 +1010,8 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(`Error: unknown workflow: ${subtree.workflow.id} | code=undefined`)
     })
 
-    it('a session caller whose session row has vanished loses write and read', () => {
-      const created = h.service.create(
+    it('a session caller whose session row has vanished loses write and read', async () => {
+      const created = (await h.service.create(
         {
           name: 'Orphan',
           description: '',
@@ -1021,7 +1021,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       const ghost: WorkflowCaller = { actor: { kind: 'session', id: asSessionId('gone') } }
       expect(
         thrown(() =>
@@ -1056,7 +1056,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('overrideScope short-circuits create, write and read exactly like the operator arm', async () => {
-      const foreign = h.service.create(
+      const foreign = (await h.service.create(
         {
           name: 'Foreign',
           description: '',
@@ -1066,17 +1066,17 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       const caller = overriding('s1')
-      expect((await h.service.get({ id: foreign.workflow.id }, caller)).workflow.id).toBe(
+      expect(((await h.service.get({ id: foreign.workflow.id }, caller))).workflow.id).toBe(
         foreign.workflow.id,
       )
       expect(
-        h.service.revise({ workflowId: foreign.workflow.id, instructions: 'x', steps: [] }, caller)
+        ((await h.service.revise({ workflowId: foreign.workflow.id, instructions: 'x', steps: [] }, caller)))
           .version,
       ).toBe(2)
       expect(
-        h.service.create(
+        (await h.service.create(
           {
             name: 'Cross repo',
             description: '',
@@ -1086,16 +1086,16 @@ describe('POD-730 workflow mutation characterization', () => {
             steps: [],
           },
           caller,
-        ).workflow.scopeRef,
+        )).workflow.scopeRef,
       ).toBe('repo-b')
     })
 
     it('list honours includeArchived / scope / scopeRef filters before the read filter', async () => {
-      h.service.create(
+      ;(await h.service.create(
         { name: 'G', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
-      const task = h.service.create(
+      ))
+      const task = (await h.service.create(
         {
           name: 'T',
           description: '',
@@ -1105,11 +1105,11 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      expect((await h.service.list({ scope: 'task' }, operator)).map((w) => w.id)).toEqual([
+      ))
+      expect(((await h.service.list({ scope: 'task' }, operator))).map((w) => w.id)).toEqual([
         task.workflow.id,
       ])
-      expect(await h.service.list({ scope: 'task', scopeRef: 'issue-2' }, operator)).toEqual([])
+      expect((await h.service.list({ scope: 'task', scopeRef: 'issue-2' }, operator))).toEqual([])
     })
   })
 
@@ -1118,12 +1118,12 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('assign and bindings', () => {
-    function publishedRevision(
+    async function publishedRevision(
       name: string,
       scope: 'global' | 'repository' | 'task',
       scopeRef?: string,
     ) {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name,
           description: '',
@@ -1133,29 +1133,29 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      h.service.publish({ revisionId: created.revision.id }, operator)
+      ))
+      ;(await h.service.publish({ revisionId: created.revision.id }, operator))
       return created
     }
 
     it('assign records a binding and workflow.assigned, and is last-write-wins under duplicate delivery', async () => {
-      const first = publishedRevision('First', 'global')
-      const second = publishedRevision('Second', 'global')
-      h.service.assign(
+      const first = await publishedRevision('First', 'global')
+      const second = await publishedRevision('Second', 'global')
+      ;(await h.service.assign(
         { targetKind: 'global', targetId: '', revisionId: first.revision.id },
         operator,
-      )
-      const binding = h.service.assign(
+      ))
+      const binding = (await h.service.assign(
         { targetKind: 'global', targetId: '', revisionId: second.revision.id },
         operator,
-      )
+      ))
       expect(binding.revisionId).toBe(second.revision.id)
       expect(await h.store.workflows.listBindings()).toHaveLength(1)
       // Duplicate delivery of the identical assign is value-idempotent...
-      h.service.assign(
+      ;(await h.service.assign(
         { targetKind: 'global', targetId: '', revisionId: second.revision.id },
         operator,
-      )
+      ))
       expect((await h.store.workflows.getBinding('global', ''))?.revisionId).toBe(
         second.revision.id,
       )
@@ -1163,11 +1163,11 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.assigned')).toHaveLength(3)
     })
 
-    it('shared defaults require a PUBLISHED revision; the protectedWrite check runs FIRST', () => {
-      const unpublished = h.service.create(
+    it('shared defaults require a PUBLISHED revision; the protectedWrite check runs FIRST', async () => {
+      const unpublished = (await h.service.create(
         { name: 'Draft', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
+      ))
       // Operator: only the published-revision brake applies.
       expect(
         thrown(() =>
@@ -1205,25 +1205,25 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: approval required to change the repository workflow default | code=undefined')
     })
 
-    it('SINGLE-OPERATOR: a repository default may be set for ANY repo, including one the caller is not in', () => {
-      const published = publishedRevision('Any repo', 'global')
+    it('SINGLE-OPERATOR: a repository default may be set for ANY repo, including one the caller is not in', async () => {
+      const published = await publishedRevision('Any repo', 'global')
       // No repoIdForPath check on the assign path: protectedWrite is the only
       // gate, and it is granted to every operator caller. A protected session
       // can therefore rebind a repository it has never been in.
-      const binding = h.service.assign(
+      const binding = (await h.service.assign(
         { targetKind: 'repository', targetId: 'repo-b', revisionId: published.revision.id },
         protectedAgent('s1'),
-      )
+      ))
       expect(binding.targetId).toBe('repo-b')
     })
 
-    it('issue bindings go through assertIssueScope: subtree root only, for a session', () => {
-      const own = publishedRevision('Own issue', 'task', 'issue-1')
+    it('issue bindings go through assertIssueScope: subtree root only, for a session', async () => {
+      const own = await publishedRevision('Own issue', 'task', 'issue-1')
       expect(
-        h.service.assign(
+        ((await h.service.assign(
           { targetKind: 'issue', targetId: 'issue-1', revisionId: own.revision.id },
           agent('s1'),
-        ).targetId,
+        ))).targetId,
       ).toBe('issue-1')
       // A different issue, even in the same repo, is outside the capability subtree.
       expect(
@@ -1245,13 +1245,13 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe("Error: issue issue-1 is outside this agent's workflow scope | code=undefined")
     })
 
-    it('a session may bind only its OWN session target', () => {
-      const own = publishedRevision('Session bind', 'task', 'issue-1')
+    it('a session may bind only its OWN session target', async () => {
+      const own = await publishedRevision('Session bind', 'task', 'issue-1')
       expect(
-        h.service.assign(
+        ((await h.service.assign(
           { targetKind: 'session', targetId: 's1', revisionId: own.revision.id },
           agent('s1'),
-        ).targetId,
+        ))).targetId,
       ).toBe('s1')
       expect(
         thrown(() =>
@@ -1263,15 +1263,15 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: agents may directly assign only their own session | code=undefined')
       // overrideScope lifts it; unpublished revisions are fine for session/issue targets.
       expect(
-        h.service.assign(
+        ((await h.service.assign(
           { targetKind: 'session', targetId: 's2', revisionId: own.revision.id },
           overriding('s1'),
-        ).targetId,
+        ))).targetId,
       ).toBe('s2')
     })
 
-    it('assign reads the revision through assertWorkflowRead, so an out-of-scope revision is refused', () => {
-      const foreign = h.service.create(
+    it('assign reads the revision through assertWorkflowRead, so an out-of-scope revision is refused', async () => {
+      const foreign = (await h.service.create(
         {
           name: 'Foreign assign',
           description: '',
@@ -1281,7 +1281,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       expect(
         thrown(() =>
           h.service.assign(
@@ -1306,36 +1306,36 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('SINGLE-OPERATOR: bindings() returns EVERY binding for the operator and a session-filtered view otherwise', async () => {
-      const g = publishedRevision('G', 'global')
-      const r = publishedRevision('R', 'repository', 'repo-a')
-      const rb = publishedRevision('Rb', 'repository', 'repo-b')
-      const own = publishedRevision('Own', 'task', 'issue-1')
-      const other = publishedRevision('Other', 'task', 'issue-2')
-      h.service.assign({ targetKind: 'global', targetId: '', revisionId: g.revision.id }, operator)
-      h.service.assign(
+      const g = await publishedRevision('G', 'global')
+      const r = await publishedRevision('R', 'repository', 'repo-a')
+      const rb = await publishedRevision('Rb', 'repository', 'repo-b')
+      const own = await publishedRevision('Own', 'task', 'issue-1')
+      const other = await publishedRevision('Other', 'task', 'issue-2')
+      ;(await h.service.assign({ targetKind: 'global', targetId: '', revisionId: g.revision.id }, operator))
+      ;(await h.service.assign(
         { targetKind: 'repository', targetId: 'repo-a', revisionId: r.revision.id },
         operator,
-      )
-      h.service.assign(
+      ))
+      ;(await h.service.assign(
         { targetKind: 'repository', targetId: 'repo-b', revisionId: rb.revision.id },
         operator,
-      )
-      h.service.assign(
+      ))
+      ;(await h.service.assign(
         { targetKind: 'issue', targetId: 'issue-1', revisionId: own.revision.id },
         operator,
-      )
-      h.service.assign(
+      ))
+      ;(await h.service.assign(
         { targetKind: 'issue', targetId: 'issue-2', revisionId: other.revision.id },
         operator,
-      )
-      h.service.assign(
+      ))
+      ;(await h.service.assign(
         { targetKind: 'session', targetId: 's2', revisionId: own.revision.id },
         operator,
-      )
+      ))
 
       // SINGLE-OPERATOR: the operator arm is unconstrained — this becomes a cross-user
       // read the moment there is more than one human (3.1.2).
-      expect(await h.service.bindings(operator)).toHaveLength(6)
+      expect((await h.service.bindings(operator))).toHaveLength(6)
       // A session sees: global (always), its own repo, its own session, its own issue.
       expect(
         (await h.service
@@ -1351,92 +1351,92 @@ describe('POD-730 workflow mutation characterization', () => {
           .sort(),
       ).toEqual(['global:', 'issue:issue-1', 'repository:repo-a', 'session:s2'])
       // overrideScope on a session gets the operator's full view.
-      expect(await h.service.bindings(overriding('s1'))).toHaveLength(6)
+      expect((await h.service.bindings(overriding('s1')))).toHaveLength(6)
     })
 
     it('resolveRevision precedence is session → issue → repository → global, first hit wins', async () => {
-      const g = publishedRevision('G', 'global')
-      const r = publishedRevision('R', 'repository', 'repo-a')
-      const i = publishedRevision('I', 'task', 'issue-1')
-      const s = publishedRevision('S', 'task', 'issue-1')
-      h.service.assign({ targetKind: 'global', targetId: '', revisionId: g.revision.id }, operator)
+      const g = await publishedRevision('G', 'global')
+      const r = await publishedRevision('R', 'repository', 'repo-a')
+      const i = await publishedRevision('I', 'task', 'issue-1')
+      const s = await publishedRevision('S', 'task', 'issue-1')
+      ;(await h.service.assign({ targetKind: 'global', targetId: '', revisionId: g.revision.id }, operator))
       expect(
-        (await h.service.resolveRevision({
+        ((await h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }))?.id,
+        })))?.id,
       ).toBe(g.revision.id)
-      h.service.assign(
+      ;(await h.service.assign(
         { targetKind: 'repository', targetId: 'repo-a', revisionId: r.revision.id },
         operator,
-      )
+      ))
       expect(
-        (await h.service.resolveRevision({
+        ((await h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }))?.id,
+        })))?.id,
       ).toBe(r.revision.id)
-      h.service.assign(
+      ;(await h.service.assign(
         { targetKind: 'issue', targetId: 'issue-1', revisionId: i.revision.id },
         operator,
-      )
+      ))
       expect(
-        (await h.service.resolveRevision({
+        ((await h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }))?.id,
+        })))?.id,
       ).toBe(i.revision.id)
-      h.service.assign(
+      ;(await h.service.assign(
         { targetKind: 'session', targetId: 's1', revisionId: s.revision.id },
         operator,
-      )
+      ))
       expect(
-        (await h.service.resolveRevision({
+        ((await h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }))?.id,
+        })))?.id,
       ).toBe(s.revision.id)
       // an unrelated session in another repo on another issue still
       // resolves the GLOBAL binding — the global default is the floor, so
       // resolution never returns null once a global binding exists.
       expect(
-        (await h.service.resolveRevision({
+        ((await h.service.resolveRevision({
           sessionId: asSessionId('s3'),
           cwd: '/repo-b/wt',
           issueId: asIssueId('issue-2'),
-        }))?.id,
+        })))?.id,
       ).toBe(g.revision.id)
     })
 
     it('with no binding at all resolveRevision returns null rather than throwing', async () => {
       expect(
-        await h.service.resolveRevision({
+        (await h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }),
+        })),
       ).toBeNull()
       expect(
-        await h.service.prepareStart({
+        (await h.service.prepareStart({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
-        }),
+        })),
       ).toBeNull()
       expect(
-        await h.service.prepareExistingSession({
+        (await h.service.prepareExistingSession({
           sessionId: asSessionId('s1'),
           issueId: asIssueId('issue-1'),
-        }),
+        })),
       ).toBeNull()
     })
 
-    it('resolveRevision with an explicit revision enforces the start scope', () => {
-      const foreign = h.service.create(
+    it('resolveRevision with an explicit revision enforces the start scope', async () => {
+      const foreign = (await h.service.create(
         {
           name: 'Foreign start',
           description: '',
@@ -1446,7 +1446,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       expect(
         thrown(() =>
           h.service.resolveRevision({
@@ -1477,7 +1477,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
   describe('execution profiles', () => {
     it('profileSave inserts with a generated id and upserts by supplied id', async () => {
-      const created = h.service.profileSave(
+      const created = (await h.service.profileSave(
         {
           name: 'Codex',
           accountId: 'native:codex',
@@ -1486,7 +1486,7 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'medium',
         },
         operator,
-      )
+      ))
       expect(created.id).toMatch(/^wfp_/)
       // machineId defaults to null when omitted — a profile is machine-agnostic
       // unless pinned.
@@ -1498,7 +1498,7 @@ describe('POD-730 workflow mutation characterization', () => {
         effort: 'medium',
       })
       h.clock.value = '2026-07-30T03:00:00.000Z'
-      const updated = h.service.profileSave(
+      const updated = (await h.service.profileSave(
         {
           id: created.id,
           name: 'Codex pinned',
@@ -1509,35 +1509,35 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'high',
         },
         operator,
-      )
+      ))
       expect(updated.id).toBe(created.id)
       expect(updated).toMatchObject({
         name: 'Codex pinned',
         machineId: asMachineId('m2'),
         harness: 'claude-code',
       })
-      expect(await h.service.profiles(operator)).toHaveLength(1)
+      expect((await h.service.profiles(operator))).toHaveLength(1)
       // profileSave emits NO workflow event at all — profile changes leave
       // no audit trail.
       expect(kinds(h.store)).toEqual([])
     })
 
-    it('explicit machineId: null clears the pin; model/effort default to "auto"', () => {
+    it('explicit machineId: null clears the pin; model/effort default to "auto"', async () => {
       const parsed = WORKFLOW_CONTRACTS.profileSave.input.parse({
         name: 'Defaults',
         accountId: 'acct',
         harness: 'codex',
       })
       expect(parsed).toMatchObject({ model: 'auto', effort: 'auto' })
-      const created = h.service.profileSave({ ...parsed, machineId: asMachineId('m1') }, operator)
-      const cleared = h.service.profileSave(
+      const created = (await h.service.profileSave({ ...parsed, machineId: asMachineId('m1') }, operator))
+      const cleared = (await h.service.profileSave(
         { ...parsed, id: created.id, machineId: null },
         operator,
-      )
+      ))
       expect(cleared.machineId).toBeNull()
     })
 
-    it('SINGLE-OPERATOR: profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', () => {
+    it('SINGLE-OPERATOR: profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', async () => {
       // Every other guard on this surface returns EARLY for the operator; this
       // one refuses the SESSION. Both encode "there is exactly one human".
       expect(
@@ -1574,7 +1574,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: only an administrator may change execution profiles | code=undefined')
       expect(
-        h.service.profileSave(
+        ((await h.service.profileSave(
           {
             name: 'Agent profile',
             accountId: 'acct',
@@ -1583,7 +1583,7 @@ describe('POD-730 workflow mutation characterization', () => {
             effort: 'auto',
           },
           protectedAgent('s1'),
-        ).name,
+        ))).name,
       ).toBe('Agent profile')
       // POD-731: an operator WITHOUT protectedWrite is now REFUSED. The old
       // check was on `actor.kind === 'session'`, so "not an agent" was enough to
@@ -1607,7 +1607,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('SINGLE-OPERATOR: profiles() has NO authorization gate and lists every profile to any caller', async () => {
-      h.service.profileSave(
+      ;(await h.service.profileSave(
         {
           name: 'Secret',
           accountId: 'native:codex',
@@ -1616,20 +1616,20 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'auto',
         },
         operator,
-      )
+      ))
       // A foreign agent session in another repo reads every profile in the
       // instance, including its accountId. Cross-user read the moment there is
       // a second human (3.1.2).
-      expect(await h.service.profiles(agent('s3', 'issue-2'))).toMatchObject([
+      expect((await h.service.profiles(agent('s3', 'issue-2')))).toMatchObject([
         { name: 'Secret', accountId: 'native:codex' },
       ])
       expect(
-        await h.service.profiles({ actor: { kind: 'session', id: asSessionId('gone') } }),
+        (await h.service.profiles({ actor: { kind: 'session', id: asSessionId('gone') } })),
       ).toHaveLength(1)
     })
 
     it('a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', async () => {
-      const profile = h.service.profileSave(
+      const profile = (await h.service.profileSave(
         {
           name: 'Pinned',
           accountId: 'native:codex',
@@ -1638,9 +1638,9 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'medium',
         },
         operator,
-      )
+      ))
       const { run } = await twoStepRun(h, { profileId: profile.id })
-      h.service.profileSave(
+      ;(await h.service.profileSave(
         {
           id: profile.id,
           name: 'Drifted',
@@ -1650,19 +1650,19 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'high',
         },
         operator,
-      )
+      ))
       // Resolved WITH run+step → the snapshot taken at startRun.
       expect(
-        await h.service.executionProfileForLaunch({
+        (await h.service.executionProfileForLaunch({
           caller: operator,
           profileId: profile.id,
           runId: run.id,
           stepId: 'review',
-        }),
+        })),
       ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
       // Resolved WITHOUT run+step → the current shared profile.
       expect(
-        await h.service.executionProfileForLaunch({ caller: operator, profileId: profile.id }),
+        (await h.service.executionProfileForLaunch({ caller: operator, profileId: profile.id })),
       ).toMatchObject({
         harness: 'claude-code',
         model: 'claude-fable-5',
@@ -1724,7 +1724,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // unreachable. Today there is no reachability concept at all: the only
       // machine signal is a string comparison against the session's machineId,
       // reported as a warning while the checkpoint SUCCEEDS.
-      const profile = h.service.profileSave(
+      const profile = (await h.service.profileSave(
         {
           name: 'On m9',
           accountId: 'acct',
@@ -1734,9 +1734,9 @@ describe('POD-730 workflow mutation characterization', () => {
           effort: 'auto',
         },
         operator,
-      )
+      ))
       const { run } = await twoStepRun(h, { profileId: profile.id })
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1745,8 +1745,8 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
-      const packet = h.service.checkpoint(
+      ))
+      const packet = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -1755,7 +1755,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(packet.warnings).toEqual([
         'expected execution profile On m9 (codex), used claude-code',
         'expected machine m9-unreachable, used m1',
@@ -1765,11 +1765,11 @@ describe('POD-730 workflow mutation characterization', () => {
       // A session with NO machineId at all reports "unknown" — indistinguishable
       // from a machine that exists but is unreachable.
       const other = await twoStepRun(h, { profileId: profile.id })
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s4') },
         operator,
-      )
-      const noMachine = h.service.checkpoint(
+      ))
+      const noMachine = (await h.service.checkpoint(
         {
           runId: other.run.id,
           stepId: 'implement',
@@ -1778,12 +1778,12 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s4'),
-      )
+      ))
       expect(noMachine.warnings).toEqual([])
     })
 
     it('a MISSING profile snapshot warns and does not block the step', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Ghost profile',
           description: '',
@@ -1801,17 +1801,17 @@ describe('POD-730 workflow mutation characterization', () => {
           ],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
-      const packet = h.service.checkpoint(
+      }))
+      const packet = (await h.service.checkpoint(
         { runId: run.id, stepId: 'a', status: 'active', summary: '', evidence: EMPTY_EVIDENCE },
         agent('s1'),
-      )
+      ))
       expect(packet.warnings).toEqual(['execution profile wfp_missing is unavailable'])
       expect(
         thrown(() =>
@@ -1865,7 +1865,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('checkpoint advances one step at a time and drives the run status machine', async () => {
       const { run } = await twoStepRun(h)
-      const first = h.service.checkpoint(
+      const first = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1874,7 +1874,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: { summary: 'done', tests: ['unit: pass'], artifacts: ['abc123'] },
         },
         agent('s1'),
-      )
+      ))
       expect(first.message).toBe('Step complete. Next: Review')
       expect(first.currentStep?.stepId).toBe('review')
       // currentStep and nextStep are the SAME object today — the packet has
@@ -1895,7 +1895,7 @@ describe('POD-730 workflow mutation characterization', () => {
         artifacts: ['abc123'],
       })
 
-      const second = h.service.checkpoint(
+      const second = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -1904,7 +1904,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(second.message).toBe('Workflow complete.')
       expect(second.run.status).toBe('complete')
       expect(second.currentStep).toBeNull()
@@ -1919,7 +1919,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('blocked → active is reversible and blocks/unblocks the run', async () => {
       const { run } = await twoStepRun(h)
-      const blocked = h.service.checkpoint(
+      const blocked = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1928,13 +1928,13 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(blocked.message).toBe('Step blocked. Coordinator attention is required.')
       expect(blocked.run.status).toBe('blocked')
       // A blocked step is still "the current step" (currentStep prefers
       // active|blocked over pending).
       expect(blocked.currentStep?.stepId).toBe('implement')
-      const active = h.service.checkpoint(
+      const active = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1943,7 +1943,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(active.message).toBe('Step active: Implement')
       expect(active.run.status).toBe('active')
       expect(kinds(h.store).slice(-2)).toEqual(['workflow.step_blocked', 'workflow.step_active'])
@@ -1951,7 +1951,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('completing a step leaves completedAt null unless the status is complete', async () => {
       const { run } = await twoStepRun(h)
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1960,12 +1960,12 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.completedAt).toBeNull()
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.startedAt).toBe(NOW)
       // startedAt is sticky across later checkpoints.
       h.clock.value = '2026-07-30T05:00:00.000Z'
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -1974,7 +1974,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         startedAt: NOW,
         completedAt: '2026-07-30T05:00:00.000Z',
@@ -1982,7 +1982,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('a prompt-only (zero-step) run has its own checkpoint arm, gated on the coordinator', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Prompt only',
           description: '',
@@ -1992,13 +1992,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
+      }))
       // A non-coordinator issue participant is refused by assertCoordinator...
       expect(
         thrown(() =>
@@ -2008,17 +2008,17 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: only the workflow coordinator may perform this transition | code=undefined')
-      const blocked = h.service.checkpoint(
+      const blocked = (await h.service.checkpoint(
         { runId: run.id, status: 'blocked', summary: 'stuck', evidence: EMPTY_EVIDENCE },
         agent('s1'),
-      )
+      ))
       expect(blocked.message).toBe('Workflow blocked.')
       expect(blocked.run.status).toBe('blocked')
       expect(blocked.currentStep).toBeNull()
-      const done = h.service.checkpoint(
+      const done = (await h.service.checkpoint(
         { runId: run.id, status: 'complete', summary: 'done', evidence: EMPTY_EVIDENCE },
         agent('s1'),
-      )
+      ))
       expect(done.message).toBe('Workflow complete.')
       expect(done.run.status).toBe('complete')
       expect(kinds(h.store)).toEqual([
@@ -2031,13 +2031,13 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('assignStep sets the assignee, keeps it across a checkpoint, and notifies the coordinator on worker progress', async () => {
       const { run } = await twoStepRun(h)
-      const packet = h.service.assignStep(
+      const packet = (await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
+      ))
       expect(packet.message).toBe('Step assigned to s2.')
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
-      const worker = h.service.checkpoint(
+      const worker = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2046,14 +2046,14 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s2'),
-      )
+      ))
       expect(worker.run.status).toBe('active')
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([
         { sessionId: asSessionId('s1'), text: 'Workflow step "Implement" complete: worker did it' },
       ])
       // The coordinator's own checkpoint does NOT notify.
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -2062,15 +2062,15 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(h.notices).toHaveLength(1)
       // the notice text falls back to "(no summary)" on an empty summary.
       const other = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
-      h.service.checkpoint(
+      ))
+      ;(await h.service.checkpoint(
         {
           runId: other.run.id,
           stepId: 'implement',
@@ -2079,7 +2079,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s2'),
-      )
+      ))
       expect(h.notices.at(-1)).toEqual({
         sessionId: asSessionId('s1'),
         text: 'Workflow step "Implement" blocked: (no summary)',
@@ -2093,11 +2093,11 @@ describe('POD-730 workflow mutation characterization', () => {
       // `?? caller.actor.id` fallback yields the same value either way. Only a
       // DIFFERENT caller can tell "kept" apart from "overwritten".
       const { run } = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
-      h.service.checkpoint(
+      ))
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2106,10 +2106,10 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       // ...and the fallback still applies when there was no assignee at all.
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -2118,42 +2118,42 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRunSteps(run.id))[1]?.assignedSessionId).toBe('s1')
     })
 
     it('assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', async () => {
       const { run } = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
-      h.service.assignStep(
+      ))
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
-      const packet = h.service.assignStep(
+      const packet = (await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: null },
         agent('s1'),
-      )
+      ))
       expect(packet.message).toBe('Step unassigned.')
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBeNull()
       // assignStep does NOT validate that the session exists.
       expect(
-        h.service.assignStep(
+        ((await h.service.assignStep(
           { runId: run.id, stepId: 'implement', sessionId: asSessionId('does-not-exist') },
           agent('s1'),
-        ).message,
+        ))).message,
       ).toBe('Step assigned to does-not-exist.')
     })
 
     it('skip marks the current step skipped with the reason as its summary', async () => {
       const { run } = await twoStepRun(h)
-      const packet = h.service.skip(
+      const packet = (await h.service.skip(
         { runId: run.id, stepId: 'implement', reason: 'not needed' },
         agent('s1'),
-      )
+      ))
       expect(packet.message).toBe('Skipped. Next: Review')
       expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'skipped',
@@ -2161,7 +2161,7 @@ describe('POD-730 workflow mutation characterization', () => {
         completedAt: NOW,
       })
       expect((await h.store.workflows.getRun(run.id))?.status).toBe('active')
-      const last = h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
+      const last = (await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1')))
       expect(last.message).toBe('Workflow complete.')
       expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       expect(kinds(h.store).slice(-2)).toEqual(['workflow.step_skipped', 'workflow.step_skipped'])
@@ -2174,11 +2174,11 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', async () => {
       const { run } = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
-      h.service.checkpoint(
+      ))
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2187,8 +2187,8 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: { summary: 'e', tests: ['t'], artifacts: ['a'] },
         },
         agent('s2'),
-      )
-      h.service.checkpoint(
+      ))
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -2197,9 +2197,9 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
-      const packet = h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
+      const packet = (await h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1')))
       expect(packet.message).toBe('Retry ready: Review')
       // retry always sets the run back to active, even from complete, and
       // clears the run's completedAt stamp along with it.
@@ -2218,7 +2218,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(review?.evidence).toEqual({ summary: '', tests: [], artifacts: [] })
       expect(review?.warnings).toEqual([])
       // Retrying the earlier step is allowed once the later one is pending again.
-      const earlier = h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))
+      const earlier = (await h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1')))
       expect(earlier.message).toBe('Retry ready: Implement')
       // The assignee SURVIVES a retry.
       expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
@@ -2237,7 +2237,7 @@ describe('POD-730 workflow mutation characterization', () => {
         behind: 0,
         observedAt: NOW,
       }
-      const packet = h.service.checkpoint(
+      const packet = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2247,7 +2247,7 @@ describe('POD-730 workflow mutation characterization', () => {
           observation,
         },
         agent('s1'),
-      )
+      ))
       expect(packet.warnings).toEqual([
         'step completed with uncommitted worktree changes',
         'expected issue worktree /repo-a/wt, observed /repo-a/other-wt',
@@ -2258,7 +2258,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // A dirty worktree is only a warning on `complete` — not on active.
       const other = await twoStepRun(h, secondSubject)
       expect(
-        h.service.checkpoint(
+        ((await h.service.checkpoint(
           {
             runId: other.run.id,
             stepId: 'implement',
@@ -2268,27 +2268,27 @@ describe('POD-730 workflow mutation characterization', () => {
             observation: { ...observation, cwd: '/repo-b/wt', worktree: '/repo-b/wt' },
           },
           s3,
-        ).warnings,
+        ))).warnings,
       ).toEqual([])
     })
 
     it('a second startRun for a live subject returns the EXISTING run instead of creating one', async () => {
       const { created, run } = await twoStepRun(h)
-      const again = await h.service.startRun({
+      const again = (await h.service.startRun({
         sessionId: asSessionId('s2'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
+      }))
       expect(again.id).toBe(run.id)
       expect(again.coordinatorSessionId).toBe('s1')
       // No second run_started event: the duplicate start is fully idempotent.
       expect(kinds(h.store).filter((k) => k === 'workflow.run_started')).toHaveLength(1)
-      expect(await h.service.runs({ includeTerminal: true }, operator)).toHaveLength(1)
+      expect((await h.service.runs({ includeTerminal: true }, operator))).toHaveLength(1)
     })
 
     it('startRun with startStepId skips the earlier steps with a fixed summary', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Start midway',
           description: '',
@@ -2302,14 +2302,14 @@ describe('POD-730 workflow mutation characterization', () => {
           ],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
         startStepId: 'c',
-      })
+      }))
       expect(run.steps.map((s) => [s.stepId, s.status])).toEqual([
         ['a', 'skipped'],
         ['b', 'skipped'],
@@ -2333,7 +2333,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('a session-subject run (no issue) is keyed on the session id', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Session run',
           description: '',
@@ -2343,15 +2343,15 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s4'),
         cwd: '/repo-a/wt',
         revisionId: created.revision.id,
-      })
+      }))
       expect(run.subjectKind).toBe('session')
       expect(run.subjectId).toBe('s4')
-      expect((await h.service.status({}, agent('s4'))).id).toBe(run.id)
+      expect(((await h.service.status({}, agent('s4')))).id).toBe(run.id)
     })
   })
 
@@ -2418,12 +2418,12 @@ describe('POD-730 workflow mutation characterization', () => {
         summary: 'finished step A',
         evidence: { summary: 'A evidence', tests: ['a: pass'], artifacts: [] },
       }
-      const first = h.service.checkpoint(payload, agent('s1'))
+      const first = (await h.service.checkpoint(payload, agent('s1')))
       expect(first.message).toBe('Step complete. Next: B')
 
       // Delivered twice more. Under the shipped code this completed B, then C.
-      const second = h.service.checkpoint(payload, agent('s1'))
-      const third = h.service.checkpoint(payload, agent('s1'))
+      const second = (await h.service.checkpoint(payload, agent('s1')))
+      const third = (await h.service.checkpoint(payload, agent('s1')))
       expect(second.message).toBe('Step complete. Next: B')
       expect(third.message).toBe('Step complete. Next: B')
 
@@ -2442,7 +2442,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
       // THE COUNTERFACTUAL, and the reason this is not "checkpointing is
       // broken": a DIFFERENT mutation id is a different delivery and advances.
-      const next = h.service.checkpoint({ ...payload, mutationId: 'mut-2' }, agent('s1'))
+      const next = (await h.service.checkpoint({ ...payload, mutationId: 'mut-2' }, agent('s1')))
       expect(next.message).toBe('Step complete. Next: C')
       expect(kinds(h.store).filter((k) => k === 'workflow.step_complete')).toHaveLength(2)
     })
@@ -2462,8 +2462,8 @@ describe('POD-730 workflow mutation characterization', () => {
         summary: 'x',
         evidence: EMPTY_EVIDENCE,
       }
-      h.service.checkpoint({ ...payload, runId: one.run.id }, agent('s1'))
-      h.service.checkpoint({ ...payload, runId: two.run.id }, agent('s4'))
+      ;(await h.service.checkpoint({ ...payload, runId: one.run.id }, agent('s1')))
+      ;(await h.service.checkpoint({ ...payload, runId: two.run.id }, agent('s4')))
       expect((await h.store.workflows.getRunSteps(one.run.id))[0]?.status).toBe('complete')
       expect((await h.store.workflows.getRunSteps(two.run.id))[0]?.status).toBe('complete')
     })
@@ -2477,7 +2477,7 @@ describe('POD-730 workflow mutation characterization', () => {
         summary: 'built',
         evidence: EMPTY_EVIDENCE,
       }
-      h.service.checkpoint(payload, agent('s1'))
+      ;(await h.service.checkpoint(payload, agent('s1')))
       // The second delivery names a step that is no longer current → refused.
       // Naming the step is the ONLY protection against the double-advance above.
       expect(thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
@@ -2498,9 +2498,9 @@ describe('POD-730 workflow mutation characterization', () => {
         summary: 'working',
         evidence: EMPTY_EVIDENCE,
       }
-      h.service.checkpoint(payload, agent('s1'))
-      h.service.checkpoint(payload, agent('s1'))
-      h.service.checkpoint(payload, agent('s1'))
+      ;(await h.service.checkpoint(payload, agent('s1')))
+      ;(await h.service.checkpoint(payload, agent('s1')))
+      ;(await h.service.checkpoint(payload, agent('s1')))
       expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'active',
         summary: 'working',
@@ -2511,7 +2511,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('duplicate checkpoint on a prompt-only run is idempotent', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Prompt dup',
           description: '',
@@ -2521,51 +2521,51 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
+      }))
       const payload = {
         runId: run.id,
         status: 'complete' as const,
         summary: 'x',
         evidence: EMPTY_EVIDENCE,
       }
-      expect(h.service.checkpoint(payload, agent('s1')).run.status).toBe('complete')
-      expect(h.service.checkpoint(payload, agent('s1')).run.status).toBe('complete')
+      expect((await h.service.checkpoint(payload, agent('s1'))).run.status).toBe('complete')
+      expect((await h.service.checkpoint(payload, agent('s1'))).run.status).toBe('complete')
       expect(kinds(h.store).filter((k) => k === 'workflow.run_complete')).toHaveLength(2)
     })
 
     it('duplicate skip is refused; duplicate retry bumps attempt again', async () => {
       const { run } = await twoStepRun(h)
-      h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
+      ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1')))
       expect(
         thrown(() =>
           h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1')),
         ),
       ).toBe('Error: only the current step may be skipped | code=undefined')
       // Duplicate retry is NOT refused — each delivery bumps attempt.
-      h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
-      h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
+      ;(await h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1')))
+      ;(await h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1')))
       expect((await h.store.workflows.getRunSteps(run.id))[1]?.attempt).toBe(3)
     })
 
     it('KNOWN-DEFECT: retry RESURRECTS a skipped step, so a duplicate skip is reachable again', async () => {
       const { run } = await twoStepRun(h)
-      h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
+      ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1')))
       // retry has no status precondition — a SKIPPED step goes back to
       // pending, which un-skips it. Nothing records that it was ever skipped.
-      h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))
+      ;(await h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1')))
       expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'pending',
         summary: '',
         attempt: 2,
       })
       expect(
-        h.service.skip({ runId: run.id, stepId: 'implement', reason: 'again' }, agent('s1'))
+        ((await h.service.skip({ runId: run.id, stepId: 'implement', reason: 'again' }, agent('s1'))))
           .message,
       ).toBe('Skipped. Next: Review')
     })
@@ -2625,8 +2625,8 @@ describe('POD-730 workflow mutation characterization', () => {
      */
     it('checkpointing a run whose steps are all terminal throws', async () => {
       const { run } = await twoStepRun(h)
-      h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1'))
-      h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
+      ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1')))
+      ;(await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1')))
       expect(
         thrown(() =>
           h.service.checkpoint(
@@ -2676,7 +2676,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('a step cannot be retried once a LATER step has left pending', async () => {
       const { run } = await twoStepRun(h)
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2685,10 +2685,10 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       // Merely making the later step ACTIVE (not complete) already locks the
       // earlier one: the guard is `status !== 'pending'`, not "completed".
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'review',
@@ -2697,7 +2697,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(
         thrown(() => h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))),
       ).toBe('Error: cannot retry a step after a later step has started | code=undefined')
@@ -2706,7 +2706,7 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       // A SKIPPED later step also counts as "started" and locks the earlier one.
       const other = await twoStepRun(h, secondSubject)
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: other.run.id,
           stepId: 'implement',
@@ -2715,8 +2715,8 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         s3,
-      )
-      h.service.skip({ runId: other.run.id, stepId: 'review', reason: '' }, s3)
+      ))
+      ;(await h.service.skip({ runId: other.run.id, stepId: 'review', reason: '' }, s3))
       expect(thrown(() => h.service.retry({ runId: other.run.id, stepId: 'implement' }, s3))).toBe(
         'Error: cannot retry a step after a later step has started | code=undefined',
       )
@@ -2730,7 +2730,7 @@ describe('POD-730 workflow mutation characterization', () => {
   describe('adopt', () => {
     it('adopt supersedes the live run, writes the supersedes edge, and emits workflow.run_adopted', async () => {
       const { created, run } = await twoStepRun(h)
-      const v2 = h.service.revise(
+      const v2 = (await h.service.revise(
         {
           workflowId: created.workflow.id,
           instructions: 'v2',
@@ -2745,8 +2745,8 @@ describe('POD-730 workflow mutation characterization', () => {
           ],
         },
         operator,
-      )
-      const adopted = h.service.adopt({ revisionId: v2.id, startStepId: 'review' }, agent('s1'))
+      ))
+      const adopted = (await h.service.adopt({ revisionId: v2.id, startStepId: 'review' }, agent('s1')))
       expect(adopted.id).not.toBe(run.id)
       expect(adopted.supersedesRunId).toBe(run.id)
       expect(adopted.revision.id).toBe(v2.id)
@@ -2783,7 +2783,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('adopt mid-run preserves the work already recorded on the superseded run', async () => {
       const { created, run } = await twoStepRun(h)
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -2792,12 +2792,12 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
-      const v2 = h.service.revise(
+      ))
+      const v2 = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2', steps: [] },
         operator,
-      )
-      const adopted = h.service.adopt({ revisionId: v2.id }, agent('s1'))
+      ))
+      const adopted = (await h.service.adopt({ revisionId: v2.id }, agent('s1')))
       expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'complete',
         summary: 'real work',
@@ -2809,7 +2809,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('adopt validates EVERYTHING before superseding — no partial state on any failure', async () => {
       const { created, run } = await twoStepRun(h)
-      const foreign = h.service.create(
+      const foreign = (await h.service.create(
         {
           name: 'Foreign adopt',
           description: '',
@@ -2819,7 +2819,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       expect(thrown(() => h.service.adopt({ revisionId: 'wfr_nope' }, agent('s1')))).toBe(
         'Error: unknown workflow revision: wfr_nope | code=undefined',
       )
@@ -2847,8 +2847,8 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('only an active or blocked run may adopt', async () => {
       const { created, run } = await twoStepRun(h)
-      h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1'))
-      h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
+      ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1')))
+      ;(await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1')))
       expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       expect(
         thrown(() =>
@@ -2857,7 +2857,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only an active workflow run may adopt a revision | code=undefined')
       // A BLOCKED run may adopt.
       const other = await twoStepRun(h)
-      h.service.checkpoint(
+      ;(await h.service.checkpoint(
         {
           runId: other.run.id,
           stepId: 'implement',
@@ -2866,9 +2866,9 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s1'),
-      )
+      ))
       expect(
-        h.service.adopt({ revisionId: other.created.revision.id, runId: other.run.id }, agent('s1'))
+        ((await h.service.adopt({ revisionId: other.created.revision.id, runId: other.run.id }, agent('s1'))))
           .supersedesRunId,
       ).toBe(other.run.id)
     })
@@ -2884,16 +2884,16 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('prepareStart pins an issue to its live run revision and refuses an implicit switch', async () => {
       const { created, run } = await twoStepRun(h)
-      const v2 = h.service.revise(
+      const v2 = (await h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2', steps: [] },
         operator,
-      )
+      ))
       // A later session on the same issue gets the PINNED revision, not v2.
-      const prepared = await h.service.prepareStart({
+      const prepared = (await h.service.prepareStart({
         sessionId: asSessionId('s2'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
-      })
+      }))
       expect(prepared?.revision.id).toBe(created.revision.id)
       expect(prepared?.prompt).toContain('drive it')
       // Asking for a different revision is refused — adopt is the only way.
@@ -2911,12 +2911,12 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       // Asking for the SAME revision is fine.
       expect(
-        (await h.service.prepareStart({
+        ((await h.service.prepareStart({
           sessionId: asSessionId('s2'),
           cwd: '/repo-a/wt',
           issueId: asIssueId('issue-1'),
           explicitRevisionId: created.revision.id,
-        }))?.revision.id,
+        })))?.revision.id,
       ).toBe(created.revision.id)
       expect(run.id).toBeTruthy()
     })
@@ -2925,7 +2925,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // A GLOBAL revision always matches; a repository revision must match the
       // coordinator session's repo. s1 is in repo-a.
       const { run } = await twoStepRun(h)
-      const repoB = h.service.create(
+      const repoB = (await h.service.create(
         {
           name: 'Repo b rev',
           description: '',
@@ -2935,7 +2935,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // The read gate rejects it first (repo mismatch), so the start-scope
       // message is not the one a session sees. POD-731 CONVERGENCE (D20.2):
       // that read refusal is now the unknown-revision string, so an invisible
@@ -2953,12 +2953,12 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(
         `Error: workflow revision ${repoB.revision.id} is outside the requested start scope | code=undefined`,
       )
-      const global = h.service.create(
+      const global = (await h.service.create(
         { name: 'Global rev', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
+      ))
       expect(
-        h.service.adopt({ revisionId: global.revision.id, runId: run.id }, agent('s1')).revision.id,
+        (await h.service.adopt({ revisionId: global.revision.id, runId: run.id }, agent('s1'))).revision.id,
       ).toBe(global.revision.id)
     })
   })
@@ -2971,7 +2971,7 @@ describe('POD-730 workflow mutation characterization', () => {
     it('SINGLE-OPERATOR: the four scope guards all return early for the operator', async () => {
       // assertCreateScope
       expect(
-        h.service.create(
+        (await h.service.create(
           {
             name: 'Any scope',
             description: '',
@@ -2981,9 +2981,9 @@ describe('POD-730 workflow mutation characterization', () => {
             steps: [],
           },
           operator,
-        ).workflow.scopeRef,
+        )).workflow.scopeRef,
       ).toBe('repo-anything')
-      const foreign = h.service.create(
+      const foreign = (await h.service.create(
         {
           name: 'Foreign',
           description: '',
@@ -2993,26 +2993,26 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // assertWorkflowWrite
       expect(
-        h.service.revise(
+        ((await h.service.revise(
           { workflowId: foreign.workflow.id, instructions: 'x', steps: [] },
           operator,
-        ).version,
+        ))).version,
       ).toBe(2)
       // canReadWorkflow
-      expect((await h.service.get({ id: foreign.workflow.id }, operator)).workflow.id).toBe(
+      expect(((await h.service.get({ id: foreign.workflow.id }, operator))).workflow.id).toBe(
         foreign.workflow.id,
       )
-      expect((await h.service.list({}, operator)).map((w) => w.id)).toContain(foreign.workflow.id)
+      expect(((await h.service.list({}, operator))).map((w) => w.id)).toContain(foreign.workflow.id)
       // assertIssueScope
-      h.service.publish({ revisionId: foreign.revision.id }, operator)
+      ;(await h.service.publish({ revisionId: foreign.revision.id }, operator))
       expect(
-        h.service.assign(
+        ((await h.service.assign(
           { targetKind: 'issue', targetId: 'issue-nobody-has', revisionId: foreign.revision.id },
           operator,
-        ).targetId,
+        ))).targetId,
       ).toBe('issue-nobody-has')
       // SINGLE-OPERATOR: none of the above consulted a capability, an owner, or a
       // machine grant. POD-731 replaces this arm with an owner-or-admin check
@@ -3038,8 +3038,8 @@ describe('POD-730 workflow mutation characterization', () => {
      * That is exactly the shape "role class is no longer sufficient on its own"
      * was supposed to produce: the same caller passes one and fails the other.
      */
-    it('POD-731 a bare operator is a MEMBER: personal content yes, global content no', () => {
-      const created = h.service.create(
+    it('POD-731 a bare operator is a MEMBER: personal content yes, global content no', async () => {
+      const created = (await h.service.create(
         {
           name: 'Bare',
           description: '',
@@ -3049,13 +3049,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         bareOperator,
-      )
+      ))
       expect(created.workflow.scopeRef).toBe('issue-nobody-has')
       expect(
-        h.service.revise(
+        ((await h.service.revise(
           { workflowId: created.workflow.id, instructions: 'x', steps: [] },
           bareOperator,
-        ).version,
+        ))).version,
       ).toBe(2)
       // THE CLOSED HALF. A bare operator can no longer create global content,
       // and therefore can no longer publish it without approval either.
@@ -3069,19 +3069,19 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: approval required to create a global workflow | code=undefined')
       // …and the publish brake now catches it on content an ADMIN created, which
       // is the case that used to slip through entirely.
-      const global = h.service.create(
+      const global = (await h.service.create(
         { name: 'Bare global', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
-      )
+      ))
       expect(
         thrown(() => h.service.publish({ revisionId: global.revision.id }, bareOperator)),
       ).toBe('Error: approval required to change a global workflow | code=undefined')
-      expect(h.service.publish({ revisionId: global.revision.id }, operator).publishedAt).toBe(NOW)
+      expect(((await h.service.publish({ revisionId: global.revision.id }, operator))).publishedAt).toBe(NOW)
     })
 
     it('SINGLE-OPERATOR: runs() returns EVERY run in the instance for the operator; a session gets only its own live run', async () => {
       const first = await twoStepRun(h)
-      const second = h.service.create(
+      const second = (await h.service.create(
         {
           name: 'Other subject',
           description: '',
@@ -3091,13 +3091,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const otherRun = await h.service.startRun({
+      ))
+      const otherRun = (await h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
         issueId: asIssueId('issue-2'),
         revisionId: second.revision.id,
-      })
+      }))
       // Cross-user read (3.1.2): two unrelated subjects, one caller.
       expect(
         (await h.service
@@ -3106,24 +3106,24 @@ describe('POD-730 workflow mutation characterization', () => {
           .sort(),
       ).toEqual([first.run.id, otherRun.id].sort())
       // A session sees exactly its own live run.
-      expect((await h.service.runs({}, agent('s1'))).map((r) => r.id)).toEqual([first.run.id])
-      expect((await h.service.runs({}, agent('s3', 'issue-2'))).map((r) => r.id)).toEqual([otherRun.id])
+      expect(((await h.service.runs({}, agent('s1')))).map((r) => r.id)).toEqual([first.run.id])
+      expect(((await h.service.runs({}, agent('s3', 'issue-2')))).map((r) => r.id)).toEqual([otherRun.id])
       // A session with no run at all gets an empty list, not a throw.
-      expect(await h.service.runs({}, agent('s4'))).toEqual([])
+      expect((await h.service.runs({}, agent('s4')))).toEqual([])
       // includeTerminal is respected only on the operator arm — a session's
       // view is always the LIVE run, so a completed run vanishes from it.
-      h.service.skip({ runId: first.run.id, stepId: 'implement', reason: '' }, agent('s1'))
-      h.service.skip({ runId: first.run.id, stepId: 'review', reason: '' }, agent('s1'))
-      expect(await h.service.runs({}, agent('s1'))).toEqual([])
-      expect(await h.service.runs({ includeTerminal: true }, agent('s1'))).toEqual([])
-      expect(await h.service.runs({ includeTerminal: true }, operator)).toHaveLength(2)
-      expect((await h.service.runs({}, operator)).map((r) => r.id)).toEqual([otherRun.id])
+      ;(await h.service.skip({ runId: first.run.id, stepId: 'implement', reason: '' }, agent('s1')))
+      ;(await h.service.skip({ runId: first.run.id, stepId: 'review', reason: '' }, agent('s1')))
+      expect((await h.service.runs({}, agent('s1')))).toEqual([])
+      expect((await h.service.runs({ includeTerminal: true }, agent('s1')))).toEqual([])
+      expect((await h.service.runs({ includeTerminal: true }, operator))).toHaveLength(2)
+      expect(((await h.service.runs({}, operator))).map((r) => r.id)).toEqual([otherRun.id])
       // SINGLE-OPERATOR: overrideScope does NOT widen runs() — only actor.kind does.
-      expect(await h.service.runs({}, overriding('s1'))).toEqual([])
+      expect((await h.service.runs({}, overriding('s1')))).toEqual([])
     })
 
     it('SINGLE-OPERATOR: runFor() resolves ANY run id for the operator, and a session is held to its own run', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Foreign run',
           description: '',
@@ -3133,15 +3133,15 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const foreignRun = await h.service.startRun({
+      ))
+      const foreignRun = (await h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
         issueId: asIssueId('issue-2'),
         revisionId: created.revision.id,
-      })
+      }))
       // Cross-user READ of another subject's run.
-      expect((await h.service.status({ runId: foreignRun.id }, operator)).id).toBe(foreignRun.id)
+      expect(((await h.service.status({ runId: foreignRun.id }, operator))).id).toBe(foreignRun.id)
       // POD-731 CONVERGENCE (D20.2). POD-730 §10 recorded that an INVISIBLE run
       // said "outside this session" while an UNKNOWN one collapsed into the
       // no-run message — the only path that never echoed the caller's id. The
@@ -3156,13 +3156,13 @@ describe('POD-730 workflow mutation characterization', () => {
       // Three ways a session is admitted: coordinator, step assignee, or any
       // session on the run's issue.
       const own = await twoStepRun(h)
-      expect((await h.service.status({ runId: own.run.id }, agent('s1'))).id).toBe(own.run.id)
-      expect((await h.service.status({ runId: own.run.id }, agent('s2'))).id).toBe(own.run.id)
-      h.service.assignStep(
+      expect(((await h.service.status({ runId: own.run.id }, agent('s1')))).id).toBe(own.run.id)
+      expect(((await h.service.status({ runId: own.run.id }, agent('s2')))).id).toBe(own.run.id)
+      ;(await h.service.assignStep(
         { runId: own.run.id, stepId: 'implement', sessionId: asSessionId('s4') },
         agent('s1'),
-      )
-      expect((await h.service.status({ runId: own.run.id }, agent('s4'))).id).toBe(own.run.id)
+      ))
+      expect(((await h.service.status({ runId: own.run.id }, agent('s4')))).id).toBe(own.run.id)
       // SINGLE-OPERATOR: overrideScope does NOT widen runFor either.
       expect(thrown(() => h.service.status({ runId: foreignRun.id }, overriding('s1')))).toBe(
         'Error: no active workflow run for this session | code=undefined',
@@ -3183,13 +3183,13 @@ describe('POD-730 workflow mutation characterization', () => {
     it('POD-731 a bare operator can no longer transition any run; an admin still can', async () => {
       const { run } = await twoStepRun(h)
       expect(
-        h.service.assignStep(
+        ((await h.service.assignStep(
           { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
           operator,
-        ).message,
+        ))).message,
       ).toBe('Step assigned to s2.')
       expect(
-        h.service.skip({ runId: run.id, stepId: 'implement', reason: 'admin says so' }, operator)
+        ((await h.service.skip({ runId: run.id, stepId: 'implement', reason: 'admin says so' }, operator)))
           .message,
       ).toBe('Skipped. Next: Review')
       // THE CLOSED ARM. A bare operator is a member with no session, so the run
@@ -3201,16 +3201,16 @@ describe('POD-730 workflow mutation characterization', () => {
       // The COUNTERFACTUAL: the same call by the admin succeeds, so the refusal
       // above is the grade and not the run having become untouchable.
       expect(
-        h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, operator).message,
+        ((await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, operator))).message,
       ).toBe('Workflow complete.')
     })
 
     it("SINGLE-OPERATOR: checkpoint's allowed check accepts the operator for ANY step, assigned or not", async () => {
       const { run } = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         operator,
-      )
+      ))
       // s1 (coordinator) is allowed; s4 (neither coordinator nor assignee) is not;
       // the operator is allowed regardless.
       expect(
@@ -3227,7 +3227,7 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: no active workflow run for this session | code=undefined')
-      const packet = h.service.checkpoint(
+      const packet = (await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -3236,7 +3236,7 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         operator,
-      )
+      ))
       expect(packet.run.status).toBe('active')
       // an operator checkpoint does NOT overwrite the assignee, and it does
       // NOT notify the coordinator (the notify arm needs caller.actor.id).
@@ -3263,12 +3263,12 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: session is not assigned to this workflow step | code=undefined')
       // Assigning it flips the outcome.
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
+      ))
       expect(
-        h.service.checkpoint(
+        (await h.service.checkpoint(
           {
             runId: run.id,
             stepId: 'implement',
@@ -3277,18 +3277,18 @@ describe('POD-730 workflow mutation characterization', () => {
             evidence: EMPTY_EVIDENCE,
           },
           agent('s2'),
-        ).run.status,
+        )).run.status,
       ).toBe('active')
     })
 
     it('prime for an operator context has no run and says so', async () => {
       await twoStepRun(h)
-      expect(await h.service.prime(operator)).toBe('No workflow is attached to this operator context.')
-      expect(await h.service.prime(agent('s3', 'issue-2'))).toBe(
+      expect((await h.service.prime(operator))).toBe('No workflow is attached to this operator context.')
+      expect((await h.service.prime(agent('s3', 'issue-2')))).toBe(
         'No workflow is attached to this session.',
       )
-      expect(await h.service.prime(agent('s1'))).toContain('role: coordinator')
-      expect(await h.service.prime(agent('s2'))).toContain('role: issue participant')
+      expect((await h.service.prime(agent('s1')))).toContain('role: coordinator')
+      expect((await h.service.prime(agent('s2')))).toContain('role: issue participant')
     })
 
     /**
@@ -3308,7 +3308,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * the day someone adds `relay` to the exposure.
      */
     it('the relay arm routes by proc name, parses through the declared schema, and is default-closed', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Dispatched',
           description: '',
@@ -3318,7 +3318,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       await expect(
         await dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }),
       ).resolves.toMatchObject({
@@ -3345,7 +3345,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * stops the assertion passing against a dispatcher that refuses everything.
      */
     it('POD-732 a proc that exists but does not declare the transport is REFUSED, not absent', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: `Exposure ${Math.random()}`,
           description: '',
@@ -3355,7 +3355,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       expect(() =>
         dispatchWorkflowRpc(
           h.service,
@@ -3390,7 +3390,7 @@ describe('POD-730 workflow mutation characterization', () => {
      */
     it('POD-732 a replayed adopt is a ledger no-op; a differently-identified one still supersedes', async () => {
       const { run } = await twoStepRun(h)
-      const next = h.service.create(
+      const next = (await h.service.create(
         {
           name: `Adopted ${Math.random()}`,
           description: '',
@@ -3400,30 +3400,30 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [{ id: 'a', title: 'A', instructions: '', completionGuidance: '' }],
         },
         operator,
-      )
-      const first = h.service.adopt(
+      ))
+      const first = (await h.service.adopt(
         { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
         agent('s1'),
-      )
-      const replay = h.service.adopt(
+      ))
+      const replay = (await h.service.adopt(
         { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
         agent('s1'),
-      )
+      ))
       // Same delivery ⇒ the FIRST result, verbatim. No third run.
       expect(replay.id).toBe(first.id)
       expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(1)
 
       // Different delivery ⇒ a real second adopt, which is the behaviour POD-730
       // pinned and which this close must not have taken away.
-      const second = h.service.adopt(
+      const second = (await h.service.adopt(
         { revisionId: next.revision.id, runId: first.id, mutationId: 'delivery-2' },
         agent('s1'),
-      )
+      ))
       expect(second.id).not.toBe(first.id)
       expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(2)
     })
 
-    it('exposure is default-closed per declaration, not per table membership', () => {
+    it('exposure is default-closed per declaration, not per table membership', async () => {
       expect(isWorkflowProcExposedOn('checkpoint', 'relay')).toBe(true)
       expect(isWorkflowProcExposedOn('checkpoint', 'outbox')).toBe(false)
       expect(isWorkflowProcExposedOn('notAProc', 'relay')).toBe(false)
@@ -3445,8 +3445,8 @@ describe('POD-730 workflow mutation characterization', () => {
      * DIVERGENCE, so POD-731's convergence is a documented change and not a
      * silent one. They are expected to go red under POD-731 — that is the point.
      */
-    it('SINGLE-OPERATOR: workflow reads leak existence: unknown, out-of-scope and in-scope are three distinct outcomes', () => {
-      const foreign = h.service.create(
+    it('SINGLE-OPERATOR: workflow reads leak existence: unknown, out-of-scope and in-scope are three distinct outcomes', async () => {
+      const foreign = (await h.service.create(
         {
           name: 'Foreign',
           description: '',
@@ -3456,8 +3456,8 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const mine = h.service.create(
+      ))
+      const mine = (await h.service.create(
         {
           name: 'Mine',
           description: '',
@@ -3467,7 +3467,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       const unknown = thrown(() => h.service.get({ id: 'wf_does-not-exist' }, agent('s1')))
       const outOfScope = thrown(() => h.service.get({ id: foreign.workflow.id }, agent('s1')))
       const inScope = thrown(() => h.service.get({ id: mine.workflow.id }, agent('s1')))
@@ -3485,8 +3485,8 @@ describe('POD-730 workflow mutation characterization', () => {
       // Error with a message. Every `code=undefined` above is that fact.
     })
 
-    it('SINGLE-OPERATOR: workflow WRITES leak existence too, with a third distinct message per scope', () => {
-      const foreignTask = h.service.create(
+    it('SINGLE-OPERATOR: workflow WRITES leak existence too, with a third distinct message per scope', async () => {
+      const foreignTask = (await h.service.create(
         {
           name: 'Foreign task',
           description: '',
@@ -3496,8 +3496,8 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const foreignRepo = h.service.create(
+      ))
+      const foreignRepo = (await h.service.create(
         {
           name: 'Foreign repo',
           description: '',
@@ -3507,7 +3507,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       const unknown = thrown(() =>
         h.service.revise(
           { workflowId: 'wf_does-not-exist', instructions: '', steps: [] },
@@ -3543,7 +3543,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('SINGLE-OPERATOR: run ids leak existence differently again: unknown collapses into the no-run message', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Foreign run',
           description: '',
@@ -3553,13 +3553,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const foreignRun = await h.service.startRun({
+      ))
+      const foreignRun = (await h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
         issueId: asIssueId('issue-2'),
         revisionId: created.revision.id,
-      })
+      }))
       const own = await twoStepRun(h)
       const unknown = thrown(() => h.service.status({ runId: 'wrun_does-not-exist' }, agent('s1')))
       const outOfScope = thrown(() => h.service.status({ runId: foreignRun.id }, agent('s1')))
@@ -3576,8 +3576,8 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(thrown(() => h.service.status({}, operator))).toBe(unknown)
     })
 
-    it('revision ids report existence directly, in scope or not', () => {
-      const foreign = h.service.create(
+    it('revision ids report existence directly, in scope or not', async () => {
+      const foreign = (await h.service.create(
         {
           name: 'Foreign rev',
           description: '',
@@ -3587,7 +3587,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // POD-731: an out-of-scope revision id is NO LONGER confirmed to exist.
       // POD-730 recorded that the read gate fired only after `getRevision`
       // succeeded, so the refusal itself proved the row was there; the handlers
@@ -3631,7 +3631,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * `null` unconditionally.
      */
     it('POD-732 an explicit null onBehalfOf is rejected rather than re-resolved', async () => {
-      const revoked = h.service.create(
+      const revoked = (await h.service.create(
         {
           name: `Revoked ${Math.random()}`,
           description: '',
@@ -3641,7 +3641,7 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       expect(
         thrown(() =>
           h.service.startRun({
@@ -3655,11 +3655,11 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: workflow run has no live owner | code=undefined')
       // The second subject, same call with the field ABSENT — the actor differs
       // from the assertion, so a `startRun` that always recorded null fails here.
-      await h.service.startRun({
+      ;(await h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
         issueId: asIssueId('issue-2'),
-        revisionId: h.service.create(
+        revisionId: (await h.service.create(
           {
             name: `Live ${Math.random()}`,
             description: '',
@@ -3669,8 +3669,8 @@ describe('POD-730 workflow mutation characterization', () => {
             steps: [],
           },
           operator,
-        ).revision.id,
-      })
+        )).revision.id,
+      }))
       expect(
         readEvents(h.store)
           .filter((e) => e.kind === 'workflow.run_started')
@@ -3680,11 +3680,11 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('POD-731 every advance records the PAIR — the actor AND the human it acted for', async () => {
       const { run } = await twoStepRun(h)
-      h.service.assignStep(
+      ;(await h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
-      )
-      h.service.checkpoint(
+      ))
+      ;(await h.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -3693,8 +3693,8 @@ describe('POD-730 workflow mutation characterization', () => {
           evidence: EMPTY_EVIDENCE,
         },
         agent('s2'),
-      )
-      h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, operator)
+      ))
+      ;(await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, operator))
       const events = readEvents(h.store).map(
         (e) => `${e.kind}:${e.actor_kind}:${String(e.actor_id)}`,
       )
@@ -3734,7 +3734,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('SINGLE-OPERATOR: startRun hard-codes a SESSION actor, even when the operator started the run', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'Operator start',
           description: '',
@@ -3744,16 +3744,16 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
+      ))
       // startRun takes a sessionId, not a caller: there is no way to record that
       // the operator (or a human) initiated it. The run_started event is
       // attributed to the coordinator session regardless of who asked.
-      const run = await h.service.startRun({
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
+      }))
       expect(readEvents(h.store).at(-1)).toMatchObject({
         kind: 'workflow.run_started',
         actor_kind: 'session',
@@ -3762,7 +3762,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(run.coordinatorSessionId).toBe('s1')
     })
 
-    it('the workflows repository writes events, and reads them ONLY per run', () => {
+    it('the workflows repository writes events, and reads them ONLY per run', async () => {
       // Renamed to what this body actually checks. It previously claimed "no
       // reader anywhere in the product", which a unit test cannot see — that
       // claim is evidenced separately by a byte-wise scan of 1787 files
@@ -3791,7 +3791,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('POD-647 projects the attribution PAIR onto the run wire, never a payload', async () => {
-      const created = h.service.create(
+      const created = (await h.service.create(
         {
           name: 'attributed',
           description: '',
@@ -3800,13 +3800,13 @@ describe('POD-730 workflow mutation characterization', () => {
           steps: [],
         },
         operator,
-      )
-      const run = await h.service.startRun({
+      ))
+      const run = (await h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
         issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
-      })
+      }))
 
       // The run START is on the wire, with WHICH actor recorded — the half a
       // client may display and may never assert.
@@ -3841,7 +3841,7 @@ describe('POD-730 workflow mutation characterization', () => {
     it('a run survives a full store close/reopen, including step state and the profile snapshot', async () => {
       const path = join(dir, 'restart.sqlite')
       const before = await makeHarness(path)
-      const profile = before.service.profileSave(
+      const profile = await before.service.profileSave(
         {
           name: 'Snapshot',
           accountId: 'acct',
@@ -3852,7 +3852,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       const { run } = await twoStepRun(before, { profileId: profile.id })
-      before.service.assignStep(
+      await before.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         operator,
       )
@@ -3906,7 +3906,7 @@ describe('POD-730 workflow mutation characterization', () => {
         expect((await after.service.runs({}, agent('s1'))).map((r) => r.id)).toEqual([run.id])
         // The run continues exactly where it stopped.
         expect(
-          after.service.checkpoint(
+          (await after.service.checkpoint(
             {
               runId: run.id,
               stepId: 'review',
@@ -3915,7 +3915,7 @@ describe('POD-730 workflow mutation characterization', () => {
               evidence: EMPTY_EVIDENCE,
             },
             agent('s1'),
-          ).run.status,
+          )).run.status,
         ).toBe('complete')
         // Events from BEFORE the restart are still there, in order.
         expect(kinds(after.store)).toEqual([

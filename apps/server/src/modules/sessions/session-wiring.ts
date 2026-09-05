@@ -559,8 +559,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     state: bag.state,
     inbox: bag.inbox,
-    machinesForPrincipal: (principal) =>
-      projectMachinesForPrincipal(
+    machinesForPrincipal: async (principal) =>
+      await projectMachinesForPrincipal(
         { machines: bag.machines },
         userCommandPrincipal(asUserId(principal.user), principal.role),
       ),

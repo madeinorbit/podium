@@ -63,11 +63,11 @@ export function readPositionAuthzFailure(
 export async function readPositionAuthzDeps(ctx: Context): Promise<ReadPositionAuthzDeps> {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
-    parentSessionOf: (sessionId) =>
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
   const user = onBehalfOfUser(principal)
   return {

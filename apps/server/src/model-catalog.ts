@@ -109,10 +109,10 @@ export class ModelCatalog {
    *  probe; a throwing probe keeps the last good snapshot for that machine (so a
    *  transiently-broken CLI doesn't wipe the cache). Different machines probe
    *  independently. */
-  refresh(machineId: MachineId): Promise<void> {
+  async refresh(machineId: MachineId): Promise<void> {
     const existing = this.inflight.get(machineId)
     if (existing) return existing
-    const pending = (async () => {
+    const pending = await (async () => {
       try {
         const snapshot: ModelCatalogSnapshot = {
           machineId,

@@ -362,15 +362,15 @@ export class IssueArtifactStore {
 
   /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
-    const write = () => rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
-    await (this.writeFence ? await this.writeFence.runWriter(write) : write())
+    const write = async () => await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
+    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 
   /** Delete every snapshot of an issue (hard issue deletion). */
   async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
-    const write = () => rm(join(this.baseDir, issueId), { recursive: true, force: true })
-    await (this.writeFence ? await this.writeFence.runWriter(write) : write())
+    const write = async () => await rm(join(this.baseDir, issueId), { recursive: true, force: true })
+    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 
   private assertInBase(p: string): void {

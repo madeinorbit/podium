@@ -283,7 +283,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   const ensure = async (headSha: string, appVersion?: string): Promise<void> => {
     if (websiteAtHead(headSha, appVersion)) {
       state = { state: 'ready', headSha }
-      return Promise.resolve()
+      return await Promise.resolve()
     }
     const identity = `${headSha}\0${appVersion ?? ''}`
     if (inFlight && inFlight.identity === identity) return inFlight.promise

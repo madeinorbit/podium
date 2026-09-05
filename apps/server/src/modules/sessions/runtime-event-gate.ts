@@ -178,8 +178,8 @@ export class RuntimeEventGate {
       if (decision.kind === 'rejected') return decision
       if (decision.kind === 'duplicate') {
         if (decision.rebaseGeneration) {
-          this.ports.persist(sessionId, () => {
-            this.ports.events.saveRuntimeEventCheckpoint({
+          this.ports.persist(sessionId, async () => {
+            await this.ports.events.saveRuntimeEventCheckpoint({
               ...current,
               observerGeneration: event.observerGeneration,
               updatedAt: new Date(this.ports.now()).toISOString(),
@@ -221,7 +221,7 @@ export class RuntimeEventGate {
         if (event.t === 'process' && event.ev.ev === 'oomKilled')
           session.recordOomKill(event.at, draft)
       },
-      (draft) => {
+      async (draft) => {
         if (event.t === 'state') {
           stateProjection = this.ports.state?.({
             sessionId,
@@ -230,7 +230,7 @@ export class RuntimeEventGate {
             draft,
           })
         }
-        eventId = this.ports.events.appendEvent(
+        eventId = await this.ports.events.appendEvent(
           {
             ts: event.at,
             kind: RUNTIME_EVENT_LOG_KIND,
@@ -239,7 +239,7 @@ export class RuntimeEventGate {
           },
           { announce: false },
         )
-        this.ports.events.saveRuntimeEventCheckpoint(next)
+        await this.ports.events.saveRuntimeEventCheckpoint(next)
       },
     )
     await this.ports.events.announceEvent(eventId)

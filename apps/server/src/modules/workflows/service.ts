@@ -335,7 +335,7 @@ export class WorkflowService implements WorkflowEngine {
     }
     return this.access.visibleRuns(
       caller,
-      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map((row) => this.toRun(row)),
+      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(async (row) => await this.toRun(row)),
     )
   }
 
@@ -452,10 +452,10 @@ export class WorkflowService implements WorkflowEngine {
     }
     await this.deps.store.insertRun({
       run,
-      steps: revision.steps.map((step) => ({
+      steps: revision.steps.map(async (step) => ({
         ...step,
         profile: step.executionProfileId
-          ? this.deps.store.getProfile(step.executionProfileId)
+          ? await this.deps.store.getProfile(step.executionProfileId)
           : null,
       })),
     })

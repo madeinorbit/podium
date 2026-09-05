@@ -299,19 +299,19 @@ export class FeedServing {
     //
     // `worldFor` reads the authorization revision inside this scope for the same
     // reason — it is the other half of what the cached world is validated on.
-    withReadScope(() => {
+    withReadScope(async () => {
       if (resumeFrom === undefined) {
-        this.serveWorld(peer, principal, routingPrincipal, cause)
+        await this.serveWorld(peer, principal, routingPrincipal, cause)
         return
       }
-      if (!this.canResume(peer, resumeFrom)) {
+      if (!await this.canResume(peer, resumeFrom)) {
         // NAMED, so the traces can tell a client that could not be resumed from one
         // that never asked. A rising `cursor-rejected` rate is a retention or epoch
         // problem; a rising `hello` rate is just cold clients.
-        this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
+        await this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
         return
       }
-      this.serveResume(peer, principal, routingPrincipal, resumeFrom)
+      await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
     })
   }
 
@@ -328,7 +328,8 @@ export class FeedServing {
     // IDENTITY FIRST (ADR 2 D1). A seq from another feed, or one presented against
     // an epoch this server has rolled past, is not a smaller number — it is a
     // position in a sequence that no longer exists.
-    const identity = await this.deps.identity.current()
+    await this.deps.identity.resolve()
+    const identity = this.deps.identity.current()
     if (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch) return false
     // A cursor from the FUTURE is not resumable either: the replica claims to hold
     // rows this authority has not written, which on a restored/reset database is
@@ -369,7 +370,8 @@ export class FeedServing {
   ): Promise<void> {
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
-    const identity = await this.deps.identity.current()
+    await this.deps.identity.resolve()
+    const identity = this.deps.identity.current()
     const resume: FeedResumeMessage = {
       type: 'feedResume',
       feedId: identity.feedId,
@@ -414,7 +416,8 @@ export class FeedServing {
     perf.observeSliceSize(perfKey, world.changes.length)
     perf.record('phase', reused ? 'feedBootstrap.reuse' : 'feedBootstrap.read', readMs, perfKey)
     perf.record('phase', `feedBootstrap.cause.${cause}`, 0, perfKey)
-    const identity = await this.deps.identity.current()
+    await this.deps.identity.resolve()
+    const identity = this.deps.identity.current()
     // Wire 1 is kept as one legacy snapshot because its adapter emits lists
     // only at the end of a bootstrap. Current wire peers receive a real stream;
     // every frame repeats the same cursor and identity, and `last` is the only
@@ -490,7 +493,7 @@ export class FeedServing {
    * it is discarded and rebuilt; reuse never guesses across a gap.
    */
   private async worldFor(principal: Principal): Promise<{
-    world: ReturnType<AuthorityPort['bootstrap']>
+    world: Awaited<ReturnType<AuthorityPort['bootstrap']>>
     reused: boolean
     readMs: number
   }> {
@@ -514,7 +517,7 @@ export class FeedServing {
     }
 
     this.deps.onBootstrapReadStart?.()
-    let world: ReturnType<AuthorityPort['bootstrap']>
+    let world: Awaited<ReturnType<AuthorityPort['bootstrap']>>
     try {
       world = await this.deps.authority.bootstrap(principal)
     } finally {
@@ -654,8 +657,8 @@ export class FeedServing {
     // The SECOND admission site, and it takes the same scope as {@link admit}
     // for the same reason: this one also reads a world and then installs the
     // position it was read at.
-    withReadScope(() => {
-      this.serveWorld(peer, principal, routingPrincipal, 'version-change')
+    withReadScope(async () => {
+      await this.serveWorld(peer, principal, routingPrincipal, 'version-change')
     })
     return null
   }
@@ -696,10 +699,10 @@ export class FeedServing {
     this.flushScheduled = false
     const pending = [...this.pendingByPrincipal.values()]
     this.pendingByPrincipal.clear()
-    withReadScope(() => {
+    withReadScope(async () => {
       for (const { principal, deliveries } of pending) {
         for (const delivery of coalesceScopedDeliveries(deliveries)) {
-          this.publish(principal, delivery)
+          await this.publish(principal, delivery)
         }
       }
     })
@@ -791,7 +794,8 @@ export class FeedServing {
    * rather than a second source of "which feed is this".
    */
   async identity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
-    return await this.deps.identity.current()
+    await this.deps.identity.resolve()
+    return this.deps.identity.current()
   }
 
   /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —

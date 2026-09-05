@@ -260,7 +260,7 @@ export class Authority implements AuthorityPort {
       }
 
       const result = await op.write()
-      const rows = this.stage(op.changes(result))
+      const rows = this.stage(await op.changes(result))
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       return { outcome: 'committed', result, rows, seqs } as const
     })

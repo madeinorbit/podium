@@ -216,8 +216,8 @@ export class MachineRepoDiscovery {
     const last = this.lastConnectScanAt.get(machineId)
     if (last !== undefined && now - last < CONNECT_SCAN_MIN_INTERVAL_MS) return
     this.lastConnectScanAt.set(machineId, now)
-    setTimeout(() => {
-      this.scan(machineId, { deep: false }).catch((err) => {
+    setTimeout(async () => {
+      await this.scan(machineId, { deep: false }).catch((err) => {
         this.deps.log?.(
           `repo discovery for ${machineId} failed: ${err instanceof Error ? err.message : String(err)}`,
         )

@@ -516,12 +516,12 @@ export class SessionRepository {
           additionalWrite()
           await this.store.sessions.upsertSession(session.toRow(draft))
         },
-        changes: () => [
+        changes: async () => [
           {
             entity: 'session',
             id: session.sessionId,
             op: 'upsert',
-            value: this.view.wire(session, undefined, undefined, draft),
+            value: await this.view.wire(session, undefined, undefined, draft),
           },
         ],
       })

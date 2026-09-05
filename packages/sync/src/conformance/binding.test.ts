@@ -64,7 +64,7 @@ const ADA: ConformancePrincipal = conformanceUser('ada')
 const GRACE: ConformancePrincipal = conformanceUser('grace')
 
 describe('the guard fires FIRST: the shipped modules are present and non-trivial', () => {
-  it('the shipped feed modules import as real constructors, not as empty objects', () => {
+  it('the shipped feed modules import as real constructors, not as empty objects', async () => {
     // POD-305's "fails first if the matrix imports empty", transplanted. If a
     // barrel re-export breaks or a module is stubbed out, every binding assertion
     // below would fail with a confusing message about a fixture; this one fails
@@ -82,18 +82,20 @@ describe('the guard fires FIRST: the shipped modules are present and non-trivial
 describe('feed identity is produced by the SHIPPED registry (ADR 2 D1)', () => {
   it('the fixture DELEGATES rather than holding two fields', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     expect(authority.identity).toBeInstanceOf(FeedIdentityRegistry)
     // Identity, not equality: the epoch the fixture publishes must be the very
     // value the shipped registry minted, not a matching string kept alongside it.
-    expect(authority.epoch).toBe((await authority.identity.current()).epoch)
-    expect(authority.feedId).toBe((await authority.identity.current()).feedId)
+    expect(authority.epoch).toBe(authority.identity.current().epoch)
+    expect(authority.feedId).toBe(authority.identity.current().feedId)
   })
 
-  it('the fixture cannot publish a counter epoch, because the shipped guard refuses it', () => {
+  it('the fixture cannot publish a counter epoch, because the shipped guard refuses it', async () => {
     // The strongest available evidence that the shipped code is on the path: the
     // fixture is subject to a rule it does not implement. A fixture holding its own
     // string fields would happily publish `'epoch-2'`.
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     expect(() => assertOpaqueEpoch(authority.epoch)).not.toThrow()
     expect(authority.epoch).toBe(FIRST_EPOCH)
     expect(FIRST_EPOCH).not.toMatch(/^\d+$/)
@@ -105,23 +107,25 @@ describe('feed identity is produced by the SHIPPED registry (ADR 2 D1)', () => {
     // itself the thing to pin: it takes a CAUSE, and what it returns is a fact
     // about the authority rather than an echo of the test's literal.
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     const before = authority.epoch
     const after = await authority.bumpEpoch('restore')
 
     expect(after).not.toBe(before)
     expect(authority.epoch).toBe(after)
-    expect(authority.feedId).toBe(await FEED_ID_OF(authority))
+    expect(authority.feedId).toBe(FEED_ID_OF(authority))
     expect(() => assertOpaqueEpoch(after)).not.toThrow()
   })
 })
 
 /** The feedId must not move across a bump — same feed, new generation (D1). */
-const FEED_ID_OF = async (authority: ConformanceAuthority): Promise<string> =>
-  (await authority.identity.current()).feedId
+const FEED_ID_OF = (authority: ConformanceAuthority): string =>
+  authority.identity.current().feedId
 
 describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
-  it('the fixture DELEGATES to BoundedSendQueue', () => {
+  it('the fixture DELEGATES to BoundedSendQueue', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     expect(authority.sendQueueFor(requireHuman(ADA))).toBeInstanceOf(BoundedSendQueue)
     // Stable per principal, or a case could never overflow one: a fresh queue per
     // call is empty every time, and the demotion would be unreachable while every
@@ -129,8 +133,9 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     expect(authority.sendQueueFor(requireHuman(ADA))).toBe(authority.sendQueueFor(requireHuman(ADA)))
   })
 
-  it('a demotion is REACHED by overflowing, and the frame comes from the queue', () => {
+  it('a demotion is REACHED by overflowing, and the frame comes from the queue', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
     authority.policy.grant('ada', 'issue', 'ADA-1')
 
@@ -148,11 +153,12 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     expect(demotion?.epoch).toBe(authority.epoch)
   })
 
-  it('a healthy consumer that DRAINS is never demoted — the paired half', () => {
+  it('a healthy consumer that DRAINS is never demoted — the paired half', async () => {
     // Without this, "the slow consumer demotes" is equally consistent with a queue
     // that demotes everyone, which would make the mechanism useless in exactly the
     // way D9 exists to avoid ("one slow phone takes down everyone's server").
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
     authority.policy.grant('ada', 'issue', 'ADA-1')
     const queue = authority.sendQueueFor(requireHuman(ADA))
@@ -167,8 +173,9 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
 })
 
 describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)', () => {
-  it('the fixture DELEGATES to GrantEdgeVisibilityPolicy rather than holding a predicate', () => {
+  it('the fixture DELEGATES to GrantEdgeVisibilityPolicy rather than holding a predicate', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     expect(authority.policy.evaluator).toBeInstanceOf(GrantEdgeVisibilityPolicy)
     // Identity, not plausibility: the answer the fixture publishes must come from
     // the very evaluator the kernel ships, not from a matching predicate kept
@@ -180,13 +187,14 @@ describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)
     )
   })
 
-  it('the shipped policy can say NO to something the FIXTURE granted', () => {
+  it('the shipped policy can say NO to something the FIXTURE granted', async () => {
     // The strongest available evidence that the kernel is on the path: the fixture
     // is subject to a rule it does not implement. A hand-rolled `grants.has(key)`
     // would return true here — the grant is really in the table — and the kernel
     // refuses anyway, because the entity kind carries no declared visibility class
     // (ADR 9 D4). This is the assertion a stub cannot pass.
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     authority.policy.grant('ada', 'automation', 'AUT-1')
 
     expect(authority.policy.canSee(ADA, 'automation', 'AUT-1')).toBe(false)
@@ -195,11 +203,12 @@ describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)
     ).toEqual({ visible: false, reason: 'unclassified' })
   })
 
-  it('and it says YES for a declared kind with a grant — the paired half', () => {
+  it('and it says YES for a declared kind with a grant — the paired half', async () => {
     // Without this, the case above is equally consistent with an evaluator that
     // refuses everything, which would make all seven scoped gates vacuous in the
     // other direction.
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     authority.policy.grant('ada', 'issue', 'ADA-1')
     expect(authority.policy.canSee(ADA, 'issue', 'ADA-1')).toBe(true)
     expect(authority.policy.canSee(GRACE, 'issue', 'ADA-1')).toBe(false)
@@ -207,8 +216,9 @@ describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)
 })
 
 describe('the retention floor is published on every frame (ADR 2 D5)', () => {
-  it('the frame carries the authority’s own floor, and follows it when it moves', () => {
+  it('the frame carries the authority’s own floor, and follows it when it moves', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
     authority.append({ entity: 'issue', entityId: 'ADA-2', op: 'upsert', payload: { n: 2 } })
     authority.policy.grant('ada', 'issue', 'ADA-1')

@@ -467,8 +467,8 @@ export interface RootIntegrationReceiptStore {
   rootIntegrationReceipt(
     rootIssueId: RootIntegrationReceiptValue['rootIssueId'],
     approvedHeadSha: string,
-  ): RootIntegrationReceiptValue | null
-  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): RootIntegrationReceiptValue
+  ): Promise<RootIntegrationReceiptValue | null>
+  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): Promise<RootIntegrationReceiptValue>
 }
 
 /** Durable normalized shipping family. It owns persistence invariants only;
@@ -1016,13 +1016,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (requestedIds.length === 0 || requestedIds.length !== input.members.length) {
         throw new Error('ship train claim requires unique non-empty order ids')
       }
-      const selected = requestedIds.map((id) => {
-        const order = this.getOrder(id)
+      const selected = await Promise.all(requestedIds.map(async (id) => {
+        const order = await this.getOrder(id)
         if (!order || order.state !== 'queued') {
           throw new Error(`ship train member ${id} is not queued`)
         }
         return order
-      })
+      }))
       const leaderOrder = await this.getOrder(input.leaderOrderId)
       if (!leaderOrder || !requestedIds.includes(leaderOrder.id)) {
         throw new Error('ship train leader is absent from its claimed prefix')
@@ -1049,8 +1049,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error('ship train members cross an immutable delivery lane')
       }
       const issueFacts = new Map(
-        selected.map((order) => {
-          const row = this.db
+        await Promise.all(selected.map(async (order) => {
+          const row = await this.db
             .select({
               branch: issues.branch,
               machineId: issues.machineId,
@@ -1069,7 +1069,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             order.id,
             { branch: row.branch, machineId: row.machineId, repoPath: row.repoPath },
           ] as const
-        }),
+        })),
       )
       if (new Set([...issueFacts.values()].map((facts) => facts.machineId)).size !== 1) {
         throw new Error('ship train members cross machine custody')
@@ -1180,9 +1180,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship train leader ${leaderOrder.id} validation policy drifted`)
       }
       const machineId = issueFacts.get(prefix[0]!.id)!.machineId as ShipAttemptValue['machineId']
-      const claimed = prefix.map((order) => {
-        const previous = this.latestAttemptForOrder(order.id)
-        return this.claimAttempt({
+      const claimed = await Promise.all(prefix.map(async (order) => {
+        const previous = await this.latestAttemptForOrder(order.id)
+        return await this.claimAttempt({
           orderId: order.id,
           expectedState: 'queued',
           expectedAttemptId: previous?.id ?? null,
@@ -1190,7 +1190,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           machineId,
           startedAt: input.startedAt,
         })
-      })
+      }))
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
       const members = prefix.map((order, index) => {
         const item = byOrder.get(order.id)!
@@ -1647,11 +1647,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .where(eq(shipTrainMembers.trainId, row.id))
         .orderBy(asc(shipTrainMembers.ordinal))
         .all()
-      const orders = memberRows.map((member) => this.getOrder(member.orderId))
+      const orders = await Promise.all(memberRows.map(async (member) => await this.getOrder(member.orderId)))
+      const attempts = await Promise.all(memberRows.map(async (member) => await this.getAttempt(member.attemptId)))
       const resettable =
         memberRows.length > 0 &&
         orders.every((order) => order?.state === 'preflight') &&
-        memberRows.every((member) => !this.getAttempt(member.attemptId)?.finishedAt)
+        attempts.every((attempt) => !attempt?.finishedAt)
       await this.releaseTrain(row.id, at, reason)
       if (resettable) {
         for (const member of memberRows) {
@@ -1712,8 +1713,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error('native stack edge crosses a delivery lane')
       }
-      const issueRows = [upper, lower].map((order) => {
-        const issue = this.db
+      const issueRows = await Promise.all([upper, lower].map(async (order) => {
+        const issue = await this.db
           .select({ repoPath: issues.repoPath, machineId: issues.machineId })
           .from(issues)
           .where(eq(issues.id, order.issueId))
@@ -1721,7 +1722,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         if (!issue?.repoPath || !issue.machineId)
           throw new Error('native stack edge has no lane custody')
         return { repoPath: issue.repoPath, machineId: issue.machineId }
-      })
+      }))
       const laneKey = shippingLaneKey(upper, issueRows[0]!)
       if (shippingLaneKey(lower, issueRows[1]!) !== laneKey) {
         throw new Error('native stack edge crosses immutable compatibility')

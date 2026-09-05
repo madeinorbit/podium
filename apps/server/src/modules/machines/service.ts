@@ -647,10 +647,10 @@ export class MachinesService {
     // Prefer another capable ONLINE machine that actually owns this cwd. This
     // keeps implicit routing useful without ever launching against a foreign path.
     const byRepo = machines.find(
-      (machine) =>
+      async (machine) =>
         agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
-        this.deps.store.repos
-          .listRepos(machine.id)
+        (await this.deps.store.repos
+          .listRepos(machine.id))
           .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
     )
     if (byRepo) return byRepo.id
@@ -833,9 +833,9 @@ export class MachinesService {
    * to attach and drain the queue.
    */
   async pickMachineForRepo(_originUrl: string | undefined, cwd: string): Promise<MachineId> {
-    const byRepo = this.onlineMachineIds().find((id) =>
-      this.deps.store.repos
-        .listRepos(id)
+    const byRepo = this.onlineMachineIds().find(async (id) =>
+      (await this.deps.store.repos
+        .listRepos(id))
         .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
     return byRepo ?? await this.defaultMachine()
@@ -937,11 +937,11 @@ export class MachinesService {
   async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
-    return (await this.machineRecords()).map((m) => ({
+    return (await this.machineRecords()).map(async (m) => ({
       id: m.id,
       name: m.name,
       ownerUserId:
-        this.effectiveOwner(m.id) ?? (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
+        await this.effectiveOwner(m.id) ?? (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
     }))
   }
 

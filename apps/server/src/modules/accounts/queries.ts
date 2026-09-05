@@ -39,15 +39,15 @@ export const ACCOUNT_QUERIES = {
   // silently undone one of the two.
   list: query(noInput, async (state) =>
     (await accountViews(
-      (provider) => state.settings.apiKeyFor(provider),
+      async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
       await state.machines.listMachines(),
-    )).map((account) => {
+    )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account
       const harness = account.harness as import('@podium/model').HarnessAgent
       const attempt = state.nativeLogin.attempt(harness)
-      const loginMachines = state.machineService
-        .listMachines()
+      const loginMachines = (await state.machineService
+        .listMachines())
         .filter(
           (machine) =>
             machine.online &&

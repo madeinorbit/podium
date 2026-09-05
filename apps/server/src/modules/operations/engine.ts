@@ -760,13 +760,13 @@ export class OperationEngine {
 
   // ───────────────────────────── driving ──────────────────────────────
 
-  private enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
-    if (this.stopped) return Promise.resolve()
-    const previous = this.chains.get(operationId) ?? Promise.resolve()
-    const next = previous.then(work, work)
+  private async enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
+    if (this.stopped) return await Promise.resolve()
+    const previous = this.chains.get(operationId) ?? await Promise.resolve()
+    const next = await previous.then(work, work)
     this.chains.set(
       operationId,
-      next.catch(() => undefined),
+      await next.catch(() => undefined),
     )
     return next
   }

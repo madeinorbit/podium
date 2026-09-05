@@ -209,7 +209,7 @@ async function latestStatements(
         })
       out.push(statement(insert, 'run', 'write'))
     } else {
-      const remove = db
+      const remove = await db
         .delete(tables.changeLatest)
         .where(
           and(
@@ -431,7 +431,7 @@ export async function changesSince(
   cursor: number,
   limit = 10_000,
 ): Promise<ChangeReadRow[]> {
-  const query = db
+  const query = await db
     .select()
     .from(tables.changes)
     .where(gt(tables.changes.seq, cursor))
@@ -454,7 +454,7 @@ export async function latestChangeStates(
   db: QueryDb,
   tables: SpikeTables,
 ): Promise<ChangeReadRow[]> {
-  const query = db
+  const query = await db
     .select()
     .from(tables.changeLatest)
     .orderBy(asc(tables.changeLatest.seq))

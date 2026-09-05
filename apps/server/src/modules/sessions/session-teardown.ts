@@ -335,7 +335,7 @@ export class SessionTeardown {
             ? 'forced'
             : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
         },
-        () => this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
+        async () => await this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
       this.ports.broadcastSessions()
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
@@ -568,15 +568,15 @@ export class SessionTeardown {
           draft.status = 'hibernated'
         },
         facts
-          ? () => {
-              const currentLease = this.ports.store.observationCheckpoints.get(sessionId)
+          ? async () => {
+              const currentLease = await this.ports.store.observationCheckpoints.get(sessionId)
               const currentFacts = currentLease
                 ? this.ports.terminalProof.facts(session, currentLease)
                 : null
               if (
                 !currentFacts ||
                 JSON.stringify(currentFacts) !== JSON.stringify(facts) ||
-                !this.ports.store.observationCheckpoints.consumeTerminalCandidate(
+                !await this.ports.store.observationCheckpoints.consumeTerminalCandidate(
                   currentFacts,
                   consumedAt,
                 )

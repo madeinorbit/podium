@@ -87,7 +87,8 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     const store = memoryStore()
     const first = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
 
-    const minted = await first.current()
+    await first.resolve()
+    const minted = first.current()
     expect(minted.feedId).toBe(ULID_A)
     expect(minted.epoch).toBe(ULID_B)
     expect(store.writes).toBe(1)
@@ -98,7 +99,8 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     // assertion would catch it. That is the point of using a distinct mint here
     // rather than the same one.
     const afterRestart = new FeedIdentityRegistry(store, mintSequence(ULID_C, ULID_C))
-    expect(await afterRestart.current()).toEqual(minted)
+    await afterRestart.resolve()
+    expect(afterRestart.current()).toEqual(minted)
     expect(store.writes).toBe(1)
   })
 
@@ -109,11 +111,29 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     expect(store.writes).toBe(0)
   })
 
+  it('current() fails closed until the explicit resolve step completes', () => {
+    const store = memoryStore()
+    const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
+    expect(() => registry.current()).toThrow(/unresolved/)
+    expect(store.writes).toBe(0)
+  })
+
+  it('resolve() is idempotent', async () => {
+    const store = memoryStore()
+    const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
+    const [first, second] = await Promise.all([registry.resolve(), registry.resolve()])
+    expect(second).toEqual(first)
+    expect(store.writes).toBe(1)
+    expect(await registry.resolve()).toEqual(first)
+    expect(store.writes).toBe(1)
+  })
+
   it('bump() keeps feedId, changes epoch, and persists — the same feed, a new generation', async () => {
     const store = memoryStore()
     const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B, ULID_C))
 
-    const before = await registry.current()
+    await registry.resolve()
+    const before = registry.current()
     const after = await registry.bump('restore')
 
     expect(after.feedId).toBe(before.feedId)
@@ -122,7 +142,9 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
 
     // And it survives the restart too, or a bump would be forgotten on reboot —
     // which is the same silent failure as never bumping.
-    expect(await new FeedIdentityRegistry(store, mintSequence(ULID_A)).current()).toEqual(after)
+    const restarted = new FeedIdentityRegistry(store, mintSequence(ULID_A))
+    await restarted.resolve()
+    expect(restarted.current()).toEqual(after)
   })
 
   it('REFUSES a bump that mints the epoch it is replacing — a frozen mint is a silent no-op', async () => {
@@ -132,7 +154,7 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     // across a discontinuity with nothing to compare that differs.
     const store = memoryStore()
     const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B, ULID_B))
-    await registry.current()
+    await registry.resolve()
     await expect(registry.bump('seq-discontinuity')).rejects.toThrow(/not producing fresh values/)
   })
 
@@ -142,13 +164,13 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
       let n = 0
       return () => String(++n)
     })()
-    await expect(new FeedIdentityRegistry(store, counter).current()).rejects.toThrow(/COUNTER/)
+    await expect(new FeedIdentityRegistry(store, counter).resolve()).rejects.toThrow(/COUNTER/)
     // Nothing was persisted: a refused mint must not leave a half-created feed.
     expect(store.peek()).toBeNull()
   })
 
   it('REFUSES a persisted counter epoch on read, so a bad old row cannot be trusted forward', async () => {
     const store = memoryStore({ feedId: ULID_A, epoch: '7' })
-    await expect(new FeedIdentityRegistry(store, mintSequence(ULID_B)).current()).rejects.toThrow(/COUNTER/)
+    await expect(new FeedIdentityRegistry(store, mintSequence(ULID_B)).resolve()).rejects.toThrow(/COUNTER/)
   })
 })

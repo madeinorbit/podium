@@ -160,7 +160,7 @@ export class SuperagentRepository {
       )
       .orderBy(desc(superagentThreads.updatedAt))
       .all())
-      .map((r) => this.mapSuperagentThread(r))
+      .map(async (r) => await this.mapSuperagentThread(r))
   }
 
   async getSuperagentThread(id: string, ownerUserId?: UserId): Promise<SuperagentThreadRow | undefined> {

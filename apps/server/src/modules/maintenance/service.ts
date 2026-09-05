@@ -115,10 +115,10 @@ export class MaintenanceService {
     }
 
     const policy = this.worktreeGcPolicy()
-    return await this.write(() => {
+    return await this.write(async () => {
       const nowMs = this.now()
       const now = new Date(nowMs).toISOString()
-      const existing = this.store.maintenance.getLease(LEASE_NAME)
+      const existing = await this.store.maintenance.getLease(LEASE_NAME)
       const active = existing !== undefined && Date.parse(existing.expiresAt) > nowMs
       if (active && existing.generationId !== request.generationId) {
         return { status: 'busy' as const, retryAt: existing.expiresAt }
@@ -128,7 +128,7 @@ export class MaintenanceService {
           ? existing.fencingToken
           : (existing?.fencingToken ?? 0) + 1
       const expiresAt = new Date(nowMs + this.leaseTtlMs).toISOString()
-      this.store.maintenance.putLease({
+      await this.store.maintenance.putLease({
         name: LEASE_NAME,
         generationId: request.generationId,
         fencingToken,
@@ -458,16 +458,16 @@ export class MaintenanceService {
     command: MaintenanceCommand,
     result: Extract<MaintenanceCommandReply, { status: 'applied' | 'already-applied' }>,
   ): Promise<MaintenanceCommandReply> {
-    return await this.write(() => {
+    return await this.write(async () => {
       const nowMs = this.now()
-      const lease = this.store.maintenance.getLease(LEASE_NAME)
+      const lease = await this.store.maintenance.getLease(LEASE_NAME)
       if (!lease || lease.fencingToken !== command.fencingToken) {
         return this.stale(command, 'fenced')
       }
       if (Date.parse(lease.expiresAt) <= nowMs) {
         return this.stale(command, 'lease-expired')
       }
-      const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
+      const prior = await this.store.maintenance.getCommand(command.jobKind, command.runKey)
       if (prior) {
         return {
           status: 'already-applied',
@@ -475,7 +475,7 @@ export class MaintenanceService {
           runKey: command.runKey,
         }
       }
-      this.store.maintenance.recordCommand(
+      await this.store.maintenance.recordCommand(
         { status: 'applied', jobKind: command.jobKind, runKey: command.runKey },
         command.fencingToken,
         new Date(nowMs).toISOString(),

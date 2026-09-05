@@ -39,9 +39,9 @@ export class EventLogRetention {
   ) {}
 
   start(): void {
-    this.bootTimer = setTimeout(() => {
-      this.schedulePrune()
-      this.timer = setInterval(() => this.schedulePrune(), EVENT_PRUNE_INTERVAL_MS)
+    this.bootTimer = setTimeout(async () => {
+      await this.schedulePrune()
+      this.timer = setInterval(async () => await this.schedulePrune(), EVENT_PRUNE_INTERVAL_MS)
       this.timer.unref?.()
     }, EVENT_PRUNE_BOOT_DELAY_MS)
     this.bootTimer.unref?.()

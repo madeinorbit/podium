@@ -39,16 +39,16 @@ export function issueTestPlumbing(
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
-    transact: opts.transact ?? ((fn) => fn()),
+    transact: opts.transact ?? (async (fn) => await fn()),
   })
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)
   })
   return {
     funnel: {
-      run: (op) => {
+      run: async (op) => {
         op.authorize?.()
-        return op.write()
+        return await op.write()
       },
     },
     ledger,

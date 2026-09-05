@@ -189,7 +189,7 @@ export class AuthorityArbitrationRejected extends Error {
  */
 export interface LedgerCommitOp<T> {
   write: () => Promise<T>
-  changes: (result: T) => EntityChangeSpec[]
+  changes: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
   arbitrate?: AuthorityCommit<T>['arbitrate']
@@ -329,7 +329,7 @@ export class Ledger {
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       write: op.write,
-      changes: (result: T) => op.changes(result).map(toKernelSpec),
+      changes: async (result: T) => (await op.changes(result)).map(toKernelSpec),
     })
     if (outcome.outcome !== 'committed') {
       throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)

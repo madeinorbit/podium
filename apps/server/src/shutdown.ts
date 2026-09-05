@@ -65,15 +65,15 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
   //    terminate() calls inside ws.close() run synchronously on invocation;
   //    the returned promise (detach handlers settled) is awaited only up to
   //    `grace` — persistence must run regardless of socket behavior.
-  let wsClosed: Promise<void> = Promise.resolve()
+  let wsClosed: Promise<void> = await Promise.resolve()
   try {
-    wsClosed = Promise.resolve(deps.closeWebSockets())
+    wsClosed = await Promise.resolve(deps.closeWebSockets())
   } catch (err) {
     logError(`[podium:server] websocket close threw during shutdown: ${String(err)}`)
   }
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
-    wsClosed.catch((err) => {
+    await wsClosed.catch((err) => {
       logError(`[podium:server] websocket close failed during shutdown: ${String(err)}`)
     }),
     new Promise<void>((r) => {
@@ -101,7 +101,7 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
     let stopTimer: ReturnType<typeof setTimeout> | undefined
     try {
       await Promise.race([
-        Promise.resolve(deps.server.stop(true)),
+        await Promise.resolve(deps.server.stop(true)),
         new Promise<void>((resolve) => {
           stopTimer = setTimeout(resolve, httpGrace)
         }),

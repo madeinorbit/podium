@@ -284,7 +284,7 @@ export class IssueAttentionModule {
     const wanted = normalized(title)
     return [...this.store.rows.values()]
       .filter(
-        (row) =>
+        async (row) =>
           row.id !== anchor.id &&
           row.repoId === anchor.repoId &&
           row.parentId == null &&
@@ -293,8 +293,8 @@ export class IssueAttentionModule {
           row.stage !== 'proposed' &&
           !this.store.isClosed(row) &&
           normalized(row.title) === wanted &&
-          this.store.deps.store.issues
-            .listIssueDeps(row.id)
+          (await this.store.deps.store.issues
+            .listIssueDeps(row.id))
             .some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from'),
       )
       .sort((a, b) => a.seq - b.seq)[0]
@@ -353,8 +353,8 @@ export class IssueAttentionModule {
     target.machineId = worktreeMachineId
     origin.worktreePath = null
     origin.branch = null
-    this.store.persistRow(origin)
-    this.store.persistRow(target)
+    await this.store.persistRow(origin)
+    await this.store.persistRow(target)
     await this.store.broadcastList()
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
@@ -469,13 +469,13 @@ export class IssueAttentionModule {
       enabled: true,
       createdAt: this.store.now(),
     }
-    this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.addSubscription(sub) })
+    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.addSubscription(sub) })
     return sub
   }
 
   async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
     const existed = (await this.store.deps.store.events.listSubscriptions()).some((s) => s.id === id)
-    this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.removeSubscription(id) })
+    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.removeSubscription(id) })
     return { removed: existed }
   }
 
@@ -486,8 +486,8 @@ export class IssueAttentionModule {
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
-  subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
-    return this.store.deps.funnel.run({
+  async subscriptionSetEnabled(id: string, enabled: boolean): Promise<{ updated: boolean }> {
+    return await this.store.deps.funnel.run({
       write: async () => ({ updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled) }),
     })
   }
@@ -608,7 +608,7 @@ export class IssueAttentionModule {
     // archives, so the row it hands over is the map's own object [POD-3259].
     const draft = this.store.draftOf(row)
     draft.archived = true
-    const wire = this.store.persist(draft)
+    const wire = await this.store.persist(draft)
     await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
       readAt: this.store.issueOverlay(draft.id).readAt,

@@ -40,8 +40,8 @@ export class IssueCommentsMailModule {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
     const attribution = attributionOf(principal)
-    return this.store.persistWith(row, () =>
-      this.store.deps.store.issues.addIssueComment({
+    return await this.store.persistWith(row, async () =>
+      await this.store.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
         issueId,
         author,
@@ -71,7 +71,7 @@ export class IssueCommentsMailModule {
       claimedBy: null,
       claimedAt: null,
     }
-    this.store.deps.funnel.run({
+    await this.store.deps.funnel.run({
       write: async () => await this.store.deps.store.issues.addIssueMessage(message),
     })
     // THE ROW IS DURABLE, THE NUDGE IS AN EXTERNAL EFFECT [POD-3260, spec §3.3].
@@ -129,7 +129,7 @@ export class IssueCommentsMailModule {
     // the write, and re-reading an inbox must stay free.
     const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
     if (markRead && (unreadIds.length || newReceipts.length)) {
-      this.store.deps.funnel.run({
+      await this.store.deps.funnel.run({
         write: async () => {
           const at = this.store.now()
           if (unreadIds.length) {
@@ -179,7 +179,7 @@ export class IssueCommentsMailModule {
     claimedBy: string,
     opts?: { sessionId?: SessionId },
   ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
-    const claimed = this.store.deps.funnel.run({
+    const claimed = await this.store.deps.funnel.run({
       write: async () => {
         const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,
@@ -226,8 +226,8 @@ export class IssueCommentsMailModule {
     return await countContextAwarePendingMail(
       this.store.deps.store,
       id,
-      (fromIssue) => {
-        const issue = this.reports().get(fromIssue)
+      async (fromIssue) => {
+        const issue = await this.reports().get(fromIssue)
         return issue ? `issue:#${issue.seq}` : fromIssue
       },
       opts?.sessionId,

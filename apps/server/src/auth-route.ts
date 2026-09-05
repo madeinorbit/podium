@@ -100,13 +100,13 @@ export function resolveClientCredential(
 }
 
 /** Validate and maintain a credential when a transport retains only its token hash (WebSocket). */
-export function maintainClientCredentialByHash(
+export async function maintainClientCredentialByHash(
   store: ClientSessionStore,
   tokenHash: string,
   nowMs: number = Date.now(),
-): { session: ClientSessionRecord; renewed: boolean } | undefined {
-  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
-  const current = store.getClientSession(tokenHash)
+): Promise<{ session: ClientSessionRecord; renewed: boolean } | undefined> {
+  if (!await store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
+  const current = await store.getClientSession(tokenHash)
   if (!current) return undefined
   let session = current
   if (
@@ -120,7 +120,7 @@ export function maintainClientCredentialByHash(
     SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
   if (renewed) {
     const expiresAt = new Date(nowMs + SESSION_TTL_MS).toISOString()
-    store.extendClientSession(tokenHash, expiresAt)
+    await store.extendClientSession(tokenHash, expiresAt)
     session = { ...session, expiresAt }
   }
   return { session, renewed }
@@ -211,8 +211,8 @@ export function clientAuthGuard(opts: {
   const now = opts.now ?? (() => Date.now())
   const loginRequired = opts.loginRequired ?? (() => Boolean(opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
-    if (c.req.method === 'OPTIONS') return next()
-    if (!loginRequired()) return next()
+    if (c.req.method === 'OPTIONS') return await next()
+    if (!loginRequired()) return await next()
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
@@ -246,7 +246,7 @@ export function clientAuthGuard(opts: {
       const token = parseSessionCookie(c.req.header('cookie'))
       if (token) setSessionCookie(c, token, opts.trustedProxyHops)
     }
-    return next()
+    return await next()
   }
 }
 
@@ -465,7 +465,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     if (!store || !users) return c.json({ error: 'account store unavailable' }, 503)
     const actorId = requestUserId(store, c.req.header('cookie'), now())
     if (!actorId) return c.json({ error: 'authentication required' }, 401)
-    if (users.get(actorId)?.role !== 'admin') {
+    if ((await users.get(actorId))?.role !== 'admin') {
       return c.json({ error: 'admin account required' }, 403)
     }
     let body: { userId?: unknown; displayName?: unknown; role?: unknown; password?: unknown }
@@ -489,9 +489,9 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       )
     }
     const userId = asUserId(body.userId.trim())
-    if (users.get(userId)) return c.json({ error: 'account already exists' }, 409)
+    if (await users.get(userId)) return c.json({ error: 'account already exists' }, 409)
     const createdAt = new Date(now()).toISOString()
-    users.create(
+    await users.create(
       {
         id: userId,
         displayName: body.displayName.trim(),
@@ -504,7 +504,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     return c.json({ id: userId, displayName: body.displayName.trim(), role: body.role }, 201)
   })
 
-  app.post('/auth/logout', (c) => {
+  app.post('/auth/logout', async (c) => {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
@@ -519,7 +519,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         )
       : undefined
     if (credential && store) {
-      store.deleteClientSession(credential.tokenHash)
+      await store.deleteClientSession(credential.tokenHash)
       opts.onCredentialRevoked?.(credential.tokenHash)
     }
     deleteCookie(c, SESSION_COOKIE, { path: '/' })

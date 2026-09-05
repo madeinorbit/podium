@@ -35,9 +35,9 @@ export async function spawnAgentHandler(
     // Under the human ceiling, exactly as on the send path: an issue beyond the
     // delegating human's visibility must fail as an unknown issue, so it takes
     // the `unknown issue` branch below rather than a distinguishable denial.
-    const resolved = access.resolveIssueAddress(input.issue)
+    const resolved = await access.resolveIssueAddress(input.issue)
     issueId = resolved.kind === 'issue' ? resolved.id : UNADDRESSABLE
-    checkIssueAccess(caller, issues, 'agent.spawn', 'write', issueId)
+    await checkIssueAccess(caller, issues, 'agent.spawn', 'write', issueId)
   } else if (input.newTitle) {
     if (!deps.createIssue) throw new Error('issue creation is not wired on this server')
     // Deliberate --new: inherit the caller's repo/parent from its own issue

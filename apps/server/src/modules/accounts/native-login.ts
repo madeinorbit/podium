@@ -32,8 +32,8 @@ export class NativeLoginService {
     },
   ) {
     deps.bus.on('session.exited', ({ sessionId, code }) => this.onExit(sessionId, code))
-    deps.bus.on('machine.metadataChanged', ({ machineId, inventory }) => {
-      if (inventory) this.onInventory(machineId)
+    deps.bus.on('machine.metadataChanged', async ({ machineId, inventory }) => {
+      if (inventory) await this.onInventory(machineId)
     })
   }
 
@@ -49,12 +49,12 @@ export class NativeLoginService {
     return this.attempts.get(harness)
   }
 
-  start(input: {
+  async start(input: {
     harness: HarnessAgent
     machineId?: MachineId
     ownerUserId: UserId
-  }): NativeLoginAttempt {
-    return withReadScope(async () => await this.startInScope(input))
+  }): Promise<NativeLoginAttempt> {
+    return await withReadScope(async () => await this.startInScope(input))
   }
 
   private async startInScope(input: {

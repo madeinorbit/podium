@@ -28,35 +28,35 @@ type In<C extends { input: z.ZodTypeAny }> = z.infer<C['input']>
 export const CLOUD_COMMANDS_TRPC = {
   createMachine: {
     contract: CLOUD_CONTRACTS.createMachine,
-    handler: ((svc, input) => svc.createCloudMachine(input)) satisfies CloudHandler<
+    handler: (async (svc, input) => await svc.createCloudMachine(input)) satisfies CloudHandler<
       In<typeof CLOUD_CONTRACTS.createMachine>,
       unknown
     >,
   },
   createAgent: {
     contract: CLOUD_CONTRACTS.createAgent,
-    handler: ((svc, input) => svc.createCloudAgent(input)) satisfies CloudHandler<
+    handler: (async (svc, input) => await svc.createCloudAgent(input)) satisfies CloudHandler<
       In<typeof CLOUD_CONTRACTS.createAgent>,
       unknown
     >,
   },
   moveSession: {
     contract: CLOUD_CONTRACTS.moveSession,
-    handler: ((svc, input) => svc.moveSession(input)) satisfies CloudHandler<
+    handler: (async (svc, input) => await svc.moveSession(input)) satisfies CloudHandler<
       In<typeof CLOUD_CONTRACTS.moveSession>,
       unknown
     >,
   },
   stop: {
     contract: CLOUD_CONTRACTS.stop,
-    handler: ((svc, input) => svc.stopRuntime(input.id)) satisfies CloudHandler<
+    handler: (async (svc, input) => await svc.stopRuntime(input.id)) satisfies CloudHandler<
       In<typeof CLOUD_CONTRACTS.stop>,
       unknown
     >,
   },
   wake: {
     contract: CLOUD_CONTRACTS.wake,
-    handler: ((svc, input) => svc.wakeRuntime(input.id)) satisfies CloudHandler<
+    handler: (async (svc, input) => await svc.wakeRuntime(input.id)) satisfies CloudHandler<
       In<typeof CLOUD_CONTRACTS.wake>,
       unknown
     >,

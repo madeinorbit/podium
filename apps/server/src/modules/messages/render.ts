@@ -229,7 +229,7 @@ export class MessageRenderer {
 
   /** The coalesced pointer rendering (also used for oversized bodies). */
   pointerText(rows: MessageRow[]): string {
-    const senders = [...new Set(rows.map((m) => this.fromLabel(m)))]
+    const senders = [...new Set(rows.map(async (m) => await this.fromLabel(m)))]
     // The pointer path leads to the same interrupted-turn problem the envelope's
     // TURN_CLOSE_RULE covers [POD-604] — reading the inbox is still a turn that
     // buries the summary the human was coming back to. Said in one line here

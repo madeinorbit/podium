@@ -110,8 +110,8 @@ function workflowMutation<N extends WorkflowProcName>(name: N): MutationProcedur
   }
   return t.procedure
     .input(contract.input)
-    .mutation(({ ctx, input }) =>
-      familyState(ctx).modules.workflows.execute(workflowCaller(ctx), name, input),
+    .mutation(async ({ ctx, input }) =>
+      await familyState(ctx).modules.workflows.execute(workflowCaller(ctx), name, input),
     ) as MutationProcedure<N>
 }
 

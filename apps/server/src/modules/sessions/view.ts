@@ -235,7 +235,7 @@ export class SessionView {
     }
     return candidates
       .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
-      .map((session) => this.wire(session, principal, memo))
+      .map(async (session) => await this.wire(session, principal, memo))
   }
 
   /**
@@ -309,16 +309,16 @@ export class SessionView {
     if (birthIssueId) {
       const issue = await this.ports.store.issues.getIssue(birthIssueId)
       if (issue) {
-        return () => {
-          session.refLetter = this.ports.store.issues.allocateSessionLetter(birthIssueId)
+        return async () => {
+          session.refLetter = await this.ports.store.issues.allocateSessionLetter(birthIssueId)
           session.refIssueId = birthIssueId
         }
       }
     }
     const repoId = await this.ports.store.repos.resolveRepoIdForPath(session.cwd)
     if (await this.ports.store.repos.prefixForRepoId(repoId) === null) return
-    return () => {
-      session.refDraft = this.ports.store.repos.nextDraftSeq(repoId)
+    return async () => {
+      session.refDraft = await this.ports.store.repos.nextDraftSeq(repoId)
     }
   }
 

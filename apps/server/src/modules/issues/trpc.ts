@@ -47,7 +47,7 @@ function guardFor(name: string, def: AnyIssueCommandDef) {
       def,
       await getRawInput(),
     )
-    return next()
+    return await next()
   })
 }
 
@@ -95,7 +95,7 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
           def,
           opts.input,
         )
-        return out instanceof Promise ? out.catch(rethrowAsTrpc) : out
+        return out instanceof Promise ? await out.catch(rethrowAsTrpc) : out
       } catch (err) {
         return rethrowAsTrpc(err)
       }

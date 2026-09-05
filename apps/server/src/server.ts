@@ -713,13 +713,13 @@ export async function startServer(
   // without a restart when it is.
   const telemetry = wireTelemetry({
     bus: registry.modules.bus,
-    machineCount: () => registry.modules.machines.listMachines().length,
+    machineCount: async () => (await registry.modules.machines.listMachines()).length,
   })
   const repos = new RepoRegistry(registry, store)
   // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
   // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
   const repoDiscovery = new MachineRepoDiscovery({
-    listRepos: () => store.repos.listRepos(),
+    listRepos: async () => await store.repos.listRepos(),
     addRepo: async (path, machineId, originUrl) => await store.repos.addRepo(path, machineId, originUrl),
     removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
     // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
@@ -731,7 +731,7 @@ export async function startServer(
       return Boolean(res.listing)
     },
     scanRepos: async (roots, opts, machineId) => await registry.modules.rpc.scanRepos(roots, opts, machineId),
-    machineName: (id) => registry.modules.machines.machineName(id),
+    machineName: async (id) => await registry.modules.machines.machineName(id),
     localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
   })
@@ -749,13 +749,13 @@ export async function startServer(
     // Outbound routing is derived from the authenticated binding table, never
     // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.
     routing: {
-      chatIdForUser: (userId) => {
-        const routes = store.telegramBindings.listForUser(userId)
+      chatIdForUser: async (userId) => {
+        const routes = await store.telegramBindings.listForUser(userId)
         return routes.length === 1 ? routes[0]?.chatId : undefined
       },
       // POD-419: the bot token is server-only material; the chat id stays routing.
     },
-    telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
+    telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
     sessions: registry.modules.sessions,
@@ -764,7 +764,7 @@ export async function startServer(
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
-      getSuperagentThread: (threadId) => store.superagent.getSuperagentThread(threadId),
+      getSuperagentThread: async (threadId) => await store.superagent.getSuperagentThread(threadId),
       readTranscript: async (input) =>
         await registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
     },
@@ -824,14 +824,14 @@ export async function startServer(
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
-    hasRemoteUpdateConsumers: () =>
-      store.machines
-        .listMachines()
+    hasRemoteUpdateConsumers: async () =>
+      (await store.machines
+        .listMachines())
         .some((machine) => isRemoteUpdateConsumer(machine, hostMachineId)),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
-    fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
+    fleetPlatforms: async () => fleetHeadlessPlatforms(await store.machines.listMachines()),
     // A proposal answers what THIS running server would change by building HEAD.
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
@@ -1076,18 +1076,18 @@ export async function startServer(
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
     // than by a constant that stood for it.
-    authenticateToken: (token) => store.machines.getMachineByToken(hostMachineId, token),
+    authenticateToken: async (token) => await store.machines.getMachineByToken(hostMachineId, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
       // Read per handshake, never captured: a settings flip must reach the next
       // lease, not wait for a server restart (POD-564).
-      worktreeGcPolicy: () => store.settings.getSettings().worktreeGc,
-      liveSessionIds: () =>
+      worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
+      liveSessionIds: async () =>
         new Set(
-          registry.modules.sessions
-            .listSessions(undefined, 'steward')
+          (await registry.modules.sessions
+            .listSessions(undefined, 'steward'))
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
@@ -1153,8 +1153,8 @@ export async function startServer(
     // login screen loops forever against a server that just accepted the
     // password. It buys nothing else: every data-plane call is still 503 at the
     // readiness boundary, whoever is holding the cookie.
-    resolveUserId: (headers) =>
-      controlPlaneAvailable(readiness()) ? requestPrincipal(headers)?.user : undefined,
+    resolveUserId: async (headers) =>
+      controlPlaneAvailable(readiness()) ? (await requestPrincipal(headers))?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
@@ -1192,8 +1192,8 @@ export async function startServer(
   app.use('/files/*', guard)
   registerAssetRoute(app, {
     readAsset: async (a) => await registry.modules.rpc.readAsset(a),
-    allowsRoot: (root, machineId) =>
-      repos.inferFromPath(root, machineId ?? registry.modules.machines.defaultMachine()) !==
+    allowsRoot: async (root, machineId) =>
+      await repos.inferFromPath(root, machineId ?? await registry.modules.machines.defaultMachine()) !==
       undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
@@ -1213,7 +1213,7 @@ export async function startServer(
   registerMcpRoute(
     app,
     {
-      mcpToolSpecs: (threadId) => superagent.mcpToolSpecs(threadId),
+      mcpToolSpecs: async (threadId) => await superagent.mcpToolSpecs(threadId),
       callMcpTool: async (name, args, threadId) => await superagent.callMcpTool(name, args, threadId),
     },
     mcpToken,
@@ -1226,8 +1226,8 @@ export async function startServer(
     // A host-local first run must remain possible when PODIUM_PASSWORD already
     // provisioned a credential. Login itself is not a bootstrap surface, so the
     // exact setup allowlist bypasses the ordinary login guard only while blocked.
-    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return next()
-    return guard(c, next)
+    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return await next()
+    return await guard(c, next)
   })
   app.use(
     '/trpc/*',
@@ -1388,7 +1388,7 @@ export async function startServer(
   }
 
   const requestedPort = opts.port ?? 0
-  return new Promise<ServerHandle>((resolve, reject) => {
+  return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
     const failListen = (err: unknown): void => {
       if (settled) return
@@ -1415,7 +1415,7 @@ export async function startServer(
         readinessForClient: readiness,
         validateClientCredential: (credentialId) =>
           maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
-        principalForClient: (request) => {
+        principalForClient: async (request) => {
           if (
             request.headers.has('authorization') &&
             !isSecureRequest(
@@ -1431,9 +1431,9 @@ export async function startServer(
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
           const credential = resolveClientCredential(store.auth, headers)
-          const principal = requestPrincipal(headers)
+          const principal = await requestPrincipal(headers)
           if (!principal) return undefined
-          const userRole = store.users.roleOf(principal.user)
+          const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined
           return {
             userId: principal.user,
@@ -1497,9 +1497,9 @@ export async function startServer(
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
     // also the seam for per-agent capabilities later: pass a constrained capability
     // instead of OPERATOR.
-    issueTools.setClientResolver((threadId) => {
-      const ownerUserId = superagent.threadOwner(threadId)
-      const account = ownerUserId ? store.users.get(ownerUserId) : undefined
+    issueTools.setClientResolver(async (threadId) => {
+      const ownerUserId = await superagent.threadOwner(threadId)
+      const account = ownerUserId ? await store.users.get(ownerUserId) : undefined
       if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
       return registry.issueCommands.asIssueTrpc(
         userCommandPrincipal(ownerUserId, account.role).capability,
@@ -1513,7 +1513,7 @@ export async function startServer(
     superagent.setIssueTools(issueTools)
     // The harness agent runs on the same host (single-machine), so loopback
     // reaches this MCP route. Now that the port is known, point it there.
-    superagent.setMcpEndpoint(
+    await superagent.setMcpEndpoint(
       `http://127.0.0.1:${server.port}/mcp`,
       mcpToken,
       superagent.mcpToolSpecs().map((s) => s.name),
@@ -1745,9 +1745,9 @@ export async function startServer(
               // Release the per-origin client log descriptors. The sink writes
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.
-              ['logs.close', () => registry.modules.logs.close()],
+              ['logs.close', async () => await registry.modules.logs.close()],
               // The same, for the per-machine fleet descriptors (POD-3156).
-              ['fleetLogs.close', () => registry.modules.fleetLogs.close()],
+              ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
               [
                 'janitorHost.close',
                 () => {

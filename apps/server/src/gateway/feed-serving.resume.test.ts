@@ -46,9 +46,9 @@ class Peer implements EdgePeer {
   }
 }
 
-const commit = (p: ReturnType<typeof feedTestPlumbing>, id: string) =>
+const commit = (p: Awaited<ReturnType<typeof feedTestPlumbing>>, id: string) =>
   p.ledger.commit({
-    write: () => {},
+    write: async () => {},
     changes: () => [{ entity: 'session', id, op: 'upsert', value: { sessionId: id } }],
   })
 
@@ -56,8 +56,8 @@ const commit = (p: ReturnType<typeof feedTestPlumbing>, id: string) =>
  *  every one of these cases reconnects INTO. */
 async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
   const p = await feedTestPlumbing(opts)
-  commit(p, 's1')
-  commit(p, 's2')
+  await commit(p, 's1')
+  await commit(p, 's2')
   const cold = new Peer('cold')
   p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
   const identity = await p.serving.identity()
@@ -197,7 +197,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
 describe('the transfer a reconnect actually costs', () => {
   it('is O(delta) at an unchanged head, where it was O(world)', async () => {
     const p = await feedTestPlumbing()
-    for (let i = 0; i < 50; i += 1) commit(p, `s${i}`)
+    for (let i = 0; i < 50; i += 1) await commit(p, `s${i}`)
 
     const cold = new Peer('cold')
     p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))

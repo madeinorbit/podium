@@ -183,8 +183,9 @@ describe('ADR 5 D8 — a SECOND Authority instantiates against the kernel ports'
   it('each Authority carries its OWN feed identity (S1) — a cursor is meaningless alone', async () => {
     const a = instantiateKernelPorts('a')
     const b = instantiateKernelPorts('b')
-    const idA = await a.feed.current()
-    const idB = await b.feed.current()
+    await Promise.all([a.feed.resolve(), b.feed.resolve()])
+    const idA = a.feed.current()
+    const idB = b.feed.current()
     // Opaque, checked by the SHIPPED guard rather than by a regex written here: if a
     // mint ever degrades to a counter, ADR 2 D1's own rule throws.
     assertOpaqueEpoch(idA.epoch)
@@ -202,11 +203,12 @@ describe('ADR 5 D8 — a SECOND Authority instantiates against the kernel ports'
 
   it('identity survives rebuilding the registry over the SAME ports, per authority', async () => {
     const a = instantiateKernelPorts('a')
-    const first = await a.feed.current()
+    await a.feed.resolve()
+    const first = a.feed.current()
     // Not a second world: the same `a`, asked again. This is what makes the
     // distinct-feedId case above a statement about two AUTHORITIES rather than about a
     // mint that simply never repeats itself.
-    expect(await a.feed.current()).toEqual(first)
+    expect(a.feed.current()).toEqual(first)
   })
 
   it('is TEST-ONLY: nothing here is reachable from a product composition root', () => {

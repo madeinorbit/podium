@@ -173,10 +173,10 @@ export class DeliveryScheduler {
 
   private scheduleDeliveryFlush(): void {
     if (this.deliveryTriggerTimer) return
-    this.deliveryTriggerTimer = setTimeout(() => {
+    this.deliveryTriggerTimer = setTimeout(async () => {
       this.deliveryTriggerTimer = null
       try {
-        this.flushDeliveryTriggers()
+        await this.flushDeliveryTriggers()
       } catch (error) {
         this.recordTriggerFailure('coalesced delivery flush', error)
       }
@@ -334,7 +334,7 @@ export class DeliveryScheduler {
     await this.flushDeliveryTriggers()
     if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
     const next = cursorOf(page.at(-1)!)
-    this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
+    this.reconcileTimer = setTimeout(async () => await this.runReconcilePage(next), 0)
     this.reconcileTimer.unref?.()
   }
 
@@ -393,7 +393,7 @@ export class DeliveryScheduler {
     }
     const next = cursorOf(page.at(-1)!)
     this.retryBackstopCursor = next
-    this.retryBackstopTimer = setTimeout(() => this.runRetryBackstopPage(next), 0)
+    this.retryBackstopTimer = setTimeout(async () => await this.runRetryBackstopPage(next), 0)
     this.retryBackstopTimer.unref?.()
   }
 

@@ -87,8 +87,8 @@ export async function feedTestPlumbing(
     authority: ledger.authority,
     identity: new FeedIdentityRegistry(
       {
-        readIdentity: () => identity,
-        writeIdentity: (next) => {
+        readIdentity: async () => identity,
+        writeIdentity: async (next) => {
           identity = next
         },
       },
@@ -97,9 +97,9 @@ export async function feedTestPlumbing(
         return `id-${minted}`
       },
     ),
-    retention: opts.retention ?? { minAvailableSeq: () => store.sync.minChangeSeq() },
+    retention: opts.retention ?? { minAvailableSeq: async () => await store.sync.minChangeSeq() },
     subscriptions,
-    authorizationRevision: opts.authorizationRevision ?? (() => store.grants.visibilityRevision()),
+    authorizationRevision: opts.authorizationRevision ?? (async () => await store.grants.visibilityRevision()),
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })

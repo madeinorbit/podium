@@ -421,8 +421,8 @@ export class MessageMailbox {
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
   ): MessageRow[] {
-    const rows = principals.flatMap((p) =>
-      this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
+    const rows = principals.flatMap(async (p) =>
+      await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
     )
     rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     return rows.slice(-(opts?.limit ?? 50))
@@ -443,14 +443,14 @@ export class MessageMailbox {
     const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
-    return rows.map((m) => {
+    return rows.map(async (m) => {
       // Per-READER receipt first [POD-1379]: this session has now been shown the
       // row whatever a peer on the same issue mailbox already did to the shared
       // delivery ledger — otherwise a message a peer consumed keeps nagging.
-      if (opts.consume) this.deps.messages.recordRead(m.id, opts.consume, at)
+      if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
       if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
-      if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
-      this.retireNotificationFact(m, at)
+      if (!await this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
+      await this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
           this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])

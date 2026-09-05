@@ -336,8 +336,8 @@ export class SessionStateService {
 
   markRead(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
     if (!this.canReadSession(principal, sessionId)) return false
-    return this.persistPerUser(principal.userId, sessionId, () =>
-      this.ports.store.sessions.markSessionRead(
+    return this.persistPerUser(principal.userId, sessionId, async () =>
+      await this.ports.store.sessions.markSessionRead(
         principal.userId,
         sessionId,
         new Date(this.ports.now()).toISOString(),
@@ -347,8 +347,8 @@ export class SessionStateService {
 
   markUnread(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
     if (!this.canReadSession(principal, sessionId)) return false
-    return this.persistPerUser(principal.userId, sessionId, () =>
-      this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
+    return this.persistPerUser(principal.userId, sessionId, async () =>
+      await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
     )
   }
 
@@ -359,15 +359,15 @@ export class SessionStateService {
 
   setSnooze(principal: SessionStatePrincipal, sessionId: SessionId, until: string | null): boolean {
     if (!this.canReadSession(principal, sessionId)) return false
-    return this.persistPerUser(principal.userId, sessionId, () =>
-      this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
+    return this.persistPerUser(principal.userId, sessionId, async () =>
+      await this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
     )
   }
 
   clearSnooze(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
     if (!this.canReadSession(principal, sessionId)) return false
-    return this.persistPerUser(principal.userId, sessionId, () =>
-      this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
+    return this.persistPerUser(principal.userId, sessionId, async () =>
+      await this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
     )
   }
 
@@ -375,7 +375,7 @@ export class SessionStateService {
   async clearAllSnoozes(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!await this.ports.store.sessions.hasAnySnooze(sessionId)) return
-    this.ports.persistSession(sessionId, () => this.ports.store.sessions.clearAllSnoozes(sessionId))
+    this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
     this.invalidateAllOverlays()
     this.ports.broadcastSessions()
   }
@@ -671,9 +671,9 @@ export class SessionStateService {
       return
     }
     if (this.draftDocWriteTimers.has(sessionId)) return
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       this.draftDocWriteTimers.delete(sessionId)
-      this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)
+      await this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)
     }, DRAFT_WRITE_DEBOUNCE_MS)
     timer.unref?.()
     this.draftDocWriteTimers.set(sessionId, timer)

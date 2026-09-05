@@ -121,7 +121,7 @@ export function assertMayCommandSession(
   const capability: Capability = principal.capability
   const targetIssueId = session.issueId ?? deps.issues.issueForCwd(session.cwd)
   if (targetIssueId) {
-    checkIssueAccess(
+    await checkIssueAccess(
       { capability, ...(overrideScope ? { overrideScope: true } : {}) },
       deps.issues,
       proc,

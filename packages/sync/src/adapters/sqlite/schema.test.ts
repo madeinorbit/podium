@@ -180,10 +180,14 @@ describe('feed identity persists, and there is exactly one of it', () => {
         await repo.writeFeedIdentity(identity, 1_700_000),
     }
 
-    const minted = await new FeedIdentityRegistry(store, mint).current()
+    const registry = new FeedIdentityRegistry(store, mint)
+    await registry.resolve()
+    const minted = registry.current()
     // THE RESTART: a fresh registry, over the same durable store, with a mint that
     // would produce a different value if it were consulted.
-    const afterRestart = await new FeedIdentityRegistry(store, mint).current()
+    const restarted = new FeedIdentityRegistry(store, mint)
+    await restarted.resolve()
+    const afterRestart = restarted.current()
     expect(afterRestart).toEqual(minted)
     expect(afterRestart.feedId).toBe('feed-x')
   })

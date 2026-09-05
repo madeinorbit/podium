@@ -112,15 +112,16 @@ export function assertOpaqueEpoch(epoch: string): void {
 }
 
 /**
- * Mints on first use, persists, and rolls the epoch on demand.
+ * Resolves explicitly, persists, and rolls the epoch on demand.
  *
- * Constructing this does NOT write. The identity is minted lazily on the first
- * `current()`, so a read-only consumer of a fresh database does not silently
- * create a feed — and, more usefully, so a test can observe the "no identity
- * persisted yet" state that a first-boot replica actually meets.
+ * Constructing this does NOT write. The identity is minted only by the explicit async
+ * `resolve()` step, so a read-only consumer of a fresh database does not silently
+ * create a feed — and a test can observe the "no identity persisted yet" state.
+ * `current()` stays synchronous for non-yielding frame paths and throws until resolved.
  */
 export class FeedIdentityRegistry {
   private cached: FeedIdentity | null = null
+  private resolving: Promise<FeedIdentity> | null = null
 
   constructor(
     private readonly store: FeedIdentityStore,
@@ -135,20 +136,35 @@ export class FeedIdentityRegistry {
    * authoritative, which is what makes "survives a restart" a property a test can
    * assert by building a second registry over the same store.
    */
-  async current(): Promise<FeedIdentity> {
-    const cached = this.cached
-    if (cached !== null) return cached
-    const persisted = await this.store.readIdentity()
-    if (persisted !== null) {
-      assertOpaqueEpoch(persisted.epoch)
-      this.cached = persisted
-      return persisted
+  async resolve(): Promise<FeedIdentity> {
+    if (this.cached !== null) return this.cached
+    if (this.resolving !== null) return this.resolving
+    const resolving = (async () => {
+      const persisted = await this.store.readIdentity()
+      if (persisted !== null) {
+        assertOpaqueEpoch(persisted.epoch)
+        this.cached = persisted
+        return persisted
+      }
+      const minted: FeedIdentity = { feedId: this.mint(), epoch: this.mint() }
+      assertOpaqueEpoch(minted.epoch)
+      await this.store.writeIdentity(minted)
+      this.cached = minted
+      return minted
+    })()
+    this.resolving = resolving
+    try {
+      return await resolving
+    } finally {
+      if (this.resolving === resolving) this.resolving = null
     }
-    const minted: FeedIdentity = { feedId: this.mint(), epoch: this.mint() }
-    assertOpaqueEpoch(minted.epoch)
-    await this.store.writeIdentity(minted)
-    this.cached = minted
-    return minted
+  }
+
+  current(): FeedIdentity {
+    if (this.cached === null) {
+      throw new FeedIdentityError('feed identity is unresolved; await resolve() at the async entry point')
+    }
+    return this.cached
   }
 
   /**
@@ -162,7 +178,8 @@ export class FeedIdentityRegistry {
    * leaves every replica applying a foreign timeline with no mismatch to catch.
    */
   async bump(cause: EpochBumpCause): Promise<FeedIdentity> {
-    const previous = await this.current()
+    await this.resolve()
+    const previous = this.current()
     const epoch = this.mint()
     assertOpaqueEpoch(epoch)
     if (epoch === previous.epoch) {

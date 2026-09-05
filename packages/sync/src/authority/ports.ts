@@ -317,7 +317,9 @@ export interface AuthorityCommit<T> {
   /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
   /** What the write touched, declared by the writer. Never diffed from a list. */
-  changes: (result: T) => readonly StagedChangeSpec[]
+  changes: (result: T) =>
+    | readonly StagedChangeSpec[]
+    | Promise<readonly StagedChangeSpec[]>
 }
 
 export type AuthorityCommitOutcome<T> =

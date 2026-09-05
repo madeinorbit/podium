@@ -698,10 +698,10 @@ export class SessionLifecycle {
       // One parser for the `session:<id>` tag (POD-362): it brands what it
       // EXTRACTS while leaving the tag itself raw, which entities/session.ts
       // records as deliberate. This was the third hand-rolled copy of the slice.
-      parentSessionOf: (sessionId) =>
+      parentSessionOf: async (sessionId) =>
         spawnedByParentSessionId(
           // POD-1646: one field, one visibility check — not a full pass.
-          this.sessionSpawnedBy(sessionId),
+          await this.sessionSpawnedBy(sessionId),
         ),
       ownership: ownershipFromMachines(this.machines),
     })

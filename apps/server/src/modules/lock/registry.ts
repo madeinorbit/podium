@@ -216,10 +216,10 @@ export class LockCommandDispatcher {
   }
 
   /** Run one relayed command from RAW input. Undefined = no such procedure. */
-  dispatch(caller: IssueCaller, proc: string, rawInput: unknown): Promise<unknown> | undefined {
+  async dispatch(caller: IssueCaller, proc: string, rawInput: unknown): Promise<unknown | undefined> {
     if (!Object.hasOwn(lockRegistry.defs, proc)) return undefined
     const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc] as AnyLockCommandDef
-    return Promise.resolve().then(() => {
+    return await Promise.resolve().then(() => {
       guardLockCommand(caller, def)
       const input: unknown = def.input.parse(rawInput)
       return this.run(caller, proc, def, input)

@@ -326,7 +326,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       // only other signal is a port that has not opened yet.
       const reconcileStart = performance.now()
       const wire = await store.allWire()
-      store.deps.ledger.reconcile(
+      await store.deps.ledger.reconcile(
         'issue',
         wire.map((i) => ({ id: i.id, value: i })),
       )
@@ -338,9 +338,9 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
         })
       }
       const projections = await store.allProjections()
-      if (projections) store.deps.ledger.reconcile('issueProjection', projections)
+      if (projections) await store.deps.ledger.reconcile('issueProjection', projections)
       const depProjections = await store.allDepProjections()
-      if (depProjections) store.deps.ledger.reconcile('issueDep', depProjections)
+      if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)
       await store.publishRepos()
       await store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
     } catch (err) {

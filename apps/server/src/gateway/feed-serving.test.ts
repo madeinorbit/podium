@@ -46,21 +46,21 @@ class Peer implements EdgePeer {
 
 /** One committed entity row. The ONLY way anything enters this harness. */
 const commit = (
-  plumbing: ReturnType<typeof feedTestPlumbing>,
+  plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>,
   entity: 'session' | 'issue' | 'conversation' | 'automation' | 'automationRun',
   id: string,
   value: unknown,
 ) =>
   plumbing.ledger.commit({
-    write: () => {},
+    write: async () => {},
     changes: () => [{ entity, id, op: 'upsert', value }],
   })
 
 /** Publish whatever the Authority has appended, exactly as the funnel does. */
-function publishPending(plumbing: ReturnType<typeof feedTestPlumbing>, fromSeq: number): number {
-  const delivery = plumbing.authority.changesSince(fromSeq, DEVICE_GRADE_PRINCIPAL)
+async function publishPending(plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>, fromSeq: number): Promise<number> {
+  const delivery = await plumbing.authority.changesSince(fromSeq, DEVICE_GRADE_PRINCIPAL)
   if (delivery === null) throw new Error('the log could not serve from that cursor')
-  plumbing.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+  await plumbing.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
   return delivery.throughSeq
 }
 
@@ -111,11 +111,11 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
 describe('a v1 peer is served the pre-cutover messages, folded out of the feed', () => {
   it('a snapshot peer gets the five lists, in the attach order it always had', async () => {
     const p = await feedTestPlumbing()
-    commit(p, 'session', 's1', { sessionId: 's1' })
-    commit(p, 'issue', 'i1', { id: 'i1' })
-    commit(p, 'conversation', 'c1', { id: 'c1' })
-    commit(p, 'automation', 'a1', { id: 'a1' })
-    commit(p, 'automationRun', 'r1', { id: 'r1' })
+    await commit(p, 'session', 's1', { sessionId: 's1' })
+    await commit(p, 'issue', 'i1', { id: 'i1' })
+    await commit(p, 'conversation', 'c1', { id: 'c1' })
+    await commit(p, 'automation', 'a1', { id: 'a1' })
+    await commit(p, 'automationRun', 'r1', { id: 'r1' })
 
     const peer = new Peer('legacy', 1)
     expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
@@ -136,8 +136,8 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
   it('serves the LATEST value, not a replay of every write', async () => {
     const p = await feedTestPlumbing()
-    commit(p, 'issue', 'i1', { id: 'i1', title: 'first' })
-    commit(p, 'issue', 'i1', { id: 'i1', title: 'second' })
+    await commit(p, 'issue', 'i1', { id: 'i1', title: 'first' })
+    await commit(p, 'issue', 'i1', { id: 'i1', title: 'second' })
 
     const peer = new Peer('legacy', 1)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
@@ -147,10 +147,10 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
   it('a REMOVED entity is absent from the world — not a tombstone in the list', async () => {
     const p = await feedTestPlumbing()
-    commit(p, 'issue', 'i1', { id: 'i1' })
-    commit(p, 'issue', 'i2', { id: 'i2' })
+    await commit(p, 'issue', 'i1', { id: 'i1' })
+    await commit(p, 'issue', 'i2', { id: 'i2' })
     await p.ledger.commit({
-      write: () => {},
+      write: async () => {},
       changes: () => [{ entity: 'issue', id: 'i1', op: 'remove' }],
     })
 
@@ -162,13 +162,13 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
   it('a delta-capable v1 peer resumes EXACTLY where its bootstrap stopped', async () => {
     const p = await feedTestPlumbing()
-    commit(p, 'session', 's1', { sessionId: 's1' })
+    await commit(p, 'session', 's1', { sessionId: 's1' })
     const peer = new Peer('modern-v1', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     const bootstrapSeq = await p.authority.cursor()
 
-    commit(p, 'session', 's2', { sessionId: 's2' })
-    publishPending(p, bootstrapSeq)
+    await commit(p, 'session', 's2', { sessionId: 's2' })
+    await publishPending(p, bootstrapSeq)
 
     const delta = peer.last('metadataDelta') as {
       fromExclusive: number
@@ -194,8 +194,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
     p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
 
-    commit(p, 'issue', 'i1', { id: 'i1' })
-    publishPending(p, 0)
+    await commit(p, 'issue', 'i1', { id: 'i1' })
+    await publishPending(p, 0)
 
     // ONE feed, TWO renderings of it. The v2 frame carries the certified range
     // and the retention floor; the v1 message is the same rows in the old shape.
@@ -219,7 +219,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
   it('streams a large v2 bootstrap with one atomic snapshot cursor', async () => {
     const p = await feedTestPlumbing()
     for (let i = 0; i < FEED_BOOTSTRAP_CHUNK_ROWS + 1; i += 1) {
-      commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
+      await commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
     }
 
     const peer = new Peer('v2-large', WIRE_VERSION, true)
@@ -262,7 +262,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
 
   it('a peer outside the supported window is REFUSED, and served nothing', async () => {
     const p = await feedTestPlumbing()
-    commit(p, 'issue', 'i1', { id: 'i1' })
+    await commit(p, 'issue', 'i1', { id: 'i1' })
     const ancient = new Peer('too-old', MIN_SUPPORTED_VERSION - 1)
     const future = new Peer('too-new', WIRE_VERSION + 1)
 
@@ -284,7 +284,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     // that is told to upgrade.
     expect(ancient.received).toEqual([])
     expect(future.received).toEqual([])
-    publishPending(p, 0)
+    await publishPending(p, 0)
     expect(ancient.received).toEqual([])
     expect(future.received).toEqual([])
     expect(p.serving.connectionCount()).toBe(0)
@@ -292,7 +292,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
   describe('bootstrap cadence across connections', () => {
     it('reuses and incrementally advances one principal world across reconnecting peers', async () => {
       const p = await feedTestPlumbing()
-      commit(p, 'session', 's1', { sessionId: 's1' })
+      await commit(p, 'session', 's1', { sessionId: 's1' })
       const bootstrap = vi.spyOn(p.authority, 'bootstrap')
 
       const first = new Peer('first', WIRE_VERSION, true)
@@ -306,7 +306,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       // The Authority subscription advances the retained world synchronously,
       // before the queued delivery flush. A peer arriving in that window must see
       // the new row without forcing a second latest-state fold.
-      commit(p, 'session', 's2', { sessionId: 's2' })
+      await commit(p, 'session', 's2', { sessionId: 's2' })
       const advanced = new Peer('advanced', WIRE_VERSION, true)
       p.serving.attach(advanced, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(advanced.id))
       expect(bootstrap).toHaveBeenCalledTimes(1)
@@ -318,7 +318,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       expect(advancedWorld.changes.map((change) => change.entityId)).toEqual(['s1', 's2'])
 
       await p.ledger.commit({
-        write: () => {},
+        write: async () => {},
         changes: () => [{ entity: 'session', id: 's1', op: 'remove' }],
       })
       const afterRemove = new Peer('after-remove', WIRE_VERSION, true)
@@ -343,7 +343,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       // from missed deliveries. The next peer falls back to one authoritative
       // fold rather than serving the retained world as if it were current.
       p.serving.detach(reconnected.id)
-      commit(p, 'session', 's3', { sessionId: 's3' })
+      await commit(p, 'session', 's3', { sessionId: 's3' })
       const afterGap = new Peer('after-gap', WIRE_VERSION, true)
       p.serving.attach(afterGap, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(afterGap.id))
       expect(bootstrap).toHaveBeenCalledTimes(2)
@@ -353,7 +353,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
 
     it('the existing-peer guard sends no second world for a repeated attach', async () => {
       const p = await feedTestPlumbing()
-      commit(p, 'session', 's1', { sessionId: 's1' })
+      await commit(p, 'session', 's1', { sessionId: 's1' })
       const bootstrap = vi.spyOn(p.authority, 'bootstrap')
       const peer = new Peer('stable', WIRE_VERSION, true)
 
@@ -385,7 +385,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     // property that has to survive is that each peer's stream is contiguous from
     // ITS OWN bootstrap, not from a shared cursor.
     const p = await feedTestPlumbing()
-    for (let i = 0; i < 20; i++) commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
+    for (let i = 0; i < 20; i++) await commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
 
     const peers = Array.from({ length: 12 }, (_, i) => new Peer(`c${i}`, 1, true))
     let published = 0
@@ -394,7 +394,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
       // Interleaved, which is what a storm is: a write lands between attaches, so
       // no two peers bootstrap at the same seq.
       if (index % 3 === 0) {
-        commit(p, 'session', `storm-${index}`, { sessionId: `storm-${index}` })
+        commit(p, 'session', `storm-`, { sessionId: `storm-${index}` })
         published = publishPending(p, published)
       }
       expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
@@ -402,8 +402,8 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     })
     expect(new Set(bootstrapSeq.values()).size).toBeGreaterThan(1)
 
-    commit(p, 'session', 'after-the-storm', { sessionId: 'after-the-storm' })
-    published = publishPending(p, published)
+    await commit(p, 'session', 'after-the-storm', { sessionId: 'after-the-storm' })
+    published = await publishPending(p, published)
 
     for (const peer of peers) {
       // 1. Each got a world, ONCE.
@@ -446,8 +446,8 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     expect(p.serving.connectionCount()).toBe(0)
 
     const before = peers.map((peer) => peer.received.length)
-    commit(p, 'session', 's1', { sessionId: 's1' })
-    publishPending(p, 0)
+    await commit(p, 'session', 's1', { sessionId: 's1' })
+    await publishPending(p, 0)
     expect(peers.map((peer) => peer.received.length)).toEqual(before)
   })
 })
@@ -456,7 +456,7 @@ describe('advisories that are not feed content', () => {
   it('a diagnostics change re-serves the conversation list to a v1 peer, and nothing to a v2 one', async () => {
     let diagnostics = [{ kind: 'scan-error', detail: 'x' }] as never[]
     const p = await feedTestPlumbing({ diagnostics: () => diagnostics })
-    commit(p, 'conversation', 'c1', { id: 'c1' })
+    await commit(p, 'conversation', 'c1', { id: 'c1' })
     const legacy = new Peer('v1', 1, true)
     const modern = new Peer('v2', WIRE_VERSION, true)
     p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))

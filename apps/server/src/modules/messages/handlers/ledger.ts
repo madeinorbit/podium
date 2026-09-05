@@ -30,7 +30,7 @@ export async function ledgerHandler(
   // existence oracle: a query scoped to an issue beyond the human ceiling
   // returns an EMPTY page, identical to an issue with no traffic.
   if (input.issueId !== undefined) {
-    const resolved = access.resolveIssueAddress(input.issueId)
+    const resolved = await access.resolveIssueAddress(input.issueId)
     if (resolved.kind !== 'issue') return []
   }
   const rows = await deps.messages.ledger(input)
@@ -39,5 +39,5 @@ export async function ledgerHandler(
   // entirely from their own rows. Same `mayView` predicate the show/status
   // surfaces use, so there is one definition of "my traffic", not two.
   const visible = crossUser ? rows : rows.filter((m) => access.mayView(caller.capability, m))
-  return visible.map((m) => access.wire(m))
+  return await Promise.all(visible.map(async (m) => await access.wire(m)))
 }

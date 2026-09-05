@@ -165,7 +165,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
   })
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     if (failed) return
     if (typeof raw !== 'string') {
       if (principal === undefined) {
@@ -311,7 +311,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // handshake carries it and never interprets it (see `directoryContext`).
       if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
         for (const agentKind of ['claude-code', 'codex'] as const) {
-          registry.modules.loginPropagation.trigger({
+          await registry.modules.loginPropagation.trigger({
             targetMachineId: outcome.principal.machine,
             agentKind,
             force: true,

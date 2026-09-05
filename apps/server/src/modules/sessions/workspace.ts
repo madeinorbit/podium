@@ -186,13 +186,13 @@ export class SessionWorkspace {
       ...new Set([...(input.baseCandidates ?? []), 'main', 'origin/main', input.ref]),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
+      candidates.map(async (ref) =>
+        await rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
       ),
     )
     const targetVerified = await Promise.all(
-      verifiedBundleBases(sourceVerified).map((ref) =>
-        rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
+      verifiedBundleBases(sourceVerified).map(async (ref) =>
+        await rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
       ),
     )
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
@@ -432,14 +432,14 @@ export class SessionWorkspace {
       ),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
+      candidates.map(async (ref) =>
+        await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
       ),
     )
     const sourceBaseShas = verifiedBundleBases(sourceVerified)
     const fetcherVerified = await Promise.all(
-      sourceBaseShas.map((ref) =>
-        this.ports.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
+      sourceBaseShas.map(async (ref) =>
+        await this.ports.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
       ),
     )
     const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)

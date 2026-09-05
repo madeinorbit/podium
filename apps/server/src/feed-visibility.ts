@@ -246,41 +246,41 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
   }
 
-  const readIssue = (issueId: IssueId, prefetch?: BootstrapVisibilityPrefetch): IssueRow | null => {
+  const readIssue = async (issueId: IssueId, prefetch?: BootstrapVisibilityPrefetch): Promise<IssueRow | null> => {
     if (prefetch?.issueIds.has(issueId)) return prefetch.issues.get(issueId) ?? null
-    return measure('visibility.issue.getIssue', async () => await store.issues.getIssue(issueId))
+    return await measure('visibility.issue.getIssue', async () => await store.issues.getIssue(issueId))
   }
 
-  const readSession = (
+  const readSession = async (
     sessionId: SessionId,
     prefetch?: BootstrapVisibilityPrefetch,
-  ): SessionRow | undefined => {
+  ): Promise<SessionRow | undefined> => {
     if (prefetch?.sessionIds.has(sessionId)) return prefetch.sessions.get(sessionId)
-    return measure('visibility.session.getSession', async () =>
+    return await measure('visibility.session.getSession', async () =>
       await store.sessions.getSession(asSessionId(sessionId)),
     )
   }
 
-  const readShipOrderIssueId = (
+  const readShipOrderIssueId = async (
     orderId: string,
     prefetch?: BootstrapVisibilityPrefetch,
-  ): string | null => {
+  ): Promise<string | null> => {
     if (prefetch?.shipOrderIds.has(orderId)) {
       return prefetch.issueIdsByShipOrder.get(orderId) ?? null
     }
-    return measure('visibility.shipOrder.issueIdForOrder', async () =>
+    return await measure('visibility.shipOrder.issueIdForOrder', async () =>
       await store.shipping.issueIdForOrder(orderId),
     )
   }
 
-  const readConversationSession = (
+  const readConversationSession = async (
     resumeValue: string,
     prefetch?: BootstrapVisibilityPrefetch,
-  ): SessionRow | undefined => {
+  ): Promise<SessionRow | undefined> => {
     if (prefetch?.resumeValues.has(resumeValue)) {
       return prefetch.sessionsByResumeValue.get(resumeValue)
     }
-    return measure('visibility.conversation.findSessionByResumeValue', async () =>
+    return await measure('visibility.conversation.findSessionByResumeValue', async () =>
       await store.sessions.findSessionByResumeValue(resumeValue),
     )
   }
@@ -295,12 +295,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    * The perf phase stays per arm, because the two are separately attributable
    * series and renaming one renames a chart.
    */
-  const sessionGrantAdmits = (
+  const sessionGrantAdmits = async (
     sessionId: string,
     userId: string,
     prefetch: BootstrapVisibilityPrefetch | undefined,
     arm: 'session' | 'conversation' = 'session',
-  ): boolean => {
+  ): Promise<boolean> => {
     const admits = (edge: GrantRow): boolean => edge.grantee === userId && edge.verb === 'read'
     if (prefetch?.sessionGrantIds.has(sessionId)) {
       return (prefetch.sessionGrants().get(sessionId) ?? []).some(admits)
@@ -309,14 +309,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       arm === 'session'
         ? ('visibility.session.grants.listForResource' as const)
         : ('visibility.conversation.grants.listForResource' as const)
-    return measure(phase, async () => (await store.grants.listForResource('session', sessionId)).some(admits))
+    return await measure(phase, async () => (await store.grants.listForResource('session', sessionId)).some(admits))
   }
 
-  const mayReadIssue = (
+  const mayReadIssue = async (
     userId: UserId,
     issueId: IssueId,
     prefetch?: BootstrapVisibilityPrefetch,
-  ): boolean => {
+  ): Promise<boolean> => {
     // Authority publishes after the transaction commits but before IssueService
     // installs a newly-created row in its live map. Read the durable row here so
     // the creation frame is scoped from the same committed truth catch-up sees.
@@ -328,7 +328,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     if (prefetch?.issueGrantIds.has(issueId)) {
       return (prefetch.issueGrants().get(issueId) ?? []).some(admits)
     }
-    return measure('visibility.issue.grants.listForResource', async () =>
+    return await measure('visibility.issue.grants.listForResource', async () =>
       (await store.grants.listForResource('issue', issueId)).some(admits),
     )
   }
@@ -378,7 +378,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           return 'personal'
         return null
       },
-      mayRead: (userId, ref) => {
+      mayRead: async (userId, ref) => {
         if (userId === 'device:shared-instance-password') return true
         if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
           return mayReadIssue(asUserId(userId), asIssueId(ref.entityId), prefetch)
@@ -443,14 +443,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // is the only state from which a removal's audience is answerable.
         if (ref.entity === 'automation') {
           return (
-            measure('visibility.automation.ownerOf', async () =>
+            await measure('visibility.automation.ownerOf', async () =>
               await store.automations.ownerOf(ref.entityId),
             ) === userId
           )
         }
         if (ref.entity === 'automationRun') {
           return (
-            measure('visibility.automationRun.runOwnerOf', async () =>
+            await measure('visibility.automationRun.runOwnerOf', async () =>
               await store.automations.runOwnerOf(ref.entityId),
             ) === userId
           )
@@ -505,7 +505,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    * through to a live point read — correct, but the fall-through is the thing
    * this exists to avoid.
    */
-  const prepareOver = (refs: readonly EntityRef[]): VisibilityStatePort => {
+  const prepareOver = async (refs: readonly EntityRef[]): Promise<VisibilityStatePort> => {
     const issueIds = new Set<string>()
     const shipOrderIds = new Set<string>()
     const sessionIds = new Set<string>()
@@ -536,41 +536,41 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
-        : measure('visibility.shipOrder.issueIdForOrder', async () =>
+        : await measure('visibility.shipOrder.issueIdForOrder', async () =>
             await store.shipping.issueIdsForOrders([...shipOrderIds]),
           )
     for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
     const issues =
       issueIds.size === 0
         ? new Map<string, IssueRow>()
-        : measure('visibility.issue.getIssue', async () => await store.issues.getIssues([...issueIds]))
+        : await measure('visibility.issue.getIssue', async () => await store.issues.getIssues([...issueIds]))
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()
-        : measure('visibility.session.getSession', async () =>
+        : await measure('visibility.session.getSession', async () =>
             await store.sessions.getSessions([...sessionIds]),
           )
     const sessionsByResumeValue =
       resumeValues.size === 0
         ? new Map<string, SessionRow>()
-        : measure('visibility.conversation.findSessionByResumeValue', async () =>
+        : await measure('visibility.conversation.findSessionByResumeValue', async () =>
             await store.sessions.findSessionsByResumeValues([...resumeValues]),
           )
     // The session ids a grant question can be asked about: the ones named
     // directly, plus the ones a conversation resolved to.
     const grantedSessionIds = new Set<string>(sessionIds)
     for (const row of sessionsByResumeValue.values()) grantedSessionIds.add(row.id)
-    const issueGrants = onFirstAsk(() =>
+    const issueGrants = onFirstAsk(async () =>
       issueIds.size === 0
         ? new Map<string, GrantRow[]>()
-        : measure('visibility.issue.grants.listForResource', async () =>
+        : await measure('visibility.issue.grants.listForResource', async () =>
             await store.grants.listForResources('issue', [...issueIds]),
           ),
     )
-    const sessionGrants = onFirstAsk(() =>
+    const sessionGrants = onFirstAsk(async () =>
       grantedSessionIds.size === 0
         ? new Map<string, GrantRow[]>()
-        : measure('visibility.session.grants.listForResource', async () =>
+        : await measure('visibility.session.grants.listForResource', async () =>
             await store.grants.listForResources('session', [...grantedSessionIds]),
           ),
     )
@@ -677,14 +677,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   }
 
   const anchors: VisibilityAnchorPort = {
-    visibilityEdge: (ref) => {
+    visibilityEdge: async (ref) => {
       if (ref.entity !== 'issue') return null
-      const audience = store.grants.visibilityAudienceFor('issue', ref.entityId)
+      const audience = await store.grants.visibilityAudienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
-      const cache = currentBootstrapReadCache()
+      const cache = await currentBootstrapReadCache()
       // BY QUERY, NEVER BY SCAN [POD-3261], the same lesson the `conversation`
       // arm learned at POD-1614. See {@link BootstrapReadCache.sessionsByIssue}.
-      const issueSessions = sessionsForIssue(cache, ref.entityId)
+      const issueSessions = await sessionsForIssue(cache, ref.entityId)
       const subjects = [
         { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
@@ -711,7 +711,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ]
       return { audience, subjects }
     },
-    currentValueOf: (ref) => durableChangeValueOf(ref),
+    currentValueOf: async (ref) => await durableChangeValueOf(ref),
   }
 
   return {
@@ -719,7 +719,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     anchors,
     beginBootstrapRead,
     finishBootstrapRead,
-    authorizationRevision: () => store.grants.visibilityRevision(),
+    authorizationRevision: async () => await store.grants.visibilityRevision(),
     mayReadIssue: (userId, issueId) => mayReadIssue(userId, issueId),
   }
 }

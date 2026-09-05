@@ -158,9 +158,9 @@ export class SpecsService {
    * method, so the relay path cannot reach an unregistered root. Returns undefined
    * for an unknown proc so the gate shapes its own "no such procedure" reply.
    */
-  invoke(proc: string, rawInput: unknown): Promise<unknown> | undefined {
+  async invoke(proc: string, rawInput: unknown): Promise<unknown | undefined> {
     if (!this.has(proc)) return undefined
-    return Promise.resolve().then(() => {
+    return await Promise.resolve().then(() => {
       const schema = (specsInputs as Record<string, z.ZodTypeAny>)[proc]!
       const input = schema.parse(rawInput)
       const method = (this as unknown as Record<string, (i: unknown) => unknown>)[proc]!

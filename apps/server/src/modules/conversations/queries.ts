@@ -42,7 +42,7 @@ export const CONVERSATION_QUERIES = {
       projectPath: z.string().optional(),
       limit: z.number().int().positive().max(200).optional(),
     }),
-    (service, input) => service.searchConversations(input),
+    async (service, input) => await service.searchConversations(input),
   ),
 } as const
 

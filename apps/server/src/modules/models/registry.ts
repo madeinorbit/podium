@@ -51,8 +51,8 @@ export interface ModelCommand {
 export const MODEL_COMMANDS_TRPC = {
   refresh: {
     contract: MODEL_CONTRACTS.refresh,
-    handler: ((state, input) =>
-      state.settings.refreshModelCatalog(
+    handler: (async (state, input) =>
+      await state.settings.refreshModelCatalog(
         input?.machineId ?? state.defaultMachine(),
       )) satisfies ModelHandler<z.infer<(typeof MODEL_CONTRACTS)['refresh']['input']>, unknown>,
   },
@@ -79,6 +79,6 @@ export const modelRegistryClassificationErrors = (): string[] =>
 export function selectModelState(modules: RegistryModules): ModelState {
   return {
     settings: modules.settings,
-    defaultMachine: () => modules.machines.defaultMachine(),
+    defaultMachine: async () => await modules.machines.defaultMachine(),
   }
 }

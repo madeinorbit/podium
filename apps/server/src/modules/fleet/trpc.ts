@@ -57,14 +57,14 @@ import {
  * in-process callers) keep the historical core+hub shape, which is why the
  * condition is `ctx.role && !ctx.role.hub` and not `!ctx.role?.hub`.
  */
-export const hubRoleGuard = t.middleware(({ ctx, next }) => {
+export const hubRoleGuard = t.middleware(async ({ ctx, next }) => {
   if (ctx.role && !ctx.role.hub) {
     throw new TRPCError({
       code: 'NOT_FOUND',
       message: 'not available: this server does not run the hub role',
     })
   }
-  return next()
+  return await next()
 })
 
 const hubProc = t.procedure.use(hubRoleGuard)
@@ -109,7 +109,7 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   // input it accepts), and `FleetProcedures` re-derives the per-command types
   // for the client. This erasure is the one place the two meet.
   const run = handler as FleetHandler<unknown, unknown>
-  return base.input(contract.input).mutation(({ ctx, input }) => {
+  return base.input(contract.input).mutation(async ({ ctx, input }) => {
     // THE AUTHORIZATION GATE, DERIVED (POD-1079). It runs for every fleet
     // command from the contract's own `roleFloor` and `machineVerb`, before the
     // handler and after input parsing — the verb needs to know WHICH machine,
@@ -117,7 +117,7 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
     // to forget; this is one, and `authz.ts`'s target table makes a new command
     // that declares a verb a COMPILE error until it says how its machine is
     // named.
-    const refusal = fleetAuthzFailure(name, input, fleetAuthzDeps(ctx))
+    const refusal = fleetAuthzFailure(name, input, await fleetAuthzDeps(ctx))
     if (refusal) throw refusal
     return run({ ctx, input, ports })
   })

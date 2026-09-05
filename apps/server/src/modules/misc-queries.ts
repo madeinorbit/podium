@@ -69,7 +69,7 @@ export const SEARCH_QUERIES = {
       text: z.string().min(1).max(256),
       limit: z.number().int().positive().max(100).optional(),
     }),
-    (s, input) => s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
+    async (s, input) => await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 
@@ -235,7 +235,7 @@ export const QUOTA_QUERIES = {
 
 export const FEATURE_QUERIES = {
   /** Experimental feature flags [spec:SP-f4b9] — same auth as settings.get. */
-  state: q(noInput, (s) => getFeatureStates(s.modules.settings.getSettings(), loadConfig())),
+  state: q(noInput, async (s) => getFeatureStates(await s.modules.settings.getSettings(), loadConfig())),
 } as const
 
 // ---------------------------------------------------------------------------

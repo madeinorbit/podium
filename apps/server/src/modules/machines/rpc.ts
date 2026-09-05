@@ -616,8 +616,8 @@ export class DaemonRpcService {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
     const perMachine = await Promise.all(
-      machineIds.map((machineId) =>
-        this.request(
+      machineIds.map(async (machineId) =>
+        await this.request(
           QUOTA_HISTORY,
           120_000,
           () => ({ samples: [] }),
@@ -687,7 +687,7 @@ export class DaemonRpcService {
   async agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
-    return Promise.all(
+    return await Promise.all(
       machineIds.map(async (machineId) => {
         const { hostname, agents } = await this.agentQuota(refresh, machineId)
         return { machineId, machineName: this.deps.machineName(machineId), hostname, agents }
@@ -1353,7 +1353,7 @@ export class DaemonRpcService {
           TRANSCRIPT_READ,
           SCAN_TIMEOUT_MS,
           () => ({ items: [], hasMore: false }),
-          (requestId) => ({
+          async (requestId) => ({
             type: 'transcriptRead',
             requestId,
             sessionId: input.sessionId,
@@ -1363,7 +1363,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(this.transcriptPathHint(reader, session) ?? {}),
+            ...(await this.transcriptPathHint(reader, session) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -1418,7 +1418,7 @@ export class DaemonRpcService {
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_READ,
@@ -1463,7 +1463,7 @@ export class DaemonRpcService {
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_ASSET,
@@ -1517,7 +1517,7 @@ export class DaemonRpcService {
     })
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, error: 'no session' })
+      if (!session) return await Promise.resolve({ ok: false, error: 'no session' })
       return await this.request(
         FILE_WRITE,
         FILE_RPC_TIMEOUT_MS,
@@ -1549,7 +1549,7 @@ export class DaemonRpcService {
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     if (Array.isArray(input.manifest))
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',
         ok: false,
@@ -1565,7 +1565,7 @@ export class DaemonRpcService {
       manifest.targetMachineId !== machineId ||
       manifest.sourceMachineId === manifest.targetMachineId
     )
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',
         ok: false,
@@ -1728,7 +1728,7 @@ export class DaemonRpcService {
   ): Promise<Payload<ServerTransferResultMessage>> {
     const manifestDigest = this.serverTransferDigests.get(machineId + ':' + transferId)
     if (!manifestDigest)
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId,
         operation: 'abort',
         ok: false,

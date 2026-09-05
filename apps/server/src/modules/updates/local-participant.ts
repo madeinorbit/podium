@@ -57,8 +57,8 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
   }
   const installTarget =
     deps.installTarget ??
-    ((target: UpdateTarget) =>
-      requestParentSwap({
+    (async (target: UpdateTarget) =>
+      await requestParentSwap({
         expectedVersion: target.version,
         target: target as unknown as Record<string, unknown>,
         ...(deps.pinnedPubkey ? { pinnedPubkey: deps.pinnedPubkey } : {}),

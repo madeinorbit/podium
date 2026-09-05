@@ -280,7 +280,7 @@ export function wireDevBundlePublisher(deps: {
    */
   const readHeadSha = deps.readHeadSha ?? developmentHeadSha
   const headSha = sourceRoot
-    ? createGitHeadShaCache(sourceRoot, () => readHeadSha(sourceRoot))
+    ? createGitHeadShaCache(sourceRoot, async () => await readHeadSha(sourceRoot))
     : undefined
   /**
    * The website the compile will demand. Owned here rather than in `server.ts`
@@ -292,7 +292,7 @@ export function wireDevBundlePublisher(deps: {
     ? createDevWebBuilder({
         root: sourceRoot,
         instanceId,
-        headSha: async () => await headSha?.read() ?? readHeadSha(sourceRoot),
+        headSha: async () => await headSha?.read() ?? await readHeadSha(sourceRoot),
       })
     : undefined
   const publisher = sourceRoot
@@ -301,7 +301,7 @@ export function wireDevBundlePublisher(deps: {
         root: sourceRoot,
         instanceId,
         publisherStateDir: publisherStateDirectory,
-        headSha: async () => await headSha?.read() ?? readHeadSha(sourceRoot),
+        headSha: async () => await headSha?.read() ?? await readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         ...(releaseTiming ? { timing: releaseTiming } : {}),
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
@@ -481,7 +481,7 @@ export function wireDevBundlePublisher(deps: {
     if (provenArtifactKey === key) return
     if (proofInFlight?.key === key) return proofInFlight.proof
 
-    const proof = (async () => {
+    const proof = await (async () => {
       for (const [url, artifact] of routes) {
         const size = await artifactSize(artifact.path)
         if (size === undefined) {
@@ -633,13 +633,13 @@ export function wireDevBundlePublisher(deps: {
       return await approval.approve(approvedBy, expected)
     },
     requestBuild: async () => {
-      if (!publisher) return Promise.resolve()
+      if (!publisher) return await Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
       // pack for thirty-five seconds and leave the step waiting (POD-2227).
       const blocked = artifactOriginFailure()
       if (blocked) {
         recordPublishFailure(blocked)
-        return Promise.reject(blocked)
+        return await Promise.reject(blocked)
       }
       publishFailureDetail = undefined
       // A human pressed Update. Whatever the stamp says, ask git — the one

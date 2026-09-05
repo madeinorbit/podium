@@ -99,7 +99,7 @@ export class IssueAssistantDigestModule {
           settings,
           // POD-419: the provider's key, resolved at the moment of use out of
           // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: (provider) => this.store.d.store.secrets.apiKeyFor(provider),
+          apiKey: async (provider) => await this.store.d.store.secrets.apiKeyFor(provider),
           llm: this.store.d.llm,
         },
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
@@ -138,6 +138,6 @@ export class IssueAssistantDigestModule {
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return this.store.persistRow(row)
+    return await this.store.persistRow(row)
   }
 }

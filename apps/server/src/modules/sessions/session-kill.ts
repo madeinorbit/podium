@@ -138,8 +138,8 @@ export class SessionKill {
       // client attachment dropped — so on that path it tore a session down for
       // a tombstone the enclosing span could still roll back, and there is no
       // un-kill to compensate with.
-      apply: (_result, changes) => {
-        this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
+      apply: async (_result, changes) => {
+        await this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
         this.ports.repository.publishSessionProjection(changes)
       },
     })

@@ -28,7 +28,7 @@ import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
-import { authorize, type Capability, type IssueAccessIndex } from '../../issue-authz'
+import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import { findSessionById } from '../sessions/session-by-id'
@@ -126,15 +126,15 @@ export interface IssueCommandDeps {
 /** The narrow read surface the capability guard and `IssueCommandCtx.access`
  *  both decide against. Exported since POD-1398: `guardIssueCommand` lives with
  *  the table it reads defs from, and the dispatcher builds one per call. */
-export type IssueCommandAccess = IssueAccessIndex &
+export type IssueCommandAccess = IssueAccessReader &
   Pick<IssueReportsCapability, 'getMeta' | 'resolveRef'>
 
 /** Flatten the two public capability contracts for the shared authz predicate. */
 export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
   return {
-    has: (id) => tracker.reports.has(id),
-    ownedTarget: (id, action) => tracker.reports.ownedTarget(id, action),
-    ancestorIds: (id) => tracker.hierarchy.ancestorIds(id),
+    has: async (id) => await tracker.reports.has(id),
+    ownedTarget: async (id, action) => await tracker.reports.ownedTarget(id, action),
+    ancestorIds: async (id) => await tracker.hierarchy.ancestorIds(id),
     getMeta: async (id) => await tracker.reports.getMeta(id),
     resolveRef: async (ref, scopeRepoPath) => await tracker.reports.resolveRef(ref, scopeRepoPath),
   }
@@ -219,19 +219,20 @@ export class IssueCommandCtx {
     }
   }
 
-  visibleRows<T extends { id: string }>(rows: readonly T[]): T[] {
-    return rows.filter((row) => this.mayReadIssue(row.id))
+  async visibleRows<T extends { id: string }>(rows: readonly T[]): Promise<T[]> {
+    const visible = await Promise.all(rows.map((row) => this.mayReadIssue(row.id)))
+    return rows.filter((_, index) => visible[index])
   }
 
-  async readIssue<T>(id: string, read: () => T): Promise<T> {
+  async readIssue<T>(id: string, read: () => T | Promise<T>): Promise<T> {
     await this.requireReadableIssue(id)
-    return read()
+    return await read()
   }
 
-  visibleGraph(
-    graph: ReturnType<IssueReportsCapability['graph']>,
-  ): ReturnType<IssueReportsCapability['graph']> {
-    const nodes = this.visibleRows(graph.nodes)
+  async visibleGraph(
+    graph: Awaited<ReturnType<IssueReportsCapability['graph']>>,
+  ): Promise<Awaited<ReturnType<IssueReportsCapability['graph']>>> {
+    const nodes = await this.visibleRows(graph.nodes)
     const ids = new Set(nodes.map((node) => node.id))
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }

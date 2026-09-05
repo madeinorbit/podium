@@ -802,14 +802,16 @@ export class IssueStore {
       return v
     }
     const inScope = await this.repoScopeFilter(repoPath)
-    return [...this.rows.values()]
+    const rows = [...this.rows.values()]
       .filter((r) => inScope(r))
       .sort((a, b) => {
         const ga = a.repoId ?? a.repoPath
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWireMemo(r, commentCounts, batch, prefixFor(r.repoPath)))
+    return await Promise.all(
+      rows.map(async (r) => await this.toWireMemo(r, commentCounts, batch, await prefixFor(r.repoPath))),
+    )
   }
 
   /**
@@ -1070,7 +1072,7 @@ export class IssueStore {
     const repos = await this.allRepoProjections()
     if (!repos) return
     try {
-      this.deps.ledger.reconcile('repo', repos)
+      await this.deps.ledger.reconcile('repo', repos)
     } catch (err) {
       log.warn('repo projection publish failed', { err })
     }
@@ -1081,15 +1083,15 @@ export class IssueStore {
    *  truth in the same pass, so the legacy feed and the normalized feed can
    *  never disagree about which issues exist. */
   async reconcileAndPublish(spec: PublishSpec): Promise<void> {
-    this.deps.ledger.reconcile('issue', spec.rows)
+    await this.deps.ledger.reconcile('issue', spec.rows)
     const projections = await this.allProjections()
-    if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+    if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
     // The edges reconcile on the same full-truth passes [POD-822], for the same
     // reason the projections do: this path exists to catch what no write
     // declared, and a CASCADE delete (an issue removed takes its edges with it)
     // is exactly that.
     const depProjections = await this.allDepProjections()
-    if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
+    if (depProjections) await this.deps.ledger.reconcile('issueDep', depProjections)
   }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
@@ -1111,8 +1113,8 @@ export class IssueStore {
    *  toWire; mutations that change OTHER issues' derived wire data (closed flips
    *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
    *  membership changes) additionally call {@link broadcastList}. */
-  persist(row: IssueRow, opts?: { touch?: boolean }): IssueWire {
-    return this.persistWith(row, undefined, opts)
+  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueWire> {
+    return await this.persistWith(row, undefined, opts)
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
@@ -1120,9 +1122,9 @@ export class IssueStore {
    *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
-  persistWith(
+  async persistWith(
     row: IssueRow,
-    extraWrite?: () => void,
+    extraWrite?: () => unknown | Promise<unknown>,
     opts?: {
       touch?: boolean
       /**
@@ -1138,9 +1140,11 @@ export class IssueStore {
        * every replica, healed by nothing.
        */
       /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
-      extraChanges?: readonly EntityChangeSpec[] | (() => readonly EntityChangeSpec[])
+      extraChanges?:
+        | readonly EntityChangeSpec[]
+        | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
     },
-  ): IssueWire {
+  ): Promise<IssueWire> {
     // DRAFT-THEN-INSTALL (#247 rebuilt for the async store, POD-3259). `row` is
     // a DRAFT — a copy pinned to the revision it was cut from — never the
     // map-owned object, which is what {@link refuseMapOwnedRow} enforces. There
@@ -1166,13 +1170,21 @@ export class IssueStore {
     // NO try/catch: there is nothing to undo on a throw, which is the whole
     // point of the draft above. The commit stands unguarded and the caller sees
     // the ledger's own failure.
-    const wire = this.deps.ledger.commit({
+    let committedProjectionChanges: readonly EntityChangeSpec[] = []
+    let committedExtraChanges: readonly EntityChangeSpec[] = []
+    const wire = (await this.deps.ledger.commit({
       write: async () => {
-        extraWrite?.()
+        await extraWrite?.()
         await this.deps.store.issues.upsertIssue(row, pin === undefined ? undefined : { expectedRevision: pin })
         // toWire never looks `row` itself up in the map (children/blocked scan
         // OTHER rows), so it is safe to serialize before the map install below.
-        return await this.toWire(row)
+        const committedWire = await this.toWire(row)
+        committedProjectionChanges = await this.projectionChanges(row)
+        committedExtraChanges =
+          typeof opts?.extraChanges === 'function'
+            ? await opts.extraChanges()
+            : (opts?.extraChanges ?? [])
+        return committedWire
       },
       // Both kinds are declared by the SAME commit, so they land in one
       // transact span: a cap client and a legacy client can never observe an
@@ -1182,12 +1194,10 @@ export class IssueStore {
       // ordering `w` depends on), not from `w`.
       changes: (w) => [
         { entity: 'issue', id: row.id, op: 'upsert', value: w },
-        ...this.projectionChanges(row),
-        ...(typeof opts?.extraChanges === 'function'
-          ? opts.extraChanges()
-          : (opts?.extraChanges ?? [])),
+        ...committedProjectionChanges,
+        ...committedExtraChanges,
       ],
-    }).result
+    })).result
     // The commit changed an issue-side input feeding toWire (row / label / dep /
     // comment via extraWrite, or read state) — invalidate the wire memo
     // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
@@ -1210,17 +1220,21 @@ export class IssueStore {
    * shipping; also the seam a sort-scope compaction writes through, which is why
    * `touch` is an option — see {@link persist} for what `false` means, and
    * POD-1102 for why a scope repair must not mark a whole repo unread. */
-  persistManyWith<T>(
+  async persistManyWith<T>(
     rows: IssueRow[],
-    write: () => T,
-    extraChanges: (result: T) => readonly EntityChangeSpec[],
+    write: () => T | Promise<T>,
+    extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
     events: (result: T) => readonly {
       kind: string
       subject: string
       payload: Record<string, unknown>
-    }[] = () => [],
+    }[] | Promise<readonly {
+      kind: string
+      subject: string
+      payload: Record<string, unknown>
+    }[]> = () => [],
     opts?: { touch?: boolean },
-  ): { issues: IssueWire[]; result: T } {
+  ): Promise<{ issues: IssueWire[]; result: T }> {
     // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
     // row here is a draft pinned to the revision it was cut from, so the
     // backup-and-restore loop this replaced has nothing left to undo.
@@ -1239,11 +1253,13 @@ export class IssueStore {
     let result!: T
     let wires!: IssueWire[]
     let eventIds: number[] = []
+    let committedProjectionChanges: readonly EntityChangeSpec[][] = []
+    let committedExtraChanges: readonly EntityChangeSpec[] = []
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
-    const committed = this.deps.ledger.commit({
+    const committed = (await this.deps.ledger.commit({
       write: async () => {
-        result = write()
+        result = await write()
         for (const row of rows) {
           const pin = pins.get(row.id)
           await this.deps.store.issues.upsertIssue(
@@ -1257,9 +1273,12 @@ export class IssueStore {
         // threshold keeps the shipping paths (a few rows) off an
         // O(all issues) prefetch they would not amortize.
         const batch = rows.length > 8 ? await this.wireBatch() : undefined
-        wires = rows.map((row) => this.toWire(row, undefined, batch))
-        eventIds = events(result).map((event) =>
-          this.deps.store.events.appendEvent(
+        wires = await Promise.all(rows.map(async (row) => await this.toWire(row, undefined, batch)))
+        committedProjectionChanges = await Promise.all(rows.map(async (row) => await this.projectionChanges(row)))
+        committedExtraChanges = await extraChanges(result)
+        const committedEvents = await events(result)
+        eventIds = await Promise.all(committedEvents.map(async (event) =>
+          await this.deps.store.events.appendEvent(
             {
               ts: this.now(),
               kind: event.kind,
@@ -1272,7 +1291,7 @@ export class IssueStore {
             },
             { announce: false },
           ),
-        )
+        ))
         return { result, wires }
       },
       changes: ({ result: value, wires: committedWires }) => [
@@ -1283,11 +1302,11 @@ export class IssueStore {
             op: 'upsert' as const,
             value: committedWires[index]!,
           },
-          ...this.projectionChanges(row),
+          ...(committedProjectionChanges[index] ?? []),
         ]),
-        ...extraChanges(value),
+        ...committedExtraChanges,
       ],
-    }).result
+    })).result
     result = committed.result
     wires = committed.wires
     this.bumpIssueInputs()
@@ -1348,7 +1367,7 @@ export class IssueStore {
     // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
     // remove+upsert pairs per targeted git-state publish). capture dedups the
     // one row against the baseline and never diffs the list.
-    this.deps.ledger.capture(
+    await this.deps.ledger.capture(
       spec.rows.map((r) => ({
         entity: 'issue' as const,
         id: r.id,
@@ -1365,8 +1384,8 @@ export class IssueStore {
     return r
   }
   /** @internal */
-  persistRow(row: IssueRow): IssueWire {
-    return this.persist(row)
+  async persistRow(row: IssueRow): Promise<IssueWire> {
+    return await this.persist(row)
   }
   /** @internal */
   get d(): IssueDeps {

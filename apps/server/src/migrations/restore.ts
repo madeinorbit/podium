@@ -266,7 +266,8 @@ async function remintRestoredEpoch(
     },
     mint ?? (() => randomUUID()),
   )
-  const previous = await registry.current()
+  await registry.resolve()
+  const previous = registry.current()
   const next = await registry.bump('restore')
   return { feedId: next.feedId, previousEpoch: previous.epoch, epoch: next.epoch }
 }

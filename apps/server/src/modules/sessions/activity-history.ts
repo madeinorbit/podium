@@ -69,13 +69,13 @@ export class SessionActivityHistory {
       now: () => number
     },
   ) {
-    const offState = deps.bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
-      this.record(sessionId, next.phase, prev?.phase)
+    const offState = deps.bus.on('session.stateChanged', async ({ sessionId, prev, next }) => {
+      await this.record(sessionId, next.phase, prev?.phase)
     })
     // A process that dies mid-turn never emits a closing state event; the exit
     // is the closing edge or the working segment runs to Now forever.
-    const offExit = deps.bus.on('session.exited', ({ sessionId }) => {
-      this.record(sessionId, 'ended', undefined)
+    const offExit = deps.bus.on('session.exited', async ({ sessionId }) => {
+      await this.record(sessionId, 'ended', undefined)
     })
     this.unsubscribe = () => {
       offState()

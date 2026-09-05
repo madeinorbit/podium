@@ -266,7 +266,7 @@ export class SuperagentService {
     this.eventReadLimit = opts?.eventReadLimit ?? 500
     const reapEvery = opts?.reapIntervalMs ?? TURN_REAP_INTERVAL_MS
     if (reapEvery > 0) {
-      this.reaper = setInterval(() => this.reapStaleTurns(), reapEvery)
+      this.reaper = setInterval(async () => await this.reapStaleTurns(), reapEvery)
       this.reaper.unref?.()
     }
   }
@@ -289,8 +289,8 @@ export class SuperagentService {
     // arrive between these two lines today, and at the flip the read is awaited
     // in between — which is exactly why the order is written down.
     await service.adoptPendingTurns()
-    modules.bus.on('machine.connected', ({ machineId }) => {
-      service.resumePendingTurns(machineId)
+    modules.bus.on('machine.connected', async ({ machineId }) => {
+      await service.resumePendingTurns(machineId)
     })
     return service
   }
@@ -406,7 +406,7 @@ export class SuperagentService {
   ): Promise<string> {
     const tool = (await this.tools(threadId)).find((t) => t.spec.name === name)
     if (!tool) throw new Error(`unknown tool: ${name}`)
-    return tool.run(args as Args)
+    return await tool.run(args as Args)
   }
 
   private async tools(threadId?: ThreadId) {
@@ -897,11 +897,11 @@ export class SuperagentService {
           })
           return
         }
-        const retry = setTimeout(() => {
-          const current = this.store.superagent
-            .listPendingTurns()
+        const retry = setTimeout(async () => {
+          const current = (await this.store.superagent
+            .listPendingTurns())
             .find((row) => row.turnId === pending.turnId)
-          if (current) this.dispatchPendingTurn(current)
+          if (current) await this.dispatchPendingTurn(current)
         }, dispatchBackoffMs(attempt))
         retry.unref?.()
         return
@@ -1118,12 +1118,12 @@ export class SuperagentService {
     for (const pending of await this.store.superagent.listPendingTurns()) {
       if (pending.threadId !== threadId) continue
       if (this.interruptFallbacks.has(pending.turnId)) continue
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         this.interruptFallbacks.delete(pending.turnId)
-        const still = this.store.superagent
-          .listPendingTurns()
+        const still = (await this.store.superagent
+          .listPendingTurns())
           .find((row) => row.turnId === pending.turnId)
-        if (still) this.finishPendingTurn(still, { ok: false, error: 'stopped' })
+        if (still) await this.finishPendingTurn(still, { ok: false, error: 'stopped' })
       }, INTERRUPT_FORCE_AFTER_MS)
       timer.unref?.()
       this.interruptFallbacks.set(pending.turnId, timer)
@@ -1511,7 +1511,7 @@ export class SuperagentService {
     }
     const sessions: ConciergeSessionInfo[] = (await this.listSessions())
       .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
-      .map((s) => this.sessionInfo(s.sessionId) ?? { sessionId: s.sessionId })
+      .map(async (s) => await this.sessionInfo(s.sessionId) ?? { sessionId: s.sessionId })
     return {
       repos,
       sessions,
@@ -1568,7 +1568,7 @@ export class SuperagentService {
     const focused = focus.focusedSessionId ? await this.sessionInfo(focus.focusedSessionId) : undefined
     const alsoVisible = (focus.visibleSessionIds ?? [])
       .filter((id) => id !== focus.focusedSessionId)
-      .map((id) => this.sessionInfo(id))
+      .map(async (id) => await this.sessionInfo(id))
       .filter((s): s is FocusSessionInfo => !!s)
     return buildFocusBlock({
       now: new Date().toISOString(),

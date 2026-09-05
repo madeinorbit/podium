@@ -265,11 +265,11 @@ export class MailAccess {
    * the consistent-error rule (ADR 3 Amendment 1 D20.2) enforced by construction
    * rather than by two error strings kept in sync.
    */
-  resolveRecipient(to: string): AddressResolution {
-    return resolveAddress(to, {
+  async resolveRecipient(to: string): Promise<AddressResolution> {
+    return await resolveAddress(to, {
       isKnownSession: (ref) => findSessionById(this.deps, asSessionId(ref)) !== undefined,
-      resolveIssueRef: (ref) => this.deps.issues.resolveRef(ref),
-      issueExists: (id) => this.deps.issues.has(id),
+      resolveIssueRef: async (ref) => await this.deps.issues.resolveRef(ref),
+      issueExists: async (id) => await this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -280,11 +280,11 @@ export class MailAccess {
    * that happens to match a session id cannot be re-routed. Same ceiling, same
    * single `unresolvable` value.
    */
-  resolveIssueAddress(ref: string): AddressResolution {
-    return resolveAddress(ref, {
+  async resolveIssueAddress(ref: string): Promise<AddressResolution> {
+    return await resolveAddress(ref, {
       isKnownSession: () => false,
-      resolveIssueRef: (r) => this.deps.issues.resolveRef(r),
-      issueExists: (id) => this.deps.issues.has(id),
+      resolveIssueRef: async (r) => await this.deps.issues.resolveRef(r),
+      issueExists: async (id) => await this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -298,13 +298,13 @@ export class MailAccess {
    *  slice (#237 authz): issue-bound targets need write access to that issue;
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
-  assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
+  async assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): Promise<void> {
     const target = findSessionById(this.deps, sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues
-    const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+    const targetIssueId = target.issueId ?? await issues.issueForCwd(target.cwd)
     if (targetIssueId) {
-      checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
+      await checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
       return
     }
     const isOperator = caller.capability.scope.kind === 'all'

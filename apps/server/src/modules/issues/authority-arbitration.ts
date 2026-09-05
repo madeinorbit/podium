@@ -47,9 +47,9 @@ export class IssueAuthorityArbitration {
 
   constructor(private readonly source: Ledger) {
     this.ledger = {
-      commit: (op) => this.commit(op),
-      capture: (specs) => this.source.capture(specs),
-      reconcile: (entity, rows) => this.source.reconcile(entity, rows),
+      commit: async (op) => await this.commit(op),
+      capture: async (specs) => await this.source.capture(specs),
+      reconcile: async (entity, rows) => await this.source.reconcile(entity, rows),
     }
   }
 

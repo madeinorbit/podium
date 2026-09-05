@@ -478,7 +478,7 @@ export class IssueGitWorkflowModule {
     // named rather than hidden: adjudicating whether the column holds a UserId or
     // an actor TAG is POD-1075's (accounts) call, not this sweep's.
     row.assignee = asUserId(`agent:${row.defaultAgent}`)
-    const wire = this.store.persistRow(row)
+    const wire = await this.store.persistRow(row)
     if (wasClosed) {
       await this.store.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
       await this.store.emitEvent('issue.reopened', row.id, {
@@ -611,7 +611,7 @@ export class IssueGitWorkflowModule {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
       }
-      return { ...r, issue: this.store.persistRow(row) }
+      return { ...r, issue: await this.store.persistRow(row) }
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
@@ -650,7 +650,7 @@ export class IssueGitWorkflowModule {
       // false for work that unquestionably landed; this row does not lie later.
       row.landedAt = new Date().toISOString()
       if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
-      this.store.persistRow(row)
+      await this.store.persistRow(row)
       const issue = await this.crud().close(id, 'done')
       // This branch just landed [POD-384]: settle its merge axis now, so the
       // operator who pressed merge sees the "ready to merge" chip go rather than
@@ -749,7 +749,7 @@ export class IssueGitWorkflowModule {
     if (!recorded && registered.branch) {
       const row = await this.store.draftOrThrow(id)
       row.branch = registered.branch
-      this.store.persistRow(row)
+      await this.store.persistRow(row)
       return { ok: true, branch: registered.branch, head: registered.head }
     }
     if (recorded) return { ok: true, branch: recorded, head: registered.head }
@@ -844,7 +844,7 @@ export class IssueGitWorkflowModule {
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
-      this.store.persistRow(row)
+      await this.store.persistRow(row)
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       return {
         ok: true,
@@ -883,7 +883,7 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const row = await this.store.draftOrThrow(id)
     row.worktreePath = null
-    this.store.persistRow(row)
+    await this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
     const issue = await this.commentsMail().addComment(
       row.id,
@@ -910,20 +910,20 @@ export class IssueGitWorkflowModule {
     return await this.worktreeGc.releaseWorktreeIfIdle(id, principal)
   }
 
-  listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
-    return this.worktreeGc.listReclaimableWorktrees(nowMs, machineId)
+  async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
+    return await this.worktreeGc.listReclaimableWorktrees(nowMs, machineId)
   }
 
-  releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
-    return this.worktreeGc.releaseReclaimableWorktrees(principal, nowMs)
+  async releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
+    return await this.worktreeGc.releaseReclaimableWorktrees(principal, nowMs)
   }
 
-  tryWorktreeGcObserved(
+  async tryWorktreeGcObserved(
     observed: WorktreeGcObservation,
     nowMs: number,
     principal: CommandPrincipal,
   ) {
-    return this.worktreeGc.tryObserved(observed, nowMs, principal)
+    return await this.worktreeGc.tryObserved(observed, nowMs, principal)
   }
 
   /**
@@ -1008,7 +1008,7 @@ export class IssueGitWorkflowModule {
         const confirmed = await this.store.draftOrThrow(id)
         if (confirmed.machineId === null) {
           confirmed.machineId = statusMachineId
-          this.store.persistRow(confirmed)
+          await this.store.persistRow(confirmed)
         }
         return {
           ok: true,
@@ -1071,7 +1071,7 @@ export class IssueGitWorkflowModule {
     row.repoPath = repoPath
     row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
-    this.store.persistRow(row)
+    await this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
@@ -1178,7 +1178,7 @@ export class IssueGitWorkflowModule {
       if (!bd.ok) return await refuse(this.branchDeleteRefusal(branch, parentBranch, bd.output))
       const row = await this.store.draftOrThrow(id)
       row.branch = null
-      this.store.persistRow(row)
+      await this.store.persistRow(row)
       const issue = await this.commentsMail().addComment(
         rowId,
         'system:cleanup',
@@ -1203,7 +1203,7 @@ export class IssueGitWorkflowModule {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
       row.branch = null
-      this.store.persistRow(row)
+      await this.store.persistRow(row)
       this.store.d.onWorktreesChanged?.(repoPath, machineId)
       const issue = await this.commentsMail().addComment(
         rowId,
@@ -1260,7 +1260,7 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const removed = await this.store.draftOrThrow(id)
     removed.worktreePath = null
-    this.store.persistRow(removed) // columns reflect reality even if branch delete refuses below
+    await this.store.persistRow(removed) // columns reflect reality even if branch delete refuses below
     this.store.d.onWorktreesChanged?.(repoPath, machineId)
     if (!branch) {
       const issue = await this.commentsMail().addComment(
@@ -1302,7 +1302,7 @@ export class IssueGitWorkflowModule {
     // window this issue is about [POD-3375].
     const deleted = await this.store.draftOrThrow(id)
     deleted.branch = null
-    this.store.persistRow(deleted)
+    await this.store.persistRow(deleted)
     const issue = await this.commentsMail().addComment(
       rowId,
       'system:cleanup',
@@ -1495,7 +1495,7 @@ export class IssueGitWorkflowModule {
   private async captureSessionGitActivity(
     sessionId: SessionId,
     activity: { commits?: string[]; touched?: string[] },
-  ): Promise<void> | undefined {
+  ): Promise<void | undefined> {
     const commits = this.gitCommitsBySession.get(sessionId) ?? []
     for (const sha of activity.commits ?? []) if (!commits.includes(sha)) commits.push(sha)
     this.gitCommitsBySession.set(sessionId, commits)
@@ -1526,7 +1526,7 @@ export class IssueGitWorkflowModule {
     await this.captureSessionGitActivity(sessionId, activity)
   }
 
-  private async sessionTurnEndRefresh(sessionId: SessionId): Promise<void> | undefined {
+  private async sessionTurnEndRefresh(sessionId: SessionId): Promise<void | undefined> {
     const resolved = this.issueForSession(sessionId)
     if (!resolved) return undefined
     return await this.refreshGitState(resolved.row.id, resolved.sess.cwd)
@@ -1584,9 +1584,9 @@ export class IssueGitWorkflowModule {
     const refresh = {
       rerun: false,
       fallbackCwd,
-      promise: Promise.resolve(),
+      promise: await Promise.resolve(),
     }
-    refresh.promise = (async () => {
+    refresh.promise = await (async () => {
       let changed = false
       do {
         // Coalesce rapid daemon messages/turn-end edges before starting four
@@ -1697,7 +1697,7 @@ export class IssueGitWorkflowModule {
         // the next tick is 30s away.
         for (let i = 0; i < group.ids.length; i += GIT_PROBE_FANOUT) {
           const batch = group.ids.slice(i, i + GIT_PROBE_FANOUT)
-          await Promise.all(batch.map((id) => this.refreshGitState(id).catch(() => {})))
+          await Promise.all(batch.map(async (id) => await this.refreshGitState(id).catch(() => {})))
         }
       }),
     )

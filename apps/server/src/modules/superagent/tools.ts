@@ -127,11 +127,11 @@ export async function buildSuperagentTools(
       },
       run: async () =>
         JSON.stringify(
-          (await sessions.listSessions(undefined, 'listAllTool')).map((s) => {
+          (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
             // Reverse of issue_show's session list (issue #72): session cwd →
             // bound issue, via the same worktree-containment rule as authz scope.
             const issueId = issues.issueForCwd(s.cwd)
-            const issue = issueId ? issues.getMeta(issueId) : null
+            const issue = issueId ? await issues.getMeta(issueId) : null
             return {
               sessionId: s.sessionId,
               name: s.name ?? s.title,
@@ -774,9 +774,9 @@ export async function buildSuperagentTools(
           kinds && kinds.length > 0 ? raw.filter((r) => kinds.includes(r.kind)) : raw
         ).slice(0, limit)
         if (results.length === 0) return '(no results)'
-        const lines = results.map((r) => {
+        const lines = results.map(async (r) => {
           // Issues read by display seq (what users and issue_* tools speak).
-          const seq = r.kind === 'issue' ? issues.getMeta(r.id)?.seq : undefined
+          const seq = r.kind === 'issue' ? (await issues.getMeta(r.id))?.seq : undefined
           const ref = seq !== undefined ? `#${seq}` : r.id
           return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
         })
@@ -952,7 +952,7 @@ export async function buildSuperagentTools(
         const needsConfirm = isCreate ? args.start === true : true
         if (needsConfirm && args.confirmed !== true) return NOT_CONFIRMED_MSG
         const { confirmed: _confirmed, ...rest } = args
-        return inner(rest)
+        return await inner(rest)
       }
     }
   }

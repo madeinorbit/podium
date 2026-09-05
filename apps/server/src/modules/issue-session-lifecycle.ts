@@ -89,7 +89,7 @@ export class IssueSessionLifecycle {
         issueId: input.issueId,
         reason: input.reason,
       })
-      return Promise.resolve()
+      return await Promise.resolve()
     }
     const inFlight = this.closedIssueStops.get(issueId)
     if (inFlight) return inFlight
@@ -195,9 +195,9 @@ export class IssueSessionLifecycle {
     const issuePlan = await this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
     await this.deps.ledger.commit({
-      write: () => {
+      write: async () => {
         sessionPlan.write()
-        issuePlan.write()
+        await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
@@ -224,9 +224,9 @@ export class IssueSessionLifecycle {
     // registered separately for that reason: a fan-out failure is an external
     // effect nobody waits for, and routing it through the commit application
     // above would report a socket problem as a divergent projection.
-    afterCommit(() => {
+    afterCommit(async () => {
       this.deps.sessions.broadcastSessions()
-      issuePlan.publish()
+      await issuePlan.publish()
     }, 'issue-session-delete-broadcast')
 
     return { issue: issuePlan.wire(), deletedSessionIds: sessionPlan.sessionIds }
@@ -251,9 +251,9 @@ export class IssueSessionLifecycle {
     const issuePlan = await this.deps.issues.prepareRestore(current.id, restoredSessions)
 
     await this.deps.ledger.commit({
-      write: () => {
+      write: async () => {
         sessionPlan.write()
-        issuePlan.write()
+        await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // The same argument as the delete above, in the other direction: the
@@ -269,9 +269,9 @@ export class IssueSessionLifecycle {
         issuePlan.apply()
       },
     })
-    afterCommit(() => {
+    afterCommit(async () => {
       this.deps.sessions.broadcastSessions()
-      issuePlan.publish()
+      await issuePlan.publish()
     }, 'issue-session-restore-broadcast')
 
     return {

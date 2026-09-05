@@ -119,8 +119,8 @@ export class AgentConcurrencyHistory {
     // has no bus event of its own; it lands on the next capture, which the
     // 5-minute history() read guarantees. Same-value refreshes are common;
     // capture() deduplicates them before they touch the durable event log.
-    const offState = deps.bus.on('session.stateChanged', () => this.capture())
-    const offExit = deps.bus.on('session.exited', () => this.capture())
+    const offState = deps.bus.on('session.stateChanged', async () => await this.capture())
+    const offExit = deps.bus.on('session.exited', async () => await this.capture())
     this.unsubscribe = () => {
       offState()
       offExit()

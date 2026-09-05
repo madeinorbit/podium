@@ -72,8 +72,8 @@ export function driveWorkflows(service: WorkflowService): DrivenWorkflowService 
   return new Proxy(service, {
     get(target, prop, _receiver) {
       if (typeof prop === 'string' && isWorkflowCommand(prop)) {
-        return (input: unknown, caller: WorkflowCaller) =>
-          target.execute(caller, prop as WorkflowProcName, input)
+        return async (input: unknown, caller: WorkflowCaller) =>
+          await target.execute(caller, prop as WorkflowProcName, input)
       }
       return Reflect.get(target, prop, target)
     },

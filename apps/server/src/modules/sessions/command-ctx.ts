@@ -74,11 +74,11 @@ export function sessionCommandCtx(
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
     // hands back a `SessionId` with no cast here.
-    parentSessionOf: (sessionId) =>
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
     onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
@@ -112,16 +112,16 @@ export function sessionCommandCtx(
         input.correlationId,
       ))!
     },
-    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
-      issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
+      await issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts) await issues.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: (issueId) => issues.discardUnlaunchedDraft(issueId),
-    issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
+    discardUnlaunchedDraft: async (issueId) => await issues.discardUnlaunchedDraft(issueId),
+    issueOwner: async (issueId) => (await issues.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
-      listSessions: () => sessions.listSessions(),
-      sessionById: (sessionId) => sessions.sessionById(sessionId),
+      listSessions: async () => await sessions.listSessions(),
+      sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },

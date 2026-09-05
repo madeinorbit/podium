@@ -125,10 +125,10 @@ export interface IssueLifecyclePlan {
    *  cannot. The ordering rule generalizes past revision — any
    *  authority-assigned field has it. */
   wire(): IssueWire
-  write(): void
+  write(): Promise<void>
   changes(): EntityChangeSpec[]
   apply(): void
-  publish(): void
+  publish(): Promise<void>
 }
 
 /** Internal custody mutation used only by the shipping control plane. The
@@ -139,10 +139,15 @@ export interface ShippingIssueMutation {
   nextStage?: 'shipping' | 'review' | 'done'
   nextStageForResult?: (result: unknown) => 'shipping' | 'review' | 'done' | undefined
   needsHuman?: boolean
-  shipOrderChanges: readonly EntityChangeSpec[] | ((result: unknown) => readonly EntityChangeSpec[])
+  shipOrderChanges:
+    | readonly EntityChangeSpec[]
+    | ((result: unknown) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
   event?:
     | { kind: string; payload: Record<string, unknown> }
-    | ((result: unknown) => { kind: string; payload: Record<string, unknown> } | undefined)
+    | ((result: unknown) =>
+        | { kind: string; payload: Record<string, unknown> }
+        | undefined
+        | Promise<{ kind: string; payload: Record<string, unknown> } | undefined>)
 }
 
 /**
@@ -152,7 +157,7 @@ export interface ShippingIssueMutation {
  * update() detects. Every mutation ends in persist()/broadcastList() (core).
  */
 interface IssueCrudHierarchyPort {
-  reparent(id: string, parentId: string | null): IssueWire
+  reparent(id: string, parentId: string | null): Promise<IssueWire>
   setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): void
 }
 
@@ -178,7 +183,7 @@ export class IssueCrudModule {
   async shippingCommit<T>(
     id: IssueId,
     mutation: ShippingIssueMutation,
-    write: () => T,
+    write: () => T | Promise<T>,
   ): Promise<{ issue: IssueWire; result: T }> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
     const expectedStages = Array.isArray(mutation.expectedStage)
@@ -186,15 +191,15 @@ export class IssueCrudModule {
       : [mutation.expectedStage]
     const needsHumanBefore = row.needsHuman
     let result: T | undefined
-    const issue = this.store.persistWith(
+    const issue = await this.store.persistWith(
       row,
-      () => {
+      async () => {
         if (!(expectedStages as readonly string[]).includes(row.stage)) {
           throw new Error(
             `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
           )
         }
-        result = write()
+        result = await write()
         const nextStage = mutation.nextStageForResult?.(result as T) ?? mutation.nextStage
         if (nextStage) {
           const legal =
@@ -216,14 +221,14 @@ export class IssueCrudModule {
         }
       },
       {
-        extraChanges: () =>
+        extraChanges: async () =>
           typeof mutation.shipOrderChanges === 'function'
-            ? mutation.shipOrderChanges(result as T)
+            ? await mutation.shipOrderChanges(result as T)
             : mutation.shipOrderChanges,
       },
     )
     const event =
-      typeof mutation.event === 'function' ? mutation.event(result as T) : mutation.event
+      typeof mutation.event === 'function' ? await mutation.event(result as T) : mutation.event
     if (event) await this.store.emitEvent(event.kind, row.id, event.payload)
     if (!needsHumanBefore && mutation.needsHuman === true) {
       await this.store.emitEvent('issue.needs_human', row.id, { seq: row.seq, kind: 'ship-hold' })
@@ -236,12 +241,14 @@ export class IssueCrudModule {
     return { issue, result: result as T }
   }
 
-  shippingCommitMany<T>(
+  async shippingCommitMany<T>(
     entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
-    write: () => T,
-  ): { issues: IssueWire[]; result: T } {
+    write: () => T | Promise<T>,
+  ): Promise<{ issues: IssueWire[]; result: T }> {
     if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
-    const rows = entries.map(({ id }) => this.store.draftOrThrow(this.store.resolveRef(id)))
+    const rows = await Promise.all(
+      entries.map(async ({ id }) => await this.store.draftOrThrow(await this.store.resolveRef(id))),
+    )
     if (new Set(rows.map((row) => row.id)).size !== rows.length) {
       throw new Error('shipping batch contains a duplicate issue')
     }
@@ -277,24 +284,27 @@ export class IssueCrudModule {
       row.humanQuestionAskedBy = null
       row.humanQuestionAskedAt = null
     }
-    const committed = this.store.persistManyWith(
+    const committed = await this.store.persistManyWith(
       rows,
       write,
-      (result) => {
-        const changes = entries.flatMap(({ mutation }) =>
-          typeof mutation.shipOrderChanges === 'function'
-            ? mutation.shipOrderChanges(result)
-            : mutation.shipOrderChanges,
+      async (result) => {
+        const groups = await Promise.all(
+          entries.map(async ({ mutation }) =>
+            typeof mutation.shipOrderChanges === 'function'
+              ? await mutation.shipOrderChanges(result)
+              : mutation.shipOrderChanges,
+          ),
         )
+        const changes = groups.flat()
         return [
           ...new Map(changes.map((change) => [`${change.entity}:${change.id}`, change])).values(),
         ]
       },
-      (result) =>
-        entries.flatMap(({ mutation }, index) => {
+      async (result) =>
+        (await Promise.all(entries.map(async ({ mutation }, index) => {
           const row = rows[index]!
           const event =
-            typeof mutation.event === 'function' ? mutation.event(result) : mutation.event
+            typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
           const attention =
             !needsHumanBefore.get(row.id) && mutation.needsHuman === true
               ? {
@@ -313,7 +323,7 @@ export class IssueCrudModule {
             ...(event ? [{ ...event, subject: row.id }] : []),
             ...(attention ? [attention] : []),
           ]
-        }),
+        }))).flat(),
     )
     return committed
   }
@@ -325,7 +335,7 @@ export class IssueCrudModule {
     const row = await this.store.draftOrThrow(id)
     row.activityNotes = text
     row.notesUpdatedAt = this.store.now()
-    const wire = this.store.persist(row)
+    const wire = await this.store.persist(row)
     await this.store.emitEvent('issue.state', row.id, { seq: row.seq })
     return wire
   }
@@ -390,7 +400,7 @@ export class IssueCrudModule {
         break
     }
     row.panel = JSON.stringify(panel)
-    const wire = this.store.persist(row)
+    const wire = await this.store.persist(row)
     await this.store.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
     return wire
   }
@@ -514,7 +524,7 @@ export class IssueCrudModule {
       ...(extraPaths?.length ? { extraPaths } : {}),
     })
     if (terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
-      await (await store.remove(row.id, snap.artifactId)).catch(() => {})
+      await store.remove(row.id, snap.artifactId).catch(() => {})
       throw new Error(
         `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
           `are refused. ${terminalEvidenceHelp(row.seq)}`,
@@ -532,7 +542,7 @@ export class IssueCrudModule {
       sourcePaths,
       ...(terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
     })
-    if (oldId) void (await store.remove(row.id, oldId)).catch(() => {})
+    if (oldId) void store.remove(row.id, oldId).catch(() => {})
     return wire
   }
 
@@ -563,10 +573,10 @@ export class IssueCrudModule {
         entry: snap.entry,
         files: snap.files,
       })
-      if (existing?.artifactId) void (await store.remove(row.id, existing.artifactId)).catch(() => {})
+      if (existing?.artifactId) void store.remove(row.id, existing.artifactId).catch(() => {})
       return wire
     } catch (error) {
-      void (await store.remove(row.id, snap.artifactId)).catch(() => {})
+      void store.remove(row.id, snap.artifactId).catch(() => {})
       throw error
     }
   }
@@ -578,7 +588,7 @@ export class IssueCrudModule {
     const removed = this.store.parsePanel(row).artifacts[index - 1]
     const wire = await this.panelApply(row.id, { op: 'artifact-remove', index })
     if (removed?.artifactId && this.store.deps.artifacts) {
-      void (await this.store.deps.artifacts.remove(row.id, removed.artifactId)).catch(() => {})
+      void this.store.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
     }
     return wire
   }
@@ -846,7 +856,7 @@ export class IssueCrudModule {
    * measured — because each row paid its own transaction, its own `toWire` and
    * its own change append. Batched, the same repair is ~2s.
    */
-  private compactSortKeys(scope: readonly IssueRow[]): void {
+  private async compactSortKeys(scope: readonly IssueRow[]): Promise<void> {
     const ordered = [...scope].sort((a, b) => {
       const ka = isSortKey(a.sortKey) ? a.sortKey : null
       const kb = isSortKey(b.sortKey) ? b.sortKey : null
@@ -873,7 +883,7 @@ export class IssueCrudModule {
     // `touch: false` for the same reason the reorder itself carries it: a scope
     // repair is organizational, and stamping `updatedAt` across a repo would
     // mark every issue in it unread (POD-325).
-    this.store.persistManyWith(
+    await this.store.persistManyWith(
       changed,
       () => undefined,
       () => [],
@@ -1004,7 +1014,7 @@ export class IssueCrudModule {
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.store.rows first so wouldCycle/rowOrThrow work.
-    let wire = this.store.persist(row)
+    let wire = await this.store.persist(row)
     // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
     // clients, so a create still fans out the full list once (#22).
     await this.store.broadcastList()
@@ -1017,7 +1027,7 @@ export class IssueCrudModule {
         ownerUserId: row.ownerUserId,
       })
     } catch {}
-    if (input.parentId) wire = this.hierarchy().reparent(row.id, input.parentId)
+    if (input.parentId) wire = await this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = await this.setLabels(row.id, input.labels)
     return wire
   }
@@ -1171,8 +1181,8 @@ export class IssueCrudModule {
       patch.parentBranch !== undefined &&
       row.parentBranch !== prevParentBranch
     ) {
-      void (await this.gitWorkflow()
-        .refreshGitState(row.id))
+      void this.gitWorkflow()
+        .refreshGitState(row.id)
         .catch(() => {})
     }
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
@@ -1191,7 +1201,7 @@ export class IssueCrudModule {
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
-    const wire = this.store.persist(row, {
+    const wire = await this.store.persist(row, {
       touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
     })
     // A REORDER DELIBERATELY DOES NOT COMPACT (POD-1102), and the asymmetry is
@@ -1328,7 +1338,7 @@ export class IssueCrudModule {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     await this.store.writeIssueUserState(row.id, { readAt: this.coveringReadAt(row) })
-    const wire = this.store.persist(row, { touch: false })
+    const wire = await this.store.persist(row, { touch: false })
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
@@ -1366,7 +1376,7 @@ export class IssueCrudModule {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     await this.store.writeIssueUserState(row.id, { readAt: null })
-    const wire = this.store.persist(row, { touch: false })
+    const wire = await this.store.persist(row, { touch: false })
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }
@@ -1390,7 +1400,7 @@ export class IssueCrudModule {
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
     const prev = this.store.issueOverlay(row.id).tuckedAt
     await this.store.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.store.now()) : null })
-    return this.store.persist(row, { touch: false })
+    return await this.store.persist(row, { touch: false })
   }
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating
@@ -1414,21 +1424,21 @@ export class IssueCrudModule {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => {
+      write: async () => {
         // The prepare/apply pair has always been draft-then-install; POD-3259
         // gave it the precondition the rest of the registry now carries, so two
         // lifecycle plans cut from one row cannot both commit.
-        this.store.deps.store.issues.upsertIssue(row, {
+        await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
-        committed = this.store.toWire(row)
+        committed = await this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
-      apply: () => {
+      apply: async () => {
         this.store.installRow(row.id, row)
-        this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
+        await this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
       },
-      publish: () => this.store.broadcastList(),
+      publish: async () => await this.store.broadcastList(),
     }
   }
 
@@ -1438,7 +1448,7 @@ export class IssueCrudModule {
   async purgeEmptyDraft(ref: string): Promise<void> {
     const id = await this.store.resolveRef(ref)
     await this.store.rowOrThrow(id)
-    this.store.deps.ledger.commit({
+    await this.store.deps.ledger.commit({
       write: async () => {
         // Explicit draft rehome detaches every session it can SEE before calling
         // this, but it sees them through `loadSessions()`
@@ -1505,7 +1515,7 @@ export class IssueCrudModule {
     // diff would declare the purged issue still present.
     await this.store.reconcileAndPublish(this.store.deps.publishSpecs.issuesChanged(await this.store.allWire()))
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
-    void (await this.store.deps.artifacts?.removeIssue(id)).catch(() => {})
+    void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row
@@ -1528,29 +1538,29 @@ export class IssueCrudModule {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => {
+      write: async () => {
         // The prepare/apply pair has always been draft-then-install; POD-3259
         // gave it the precondition the rest of the registry now carries, so two
         // lifecycle plans cut from one row cannot both commit.
-        this.store.deps.store.issues.upsertIssue(row, {
+        await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
-        committed = this.store.toWire(row)
+        committed = await this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
-      apply: () => {
+      apply: async () => {
         this.store.installRow(row.id, row)
-        this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
+        await this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
       },
-      publish: () => this.store.broadcastList(),
+      publish: async () => await this.store.broadcastList(),
     }
   }
 
   async setLabels(id: string, labels: string[]): Promise<IssueWire> {
     id = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(id)
-    return this.store.persistWith(row, () =>
-      this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
+    return await this.store.persistWith(row, async () =>
+      await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
   }
 
@@ -1571,8 +1581,8 @@ export class IssueCrudModule {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    const wire = this.store.persistWith(row, () =>
-      this.store.deps.store.grants.upsert({
+    const wire = await this.store.persistWith(row, async () =>
+      await this.store.deps.store.grants.upsert({
         resourceKind: 'issue',
         resourceId: row.id,
         grantee,
@@ -1592,8 +1602,8 @@ export class IssueCrudModule {
 
   async unshare(id: string, grantee: UserId, verb: GrantVerb): Promise<IssueWire> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    const wire = this.store.persistWith(row, () =>
-      this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
+    const wire = await this.store.persistWith(row, async () =>
+      await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
     await this.store.emitEvent('issue.unshared', row.id, { grantee, verb })
     return wire
@@ -1616,7 +1626,7 @@ export class IssueCrudModule {
     if (!row) throw new IssueNotFound(id)
     if (row.deferUntil == null) return await this.store.toWire(row)
     row.deferUntil = new Date(Date.parse(this.store.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
-    const wire = this.store.persist(row)
+    const wire = await this.store.persist(row)
     await this.store.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
     return wire
   }
@@ -1734,7 +1744,7 @@ export class IssueCrudModule {
     // draft is the only writer and clears the reason on its own.
     row.suggestedStage = null
     row.suggestedReason = null
-    return this.store.persistRow(row)
+    return await this.store.persistRow(row)
   }
   async dismissSuggestion(id: string): Promise<IssueWire> {
     const row = await this.store.draftOrThrow(id)
@@ -1743,6 +1753,6 @@ export class IssueCrudModule {
     }
     row.suggestedStage = null
     row.suggestedReason = null
-    return this.store.persistRow(row)
+    return await this.store.persistRow(row)
   }
 }

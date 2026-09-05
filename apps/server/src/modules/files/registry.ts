@@ -64,12 +64,12 @@ export const assertAllowedRoot = async (state: FileState, root: string): Promise
 export const FILE_COMMANDS_TRPC = {
   write: {
     contract: FILE_CONTRACTS.write,
-    handler: ((state, input) => {
+    handler: (async (state, input) => {
       // The union's session-addressed arm resolves its root from the session and
       // carries no `root` to check; the explicit arm is gated. Shipped behaviour,
       // moved rather than rewritten.
-      if ('root' in input) assertAllowedRoot(state, input.root)
-      return state.rpc.writeFile(input)
+      if ('root' in input) await assertAllowedRoot(state, input.root)
+      return await state.rpc.writeFile(input)
     }) satisfies FileHandler<z.infer<(typeof FILE_CONTRACTS)['write']['input']>, unknown>,
   },
 } as const satisfies Record<FileContractName, FileCommand>

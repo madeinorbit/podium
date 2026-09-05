@@ -29,9 +29,9 @@ export class AutomationScheduler {
   constructor(private readonly automations: Pick<AutomationsService, 'tick'>) {}
 
   start(): void {
-    this.bootTimer = setTimeout(() => {
-      this.tick()
-      this.timer = setInterval(() => this.tick(), AUTOMATIONS_INTERVAL_MS)
+    this.bootTimer = setTimeout(async () => {
+      await this.tick()
+      this.timer = setInterval(async () => await this.tick(), AUTOMATIONS_INTERVAL_MS)
       this.timer.unref?.()
     }, AUTOMATIONS_BOOT_DELAY_MS)
     this.bootTimer.unref?.()

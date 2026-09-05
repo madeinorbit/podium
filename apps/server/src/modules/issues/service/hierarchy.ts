@@ -56,9 +56,9 @@ export class IssueHierarchyModule {
         )
       }
     }
-    const wire = this.store.persistWith(
+    const wire = await this.store.persistWith(
       row,
-      () => this.store.deps.store.issues.addIssueDep(fromId, toId, type),
+      async () => await this.store.deps.store.issues.addIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges([{ fromId, toId, type }], 'upsert') },
     )
     await this.store.broadcastListForDerivedRipple()
@@ -75,9 +75,9 @@ export class IssueHierarchyModule {
       .listIssueDeps(fromId))
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
       .map((d) => ({ fromId, toId, type: d.type }))
-    const wire = this.store.persistWith(
+    const wire = await this.store.persistWith(
       row,
-      () => this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
+      async () => await this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges(removed, 'remove') },
     )
     await this.store.broadcastListForDerivedRipple()
@@ -113,7 +113,7 @@ export class IssueHierarchyModule {
   async reparent(id: string, parentId: string | null): Promise<IssueWire> {
     const row = await this.store.draftOrThrow(id)
     await this.setParentForUpdate(row, parentId == null ? null : await this.store.resolveRef(parentId))
-    const wire = this.store.persist(row)
+    const wire = await this.store.persist(row)
     await this.store.broadcastList()
     return wire
   }

@@ -416,6 +416,10 @@ export class ConformanceAuthority {
     return epoch
   })
 
+  async resolveIdentity(): Promise<void> {
+    await this.identity.resolve()
+  }
+
   get feedId(): string {
     return this.identity.current().feedId
   }

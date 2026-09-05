@@ -99,7 +99,7 @@ export class ReposRepository {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     for (const table of ['repos', 'repo_prefixes'])
-      tableWrites.subscribe(table, () => this.invalidateRegistry())
+      tableWrites.subscribe(table, async () => await this.invalidateRegistry())
   }
 
   /**
@@ -216,7 +216,7 @@ export class ReposRepository {
 
   /** Derive a unique, server-wide prefix for a repo name (does not persist). */
   async derivePrefixFor(repoName: string): Promise<string> {
-    return derivePrefix(repoName, (p) => this.isPrefixTaken(p))
+    return derivePrefix(repoName, async (p) => await this.isPrefixTaken(p))
   }
 
   /** The prefix chosen for the logical repo `repoId` (or null). */

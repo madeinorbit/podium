@@ -88,18 +88,18 @@ import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
  *  never dodge the lane. Operator callers (scope 'all') pass through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
-function assertNotProposedForAgent(
+async function assertNotProposedForAgent(
   ctx: {
-    reports: { get(id: string): { stage: string } | null }
+    reports: { get(id: string): Promise<{ stage: string } | null> }
     caller: IssueCaller
   },
   id: string,
   verb: string,
-): void {
+): Promise<void> {
   if (ctx.caller.capability.scope.kind === 'all') return
   let stage: string | undefined
   try {
-    stage = ctx.reports.get(id)?.stage
+    stage = (await ctx.reports.get(id))?.stage
   } catch {
     stage = undefined
   }
@@ -266,7 +266,7 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.reports.list(input.repoPath)),
+    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.list(input.repoPath)),
   }),
   prime: def('prime', {
     kind: 'query',
@@ -283,31 +283,31 @@ const defs = {
             ? { sessionId: ctx.caller.capability.actorSessionId }
             : {}),
         },
-        (id) => ctx.mayReadIssue(id),
+        async (id) => await ctx.mayReadIssue(id),
       ),
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.reports.readyList(input.repoPath)),
+    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.readyList(input.repoPath)),
   }),
   blocked: def('blocked', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleRows(ctx.reports.blockedList(input.repoPath)),
+    handler: async (ctx, input) => ctx.visibleRows(await ctx.reports.blockedList(input.repoPath)),
   }),
   graph: def('graph', {
     kind: 'query',
-    handler: async (ctx, input) => ctx.visibleGraph(await ctx.reports.graph(input.repoPath)),
+    handler: async (ctx, input) => await ctx.visibleGraph(await ctx.reports.graph(input.repoPath)),
   }),
   epicStatus: def('epicStatus', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () => await ctx.reports.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
+      await ctx.readIssue(input.id, async () => await ctx.reports.epicStatus(input.id, async (id) => await ctx.mayReadIssue(id))),
   }),
   children: def('children', {
     kind: 'query',
     handler: async (ctx, input) =>
       await ctx.readIssue(input.id, async () =>
-        await ctx.reports.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
+        await ctx.reports.children(input.id, input.recursive ?? false, async (id) => await ctx.mayReadIssue(id)),
       ),
   }),
   tree: def('tree', {
@@ -319,39 +319,39 @@ const defs = {
           ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
           ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
         },
-        (id) => ctx.mayReadIssue(id),
+        async (id) => await ctx.mayReadIssue(id),
       ),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.depReport(input, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.depReport(input, async (id) => await ctx.mayReadIssue(id)),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
+      await ctx.reports.closeEligibleEpics(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
+      await ctx.reports.findDuplicates(input.repoPath, input.threshold, async (id) => await ctx.mayReadIssue(id)),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
+      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), async (id) => await ctx.mayReadIssue(id)),
   }),
   lint: def('lint', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.lint(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
@@ -367,19 +367,19 @@ const defs = {
   }),
   search: def('search', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.search(input, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.search(input, async (id) => await ctx.mayReadIssue(id)),
   }),
   count: def('count', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, async (id) => await ctx.mayReadIssue(id)),
   }),
   get: def('get', {
     kind: 'query',
@@ -501,7 +501,7 @@ const defs = {
       // dodge the top-level/proposed rule by naming ANY existing issue (even a
       // closed or archived one) as parent. Top-levelness is decided only
       // against a real, agent-reachable parent.
-      let parent: ReturnType<typeof ctx.reports.get> = null
+      let parent: Awaited<ReturnType<typeof ctx.reports.get>> = null
       if (input.parentId) {
         try {
           parent = await ctx.reports.get(input.parentId)
@@ -541,7 +541,7 @@ const defs = {
       // (filterBoardScope). With none it is invisible — warn (don't block) so an
       // unattached agent doesn't silently lose the issue.
       // Agent top-level creates never hit that path: audience is forced human above.
-      return ctx.withMutation(input.mutationId, async () => {
+      return await ctx.withMutation(input.mutationId, async () => {
         // Started-by provenance (M6 deliverable 3): bare session id of the creating
         // agent. Operator (scope 'all') creates stay null — no inventing a session.
         const startedBySession =
@@ -589,13 +589,13 @@ const defs = {
       // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
-      assertNotProposedForAgent(ctx, input.id, 'start')
+      await assertNotProposedForAgent(ctx, input.id, 'start')
       if (ctx.caller.capability.scope.kind !== 'all') {
         for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
-          assertNotProposedForAgent(ctx, anc, 'start work under')
+          await assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return ctx.withMutation(input.mutationId, async () =>
+      return await ctx.withMutation(input.mutationId, async () =>
         await ctx.gitWorkflow.start(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
           // Explicit per-launch choice (POD-1545); persists onto the issue profile.
@@ -609,8 +609,8 @@ const defs = {
   update: def('update', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => {
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => {
         // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
         // lane through MORE than `stage` — archived (dismissal), closedReason
         // (close), parentId (no longer top-level). All of them are lifecycle
@@ -621,7 +621,7 @@ const defs = {
           p.archived !== undefined ||
           p.closedReason !== undefined ||
           p.parentId !== undefined
-        if (movesLifecycle) assertNotProposedForAgent(ctx, input.id, 'promote')
+        if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
         return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         })
@@ -654,16 +654,16 @@ const defs = {
   // (sessions are local).
   attachSession: def('attachSession', {
     kind: 'mutation',
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       const origin: 'human' | 'agent' =
         ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
       // B2/M5 [spec:SP-6144]: a session may not re-home onto (or file a
       // sub-issue under) a proposed issue — the proposal subtree is inert.
       if (input.targetId != null) {
-        assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
+        await assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
       const { newSubissue, newSpinoff, ...rest } = input
-      return ctx.deps.attachSession(ctx.caller, {
+      return await ctx.deps.attachSession(ctx.caller, {
         ...rest,
         ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
         ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),
@@ -675,12 +675,12 @@ const defs = {
     // Agent posture: allow in subtree; require --outside-scope confirmation
     // elsewhere. Archiving is reversible and no more destructive than close.
     target: targetId,
-    handler: (ctx, input) => {
-      assertNotProposedForAgent(ctx, input.id, 'archive')
+    handler: async (ctx, input) => {
+      await assertNotProposedForAgent(ctx, input.id, 'archive')
       // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
       // replayed archive must not be waved through on a cached receipt minted
       // when the subtree looked different (D8 re-authorizes at every apply).
-      return ctx.withMutation(input.mutationId, async () => await ctx.attention.archive(input.id))
+      return await ctx.withMutation(input.mutationId, async () => await ctx.attention.archive(input.id))
     },
   }),
   delete: def('delete', {
@@ -832,8 +832,8 @@ const defs = {
     // POD-781: outboxed. The receipt matters even for a whole-set write, because
     // the SET is computed on the client from the labels it could see — a replay
     // that re-ran it would push a stale set over one edited in between.
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => await ctx.crud.setLabels(input.id, input.labels)),
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => await ctx.crud.setLabels(input.id, input.labels)),
   }),
   share: def('share', {
     kind: 'mutation',
@@ -852,8 +852,8 @@ const defs = {
   addComment: def('addComment', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () =>
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () =>
         await ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.requirePrincipal()),
       ),
   }),
@@ -875,8 +875,8 @@ const defs = {
     // POD-781: outboxed, so a replayed drain must not re-defer. Absolute-set, so
     // a second identical apply is harmless — but a LATE one is not: the ledger is
     // what stops a drain landing a snooze the operator has since ended.
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => await ctx.attention.defer(input.id, input.until)),
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => await ctx.attention.defer(input.id, input.until)),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -887,31 +887,31 @@ const defs = {
     // POD-781: outboxed, and this one is NOT idempotent on its own — it backdates
     // `deferUntil` against the clock at apply time, so a re-sent drain would move
     // the "Unsnoozed" marker forward and re-emit `issue.unsnoozed`.
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => await ctx.attention.undefer(input.id)),
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => await ctx.attention.undefer(input.id)),
   }),
   // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
   // Read-tracking carries 'read' authority only (reading marks read), despite being
   // a mutation on the wire.
   markRead: def('markRead', {
     kind: 'mutation',
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueRead(input.id)),
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueRead(input.id)),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueUnread(input.id)),
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueUnread(input.id)),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
   // 'read' authority like markRead, despite being a mutation on the wire.
   setTucked: def('setTucked', {
     kind: 'mutation',
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, async () =>
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () =>
         await ctx.attention.setIssueTucked(input.id, input.tucked),
       ),
   }),
@@ -1005,9 +1005,9 @@ const defs = {
       // B2 [spec:SP-6144]: reparenting a proposal pulls it out of the lane's
       // structural definition (top-level), and reparenting work UNDER a
       // proposal runs activity beneath an unapproved item — both operator-only.
-      assertNotProposedForAgent(ctx, input.id, 'reparent')
+      await assertNotProposedForAgent(ctx, input.id, 'reparent')
       if (input.parentId != null) {
-        assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
+        await assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
       }
       return await ctx.hierarchy.reparent(input.id, input.parentId)
     },
@@ -1049,7 +1049,7 @@ const defs = {
       // `archive`'s scope guard does — D8 re-authorizes at every apply, and a
       // replayed placement must not be waved through on a receipt minted when
       // the caller's scope looked different.
-      return ctx.withMutation(input.mutationId, async () => {
+      return await ctx.withMutation(input.mutationId, async () => {
         if (input.placement === 'own') {
           const withEdge = await ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
           return issue.parentId ? await ctx.hierarchy.reparent(input.id, null) : withEdge
@@ -1066,7 +1066,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      assertNotProposedForAgent(ctx, input.id, 'claim')
+      await assertNotProposedForAgent(ctx, input.id, 'claim')
       const actorSessionId = ctx.caller.capability.actorSessionId
       return await ctx.crud.claim(
         input.id,
@@ -1106,9 +1106,9 @@ const defs = {
   close: def('close', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
-      assertNotProposedForAgent(ctx, input.id, 'close')
-      return ctx.withMutation(input.mutationId, async () =>
+    handler: async (ctx, input) => {
+      await assertNotProposedForAgent(ctx, input.id, 'close')
+      return await ctx.withMutation(input.mutationId, async () =>
         await ctx.crud.close(input.id, input.reason, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         }),
@@ -1121,7 +1121,7 @@ const defs = {
     // The mutated subject is oldId; newId remains a relation destination.
     target: (i) => i.oldId as string,
     handler: async (ctx, input) => {
-      assertNotProposedForAgent(ctx, input.oldId, 'supersede')
+      await assertNotProposedForAgent(ctx, input.oldId, 'supersede')
       return await ctx.hierarchy.supersede(input.oldId, input.newId)
     },
   }),
@@ -1131,7 +1131,7 @@ const defs = {
     // The mutated subject is id; canonicalId remains a relation destination.
     target: targetId,
     handler: async (ctx, input) => {
-      assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
+      await assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
       return await ctx.hierarchy.duplicate(input.id, input.canonicalId)
     },
   }),
@@ -1217,7 +1217,7 @@ const defs = {
         })
       }
       await ctx.requireReadableIssue(msg.issueId)
-      checkIssueAccess(ctx.caller, ctx.access, 'mailClaim', 'write', msg.issueId)
+      await checkIssueAccess(ctx.caller, ctx.access, 'mailClaim', 'write', msg.issueId)
       return await ctx.commentsMail.mailClaim(input.messageId, await ctx.mailIdentity(), {
         // Claiming proves this reader has the message [POD-1379].
         ...(ctx.caller.capability.actorSessionId
@@ -1295,12 +1295,12 @@ const defs = {
    *  touches the built-in handlers — safe and reversible. */
   subscriptionSetEnabled: def('subscriptionSetEnabled', {
     kind: 'mutation',
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // Constrained callers may only toggle their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = ctx.attention
-          .subscriptionList({ subscriberId: subscriber.id })
+        const owned = (await ctx.attention
+          .subscriptionList({ subscriberId: subscriber.id }))
           .some((s) => s.id === input.id)
         if (!owned) {
           throw new TRPCError({
@@ -1372,5 +1372,5 @@ export async function guardIssueCommand(
       typeof rawTarget === 'string' ? await reports.resolveRef(rawTarget, scopeRepoPath) : rawTarget
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
-  checkIssueAccess(caller, reports, name, def.action, targetId)
+  await checkIssueAccess(caller, reports, name, def.action, targetId)
 }

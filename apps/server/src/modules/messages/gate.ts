@@ -242,7 +242,7 @@ export class MessageGate {
    * itself up. A command whose contract does not name this transport is
    * indistinguishable from a command that does not exist.
    */
-  dispatch(
+  async dispatch(
     capability: Capability,
     overrideScope: boolean | undefined,
     proc: string,
@@ -250,9 +250,9 @@ export class MessageGate {
     transport: TransportTag = 'relay',
     deliveryMode?: MailDeliveryMode,
     correlationId?: string,
-  ): Promise<unknown> | undefined {
+  ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    return withReadScope(async () =>
+    return await withReadScope(async () =>
       await this.dispatchInScope(
         capability,
         overrideScope,
@@ -302,9 +302,9 @@ export class MessageGate {
     // later. Deferring it was a timing change nobody asked for, and the kind
     // that surfaces as a flake in someone else's suite six weeks on.
     try {
-      return Promise.resolve(await dispatchMailCommand(proc as MailProcName, ctx, input))
+      return await Promise.resolve(await dispatchMailCommand(proc as MailProcName, ctx, input))
     } catch (error) {
-      return Promise.reject(error)
+      return await Promise.reject(error)
     }
   }
 }

@@ -468,9 +468,9 @@ export class InteractionService {
    * Keyed per session, so a slow read on one session cannot delay another's,
    * and the chain is dropped once it drains.
    */
-  private chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
-    const prior = this.sessionChain.get(sessionId) ?? Promise.resolve()
-    const next = prior.catch(() => undefined).then(() => work())
+  private async chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
+    const prior = this.sessionChain.get(sessionId) ?? await Promise.resolve()
+    const next = await prior.catch(() => undefined).then(() => work())
     this.sessionChain.set(sessionId, next)
     void next.finally(() => {
       // Only the tail clears itself; an earlier link finishing must not drop a
@@ -666,7 +666,7 @@ export class InteractionService {
    * `answered` event from the driver that applied it.
    */
   async onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
-    if (input.ev.ev === 'asked') return Promise.resolve()
+    if (input.ev.ev === 'asked') return await Promise.resolve()
     // EAGER, DELIBERATELY AHEAD OF THE CHAIN. The driver settled it, so an
     // in-flight policy answer for the same row has been overtaken and must not
     // reopen behind it — and a reopen races the chain rather than joining it,

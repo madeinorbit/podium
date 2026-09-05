@@ -75,12 +75,12 @@ export class MemorySearchService {
     return (await this.store.conversations.index
       .searchCandidates(opts))
       .filter(
-        (row) =>
+        async (row) =>
           // POD-318: every stored row carries its reporting machine, and there is
           // no placeholder left to substitute — a machine-less row is unreadable
           // rather than readable-as-local.
           row.machineId !== undefined &&
-          scopedVisibility.mayRead(reader, {
+          await scopedVisibility.mayRead(reader, {
             class: 'conversation',
             machineId: row.machineId,
             nativeId: row.id,
@@ -124,7 +124,7 @@ export class MemorySearchService {
       (await this.store.issues
         .listIssueRows())
         .filter(
-          (row) => !row.deletedAt && visibility.mayRead(reader, { class: 'issue', id: row.id }),
+          async (row) => !row.deletedAt && await visibility.mayRead(reader, { class: 'issue', id: row.id }),
         )
         .map((row) => [row.id, row]),
     )
@@ -205,8 +205,8 @@ export class MemorySearchService {
 
     const visibleTranscriptRows = (await this.store.conversations.transcriptIndex
       .searchCandidates(text))
-      .filter((row) =>
-        visibility.mayRead(reader, {
+      .filter(async (row) =>
+        await visibility.mayRead(reader, {
           class: 'transcript',
           machineId: row.machineId,
           nativeId: row.nativeId,
@@ -220,10 +220,10 @@ export class MemorySearchService {
       seen.add(key)
       const normalized = bestRank !== undefined && bestRank < 0 ? row.rank / bestRank : 1
       const session = sessions.find(
-        (candidate) =>
+        async (candidate) =>
           candidate.machineId === row.machineId &&
           candidate.resumeValue === row.nativeId &&
-          visibility.mayRead(reader, { class: 'session', id: candidate.id }),
+          await visibility.mayRead(reader, { class: 'session', id: candidate.id }),
       )
       out.push({
         kind: 'transcript',

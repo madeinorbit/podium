@@ -282,8 +282,8 @@ export class SettingsService {
       // Persist per machine so the first picker-open after a restart/redeploy serves
       // that machine's last-known list instantly (then refreshes), instead of a cold
       // ~2s probe — and so two machines never share a cached catalog.
-      load: (machineId) => this.store.getModelCatalog(machineId),
-      save: (snapshot) => this.store.setModelCatalog(snapshot),
+      load: async (machineId) => await this.store.getModelCatalog(machineId),
+      save: async (snapshot) => await this.store.setModelCatalog(snapshot),
     })
   }
 
@@ -370,9 +370,9 @@ export class SettingsService {
     // upgrade.
     const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
       String(readSettingsLeaf(blob, key) ?? '')
-    const changed = SERVER_SECRET_KEYS.filter((key) => {
+    const changed = SERVER_SECRET_KEYS.filter(async (key) => {
       const incoming = leaf(next, key)
-      const stored = this.secrets.getOrEmpty(key)
+      const stored = await this.secrets.getOrEmpty(key)
       // A blank incoming member is the scrubbed blob coming home, never a
       // request to clear: clearing is `settings.clearSecret`, which is
       // online-only and admin-grade. Treating it as a clear would let any
@@ -563,8 +563,8 @@ export class SettingsService {
     const serverKey = this.fingerprintKey()
     return (await this.secrets
       .presence())
-      .map((row) =>
-        secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
+      .map(async (row) =>
+        secretPresence(row.key, await this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
       )
   }
 

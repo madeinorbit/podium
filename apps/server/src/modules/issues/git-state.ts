@@ -133,11 +133,11 @@ export async function probeGitState(
     // No upstream configured → rev-list fails → counter absent, never zero-lies.
     await op('revListCount', { from: '@{u}', to: 'HEAD' }),
     target.shared
-      ? Promise.resolve({ ok: false, output: '' })
+      ? await Promise.resolve({ ok: false, output: '' })
       : await op('revListCount', { from: target.parentBranch, to: 'HEAD' }),
     target.shared && target.refsPattern
       ? await op('logIssueCommits', { grep: target.refsPattern })
-      : Promise.resolve({ ok: false, output: '' }),
+      : await Promise.resolve({ ok: false, output: '' }),
   ])
 
   const { branch, dirtyPaths } = parsePorcelainStatus(status.output)

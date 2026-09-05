@@ -348,20 +348,20 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
   const machines = mods(ctx).machines
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
-    parentSessionOf: (sessionId) =>
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
   return {
     principal,
     ownership: ownershipFromMachines(machines),
     role: await accountRoleOf(principal, ctx),
-    defaultMachine: () => machines.defaultMachine(),
-    allMachineIds: () => machines.ownershipRows().map((row) => row.id),
-    machineName: (machineId) => machines.ownershipRows().find((r) => r.id === machineId)?.name,
-    effectiveOwner: (machineId) => machines.effectiveOwner(machineId),
+    defaultMachine: async () => await machines.defaultMachine(),
+    allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),
+    machineName: async (machineId) => (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,
+    effectiveOwner: async (machineId) => await machines.effectiveOwner(machineId),
   }
 }
 

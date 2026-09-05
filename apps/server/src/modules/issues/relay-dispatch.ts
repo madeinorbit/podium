@@ -164,7 +164,7 @@ export function makeAgentRelayDispatch(
 
   return async (capability, overrideScope, router, proc, input) => {
     if (router === 'features' && proc === 'state') {
-      return Promise.resolve(featureStates())
+      return await Promise.resolve(featureStates())
     }
     if (router === 'quota' && proc === 'summary') {
       return await modules().rpc.agentQuotaAll()
@@ -203,10 +203,10 @@ export function makeAgentRelayDispatch(
      * SECOND proc rather than a wider `list`.
      */
     if (router === 'machines' && proc === 'list') {
-      return Promise.resolve(await visibleMachinesFor(modules(), capability))
+      return await Promise.resolve(await visibleMachinesFor(modules(), capability))
     }
     if (router === 'machines' && proc === 'listWithRepos') {
-      return Promise.resolve(await fleetViewFor(modules(), capability, listRepos()))
+      return await Promise.resolve(await fleetViewFor(modules(), capability, listRepos()))
     }
     if (router === 'machines' && proc === 'reprobe') {
       const raw = (input ?? {}) as Record<string, unknown>
@@ -220,7 +220,7 @@ export function makeAgentRelayDispatch(
       }
       if (!machine.online) throw new Error(`machine '${machine.name}' is offline`)
       modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })
-      return Promise.resolve({ machineId: machine.id, requested: true })
+      return await Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
       return specs.has(proc) ? (await specs.invoke(proc, input) as Promise<unknown>) : undefined
@@ -269,14 +269,14 @@ export function makeAgentRelayDispatch(
         })
       }
       if (proc !== 'fetch') return undefined
-      return (async () => {
+      return await (async () => {
         const raw = (input ?? {}) as Record<string, unknown>
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
         const target = await readToolkit.resolveTarget(raw.ref)
         if (!target) throw new Error(`no session found for ${raw.ref}`)
         const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
         if (targetIssueId) {
-          checkIssueAccess(
+          await checkIssueAccess(
             {
               capability,
               ...(overrideScope ? { overrideScope: true } : {}),
@@ -304,7 +304,7 @@ export function makeAgentRelayDispatch(
       }
       if (proc === 'clear') {
         sessionsSvc.clearOffer(actorSessionId)
-        return Promise.resolve({ ok: true, cleared: true })
+        return await Promise.resolve({ ok: true, cleared: true })
       }
       if (proc === 'set') {
         const raw = (input ?? {}) as Record<string, unknown>
@@ -368,7 +368,7 @@ export function makeAgentRelayDispatch(
         // a closing report must not fail over it, so the reason rides back on
         // the result instead of throwing.
         if (ownRow && (ownRow.stage === 'done' || ownRow.closedReason)) {
-          return Promise.resolve({
+          return await Promise.resolve({
             ok: true,
             retired: true,
             notice:
@@ -393,7 +393,7 @@ export function makeAgentRelayDispatch(
           ownRef && bareSelfRefCount(message, ownRef) > 0
             ? selfRefNudge(ownRef, 'offer message')
             : undefined
-        return Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
+        return await Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
       }
       return undefined
     }
@@ -409,7 +409,7 @@ export function makeAgentRelayDispatch(
         return await messageGate.dispatch(capability, overrideScope, 'ask', input)
       }
       if (proc === 'status' || proc === 'read' || proc === 'recap') {
-        return (async () => {
+        return await (async () => {
           const raw = (input ?? {}) as Record<string, unknown>
           const ref = proc === 'status' ? raw.ref : raw.sessionId
           if (typeof ref !== 'string' || !ref) {
@@ -419,7 +419,7 @@ export function makeAgentRelayDispatch(
           if (!target) throw new Error(`no session found for ${ref}`)
           const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
           if (targetIssueId) {
-            checkIssueAccess(
+            await checkIssueAccess(
               {
                 capability,
                 ...(overrideScope ? { overrideScope: true } : {}),
@@ -484,13 +484,13 @@ export function makeAgentRelayDispatch(
         if (typeof name !== 'string' || name.trim().length === 0) {
           throw new Error('name is required')
         }
-        return Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
+        return await Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
       }
       // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
       // No id → self-stop (the calling session). Outside subtree needs
       // --outside-scope; self / same-issue siblings / subtree are free.
       if (proc === 'stop') {
-        return (async () => {
+        return await (async () => {
           const raw = (input ?? {}) as Record<string, unknown>
           const actorSessionId = capability.actorSessionId
           const requestedId =
@@ -509,7 +509,7 @@ export function makeAgentRelayDispatch(
             if (!target) throw new Error('session not found')
             const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
             if (targetIssueId) {
-              checkIssueAccess(
+              await checkIssueAccess(
                 { capability, ...(overrideScope ? { overrideScope: true } : {}) },
                 issues,
                 'sessions.stop',
@@ -581,7 +581,7 @@ export function makeAgentRelayDispatch(
         })
       }
       if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
-        return Promise.resolve(
+        return await Promise.resolve(
           dispatchSessionCommand(
             // `modules` is a getter, not a value: the root fills the
             // module set around this construction and the closure only
@@ -595,8 +595,8 @@ export function makeAgentRelayDispatch(
       return undefined
     }
     if (router === 'approvals') {
-      if (proc === 'request') return Promise.resolve(await approvals.request(input))
-      if (proc === 'get') return Promise.resolve(await approvals.getFromAgent(input))
+      if (proc === 'request') return await Promise.resolve(await approvals.request(input))
+      if (proc === 'get') return await Promise.resolve(await approvals.getFromAgent(input))
       return undefined
     }
     const result = await issueCommands.dispatch(
@@ -607,7 +607,7 @@ export function makeAgentRelayDispatch(
     )
     const actorSessionId = capability.actorSessionId
     if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
-      return Promise.resolve(result).then(async (issuePrime) => {
+      return await Promise.resolve(result).then(async (issuePrime) => {
         const workflowPrime = featureEnabled('workflows')
           ? await workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
           : ''

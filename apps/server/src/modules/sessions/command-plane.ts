@@ -630,13 +630,13 @@ export const SESSION_COMMAND_HANDLERS = {
     }
   },
 
-  resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
+  resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
     const ownership = createdOwnership(ctx.principal, undefined)
     if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
     // here is the fresh-spawn fallback only.
-    return ctx.sessions.resumeSession({
+    return await ctx.sessions.resumeSession({
       ...input,
       resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
       use: ctx.machineUse,
@@ -645,19 +645,19 @@ export const SESSION_COMMAND_HANDLERS = {
     })
   },
 
-  kill: (ctx: SessionCommandCtx, input: TargetInput) => {
+  kill: async (ctx: SessionCommandCtx, input: TargetInput) => {
     // Absent ⇒ the pinned shape: kill neither throws nor tombstones.
-    if (!ctx.target(input.sessionId, 'sessions.kill')) return undefined
+    if (!await ctx.target(input.sessionId, 'sessions.kill')) return undefined
     return ctx.sessions.killSession(input)
   },
 
-  hibernate: (ctx: SessionCommandCtx, input: TargetInput) =>
-    ctx.target(input.sessionId, 'sessions.hibernate')
-      ? ctx.sessions.hibernateSession(input)
+  hibernate: async (ctx: SessionCommandCtx, input: TargetInput) =>
+    await ctx.target(input.sessionId, 'sessions.hibernate')
+      ? await ctx.sessions.hibernateSession(input)
       : { ok: false, reason: 'unknown session' },
 
-  interrupt: (ctx: SessionCommandCtx, input: InterruptInput) => {
-    if (!ctx.target(input.sessionId, 'sessions.interrupt')) {
+  interrupt: async (ctx: SessionCommandCtx, input: InterruptInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.interrupt')) {
       return { ok: false, reason: 'unknown session' }
     }
     const reserved = input.messageId
@@ -668,7 +668,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // AWAITED: a server-family session's stop goes down the runtime contract and
     // answers asynchronously, so reading `.ok` off the return value would be
     // reading it off a Promise (POD-2792).
-    return Promise.resolve(
+    return await Promise.resolve(
       ctx.sessions.interruptTurn({
         sessionId: input.sessionId,
         ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
@@ -690,38 +690,38 @@ export const SESSION_COMMAND_HANDLERS = {
    * your next message", and whether the refusal means "pick another value" or
    * "this session cannot do this at all".
    */
-  configure: (
+  configure: async (
     ctx: SessionCommandCtx,
     input: { sessionId: SessionId; model?: string; effort?: string },
   ) => {
-    if (!ctx.target(input.sessionId, 'sessions.configure')) {
-      return Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
+    if (!await ctx.target(input.sessionId, 'sessions.configure')) {
+      return await Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
     }
-    return ctx.sessions.configureSession(input)
+    return await ctx.sessions.configureSession(input)
   },
 
-  resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>
-    ctx.target(input.sessionId, 'sessions.resurrect')
-      ? ctx.sessions.resurrectSession(input)
-      : Promise.resolve({ ok: false, reason: 'unknown session' }),
+  resurrect: async (ctx: SessionCommandCtx, input: TargetInput) =>
+    await ctx.target(input.sessionId, 'sessions.resurrect')
+      ? await ctx.sessions.resurrectSession(input)
+      : await Promise.resolve({ ok: false, reason: 'unknown session' }),
 
   sendText: sendHandler('wait', 'sessions.sendText'),
 
   resumeAndSend: sendHandler('wake', 'sessions.resumeAndSend'),
 
-  answerAskUserQuestion: (ctx: SessionCommandCtx, input: AnswerInput) => {
+  answerAskUserQuestion: async (ctx: SessionCommandCtx, input: AnswerInput) => {
     // WHICH HUMAN answered is the transport's answer: the contract's schema
     // carries no identity field, so there is nothing to ignore and nothing to
     // spoof. The pair comes from `ctx.principal`.
-    if (!ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
+    if (!await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
     return ctx.sessions.answerAskUserQuestion({
       ...input,
       principal: inboxPrincipalFromCommand(ctx.principal),
     })
   },
 
-  continue: (ctx: SessionCommandCtx, input: TargetInput) => {
-    if (!ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
+  continue: async (ctx: SessionCommandCtx, input: TargetInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
     return ctx.sessions.continueSession(input)
   },
 
@@ -732,13 +732,13 @@ export const SESSION_COMMAND_HANDLERS = {
    * visibility is real. The relay arm keeps its self-stop resolution and its throw;
    * see the contract.
    */
-  stop: (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
-    if (!ctx.target(input.sessionId, 'sessions.stop')) {
-      return Promise.resolve({ ok: false, reason: 'unknown session' })
+  stop: async (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
+    if (!await ctx.target(input.sessionId, 'sessions.stop')) {
+      return await Promise.resolve({ ok: false, reason: 'unknown session' })
     }
     // Thread the transport principal so free-worktree audit comments name the
     // caller rather than system:stop (POD-1344).
-    return ctx.sessions.stopSession({ ...input, principal: ctx.principal })
+    return await ctx.sessions.stopSession({ ...input, principal: ctx.principal })
   },
 
   /**

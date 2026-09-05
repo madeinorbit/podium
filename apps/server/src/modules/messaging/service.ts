@@ -216,8 +216,8 @@ export class MessagingService implements TelegramNoticePort {
   private readonly lastActivityByThreadRef = new Map<string, number>()
 
   constructor(private readonly deps: MessagingDeps) {
-    deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
-    deps.bus.on('notification.telegramRequested', (request) => this.sendUserNotice(request))
+    deps.bus.on('superagent.turnEnded', async (ev) => await this.onTurnEnded(ev))
+    deps.bus.on('notification.telegramRequested', async (request) => await this.sendUserNotice(request))
     deps.bus.on('settings.changed', () => this.configure())
     deps.bus.on('session.stateChanged', ({ sessionId, ownerUserId, next }) => {
       this.onSessionStateChanged(sessionId, ownerUserId, next)
@@ -274,7 +274,7 @@ export class MessagingService implements TelegramNoticePort {
           (candidate) => resolveTelegramPrincipal(this.deps.telegramBindings.list(), candidate).ok,
         ))
     this.adapter = create({ botToken, chatId })
-    this.adapter.start((msg) => this.onInbound(msg))
+    this.adapter.start(async (msg) => await this.onInbound(msg))
     const register = this.deps.registerTelegramCommands ?? registerTelegramCommands
     void register(botToken).catch((err) => {
       log.warn('command menu registration failed', { err })

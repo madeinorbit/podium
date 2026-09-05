@@ -234,7 +234,7 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
     ['GET', 'HEAD'],
     `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version/:platform`,
     async (c) =>
-      serve(
+      await serve(
         c,
         decodeURIComponent(c.req.param('version')),
         decodeURIComponent(c.req.param('platform')),
@@ -244,6 +244,6 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
   // Kept for a daemon still holding a URL minted before one build published several
   // platforms. It serves the host's bundle, which is what that URL always meant.
   app.on(['GET', 'HEAD'], `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version`, async (c) =>
-    serve(c, decodeURIComponent(c.req.param('version')), undefined),
+    await serve(c, decodeURIComponent(c.req.param('version')), undefined),
   )
 }

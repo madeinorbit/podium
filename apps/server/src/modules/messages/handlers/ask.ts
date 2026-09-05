@@ -29,7 +29,7 @@ export async function askHandler(
   input: ContractInput<typeof mailAskContract>,
 ): Promise<unknown> {
   const { caller, deps, access } = ctx
-  access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
+  await access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages
   const r = await svc.send(senderFromPrincipal(caller.principal), {
     to: { kind: 'session', id: input.sessionId },

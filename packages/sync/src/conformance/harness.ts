@@ -80,6 +80,7 @@ export interface ClientOptions {
  */
 export async function openClient(options: ClientOptions): Promise<ConformanceClient> {
   const { authority, storage, principal, clock } = options
+  await authority.resolveIdentity()
   const view = storage.viewFor(requireHuman(principal))
   const replicaEvents: ReplicaEvent[] = []
   const outboxEvents: OutboxEvent[] = []

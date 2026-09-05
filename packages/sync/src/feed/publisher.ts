@@ -219,6 +219,7 @@ export class FeedPublisher {
       id,
       principal,
       drain: async () => {
+        await this.deps.identity.resolve()
         const control = state.pending.splice(0, state.pending.length)
         const queued = state.queue.drain()
         // The pending watermark leaves LAST and only now: it always certifies the
@@ -279,6 +280,7 @@ export class FeedPublisher {
     principal: Principal,
     delivery: ScopedDelivery,
   ): Promise<void> {
+    await this.deps.identity.resolve()
     const audience = principalRoutingId(principal)
     this.published = Math.max(this.published, delivery.throughSeq)
     for (const id of connectionIds) {
@@ -286,7 +288,7 @@ export class FeedPublisher {
       if (!state) continue
       if (principalRoutingId(state.principal) !== audience) continue
       if (delivery.kind === 'rescope') {
-        rescopeTo(state, await this.identity(), delivery.reason)
+        rescopeTo(state, this.identity(), delivery.reason)
         continue
       }
       await this.emitTo(state, delivery.changes, delivery.throughSeq)
@@ -319,7 +321,7 @@ export class FeedPublisher {
       return
     }
 
-    const frame = await this.frame(state.fromSeq, throughSeq, rows)
+    const frame = this.frame(state.fromSeq, throughSeq, rows)
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
@@ -346,15 +348,15 @@ export class FeedPublisher {
   private async takeWatermark(state: ConnectionState): Promise<readonly ServerFrame[]> {
     const through = state.watermarkThrough
     if (through === null || state.queue.isDemoted() || through <= state.fromSeq) return []
-    const frame = await this.frame(state.fromSeq, through, [])
+    const frame = this.frame(state.fromSeq, through, [])
     state.watermarkThrough = null
     state.fromSeq = through
     return [frame]
   }
 
   /** THE one frame constructor. A second one would be invisible to every golden fixture. */
-  private async frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): Promise<DeltaFrame> {
-    const identity = await this.identity()
+  private frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): DeltaFrame {
+    const identity = this.identity()
     return {
       kind: 'delta',
       feedId: identity.feedId,
@@ -379,8 +381,8 @@ export class FeedPublisher {
     return this.deps.retention.minAvailableSeq() ?? 0
   }
 
-  private async identity() {
-    return await this.deps.identity.current()
+  private identity(): ReturnType<FeedIdentityRegistry['current']> {
+    return this.deps.identity.current()
   }
 
   /**

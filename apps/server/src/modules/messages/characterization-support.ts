@@ -339,9 +339,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     },
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
-    mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
-    mirrorMarkIssueMailRead: (issueId, ids) =>
-      store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
+    mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
+    mirrorMarkIssueMailRead: async (issueId, ids) =>
+      await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
@@ -353,7 +353,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
             placementAtWake: (_message, machineId) => placementDecision(machineId, opts.machines!),
           }
         : {}),
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
     ...(opts?.omitSpawnOnWake
       ? {}
       : {
@@ -400,22 +400,22 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(opts?.resolveExecutionProfile
         ? { resolveExecutionProfile: opts.resolveExecutionProfile }
         : {}),
-      createIssue: (input) => issues.create({ ...input, startNow: false }),
-      appendEvent: (e) => store.events.appendEvent(e),
+      createIssue: async (input) => await issues.create({ ...input, startNow: false }),
+      appendEvent: async (e) => await store.events.appendEvent(e),
       // Deterministic poll seam (POD-757: never sleep before an assertion). A
       // "sleep" advances the INJECTED clock by exactly the requested amount and
       // returns immediately, so a bounded wait converges through its real polling
       // loop with zero wall-clock time. `onPoll` lets a test flip state mid-wait.
-      sleep: (ms: number) => {
+      sleep: async (ms: number) => {
         nowMs += ms
         polls += 1
         opts?.onPoll?.(polls)
-        return Promise.resolve()
+        return await Promise.resolve()
       },
       awaitPollMs: opts?.awaitPollMs ?? 500,
       now,
-      retireNotificationFact: (factKey, target) =>
-        store.notificationFacts.retire(factKey, target, now()),
+      retireNotificationFact: async (factKey, target) =>
+        await store.notificationFacts.retire(factKey, target, now()),
     },
     {
       ...(opts?.ceiling ? { ceiling: opts.ceiling } : {}),
@@ -461,8 +461,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     setNow: (iso) => {
       nowMs = Date.parse(iso)
     },
-    createIssue: (input) => {
-      const wire = issues.create({
+    createIssue: async (input) => {
+      const wire = await issues.create({
         repoPath: input.repoPath ?? '/repo',
         title: input.title,
         ...(input.parentId ? { parentId: input.parentId } : {}),
@@ -470,11 +470,11 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       })
       return { id: wire.id, seq: wire.seq }
     },
-    setWorktree: (issueId, worktreePath) => {
-      issues.update(issueId, { worktreePath })
+    setWorktree: async (issueId, worktreePath) => {
+      await issues.update(issueId, { worktreePath })
     },
-    archive: (issueId) => {
-      issues.update(issueId, { archived: true })
+    archive: async (issueId) => {
+      await issues.update(issueId, { archived: true })
     },
     put: (...fixtures) => {
       const created = fixtures.map(session)
@@ -487,9 +487,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(sessionId ? { actorSessionId: sessionId } : {}),
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }),
-    events: (kinds) =>
-      store.events
-        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 })
+    events: async (kinds) =>
+      (await store.events
+        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 }))
         .map((e) => ({ kind: e.kind, subject: e.subject, payload: e.payload })),
   }
 }

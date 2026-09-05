@@ -524,7 +524,7 @@ export class MessagesRepository {
       inArray(messagesTable.status, ['queued', 'delivered', 'read']),
       or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, sessionId)),
       notExists(
-        this.db
+        await this.db
           .select({ one: sql`1` })
           .from(messageReads)
           .where(

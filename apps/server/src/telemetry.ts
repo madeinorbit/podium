@@ -77,6 +77,6 @@ export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
       for (const off of unsubscribes) off()
       emitter.stop()
     },
-    flush: () => emitter.flush(),
+    flush: async () => await emitter.flush(),
   }
 }

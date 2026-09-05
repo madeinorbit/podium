@@ -105,8 +105,8 @@ export function createInstalledCoordinatorUpdate(
   if (!hasParent()) return undefined
   const requestSwap =
     deps.requestSwap ??
-    ((target: UpdateTarget, pinnedPubkey?: string) =>
-      requestParentSwap({
+    (async (target: UpdateTarget, pinnedPubkey?: string) =>
+      await requestParentSwap({
         expectedVersion: target.version,
         target: target as unknown as Record<string, unknown>,
         ...(pinnedPubkey ? { pinnedPubkey } : {}),

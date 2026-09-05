@@ -83,9 +83,9 @@ export class TranscriptLake {
       async (machineId, request) => await this.read(machineId, request),
       deps.now,
       {
-        onBytes: (machineId, nativeId, lakePath) => indexer.onBytes(machineId, nativeId, lakePath),
-        onTruncate: (machineId, nativeId) => indexer.onTruncate(machineId, nativeId),
-        onIncarnation: (machineId, nativeId) => indexer.onIncarnation(machineId, nativeId),
+        onBytes: async (machineId, nativeId, lakePath) => await indexer.onBytes(machineId, nativeId, lakePath),
+        onTruncate: async (machineId, nativeId) => await indexer.onTruncate(machineId, nativeId),
+        onIncarnation: async (machineId, nativeId) => await indexer.onIncarnation(machineId, nativeId),
       },
     )
   }
@@ -209,11 +209,11 @@ export class TranscriptLake {
     return slice.items.length > 0 ? slice : undefined
   }
 
-  private read(
+  private async read(
     machineId: MachineId,
     request: { path: string; offset: number; maxBytes: number },
   ): Promise<MirrorReadReply> {
-    if (this.stopped) return Promise.resolve(DISPOSED_READ)
+    if (this.stopped) return await Promise.resolve(DISPOSED_READ)
     // Wrapped rather than returned bare so `dispose()` can settle it: the broker
     // holds the only other handle on this promise and has no cancel.
     return new Promise<MirrorReadReply>((resolve) => {

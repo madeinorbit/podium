@@ -32,7 +32,7 @@ type ProceduresFor<T extends Record<string, AnyLockCommandDef>> = {
 function guardFor(def: AnyLockCommandDef) {
   return t.middleware(async ({ ctx, next }) => {
     guardLockCommand(issueCaller(ctx), def)
-    return next()
+    return await next()
   })
 }
 

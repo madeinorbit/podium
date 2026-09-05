@@ -458,12 +458,12 @@ export class AutomationsService {
           await this.deps.store.update(rearmed)
           return { runId, automation: rearmed }
         },
-        changes: (result) => [
+        changes: async (result) => [
           {
             entity: 'automationRun',
             id: result.runId,
             op: 'upsert',
-            value: this.deps.store.getRun(result.runId)!,
+            value: await this.deps.store.getRun(result.runId)!,
           },
           {
             entity: 'automation',

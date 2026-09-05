@@ -68,7 +68,7 @@ export class IssueCommandDispatcher {
         ...(envelope.expectedRevision === undefined
           ? {}
           : { expectedRevision: envelope.expectedRevision }),
-        currentRevision: () => this.deps.issues.reports.get(issue.id)?.revision,
+        currentRevision: async () => (await this.deps.issues.reports.get(issue.id))?.revision,
       },
       execute,
     )
@@ -79,15 +79,15 @@ export class IssueCommandDispatcher {
    * exact pipeline the derived router applies. Returns undefined for an unknown
    * router/proc so callers can shape their own "no such procedure" reply.
    */
-  dispatch(
+  async dispatch(
     caller: IssueCaller,
     router: string,
     proc: string,
     rawInput: unknown,
-  ): Promise<unknown> | undefined {
+  ): Promise<unknown | undefined> {
     if (router === 'repos') {
       if (proc !== 'inferFromPath') return undefined
-      return Promise.resolve().then(() => {
+      return await Promise.resolve().then(() => {
         const input = z.object({ path: z.string() }).parse(rawInput)
         return { repoPath: this.deps.inferRepoFromPath(input.path) ?? null }
       })
@@ -105,7 +105,7 @@ export class IssueCommandDispatcher {
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
-    return Promise.resolve().then(async () => {
+    return await Promise.resolve().then(async () => {
       await guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
       return await this.run(effectiveCaller, proc, def, input)

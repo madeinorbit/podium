@@ -190,7 +190,7 @@ export class ObservationCheckpointsRepository {
       .from(sessionObservationCheckpoints)
       .orderBy(sessionObservationCheckpoints.sessionId)
       .all())
-      .map((row) => this.mapRow(row))
+      .map(async (row) => await this.mapRow(row))
       .filter((row): row is ObservationLeaseRecord => row !== null)
   }
 

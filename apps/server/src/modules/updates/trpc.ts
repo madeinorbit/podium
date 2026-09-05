@@ -327,8 +327,8 @@ export function updateOperationContext(input: {
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
-    recordOperationDetails: (operationId, patch) => {
-      input.operations.engine.recordDetails(operationId, patch)
+    recordOperationDetails: async (operationId, patch) => {
+      await input.operations.engine.recordDetails(operationId, patch)
     },
     ...(input.requestCoordinatorRestart
       ? { requestCoordinatorRestart: input.requestCoordinatorRestart }
@@ -341,7 +341,7 @@ export function updateOperationContext(input: {
     },
     // The other half of the same seam (POD-2173): `report` is how a watcher
     // says something, and this is how it learns to stop.
-    stepActive: (operationId, stepId) => input.operations.engine.watching(operationId, stepId),
+    stepActive: async (operationId, stepId) => await input.operations.engine.watching(operationId, stepId),
   }
 }
 
@@ -712,10 +712,10 @@ function throwIfFailedOnStart(operation: Operation | null): void {
 
 export function updateProcedures() {
   return {
-    proposal: t.procedure.query(({ ctx }) => releaseProposalFor(ctx)),
+    proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
     approveProposal: t.procedure
       .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
-      .mutation(({ ctx, input }) => approveReleaseProposal(ctx, input)),
+      .mutation(async ({ ctx, input }) => await approveReleaseProposal(ctx, input)),
     fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
     /**
      * "Check for updates now" (spec §9.2). The daily timer answers "is anything
