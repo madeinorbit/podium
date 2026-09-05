@@ -1420,6 +1420,37 @@ Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a spa
 self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
 construction lines in `store.ts` do NOT change — they still pass the one capability object.
 
+### Rule 35b — drizzle's savepoints are NOT namespaced, and rule 35a loses a defence because of it
+
+[Found by following POD-3263's question about which transaction-spec assertions may die with the
+`podium_sp_` deletion, 2026-09-05. This is a regression in MY rule 35a, not in the worker's work.]
+
+`transaction-spec.ts:176` pins a real safety property, not a mechanism detail: *a callback-created
+savepoint cannot hijack the helper boundary*. Callback code that runs `SAVEPOINT sp_1` — "a name the
+helper once used at depth 1" — must not be able to steal the helper's rollback boundary, and today it
+cannot, because our savepoints are namespaced `podium_sp_${depth}`.
+
+DRIZZLE'S ARE NOT NAMESPACED. Its sessions emit ``const savepointName = `sp${this.nestedIndex}` ``,
+so nesting produces `sp1`, `sp2`, … Callback code inside a transaction that runs `RELEASE SAVEPOINT
+sp1` would release DRIZZLE's savepoint at that depth and collapse the boundary the outer arm depends
+on. Rule 35a hands the nested arm to drizzle, so it hands away this defence with it.
+
+THIS IS A MEASUREMENT, NOT YET A DECISION. Port that exact test to the executor's transaction path and
+RUN it. I expect it to fail. Report the result before deleting anything:
+
+- If it PASSES, the property survived by some other means and the assertion transfers as-is.
+- If it FAILS, we have narrowed a safety contract and must choose deliberately — either document that
+  raw savepoint statements inside a transaction callback are out of contract (and add a lint that
+  says so), or keep a thin namespacing wrapper on the nested arm. That choice is mine, not the
+  worker's; bring me the failure.
+
+WHAT DIES AND WHAT TRANSFERS, for the rest of that spec file. The assertions naming
+`podium_sp_${depth}` or the `depths` WeakMap are MECHANISM and die with the implementation. The
+assertions on OBSERVABLE behaviour transfer to the executor's transaction tests unchanged: commits at
+depth 0 returning the callback result, rollback at depth 0 rethrowing the original error, nested
+savepoints committing when everything succeeds, and — the load-bearing one — rolling back ONLY the
+inner savepoint when the outer catches the throw.
+
 ### Rule 49 — a cached RETENTION bound resolves PER PASS, and its fail-closed answer is re-bootstrap
 
 [Ruling on POD-3263's fifth boundary, 2026-09-05. Refines rule 47, which covers a synchronous reader
