@@ -19,7 +19,7 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
       let reentered = false
       let armed = false
       const archive = new IssueAutoArchive({
-        sweepAutoArchive: () => {
+        sweepAutoArchive: async () => {
           sweeps += 1
           // Re-enter exactly once, from inside a pass the interval drives.
           if (armed && !reentered) {
@@ -52,7 +52,7 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
     try {
       let sweeps = 0
       const archive = new IssueAutoArchive({
-        sweepAutoArchive: () => {
+        sweepAutoArchive: async () => {
           sweeps += 1
           throw new Error('boom')
         },

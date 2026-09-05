@@ -17,7 +17,7 @@ function harness(windowSize?: number) {
   const captures: EntityChangeSpec[][] = []
   const publisher = new IssueEventFeedPublisher({
     ledger: {
-      capture: (specs) => {
+      capture: async (specs) => {
         captures.push(specs)
         return []
       },
@@ -120,7 +120,7 @@ describe('IssueEventFeedPublisher', () => {
     })
     const publisher = new IssueEventFeedPublisher({
       ledger: {
-        capture: (specs) => {
+        capture: async (specs) => {
           captures.push(specs)
           return []
         },

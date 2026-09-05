@@ -31,7 +31,7 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
       let reentered = false
       const spy = vi
         .spyOn(registry.sessionStore.superagent, 'listPendingTurns')
-        .mockImplementation(() => {
+        .mockImplementation(async () => {
           calls += 1
           if (!reentered) {
             reentered = true
@@ -64,7 +64,7 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
       let calls = 0
       const spy = vi
         .spyOn(registry.sessionStore.superagent, 'listPendingTurns')
-        .mockImplementation(() => {
+        .mockImplementation(async () => {
           calls += 1
           return []
         })

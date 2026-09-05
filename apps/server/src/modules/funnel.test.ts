@@ -110,8 +110,8 @@ describe('WriteFunnel.run ordering', () => {
     const { funnel } = await makeFunnel()
     const order: string[] = []
     const result = await funnel.run({
-      authorize: () => order.push('authorize'),
-      write: () => {
+      authorize: async () => void order.push('authorize'),
+      write: async () => {
         order.push('write')
         return 42
       },
@@ -139,12 +139,12 @@ describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
   it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
     const { funnel, ledger } = await makeFunnel()
     await ledger.commit({
-      write: () => {},
+      write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
     })
     const cursor = await funnel.cursor()
     await ledger.commit({
-      write: () => {},
+      write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
     })
     const changes = await funnel.changesSince(cursor)
@@ -318,12 +318,12 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       if (reentered) return
       reentered = true
       ledger.commit({
-        write: () => {},
+        write: async () => {},
         changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
       })
     })
     await ledger.commit({
-      write: () => {},
+      write: async () => {},
       changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
     })
     funnel.flushDeltas()

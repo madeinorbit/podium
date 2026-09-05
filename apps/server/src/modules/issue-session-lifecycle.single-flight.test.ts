@@ -19,7 +19,7 @@ describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', ()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let calls = 0
     let onList: () => void = () => {}
-    const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(() => {
+    const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(async () => {
       calls += 1
       onList()
       return []

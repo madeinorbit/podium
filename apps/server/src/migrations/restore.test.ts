@@ -90,7 +90,7 @@ function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
 async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
     await ledger.commit({
-      write: () => undefined,
+      write: async () => undefined,
       changes: () => [{ entity: 'issue', id, op: 'upsert', value: { id, title: id } }],
     })
   }
