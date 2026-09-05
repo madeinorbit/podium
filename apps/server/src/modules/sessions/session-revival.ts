@@ -81,7 +81,7 @@ export interface SessionRevivalPorts {
     agentKind: AgentKind
     issueId?: IssueId
     existingOnly?: boolean
-  }): PreparedSessionInstructions
+  }): PreparedSessionInstructions | Promise<PreparedSessionInstructions>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
@@ -152,7 +152,7 @@ export class SessionRevival {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,
       agentKind: input.agentKind,
@@ -173,7 +173,7 @@ export class SessionRevival {
       ...(issueId ? { issueId } : {}),
       sessionId,
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     return spawned
   }
 
@@ -372,7 +372,7 @@ export class SessionRevival {
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
 
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd,
       agentKind: session.agentKind,
@@ -434,7 +434,7 @@ export class SessionRevival {
       ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     this.ports.broadcastSessions()
     return { ok: true }
   }

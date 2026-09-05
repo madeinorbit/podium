@@ -165,7 +165,7 @@ export interface SessionLifecycleDeps {
     issueId?: IssueId
     workflowRevisionId?: string
     existingOnly?: boolean
-  }): PreparedSessionInstructions
+  }): PreparedSessionInstructions | Promise<PreparedSessionInstructions>
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the

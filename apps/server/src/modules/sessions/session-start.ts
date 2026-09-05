@@ -156,7 +156,9 @@ export interface SessionStartPorts {
     agentKind: AgentKind
     issueId?: IssueId
     workflowRevisionId?: string
-  }): { instructions: AgentInstruction[]; commit(): void }
+  }):
+    | { instructions: AgentInstruction[]; commit(): void | Promise<void> }
+    | Promise<{ instructions: AgentInstruction[]; commit(): void | Promise<void> }>
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
@@ -263,7 +265,7 @@ export class SessionStart {
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.ports.soleOwnerForCwd(input.cwd) ?? undefined
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,
       agentKind,
@@ -328,7 +330,7 @@ export class SessionStart {
       createdBy,
       sessionId,
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = this.ports.queueInitialPrompt({
