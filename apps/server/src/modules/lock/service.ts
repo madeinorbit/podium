@@ -54,7 +54,7 @@ export type LockAcquireResult = LockAcquireResultWire
 export interface LockServiceDeps {
   locks: LocksRepository
   /** Cross-row atomicity for release→advance / sweep (SessionStore.transact). */
-  transact<T>(fn: () => Promise<T>): T | Promise<T>
+  transact<T>(fn: () => Promise<T>): Promise<T>
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
