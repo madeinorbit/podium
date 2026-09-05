@@ -8,7 +8,7 @@ import { resolveUpdateChannel } from '@podium/runtime/config'
 import { describe, expect, it, vi } from 'vitest'
 import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
-import { UpdatesService } from './service'
+import { UpdatesService, type UpdatesDeps } from './service'
 
 /**
  * The causes these cases state. Every granting method REQUIRES one (POD-2907),
@@ -34,7 +34,7 @@ const TEST_RETRY: GrantCause = {
  * for any machine with no channel while the fleet handlers assumed `stable`; the
  * assumption is gone, so a test that wants a dev wave has to say so.
  */
-function make(machines: unknown[]) {
+function make(machines: unknown[], overrides: Partial<UpdatesDeps> = {}) {
   const send = vi.fn()
   let n = 0
   const svc = new UpdatesService({
@@ -44,6 +44,7 @@ function make(machines: unknown[]) {
     nextGrantId: () => `g${++n}`,
     concurrency: 3,
     fleetChannel: () => 'dev',
+    ...overrides,
   })
   return { svc, send }
 }
@@ -123,6 +124,197 @@ describe('UpdatesService', () => {
     if (canary) canary.version = '0.4.2'
     svc.fleet()
     expect(send).toHaveBeenCalledTimes(3)
+  })
+
+  describe('supervisor canary execution confirmation', () => {
+    const start = (overrides: Partial<UpdatesDeps> = {}) => {
+      const machines = [
+        m('a', { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] }),
+        m('b'),
+      ]
+      const { svc, send } = make(machines, overrides)
+      svc.setTarget({
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
+      expect(svc.authorize()).toEqual(['a'])
+      machines[0]!.version = '0.4.2' // Production hello precedes child startup.
+      return { svc, send, machines }
+    }
+    const confirmed = {
+      type: 'updateStatus' as const,
+      state: 'current' as const,
+      grantId: 'g1',
+      targetVersion: '0.4.2',
+      version: '0.4.2',
+      phaseDetail: 'current',
+    }
+
+    it('holds the pending grant through early hello and slow child startup', () => {
+      const { svc, send } = start()
+      for (let i = 0; i < 3; i++) {
+        expect(svc.fleet()[0]).toMatchObject({ state: 'granted', version: '0.4.1' })
+        svc.tick()
+      }
+      expect(send).toHaveBeenCalledTimes(1)
+      svc.onStatus(asMachineId('a'), {
+        ...confirmed,
+        state: 'restarting',
+        phaseDetail: 'restarting',
+      })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'restarting' })
+      expect(send).toHaveBeenCalledTimes(1)
+      // The original grant still correlates after any number of early reads.
+      svc.onStatus(asMachineId('a'), confirmed)
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+      expect(send).toHaveBeenCalledTimes(2)
+      svc.fleet()
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+      { grantId: undefined },
+      { grantId: 'stale-grant' },
+      { targetVersion: undefined },
+      { targetVersion: 'other-target' },
+      { version: '0.4.1' },
+      { phaseDetail: undefined },
+      { phaseDetail: 'restarting' },
+    ])('does not accept incomplete or stale execution evidence: %j', (override) => {
+      const { svc, send } = start()
+      svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
+      expect(svc.fleet()[0]?.state).not.toBe('current')
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+      svc.onStatus(asMachineId('a'), confirmed)
+      svc.fleet()
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+      'stuck',
+      'rejected',
+    ] as const)('preserves %s after a target-version hello', (state) => {
+      const { svc, send } = start()
+      svc.onStatus(asMachineId('a'), {
+        ...confirmed,
+        state,
+        detail: 'Required child failed health',
+      })
+      expect(svc.fleet()[0]).toMatchObject({ state, detail: 'Required child failed health' })
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the execution fence when supervisor presence falls back to a daemon', () => {
+      const { svc, send, machines } = start()
+      Object.assign(machines[0]!, { presenceSource: 'legacy-daemon' })
+      expect(svc.fleet()[0]?.state).toBe('granted')
+      expect(send).toHaveBeenCalledTimes(1)
+      svc.onStatus(asMachineId('a'), { ...confirmed, state: 'restarting' })
+      expect(svc.fleet()[0]?.state).toBe('restarting')
+      expect(send).toHaveBeenCalledTimes(1)
+      svc.onStatus(asMachineId('a'), { ...confirmed, state: 'stuck' })
+      expect(svc.fleet()[0]?.state).toBe('stuck')
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.fleet()[0]?.state).toBe('stuck')
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['publication', 'approval'] as const)(
+      'does not use a grant to confirm a different same-version %s descriptor',
+      (replacement) => {
+        const changed = {
+          version: '0.4.2',
+          critical: true,
+          artifacts: { headless: { delivery: 'feed' as const, platforms: {} } },
+        }
+        let approved: ReturnType<UpdatesService['target']>
+        const { svc, send } = start({ approvedTarget: () => approved })
+        if (replacement === 'publication') svc.setTarget(changed)
+        else approved = changed
+        svc.onStatus(asMachineId('a'), confirmed)
+        expect(svc.fleet()[0]?.state).not.toBe('current')
+        svc.tick()
+        expect(send).toHaveBeenCalledTimes(1)
+      },
+    )
+
+    it('rechecks the exact descriptor when projection follows accepted confirmation', () => {
+      const { svc, send } = start()
+      svc.onStatus(asMachineId('a'), confirmed)
+      svc.setTarget({
+        version: '0.4.2',
+        critical: true,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
+      expect(svc.fleet()[0]?.state).toBe('restarting')
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+
+    it('accepts an equivalent descriptor and repeated exact terminal replay', () => {
+      const { svc, send } = start()
+      svc.setTarget({
+        artifacts: { headless: { platforms: {}, delivery: 'feed' } },
+        critical: false,
+        version: '0.4.2',
+      })
+      svc.onStatus(asMachineId('a'), confirmed)
+      expect(svc.fleet()[0]?.state).toBe('current')
+      svc.onStatus(asMachineId('a'), confirmed)
+      expect(svc.fleet()[0]?.state).toBe('current')
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    it('retains exact terminal replay while the directory temporarily lacks the machine', () => {
+      const { svc, send, machines } = start()
+      const canary = machines.shift()!
+      svc.onStatus(asMachineId('a'), confirmed)
+      machines.unshift(canary)
+      expect(svc.fleet()[0]?.state).toBe('current')
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    it('registers the grant before a synchronous participant replays success', () => {
+      const machines = [m('a', { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] })]
+      const { svc } = make(machines, {
+        send: (_id, grant) => svc.onStatus(asMachineId('a'), { ...confirmed, grantId: grant.grantId }),
+      })
+      svc.setTarget({
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
+      svc.authorize()
+      machines[0]!.version = '0.4.2'
+      expect(svc.fleet()[0]?.state).toBe('current')
+    })
+
+    it('keeps already-current healthy machines current without inventing a grant', () => {
+      const { svc, send } = make([m('a', { presenceSource: 'supervisor', version: '0.4.2' })])
+      svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} })
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.fleet()[0]?.state).toBe('current')
+      expect(svc.authorize()).toEqual([])
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('waits for the directory to corroborate the confirmed running version', () => {
+      const { svc, send, machines } = start()
+      machines[0]!.version = '0.4.1'
+      svc.onStatus(asMachineId('a'), confirmed)
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })
+      expect(svc.fleet()[0]?.state).toBe('restarting')
+      svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+      machines[0]!.version = '0.4.2'
+      svc.fleet()
+      expect(send).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('a rejected canary halts the wave entirely', () => {
