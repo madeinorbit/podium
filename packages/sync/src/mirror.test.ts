@@ -120,7 +120,9 @@ class FakeMirrorStore implements MirrorStore {
     })
   }
 
-  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
+  async segmentsToMirror(
+    machineId: string,
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]> {
     const prefix = `${machineId}\n`
     return [...this.segments.entries()]
       .filter(([k]) => k.startsWith(prefix))
@@ -131,10 +133,10 @@ class FakeMirrorStore implements MirrorStore {
       }))
   }
 
-  segmentsToMirrorDirty(
+  async segmentsToMirrorDirty(
     machineId: string,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
-    return this.segmentsToMirror(machineId).filter((seg) => {
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]> {
+    return (await this.segmentsToMirror(machineId)).filter((seg) => {
       const v = this.segments.get(this.key(machineId, seg.nativeId))
       return v !== undefined && (v.reportedBytes == null || v.reportedBytes !== v.mirroredBytes)
     })
@@ -489,7 +491,7 @@ describe('MirrorService', () => {
     await mirror.enqueue(M1, 'gone', path)
     await settle(mirror, M1)
     // reported == mirrored: the dirty query no longer selects it — scans go quiet.
-    expect(store.segmentsToMirrorDirty(M1).find((x) => x.nativeId === 'gone')).toBeUndefined()
+    expect((await store.segmentsToMirrorDirty(M1)).find((x) => x.nativeId === 'gone')).toBeUndefined()
   })
 
   it('backs off on a read error: cursor untouched, no lake file, re-enqueue is a no-op', async () => {
@@ -757,7 +759,7 @@ describe('MirrorService', () => {
       // including the pre-upgrade row (dirty exactly ONCE, per the upgrade path).
       expect(store.reportedBytes(M1, 'behind')).toBe(behind.length)
       expect(store.reportedBytes(M1, 'pre-upgrade')).toBe(preUpgrade.length)
-      expect(store.segmentsToMirrorDirty(M1)).toEqual([])
+      expect(await store.segmentsToMirrorDirty(M1)).toEqual([])
 
       // THE regression: a re-trigger on a caught-up machine enqueues nothing and
       // issues zero daemon round trips (the old full sweep paid one eof-check
@@ -781,7 +783,7 @@ describe('MirrorService', () => {
       await settle(mirror, M1)
 
       expect(readFileSync(mirror.lakePath(M1, 'offline-growth')).equals(grown)).toBe(true)
-      expect(store.segmentsToMirrorDirty(M1)).toEqual([])
+      expect(await store.segmentsToMirrorDirty(M1)).toEqual([])
     })
   })
 })
