@@ -59,8 +59,10 @@ export interface MaintenanceServiceOptions {
   /** The worktree-GC policy as settings have it — read fresh on every handshake
    *  and again inside every apply, never cached on this service. Absent means
    *  the sweep is not wired here, which reads to the janitor as `off`. */
-  worktreeGcPolicy?: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
-  liveSessionIds?: () => Set<string>
+  worktreeGcPolicy?: () =>
+    | Promise<{ mode: 'off' | 'propose' | 'auto'; afterDays: number }>
+    | { mode: 'off' | 'propose' | 'auto'; afterDays: number }
+  liveSessionIds?: () => Promise<Set<string>> | Set<string>
   /** Steward poll: deliveries durable before cursor advance. */
   stewardTick?: () => void | Promise<void>
   /** Automatic shallow connect-scan; server rechecks connectivity. */
@@ -79,8 +81,8 @@ export class MaintenanceService {
   private readonly issues: MaintenanceServiceOptions['issues']
   private readonly sessions: MaintenanceServiceOptions['sessions']
   private readonly automations: MaintenanceServiceOptions['automations']
-  private readonly worktreeGcPolicy: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
-  private readonly liveSessionIds: () => Set<string>
+  private readonly worktreeGcPolicy: NonNullable<MaintenanceServiceOptions['worktreeGcPolicy']>
+  private readonly liveSessionIds: NonNullable<MaintenanceServiceOptions['liveSessionIds']>
   private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
   private readonly connectScan: MaintenanceServiceOptions['connectScan']
   private readonly localMachineId: string | undefined
@@ -114,7 +116,7 @@ export class MaintenanceService {
       }
     }
 
-    const policy = this.worktreeGcPolicy()
+    const policy = await this.worktreeGcPolicy()
     return await this.write(async () => {
       const nowMs = this.now()
       const now = new Date(nowMs).toISOString()
@@ -499,7 +501,7 @@ export class MaintenanceService {
       automationId: observed.automationId,
       nextRunAt: observed.nextRunAt,
       enabled: true,
-      liveSessionIds: this.liveSessionIds(),
+      liveSessionIds: await this.liveSessionIds(),
       now: new Date(nowMs),
     })
     if (result === 'not-due') return this.stale(command, 'not-due')

@@ -9,23 +9,23 @@ import {
 import type { Hono } from 'hono'
 
 export interface MaintenanceRouteDeps {
-  authenticateToken(token: string): boolean
+  authenticateToken(token: string): Promise<boolean> | boolean
   service: {
-    handshake(request: Handshake): MaintenanceHandshakeReply
+    handshake(request: Handshake): Promise<MaintenanceHandshakeReply> | MaintenanceHandshakeReply
     apply(request: Command): MaintenanceCommandReply | Promise<MaintenanceCommandReply>
   }
 }
 
 /** Narrow, local-secret-authenticated janitor transport [spec:SP-c29e]. */
 export function registerMaintenanceRoute(app: Hono, deps: MaintenanceRouteDeps): void {
-  const authorize = (header: string | undefined): boolean => {
+  const authorize = async (header: string | undefined): Promise<boolean> => {
     if (!header?.startsWith('Bearer ')) return false
     const token = header.slice('Bearer '.length)
-    return token.length > 0 && deps.authenticateToken(token)
+    return token.length > 0 && (await deps.authenticateToken(token))
   }
 
   app.post('/maintenance/handshake', async (c) => {
-    if (!authorize(c.req.header('authorization'))) {
+    if (!(await authorize(c.req.header('authorization')))) {
       return c.json({ error: 'unauthorized' }, 401)
     }
     let body: unknown
@@ -36,11 +36,11 @@ export function registerMaintenanceRoute(app: Hono, deps: MaintenanceRouteDeps):
     }
     const parsed = MaintenanceHandshake.safeParse(body)
     if (!parsed.success) return c.json({ error: 'invalid-handshake' }, 400)
-    return c.json(deps.service.handshake(parsed.data))
+    return c.json(await deps.service.handshake(parsed.data))
   })
 
   app.post('/maintenance/command', async (c) => {
-    if (!authorize(c.req.header('authorization'))) {
+    if (!(await authorize(c.req.header('authorization')))) {
       return c.json({ error: 'unauthorized' }, 401)
     }
     let body: unknown
