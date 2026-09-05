@@ -197,7 +197,7 @@ export interface MachinesDeps {
    * and owner reconcile: an unresolvable owner lands the machine in quarantine
    * (D19.4b), never auto-assigned to the first admin.
    */
-  userExists?(userId: UserId): boolean
+  userExists?(userId: UserId): boolean | Promise<boolean>
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
   /** Compatibility-only for isolated fixtures without a bus. */
@@ -271,8 +271,6 @@ export class MachinesService {
         this.broadcastMachines()
       },
     }
-    // Ledger-wins owner projection before any use/manage decision can run (D19.4d).
-    if (this.deps.enrollment) this.reconcileOwnersFromLedger()
   }
 
   /** Deployment label supplied by the composition root. */

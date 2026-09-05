@@ -250,7 +250,7 @@ async function reEnrolMachine(
     hostname: string
   },
 ): Promise<void> {
-  const resolvedOwner = resolveOwnerForRecovery(host, input.ownerUserId)
+  const resolvedOwner = await resolveOwnerForRecovery(host, input.ownerUserId)
   await host.deps.store.machines.upsertMachine({
     id: input.claims.machineId,
     name: input.name,
@@ -271,9 +271,12 @@ async function reEnrolMachine(
  * Ledger owner → row owner. Unresolvable account → quarantine (`null`), never
  * first-admin auto-assign (D19.4b).
  */
-function resolveOwnerForRecovery(host: EnrollmentHost, recorded: UserId | null): UserId | null {
+async function resolveOwnerForRecovery(
+  host: EnrollmentHost,
+  recorded: UserId | null,
+): Promise<UserId | null> {
   if (recorded === null) return null
-  if (host.deps.userExists && !host.deps.userExists(recorded)) return null
+  if (host.deps.userExists && !await host.deps.userExists(recorded)) return null
   return recorded
 }
 
@@ -320,7 +323,7 @@ export async function reconcileOwnersFromLedger(host: EnrollmentHost): Promise<v
     if (!row) continue
     const recorded = ledger.recordedOwner(machineId)
     if (recorded === undefined) continue
-    const resolved = resolveOwnerForRecovery(host, recorded)
+    const resolved = await resolveOwnerForRecovery(host, recorded)
     if (row.ownerUserId !== resolved) {
       await host.deps.store.machines.setMachineOwner(machineId, resolved)
     }
@@ -400,7 +403,7 @@ export async function transferMachineOwnership(
   //
   // `?.` — a deps bundle with no `userExists` resolves to `undefined`, which
   // is falsy and therefore REFUSES. Absent is the closed direction.
-  if (!host.deps.userExists?.(newOwnerUserId)) {
+  if (!await host.deps.userExists?.(newOwnerUserId)) {
     throw new Error(`unknown user: ${newOwnerUserId}`)
   }
   if (newOwnerUserId === currentOwner) {
@@ -456,7 +459,7 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
   // resolves to `undefined`, which REFUSES. Adopting to an unresolvable id
   // would append an owner the next `reconcileOwnersFromLedger` re-quarantines
   // — the machine would come out of adoption exactly as stuck as it went in.
-  if (!host.deps.userExists?.(newOwnerUserId)) {
+  if (!await host.deps.userExists?.(newOwnerUserId)) {
     throw new Error(`unknown user: ${newOwnerUserId}`)
   }
   // Grant edges should not survive an ownership change, and an unowned machine
@@ -482,7 +485,7 @@ export async function effectiveOwner(
   const ledger = host.deps.enrollment
   if (ledger) {
     const recorded = ledger.recordedOwner(machineId)
-    if (recorded !== undefined) return resolveOwnerForRecovery(host, recorded)
+    if (recorded !== undefined) return await resolveOwnerForRecovery(host, recorded)
   }
   return (await host.deps.store.machines.getMachine(machineId))?.ownerUserId
 }

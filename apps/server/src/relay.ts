@@ -480,6 +480,8 @@ export class SessionRegistry {
    * a list in one place rather than three lines in three constructors.
    */
   private async hydrate(): Promise<void> {
+    // Ledger-wins owner projection before any use/manage decision can run (D19.4d).
+    await this.modules.machines.reconcileOwnersFromLedger()
     // The host row must exist before the completed registry can serve a request,
     // but provisioning it is a store write and therefore belongs in async boot,
     // after composition and before every other hydration step.
