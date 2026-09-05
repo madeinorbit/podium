@@ -5,8 +5,8 @@ import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/
 import { currentTransaction } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
-const prepareConversationUpsert = async (db: StoreDrizzle) =>
-  (await db
+const prepareConversationUpsert = (db: StoreDrizzle) =>
+  db
     .insert(conversations)
     .values({
       id: sql.placeholder('id'),
@@ -52,7 +52,7 @@ const prepareConversationUpsert = async (db: StoreDrizzle) =>
          OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
          OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
          OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
-    }))
+    })
     .prepare()
 
 /** Durable discovered-conversation summaries and their searchable curation. */

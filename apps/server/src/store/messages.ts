@@ -517,14 +517,14 @@ export class MessagesRepository {
    * session must be told about. A session row that is gone (tests, pre-substrate
    * ids) falls back to the message's own timestamp, i.e. counts.
    */
-  private async pendingForSession(issueId: IssueId, sessionId: SessionId): Promise<SQL> {
+  private pendingForSession(issueId: IssueId, sessionId: SessionId): SQL {
     return and(
       eq(messagesTable.toKind, 'issue'),
       eq(messagesTable.toId, issueId),
       inArray(messagesTable.status, ['queued', 'delivered', 'read']),
       or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, sessionId)),
       notExists(
-        await this.db
+        this.db
           .select({ one: sql`1` })
           .from(messageReads)
           .where(

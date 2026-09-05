@@ -141,10 +141,8 @@ export class UsersRepository {
 
   async list(): Promise<UserAccountRow[]> {
     const rows = await this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
-    return rows.flatMap(async (row) => {
-      const account = await this.get(row.id)
-      return account ? [account] : []
-    })
+    const accounts = await Promise.all(rows.map(async (row) => await this.get(row.id)))
+    return accounts.filter((account): account is UserAccountRow => account !== undefined)
   }
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {

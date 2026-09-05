@@ -129,7 +129,7 @@ export class OperationStore {
   }
 
   async insert(operation: PersistedOperation): Promise<void> {
-    ;await (await this.db.insert(operations).values(rowFor(operation))).run()
+    await this.db.insert(operations).values(rowFor(operation)).run()
   }
 
   /**

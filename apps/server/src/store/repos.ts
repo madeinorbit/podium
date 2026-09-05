@@ -216,7 +216,8 @@ export class ReposRepository {
 
   /** Derive a unique, server-wide prefix for a repo name (does not persist). */
   async derivePrefixFor(repoName: string): Promise<string> {
-    return derivePrefix(repoName, async (p) => await this.isPrefixTaken(p))
+    const taken = await this.takenPrefixes()
+    return derivePrefix(repoName, (prefix) => taken.has(prefix))
   }
 
   /** The prefix chosen for the logical repo `repoId` (or null). */
