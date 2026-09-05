@@ -78,19 +78,19 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
   // `ChangeLogStore` has no such members, and re-adding them would be a second
   // identity source beside the one that mints the opaque epoch.
   return {
-    appendChanges(batch, eventTime) {
+    async appendChanges(batch, eventTime) {
       return batch.map((r) => {
         const seq = nextSeq++
         rows.push({ seq, ...r, eventTime })
         return seq
       })
     },
-    maxChangeSeq: () => nextSeq - 1,
-    minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
-    planChangePrune: () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: () => 0,
-    latestChangeStates: () => {
+    maxChangeSeq: async () => nextSeq - 1,
+    minChangeSeq: async () => rows[0]?.seq ?? null,
+    changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    planChangePrune: async () => ({ thresholdSeq: 0 }),
+    pruneChangeBatch: async () => 0,
+    latestChangeStates: async () => {
       const latest = new Map<string, Row>()
       for (const r of rows) latest.set(`${r.entity} ${r.entityId}`, r)
       return [...latest.values()]
