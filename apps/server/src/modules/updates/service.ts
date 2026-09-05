@@ -785,8 +785,20 @@ export class UpdatesService {
    * staleness; a yanked target costs the update.
    */
   operationActive(channel: UpdateChannel): boolean {
-    for (const pending of this.pendingGrants.values()) {
-      if (pending.channel === channel) return true
+    for (const [machineId, pending] of this.pendingGrants) {
+      if (pending.channel !== channel) continue
+      const state = this.machineStates.get(machineId)
+      // Completed supervisor records retain correlation for terminal replay,
+      // not execution ownership. Only consumed, exact confirmation releases
+      // the refresh fence; unconfirmed or replaced descriptors still hold it.
+      const completed =
+        state?.channel === channel &&
+        state.state === 'current' &&
+        state.projectedCurrent === true &&
+        state.grantId === pending.grantId &&
+        state.version === this.target(channel)?.version &&
+        this.grantMatchesTarget(pending, channel, this.target(channel))
+      if (!completed) return true
     }
     for (const state of this.machineStates.values()) {
       if (state.channel === channel && IN_FLIGHT_STATES.has(state.state)) return true
