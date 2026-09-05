@@ -401,7 +401,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
         ? { resolveExecutionProfile: opts.resolveExecutionProfile }
         : {}),
       createIssue: async (input) => await issues.create({ ...input, startNow: false }),
-      appendEvent: async (e) => await store.events.appendEvent(e),
+      appendEvent: async (e) => {
+        await store.events.appendEvent(e)
+      },
       // Deterministic poll seam (POD-757: never sleep before an assertion). A
       // "sleep" advances the INJECTED clock by exactly the requested amount and
       // returns immediately, so a bounded wait converges through its real polling

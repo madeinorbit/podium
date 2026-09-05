@@ -138,7 +138,7 @@ async function harness(opts?: {
     listSessions: () => sessions,
     spawnSession:
       opts?.spawnSession ??
-      ((i) => {
+      (async (i) => {
         spawns.push(i)
         return { sessionId: asSessionId('child1') }
       }),
@@ -148,8 +148,11 @@ async function harness(opts?: {
       : {}),
     // The deliberate --new path registers in the same fake registry so the
     // follow-up issues.get() resolves it (mirrors the real IssueService).
-    createIssue: (i) => (issues as unknown as { create(x: unknown): { id: string } }).create(i),
-    appendEvent: (e) => store.events.appendEvent(e),
+    createIssue: async (i) =>
+      await (issues as unknown as { create(x: unknown): Promise<{ id: string }> }).create(i),
+    appendEvent: async (e) => {
+      await store.events.appendEvent(e)
+    },
     sleep: opts?.sleep ?? (() => Promise.resolve()), // never actually blocks the test
     awaitPollMs: opts?.awaitPollMs ?? 1,
     ...(opts?.now ? { now: opts.now } : {}),
@@ -229,7 +232,7 @@ describe('agent spawn (gate)', () => {
 
   it('uses a resolved execution profile as the authoritative launch preset and audits it', async () => {
     const { gate, spawns, store } = await harness({
-      resolveExecutionProfile: (input) => {
+      resolveExecutionProfile: async (input) => {
         expect(input).toMatchObject({
           profileId: 'prof_review',
           runId: 'run_1',
@@ -283,7 +286,7 @@ describe('agent spawn (gate)', () => {
   describe('cross-machine spawn', () => {
     const profileOn =
       (machineId: string): MessageGateDeps['resolveExecutionProfile'] =>
-      () => ({
+      async () => ({
         id: 'prof_x',
         accountId: asAccountId('native:claude-code'),
         machineId: asMachineId(machineId),
@@ -368,7 +371,7 @@ describe('agent spawn (gate)', () => {
 
   it('returns and audits the placement actually produced by the spawn seam', async () => {
     const { gate, store } = await harness({
-      spawnSession: () => ({
+      spawnSession: async () => ({
         sessionId: asSessionId('child-actual'),
         agentId: 'child-actual',
         harness: 'codex',
