@@ -385,7 +385,7 @@ export class SnapshotVerifier {
         await previous
       } catch {}
     }
-    const run = await this.runOnce(path, expectedSchemaVersion)
+    const run = this.runOnce(path, expectedSchemaVersion)
     this.inFlight = run
     try {
       return await run
