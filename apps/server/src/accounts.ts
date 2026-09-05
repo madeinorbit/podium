@@ -194,7 +194,7 @@ export async function accountViews(
       kind: 'api-key' as const,
       status: 'not-configured' as const,
     }
-  })
+  }))
 
   const oauthRow = stored.get(asAccountId('managed:claude-oauth'))
   const claudeOauth: AccountView = {
