@@ -460,15 +460,15 @@ describe('oracle: composer drafts', () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
-    o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'still typing' })
+    await o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'still typing' })
     // Nothing hit SQLite yet — the write is coalesced behind the debounce.
     expect((await o.store.sessions.loadDrafts())[sessionId]).toBeUndefined()
     await waitFor(
-      () => o.store.sessions.loadDrafts()[sessionId] === 'still typing',
+      async () => (await o.store.sessions.loadDrafts())[sessionId] === 'still typing',
       'the debounced draft write to land',
     )
 
-    o.reg.modules.sessions.setSessionDraft({ sessionId, text: '' })
+    await o.reg.modules.sessions.setSessionDraft({ sessionId, text: '' })
     // A cleared composer flushes synchronously: a stale draft must never outlive
     // the message that was sent, even across an immediate restart.
     expect((await o.store.sessions.loadDrafts())[sessionId]).toBeUndefined()

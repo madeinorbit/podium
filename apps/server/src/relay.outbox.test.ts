@@ -27,7 +27,12 @@ import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
-import { advanceToComposerReady, advanceUntil } from './test-support/readiness-queue'
+import {
+  advanceToComposerReady,
+  advanceUntil,
+  READY_CEILING_MS,
+  READY_STEP_MS,
+} from './test-support/readiness-queue'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
@@ -148,15 +153,23 @@ function confirmUserTurn(reg: SessionRegistry, sessionId: string, text: string):
 }
 
 /** The durable rows this session still holds. */
-const queuedRows = (reg: SessionRegistry, sessionId: string) =>
-  reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))
+const queuedRows = async (reg: SessionRegistry, sessionId: string) =>
+  await reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))
 
 /** Step the clock until the head row settles out of the queue. */
-const advanceUntilSettled = (reg: SessionRegistry, sessionId: string, text: string): void =>
-  advanceUntil(
-    () => !queuedRows(reg, sessionId).some((row) => row.text === text),
-    `the transcript-confirmed row "${text}" settled`,
-  )
+const advanceUntilSettled = async (
+  reg: SessionRegistry,
+  sessionId: string,
+  text: string,
+): Promise<void> => {
+  if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
+  for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
+    vi.advanceTimersByTime(READY_STEP_MS)
+    await Promise.resolve()
+    if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
+  }
+  throw new Error(`the readiness window closed before the transcript-confirmed row "${text}" settled`)
+}
 
 describe('queueText (durable outbox sends)', () => {
   it('rejects an offline queued agent write when its human is revoked before drain', async () => {
@@ -527,7 +540,7 @@ describe('queueText (durable outbox sends)', () => {
       confirmUserTurn(reg, sessionId, 'first-msg')
       // Settle the head, and stop on the step that settles it — inside the
       // spacing gap, which is the only place the gap can be observed.
-      advanceUntilSettled(reg, sessionId, 'first-msg')
+      await advanceUntilSettled(reg, sessionId, 'first-msg')
       // THE SPACING IS PINNED HERE, and it takes the one-millisecond step to pin
       // it: this fake clock does not run a timer scheduled DURING a tick until
       // the next advance, so "the second has not gone out yet" is equally true
@@ -586,7 +599,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
       confirmUserTurn(reg, sessionId, 'patient-msg')
-      advanceUntilSettled(reg, sessionId, 'patient-msg')
+      await advanceUntilSettled(reg, sessionId, 'patient-msg')
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {

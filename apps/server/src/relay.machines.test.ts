@@ -484,6 +484,8 @@ async function handoffRegistry(
   await store.machines.setMachineInventory('m1', inventory)
   await store.machines.setMachineInventory('m2', inventory)
   await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
+  const sourceRepoId = (await store.repos.listRepos(asMachineId('m1')))[0]?.repoId
+  if (!sourceRepoId) throw new Error('source repo id not minted')
   let targetRepoPath = '/target/repo'
   if (opts.targetHasRepo !== false)
     await store.repos.addRepo(targetRepoPath, asMachineId('m2'), 'git@github.com:example/repo.git')
@@ -509,7 +511,7 @@ async function handoffRegistry(
         agentKind: 'claude-code' as const,
         resume: { kind: 'claude-session' as const, value: 'native-id' },
         transcriptFilename: 'native-id.jsonl',
-        repoId: asRepoId(store.repos.listRepos(asMachineId('m1'))[0]!.repoId!),
+        repoId: asRepoId(sourceRepoId),
         branch: 'x',
         headSha: sha,
         snapshotSha: null,

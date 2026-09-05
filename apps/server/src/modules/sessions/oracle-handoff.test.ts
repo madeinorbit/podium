@@ -179,6 +179,7 @@ async function handoffFixture(
   await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
   await store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
+  const sourceRepoId = (await store.repos.listRepos(asMachineId('m1')))[0]?.repoId as RepoId
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   built.push(reg)
 
@@ -235,7 +236,7 @@ async function handoffFixture(
                 agentKind: 'claude-code',
                 resume: { kind: 'claude-session', value: 'native-id' },
                 transcriptFilename: 'native-id.jsonl',
-                repoId: store.repos.listRepos(asMachineId('m1'))[0]?.repoId as RepoId,
+                repoId: sourceRepoId,
                 branch: 'x',
                 headSha: SHA,
                 snapshotSha: null,
