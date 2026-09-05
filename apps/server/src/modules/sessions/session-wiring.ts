@@ -53,7 +53,7 @@ import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 
-type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
+type QueuedMessageRow = Awaited<ReturnType<SyncRepository['listQueuedMessages']>>[number]
 
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'

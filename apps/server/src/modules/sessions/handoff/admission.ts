@@ -100,7 +100,7 @@ export class HandoffAdmission {
       // been told its move succeeded.
       return await Promise.reject(new Error('session handoff already in progress'))
     }
-    const promise = await start().finally(() => {
+    const promise = start().finally(() => {
       const current = this.inFlight.get(input.sessionId)
       if (current?.promise === promise) this.inFlight.delete(input.sessionId)
     })
