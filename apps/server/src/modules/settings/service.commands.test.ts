@@ -123,12 +123,12 @@ describe('the blob write may not carry a secret', () => {
 
   it('REFUSES a changed secret, naming the KEY and never the value', async () => {
     const current = await service.getSettingsFor(USER)
-    expect(() =>
+    await expect(
       service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
-    ).toThrow(/may not write server-owned secrets \(apiKeys\.openai\)/)
+    ).rejects.toThrow(/may not write server-owned secrets \(apiKeys\.openai\)/)
     // The material is not in the message, and it is not in the store.
     expect(() =>
       service.setSettingsFor(USER, {
@@ -189,8 +189,9 @@ describe('the blob write may not carry a secret', () => {
     // secret added to the model without a case here is a failure rather than a
     // silently unchecked key.
     expect(mutated).toHaveLength(SERVER_SECRET_KEYS.length)
-    for (const next of mutated)
-      expect(() => service.setSettingsFor(USER, next)).toThrow(/server-owned/)
+    for (const next of mutated) {
+      await expect(service.setSettingsFor(USER, next)).rejects.toThrow(/server-owned/)
+    }
   })
 
   it('lets a NON-secret member of the same nested object through', async () => {
@@ -273,23 +274,27 @@ describe('the preference patch applies by path and validates by model', () => {
   it('REFUSES a value the model rejects — the parse is the value gate', async () => {
     // The contract decides ADDRESSES and the model decides VALUE TYPES. Without
     // this the patch would be an untyped write into the blob.
-    expect(() =>
+    await expect(
       service.updatePreferences(USER, { 'hibernation.memoryPct': 'not a number' }),
-    ).toThrow()
-    expect(() => service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' })).toThrow()
+    ).rejects.toThrow()
+    await expect(
+      service.updatePreferences(USER, { 'gitWorkflow.mergeStyle': 'octopus' }),
+    ).rejects.toThrow()
     expect((await service.getSettingsFor(USER)).gitWorkflow.mergeStyle).toBe('ff-only')
   })
 
   it('cannot be used to write a secret — it goes through the blob guard', async () => {
     // Belt and braces: the command's input schema already refuses a secret path,
     // so this asks whether the HANDLER would too if something reached it.
-    expect(() => service.updatePreferences(USER, { 'apiKeys.openai': 'sk-via-patch' })).toThrow(
-      /server-owned secrets/,
-    )
+    await expect(
+      service.updatePreferences(USER, { 'apiKeys.openai': 'sk-via-patch' }),
+    ).rejects.toThrow(/server-owned secrets/)
     // The refusal is by CLASSIFICATION, so it holds for every member of the
     // vocabulary rather than for the one someone remembered.
     for (const key of SERVER_SECRET_KEYS) {
-      expect(() => service.updatePreferences(USER, { [key]: 'x' })).toThrow(/server-owned secrets/)
+      await expect(service.updatePreferences(USER, { [key]: 'x' })).rejects.toThrow(
+        /server-owned secrets/,
+      )
     }
     expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
     // …and it did not reach the keyed store either, which is where a write that
