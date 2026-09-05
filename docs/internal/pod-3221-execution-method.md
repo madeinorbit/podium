@@ -446,6 +446,14 @@ convert in the branch; a "no rule" is resolved by the coordinator inside the fre
 reviewers; the mechanical test-diff rule. Every branch that rebases across the landed flip runs
 the codemod before it lands.
 
+The await pass's whole-program fixed-point check is a LANDING GATE, not a routine scripts or server
+test. It builds the entire `apps/server` program and takes about 40 seconds. Beginning with B1,
+every landing to the integration branch runs `bun run lint:await-idempotence` against its still tip,
+after applying any regenerated await-pass output and before landing. B1 also runs it on the final
+candidate before V5. A pass means both that the codemod proposes no edit and that every entry in
+`scripts/awaitify-keep-sync.txt` was used; either failure requires re-deriving the refusal set rather
+than hand-editing it.
+
 The post-flip list on the integration branch, no freeze: lifecycle and awaited shutdown with the migration bracket
 and the parked-transaction test (B2.1); the watchdog (B2.2); the ADR amendments (B2.3); deletion
 of the synchronous helper, the synchronous port types, the executor's legacy field and the
