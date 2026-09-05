@@ -1,5 +1,4 @@
 import type { AccountId, MachineId, SessionId, UserId } from '@podium/model'
-import { asUserId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
   ExecutionProfileWire,
@@ -176,7 +175,7 @@ function toRun(row: typeof workflowRuns.$inferSelect): WorkflowRunRow {
     supersedesRunId: row.supersedesRunId,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
-    ownerUserId: asUserId(row.ownerUserId),
+    ownerUserId: row.ownerUserId,
   }
 }
 

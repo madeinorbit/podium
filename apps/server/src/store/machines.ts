@@ -5,7 +5,6 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto'
 import {
-  asUserId,
   Inventory,
   MachineComponent,
   type MachineId,
@@ -19,6 +18,9 @@ import { machines } from '../migrations/schema'
 import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type { MachineRecord } from './types'
 
+/** RETAINED EXTERNAL-INPUT BRAND CASTS: daemon enrollment and compatibility
+ * lookup methods accept machine ids as strings. Their write/query casts decode
+ * inputs; selected machine ids and owners flow from the schema. */
 /** Defensive parse of a stored inventory blob → undefined on any failure. Goes
  *  through the zod schema (not a bare cast) so schema defaults are applied — a
  *  blob persisted before `tools` existed reads back with `tools: []` (#214). */
@@ -133,7 +135,7 @@ function toRecord(r: MachineSelect): MachineRecord {
     // POD-1079: no `??` fallback. A row whose column is NULL reads back as
     // unowned, and unowned refuses `use` to everyone — substituting an owner
     // here would be the fail-open shape the nullable column exists to avoid.
-    ownerUserId: r.ownerUserId ? asUserId(r.ownerUserId) : null,
+    ownerUserId: r.ownerUserId ?? null,
     appVersion: r.appVersion,
     wireSchemaDigest: r.wireSchemaDigest,
     installKind: r.installKind,
@@ -275,6 +277,8 @@ export class MachinesRepository {
     this.db
       .insert(machines)
       .values({
+        // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
+        // id as a string; the repository is the write boundary that brands it.
         id: m.id as MachineId,
         name: m.name,
         hostname: m.hostname,

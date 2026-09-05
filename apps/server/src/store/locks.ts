@@ -73,7 +73,8 @@ export interface LockWaiterRow {
  * drizzle's own row type is assignable to {@link LockRow} as it stands, which is
  * why the per-column mapper this file used to carry is gone rather than ported.
  *
- * WRITING narrows, and that is the decision: storing `'operator'` or
+ * POLYMORPHIC WRITE BRAND DECODE. Writing narrows, and that is the decision:
+ * storing `'operator'` or
  * `'system:steward'` in a column the schema brands `SessionId` is deliberate and
  * documented (POD-362), not an accident of an untyped driver. It is spelled here,
  * once, so the two write sites do not each re-argue it.

@@ -4,7 +4,9 @@ import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
 import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
 
-/** Stable Podium identities and the machine-native artifacts that evidence them. */
+/** Stable Podium identities and the machine-native artifacts that evidence them.
+ * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
+ * selected registry ids flow from the schema without re-entry casts. */
 export class ConversationRegistryRepository {
   private readonly rootDb: SyncDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -125,10 +127,7 @@ export class ConversationRegistryRepository {
         .all()
       for (const row of rows) {
         if (row.parentPodiumId === null) continue
-        // `conversation_identities.parent_podium_id` carries no `$type` in the
-        // schema, so it arrives as a plain string where every other id on this
-        // row is branded. Same re-entry the raw statement made, named.
-        out.set(row.podiumId, asConversationId(row.parentPodiumId))
+        out.set(row.podiumId, row.parentPodiumId)
       }
     }
     return out

@@ -46,6 +46,8 @@ function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow {
   }
 }
 
+/** RETAINED EXTERNAL-INPUT BRAND CASTS: the legacy account lookup API accepts
+ * provider-facing string ids; its query comparisons brand those inputs. */
 export class AccountsRepository {
   private readonly rootDb: SyncDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner

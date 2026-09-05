@@ -62,6 +62,9 @@ import {
 } from '../migrations/schema'
 import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
+/** RETAINED INPUT/MINT BRAND CASTS: shipping compatibility methods accept raw
+ * ids, and deterministic step/attempt/hold keys are minted from strings. The
+ * schema already brands every selected shipping identity. */
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
 
 /**

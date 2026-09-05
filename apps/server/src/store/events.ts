@@ -318,9 +318,8 @@ export class EventsRepository {
       .all()
     return rows.map((row) => ({
       id: row.id,
-      // SERIALIZATION EDGE: `subject` is a polymorphic column and cannot carry a
-      // brand; the decode belongs here, where the kind filter above has already
-      // established that these subjects are session ids.
+      // POLYMORPHIC BRAND DECODE: `subject` cannot carry one schema brand; the
+      // kind filter above establishes that these subjects are session ids.
       sessionId: row.subject as SessionId,
       event: RuntimeEvent.parse(JSON.parse(row.payload)),
     }))

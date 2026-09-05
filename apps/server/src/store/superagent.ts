@@ -5,7 +5,6 @@
  */
 
 import {
-  asSessionId,
   asThreadId,
   FIRST_ADMIN_USER_ID,
   type SessionId,
@@ -29,6 +28,9 @@ import type {
   ToolCallRow,
 } from './types'
 
+/** RETAINED EXTERNAL-INPUT/ID-MINT CASTS: legacy thread methods accept string
+ * ids and the global thread is minted from a literal. Selected thread/session
+ * ids flow from the schema without re-entry casts. */
 export class SuperagentRepository {
   private readonly rootDb: SyncDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -188,6 +190,8 @@ export class SuperagentRepository {
     this.db
       .insert(superagentThreads)
       .values({
+        // EXTERNAL INPUT BRAND DECODE: this legacy writer accepts the
+        // service-facing string id and brands it at the persistence boundary.
         id: asThreadId(t.id),
         ownerUserId: t.ownerUserId,
         kind: t.kind,
@@ -230,8 +234,8 @@ export class SuperagentRepository {
       podiumSessionId?: SessionId | null
       /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
       harnessSessionId?: string | null
-      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-      terminalSessionId?: string | null
+      /** A Podium session holding the one-writer terminal lock. */
+      terminalSessionId?: SessionId | null
       /** null clears the per-thread override and returns the thread to the
        *  `superagent` settings role (POD-782). */
       model?: string | null
@@ -246,9 +250,7 @@ export class SuperagentRepository {
     if (patch.agentKind !== undefined) set.agentKind = patch.agentKind
     if (patch.podiumSessionId !== undefined) set.podiumSessionId = patch.podiumSessionId
     if (patch.harnessSessionId !== undefined) set.harnessSessionId = patch.harnessSessionId
-    if (patch.terminalSessionId !== undefined) {
-      set.terminalSessionId = patch.terminalSessionId as SessionId | null
-    }
+    if (patch.terminalSessionId !== undefined) set.terminalSessionId = patch.terminalSessionId
     if (patch.model !== undefined) set.model = patch.model
     if (patch.effort !== undefined) set.effort = patch.effort
     if (Object.keys(set).length === 0) return
@@ -302,9 +304,7 @@ export class SuperagentRepository {
       threadId: row.threadId,
       text: row.text,
       ...(row.agentKind ? { agentKind: row.agentKind } : {}),
-      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote,
-      // and one the schema leaves unbranded, so the re-entry stays named.
-      ...(row.attachSessionId ? { attachSessionId: asSessionId(row.attachSessionId) } : {}),
+      ...(row.attachSessionId ? { attachSessionId: row.attachSessionId } : {}),
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
         row.focusJson,
         `queued superagent input ${String(row.inputId)}`,

@@ -50,6 +50,9 @@ export type AutomationRunRow = AutomationRunWire & {
  *   the database and unions in the domain. The database enforces the values
  *   (spec §6 rule 5), so this narrows what the constraint already guarantees.
  */
+/** RETAINED EXTERNAL-INPUT BRAND CASTS: lookup and patch methods still accept
+ * service-facing string ids. Their query casts decode inputs; selected ids flow
+ * from the schema without casts. */
 type AutomationSelect = typeof automations.$inferSelect
 type AutomationRunSelect = typeof automationRuns.$inferSelect
 
@@ -73,7 +76,7 @@ function rowToAutomation(r: AutomationSelect): AutomationRow {
     createdAt: r.createdAt,
     ownerUserId: r.ownerUserId,
     createdByActor: r.createdByActor,
-    createdByOnBehalfOf: r.createdByOnBehalfOf as UserId,
+    createdByOnBehalfOf: r.createdByOnBehalfOf,
   }
 }
 
@@ -86,7 +89,7 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
     outcome: r.outcome as AutomationRunOutcome,
     detail: r.detail,
     actor: r.actor,
-    onBehalfOf: r.onBehalfOf as UserId,
+    onBehalfOf: r.onBehalfOf,
   }
 }
 

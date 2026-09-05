@@ -41,6 +41,9 @@ import type {
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
+/** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility helpers accept and trim
+ * raw session ids before queries or writes. Selected session ids flow from the
+ * schema without re-entry casts. */
 /** The one row shape every session read returns, before mapping. */
 type SessionSelect = typeof sessionsTable.$inferSelect
 
@@ -1108,7 +1111,7 @@ function mapSession(r: SessionSelect): SessionRow {
             // The INNER null stays: it is the representable "no human behind
             // this" for the machine and system arms, which is a different fact
             // from the pair being absent altogether.
-            onBehalfOf: (r.createdByOnBehalfOf as UserId | null) ?? null,
+            onBehalfOf: r.createdByOnBehalfOf ?? null,
           },
         }
       : {}),
