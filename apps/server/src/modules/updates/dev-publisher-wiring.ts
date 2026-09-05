@@ -188,7 +188,7 @@ export function wireDevBundlePublisher(deps: {
    * The platforms the registered fleet actually runs — what this host mints bundles
    * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
    */
-  readonly fleetPlatforms?: () => readonly string[]
+  readonly fleetPlatforms?: () => Promise<readonly string[]> | readonly string[]
   /** Product version and source commit captured by the server producing this proposal. */
   readonly proposalRunningVersion?: string
   readonly proposalRunningSha?: string
