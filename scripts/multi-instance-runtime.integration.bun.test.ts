@@ -4,11 +4,13 @@
  *
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
+import './legacy-cli-update.integration.bun.test'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
   cpSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -39,16 +41,27 @@ import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,
   durableSessionLabel,
+  ensureInstanceStateIdentity,
   instanceSocketRuntimeDir,
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
+import { readDaemonHealth } from '@podium/runtime/daemon-health'
+import { writeParentRequest, readParentResult } from '@podium/runtime/parent-control'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { buildVendoredHost } from '../packages/pty/src/host-bin'
+import {
+  MachineUpdateExecutor,
+  readMachineUpdateJournal,
+} from '../packages/runtime/src/machine-update'
+import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
+import type { UpdateGrantMessage } from '@podium/protocol'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -518,6 +531,36 @@ describe('long instance durable sockets', () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('dispatches supervisor lifecycle and progress through the production gateway', async () => {
+    const spec = makeSpec('blue', 'machine-events')
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        '--conditions=@podium/source',
+        join(ROOT, 'scripts/fixtures/machine-events-runtime.ts'),
+      ],
+      {
+        cwd: ROOT,
+        env: instanceEnv(spec),
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    )
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ])
+      expect(code, `${stdout}\n${stderr}`).toBe(0)
+      expect(stdout).toContain('"machineEvents":"passed"')
+      console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))
+    } finally {
+      child.kill()
+      await child.exited
+    }
+  }, 60_000)
+
   it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
     const foreign = makeSpec('blue', 'foreign-blue')
     mkdirSync(foreign.stateDir, { recursive: true })
@@ -555,6 +598,166 @@ describe('multi-instance runtime isolation', () => {
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
   }, 30_000)
+  it('keeps a packaged canary fenced across real hello, slow startup, and child failure', async () => {
+    // Keep another independent production runtime alive throughout the proof.
+    const unrelated = await packagedCoordinator()
+    const executable = buildPackagedCli()
+    for (const outcome of ['healthy', 'failed'] as const) {
+      const spec = makeSpec('blue', `canary-startup-${outcome}`)
+      ensureInstanceStateIdentity({ instanceId: spec.id, dir: spec.stateDir })
+      const installDir = join(TEST_ROOT, `canary-install-${outcome}`)
+      mkdirSync(installDir)
+      const gate = join(installDir, 'hold-daemon')
+      const waiting = join(installDir, 'daemon-waiting')
+      const failed = join(installDir, 'daemon-failed')
+      const digest = 'sha256-canary-startup-fixture'
+      const machineId = asMachineId(randomUUID())
+      writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
+      writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+      writeFileSync(join(installDir, 'VERSION'), '9.9.9')
+      writeFileSync(join(installDir, 'ARTIFACT.sha256'), digest)
+      writeFileSync(gate, '')
+      // Only delay/fail the child launch. The compiled CLI, supervisor socket,
+      // real server/daemon, default health probes and confirmBoot are production.
+      const wrapper = join(installDir, 'podium')
+      writeFileSync(
+        wrapper,
+        `#!/bin/bash
+if [ "$1" = daemon ]; then
+  : > "$CANARY_WAITING"
+  while [ -e "$CANARY_GATE" ]; do /bin/sleep 0.05; done
+  if [ "$CANARY_OUTCOME" = failed ]; then
+    : > "$CANARY_FAILED"
+    exit 23
+  fi
+fi
+exec "$CANARY_REAL_CLI" "$@"
+`,
+      )
+      chmodSync(wrapper, 0o755)
+      const machines: WaveMachine[] = [
+        {
+          id: machineId,
+          version: '9.9.8',
+          state: 'current',
+          online: true,
+          busy: false,
+          presenceSource: 'supervisor',
+          deliveryCaps: ['update.delivery.feed'],
+        },
+        { id: 'next-machine', version: '9.9.8', state: 'current', online: true, busy: false },
+      ]
+      const grants: UpdateGrantMessage[] = []
+      const updates = new UpdatesService({
+        machines: () => machines,
+        send: (_id, message) => {
+          if (message.type === 'updateGrant') grants.push(message)
+        },
+        now: () => Date.now(),
+        nextGrantId: () => `startup-${grants.length + 1}`,
+        concurrency: 3,
+        fleetChannel: () => 'dev',
+      })
+      updates.setTarget({
+        version: '9.9.9',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
+      expect(updates.authorize()).toEqual([machineId])
+      const runtimeDir = join(spec.stateDir, 'runtime')
+      // Seed the already-activated predecessor journal through the executor.
+      // Artifact preparation/activation are fixtures; this test owns BOOT, not delivery.
+      const adapter = {
+        runningVersion: () => '9.9.8',
+        runningDigest: () => digest,
+        prepare: async () => ({ digest }),
+        activate: async () => {},
+        discard: async () => {},
+        restart: async () => 'handover-pending' as const,
+      }
+      await new MachineUpdateExecutor({
+        runtimeDir,
+        adapter,
+        report: (message) => updates.onStatus(machineId, message),
+      }).accept(grants[0]!)
+      expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+      const env = instanceEnv(spec, {
+        PODIUM_HOME: installDir,
+        PODIUM_LOGGING_MODE: 'foreground',
+        CANARY_GATE: gate,
+        CANARY_WAITING: waiting,
+        CANARY_FAILED: failed,
+        CANARY_OUTCOME: outcome,
+        CANARY_REAL_CLI: executable,
+      })
+      const child = spawn(executable, ['parent', '--takeover'], {
+        cwd: TEST_ROOT,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''
+      child.stdout?.on('data', (chunk) => {
+        output += String(chunk)
+      })
+      child.stderr?.on('data', (chunk) => {
+        output += String(chunk)
+      })
+      running.push({ ...spec, child, output: () => output })
+      packagedSpecs.push({ executable, spec })
+      try {
+        const api = trpc(spec)
+        await waitUntil(async () => {
+          if (!existsSync(waiting)) return false
+          try {
+            const row = (await api.machines.list.query()).find((m) => m.id === machineId)
+            if (row?.presenceSource !== 'supervisor' || row.appVersion !== '9.9.9') return false
+            machines[0]!.version = row.appVersion
+            return true
+          } catch {
+            return false
+          }
+        }, 'real supervisor target hello while daemon launch is held')
+        expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+        for (let i = 0; i < 5; i++) {
+          expect(updates.fleet()[0]?.state).toBe('restarting')
+          updates.tick()
+          expect(grants).toHaveLength(1)
+          await Bun.sleep(50)
+        }
+        rmSync(gate)
+        if (outcome === 'healthy') {
+          await waitUntil(
+            () => readMachineUpdateJournal(runtimeDir)?.phase === 'current',
+            'compiled parent default health gate and exact boot confirmation',
+          )
+          expect((await version(spec))?.daemonConnected).toBe(true)
+          // Read the actual durable production boot verdict through its normal
+          // status serializer. Fleet transport is covered separately by socket tests.
+          new MachineUpdateExecutor({
+            runtimeDir,
+            adapter: { ...adapter, runningVersion: () => '9.9.9' },
+            report: (message) => updates.onStatus(machineId, message),
+          }).replay()
+          expect(updates.fleet()[0]?.state).toBe('current')
+          expect(grants).toHaveLength(2)
+        } else {
+          await waitUntil(
+            () => existsSync(failed) && output.includes('supervised child exited'),
+            'failed production child launch',
+          )
+          expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+          expect(updates.fleet()[0]?.state).toBe('restarting')
+          updates.tick()
+          expect(grants).toHaveLength(1)
+        }
+        expect((await version(unrelated))?.instanceId).toBe('default')
+      } finally {
+        rmSync(gate, { force: true })
+        await runPackagedCli(executable, spec, ['stop'], { PODIUM_HOME: installDir })
+      }
+    }
+  }, 180_000)
+
   it('enrolls a packaged machine through its supervisor without a duplicate row', async () => {
     const source = await packagedCoordinator()
     const sourceApi = trpc(source)
@@ -614,9 +817,26 @@ describe('multi-instance runtime isolation', () => {
       state: 'connected',
     })
 
-    const daemonRecord = JSON.parse(
-      readFileSync(join(fleet.stateDir, 'run', 'daemon.pid'), 'utf8'),
-    ) as { pid: number }
+    const record = (name: string): { pid: number; version?: string } =>
+      JSON.parse(readFileSync(join(fleet.stateDir, 'run', name), 'utf8'))
+    await waitUntil(
+      () => existsSync(join(fleet.stateDir, 'run', 'supervisor-ready.json')),
+      'daemon-only production boot health gate',
+    )
+    expect(record('supervisor-ready.json')).toMatchObject({
+      pid: record('parent.pid').pid,
+      version: '9.9.9',
+    })
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+    })
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')).processId,
+    ).toBe(record('parent.pid').pid)
+
+    const daemonRecord = record('daemon.pid')
     process.kill(daemonRecord.pid, 'SIGKILL')
     await waitUntil(async () => {
       const row = (await sourceApi.machines.list.query()).find(
@@ -634,6 +854,86 @@ describe('multi-instance runtime isolation', () => {
           ?.services?.agentExecution.state === 'available',
       'daemon recovery under live supervisor',
     )
+
+    // Exercise the same production daemon restart + health gate used by source
+    // demotion. Topology persistence/endpoint transfer belongs to its own lane.
+    const topologyId = randomUUID()
+    writeParentRequest(
+      {
+        requestId: topologyId,
+        kind: 'topology',
+        expectedVersion: 'topology',
+        requestedAt: new Date().toISOString(),
+        children: ['daemon'],
+        restartDaemon: true,
+        topologyHealth: 'daemon',
+      },
+      fleet.stateDir,
+    )
+    const beforeDemotion = record('daemon.pid').pid
+    process.kill(record('parent.pid').pid, 'SIGUSR1')
+    await waitUntil(
+      () => readParentResult(topologyId, fleet.stateDir) !== undefined,
+      'production demotion daemon health boundary',
+    )
+    expect(readParentResult(topologyId, fleet.stateDir)?.ok).toBe(true)
+    expect(record('daemon.pid').pid).not.toBe(beforeDemotion)
+    expect(readDaemonHealth(fleet.stateDir)?.processId).toBe(record('daemon.pid').pid)
+
+    // Seed only the durable, already-installed update authority. Both parents,
+    // the daemon handshake/convergence callback and all health probes are real.
+    // Same-version handover deliberately does not test download or binary swap.
+    const grant = {
+      type: 'updateGrant',
+      grantId: randomUUID(),
+      issuedAt: Date.now(),
+      target: { version: '9.9.9', critical: false, artifacts: {} },
+    }
+    mkdirSync(join(fleet.stateDir, 'runtime'), { recursive: true })
+    writeFileSync(
+      join(fleet.stateDir, 'runtime', 'machine-update.json'),
+      JSON.stringify({
+        format: 1,
+        grant,
+        fingerprint: updateFingerprint(grant),
+        previousVersion: '9.9.8',
+        phase: 'current',
+        updatedAt: Date.now(),
+        completed: {},
+        authority: grant.issuedAt,
+      }),
+    )
+    const outgoingPid = record('parent.pid').pid
+    writeParentRequest(
+      {
+        requestId: randomUUID(),
+        kind: 'handover',
+        expectedVersion: '9.9.9',
+        requestedAt: new Date().toISOString(),
+        releaseHadMigrations: false,
+      },
+      fleet.stateDir,
+    )
+    process.kill(outgoingPid, 'SIGUSR1')
+    await waitUntil(
+      () => record('supervisor-ready.json').pid !== outgoingPid,
+      'daemon-only successor production health gate',
+    )
+    await waitUntil(() => {
+      try {
+        process.kill(outgoingPid, 0)
+        return false
+      } catch {
+        return true
+      }
+    }, 'outgoing parent commits production handover')
+    expect(record('supervisor-ready.json').pid).toBe(record('parent.pid').pid)
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+      convergedVersion: '9.9.9',
+    })
 
     const stopped = await runPackagedCli(executable, fleet, ['stop'])
     expect(stopped.code, `${stopped.stdout}\n${stopped.stderr}`).toBe(0)

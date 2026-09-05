@@ -3471,7 +3471,7 @@ describe('§3.2 the cancel boundary', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(h.engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(await h.engine.cancel('op_1')).toMatchObject({ canceled: true })
   })
 
   it('refuses cancel from the server swap onward', async () => {
@@ -3484,7 +3484,7 @@ describe('§3.2 the cancel boundary', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('running')
-    expect(h.engine.cancel('op_1')).toMatchObject({
+    expect(await h.engine.cancel('op_1')).toMatchObject({
       canceled: false,
       refused: 'irreversible',
       step: UPDATE_STEP_SERVER,

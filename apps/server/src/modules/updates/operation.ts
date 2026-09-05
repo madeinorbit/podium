@@ -1303,10 +1303,11 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
     const places = (machines.places ?? []).map((place) => {
       const machine = directory.get(place.id)
       if (!machine) return place
-      // The directory is refreshed from the daemon handshake, so a machine
-      // REPORTING the target has proved it, whatever the dead process believed
-      // it was in the middle of.
-      if (machine.version === targetVersion) {
+      // Production passes the restored service projection, before sockets open.
+      // Persisted directory versions are pre-health announcements, not proof of
+      // a new boot. Preserve previously completed places, but promote a new one
+      // only with live, execution-fenced current state.
+      if (machine.online && machine.state === 'current' && machine.version === targetVersion) {
         return { ...place, state: 'current', percent: 100 }
       }
       /**

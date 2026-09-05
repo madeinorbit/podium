@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSyn
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
-import { readConnectivity } from './connectivity'
+import { readDaemonHealth } from './daemon-health'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -296,7 +296,7 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
 }
 
 async function defaultProbeDaemonHealth(): Promise<DaemonHandoverHealthProbe> {
-  const connectivity = readConnectivity()
+  const connectivity = readDaemonHealth()
   const daemon = liveRecord('daemon')
   const isCurrentProcess =
     connectivity?.processId !== undefined && connectivity.processId === daemon?.pid
