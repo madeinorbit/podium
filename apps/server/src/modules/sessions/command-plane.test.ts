@@ -88,7 +88,7 @@ function ownershipTable(
   }
 }
 
-type Oracle = ReturnType<typeof makeOracle>
+type Oracle = Awaited<ReturnType<typeof makeOracle>>
 
 /** The context the router builds, with the principal and ownership substituted. */
 function ctxFor(

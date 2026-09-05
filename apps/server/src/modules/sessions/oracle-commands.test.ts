@@ -37,7 +37,7 @@ const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
 
 const confirmUserTurn = (
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
   text: string,
 ): void =>
@@ -60,7 +60,7 @@ const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
 
 /** Bind a created session as a live agent with a known resume ref and phase. */
 function goLive(
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
@@ -519,7 +519,7 @@ describe('oracle: sendText / resumeAndSend', () => {
    * assertion, because it is trusted.
    */
   const framesWhenTyped = async (
-    o: ReturnType<typeof makeOracle>,
+    o: Awaited<ReturnType<typeof makeOracle>>,
     what: string,
   ): Promise<ReturnType<typeof ptyFrames>> => {
     let snapshot: ReturnType<typeof ptyFrames> = []

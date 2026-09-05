@@ -90,7 +90,7 @@ function agedClock(): { now: () => number; advance: (ms: number) => void } {
  * measurement of how long a fresh CLI takes to mount a composer.
  */
 function goIdle(
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: string,
   clock: ReturnType<typeof agedClock>,
 ): void {

@@ -39,7 +39,7 @@ const AGENT_ONLY = willChange(
 /** Answer the daemon's image-upload round-trip with a scripted result. Returns
  *  the requests THAT machine received, so routing can be asserted per machine. */
 function answerUploads(
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   reply: (msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>) => {
     path: string
     error?: string
@@ -81,7 +81,7 @@ function answerUploads(
 }
 
 /** A live idle claude-code session the seance can address. */
-function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
+function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string, cwd = '/p'): void {
   o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),

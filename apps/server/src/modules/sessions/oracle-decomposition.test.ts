@@ -41,7 +41,7 @@ const ALICE_SESSION = asSessionId('10000000-0000-4000-8000-000000000001')
 const BOB_SESSION = asSessionId('20000000-0000-4000-8000-000000000002')
 
 function seedUser(
-  store: ReturnType<typeof makeOracle>['store'],
+  store: Awaited<ReturnType<typeof makeOracle>>['store'],
   id: UserId,
   displayName: string,
 ): void {

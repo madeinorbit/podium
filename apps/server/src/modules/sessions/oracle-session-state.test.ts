@@ -22,7 +22,7 @@ afterEach(() => disposeOracles())
 const RESUME = { kind: 'claude-session', value: 'native-fence-1' } as const
 
 /** Bind a created session as a live, idle claude-code agent with a resume ref. */
-function goLive(o: ReturnType<typeof makeOracle>, sessionId: SessionId): void {
+function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: SessionId): void {
   const machineId = o.reg.sessionStore.hostMachineId
   o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
