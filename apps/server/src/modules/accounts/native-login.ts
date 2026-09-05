@@ -3,6 +3,7 @@ import { asMachineId } from '@podium/model'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
 import type { SessionLifecycle } from '../sessions/lifecycle'
+import { withReadScope } from '../../store/executor/read-scope'
 
 export type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed'
 
@@ -24,12 +25,8 @@ export class NativeLoginService {
       machines: MachinesService
       sessions: SessionLifecycle
       bus: EventBus
-      /** Refusal reason for using a machine, with the OWNER resolved ONCE and the
-       *  per-machine check returned as a function (spec rule 18 / POD-3325).
-       *
-       *  Shaped this way because the caller asks about several machines under one
-       *  owner: reading the owner per machine was a defect, while the per-machine
-       *  GRANT read inside the returned function is deliberate and stays live. */
+      /** Refusal reason for using a machine, with the owner resolved once
+       *  (rule 18) and grant checks bound to start()'s per-pass lease (rule 46). */
       authorizerFor(ownerUserId: UserId): (machineId: MachineId) => string | undefined
       cwdForMachine(machineId: MachineId): string
     },
@@ -57,6 +54,14 @@ export class NativeLoginService {
     machineId?: MachineId
     ownerUserId: UserId
   }): NativeLoginAttempt {
+    return withReadScope(() => this.startInScope(input))
+  }
+
+  private startInScope(input: {
+    harness: HarnessAgent
+    machineId?: MachineId
+    ownerUserId: UserId
+  }): NativeLoginAttempt {
     const existing = this.attempts.get(input.harness)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
@@ -70,15 +75,10 @@ export class NativeLoginService {
             (agent) => agent.kind === input.harness && agent.installed,
           ),
       )
-    // SPLIT PER SPEC RULE 18 (POD-3325). The owner row is read ONCE for the whole
-    // scan instead of once per candidate.
-    //
-    // DECISION POD-3365 — what remains inside the callback is the per-machine
-    // GRANT read, left there deliberately: ADR 9 D2 rule 4 evaluates a grant
-    // LIVE, so batching it would make this pass snapshot-consistent instead.
-    // Today the loop is synchronous and the two are indistinguishable; after the
-    // flip they diverge. Whether the live obligation is per decision or per pass
-    // is escalated to the R3 pre-flip checkpoint.
+    // The owner row is read once for the scan (rule 18), while the grant
+    // checks use the explicit read scope opened by start() (rule 46). Candidate
+    // filtering and the selected-machine recheck therefore share one lease
+    // snapshot; the next start() opens a new lease and re-reads.
     const authorize = this.deps.authorizerFor(input.ownerUserId)
     const authorized = input.machineId
       ? candidates

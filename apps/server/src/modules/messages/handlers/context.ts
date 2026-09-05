@@ -40,6 +40,7 @@ import {
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
+import { withReadScope } from '../../../store/executor/read-scope'
 import { findSessionById } from '../../sessions/session-by-id'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
@@ -164,14 +165,15 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
     },
     { dynamic: true as const },
   )
-  const placementAtWake: WakePlacementPort = (message, machineId) => {
-    const principal = opts.principalForMessage(message)
-    // No principal left to re-resolve → deny. A wake is code execution; the
-    // single-user default only applies when the port is ABSENT, not when the
-    // sender cannot be found.
-    if (!principal) return 'unauthorized'
-    return placementDecision(machineId, opts.policyFor(principal).machines)
-  }
+  const placementAtWake: WakePlacementPort = (message, machineId) =>
+    withReadScope(() => {
+      const principal = opts.principalForMessage(message)
+      // No principal left to re-resolve → deny. A wake is code execution; the
+      // single-user default only applies when the port is ABSENT, not when the
+      // sender cannot be found.
+      if (!principal) return 'unauthorized'
+      return placementDecision(machineId, opts.policyFor(principal).machines)
+    })
   return {
     authorizeAtApply,
     placementAtWake,

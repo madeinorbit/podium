@@ -70,7 +70,11 @@ import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
 import { checkIssueAccess } from './issue-authz'
-import { checkMachineUse, ownershipFromMachines } from './machine-access'
+import {
+  checkMachineUse,
+  ownershipFromMachines,
+  ownershipFromMachinesPerPass,
+} from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
@@ -1185,13 +1189,13 @@ export class SessionRegistry {
             },
           },
           machines: {
-            // DECISION POD-3365 — one ownershipRows() scan plus one grants read
-            // per machine asked about, on a predicate the kernel calls in a
-            // loop. Same ruling blocks batching it: rule 4 wants the grant read
-            // live per decision.
+            // Rule 46: every grant-dependent machine check in this command or
+            // delivery apply reads through the pass's lease snapshot. The next
+            // apply opens a new scope and therefore re-reads revoked grants.
             mayUse: (machineId) =>
               principal.kind === 'system' ||
-              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+              checkMachineUse(principal, machineId, ownershipFromMachinesPerPass(machines)) ===
+                undefined,
             isReachable: (machineId) => machines.hasDaemon(machineId),
           },
         }
@@ -1268,21 +1272,20 @@ export class SessionRegistry {
       machines,
       sessions: sessionsSvc,
       bus: this.bus,
-      // SPLIT PER SPEC RULE 18 (POD-3325). The USER read is hoisted: the caller
-      // loops over candidate machines with one fixed `ownerUserId`, so reading
-      // the same row per candidate was an unambiguous defect with no liveness
-      // dimension. The GRANT read deliberately stays inside the per-machine
-      // function — ADR 9 D2 rule 4 evaluates a grant LIVE, and whether that
-      // obligation is per decision or per pass is escalated to R3, not decided
-      // here.
+      // The USER read is hoisted once per candidate scan (rule 18). The
+      // returned machine checks read grants through NativeLoginService's
+      // per-start lease, so one login answer uses one snapshot and the next
+      // start re-reads (rule 46).
       authorizerFor: (ownerUserId) => {
         const user = this.store.users.get(ownerUserId)
         if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
         const principal = userCommandPrincipal(ownerUserId, user.role)
         return (machineId) => {
-          // DECISION POD-3365 — one ownershipRows() scan plus one grants read per
-          // machine, kept live on purpose. See the comment above.
-          const access = checkMachineUse(principal, machineId, ownershipFromMachines(machines))
+          const access = checkMachineUse(
+            principal,
+            machineId,
+            ownershipFromMachinesPerPass(machines),
+          )
           return access === 'absent'
             ? `unknown machine '${machineId}'`
             : access === 'unauthorized'

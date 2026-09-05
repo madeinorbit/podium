@@ -1,5 +1,10 @@
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import {
+  currentReadScope,
+  inExplicitReadScope,
+  readScopeSlot,
+} from '../../store/executor/read-scope'
 import { EventBus } from '../bus'
 import { NativeLoginService } from './native-login'
 
@@ -7,7 +12,9 @@ const SESSION = asSessionId('login-session')
 const MACHINE = asMachineId('machine-a')
 const OWNER = asUserId('user:operator')
 
-function fixture() {
+function fixture(opts?: {
+  authorizerFor?: () => (machineId: typeof MACHINE) => string | undefined
+}) {
   const bus = new EventBus()
   let login: 'in' | 'out' = 'out'
   const machine = () => ({
@@ -18,7 +25,10 @@ function fixture() {
       os: 'linux',
       arch: 'x64',
       tools: [],
-      agents: [{ kind: 'codex', installed: true, login: { state: login } }],
+      agents: [
+        { kind: 'codex', installed: true, login: { state: login } },
+        { kind: 'claude-code', installed: true, login: { state: login } },
+      ],
     },
   })
   const toMachine = vi.fn()
@@ -38,7 +48,7 @@ function fixture() {
     sessions: { createSession } as never,
     // SETUP ONLY (POD-3257 / spec rule 18): `authorize` became `authorizerFor`,
     // which resolves the owner once and returns the per-machine check.
-    authorizerFor: () => () => undefined,
+    authorizerFor: opts?.authorizerFor ?? (() => () => undefined),
     cwdForMachine: () => '/repo',
   })
   return {
@@ -51,6 +61,33 @@ function fixture() {
 }
 
 describe('NativeLoginService', () => {
+  it('holds one grant snapshot for a login pass and re-reads on the next pass', () => {
+    let granted = true
+    const grantSnapshot = readScopeSlot(() => granted)
+    const f = fixture({
+      authorizerFor: () => () => {
+        const allowed = inExplicitReadScope() ? currentReadScope().slot(grantSnapshot) : granted
+        granted = false
+        return allowed ? undefined : 'fresh grant snapshot taken mid-pass'
+      },
+    })
+
+    expect(() =>
+      f.service.start({
+        harness: 'codex',
+        ownerUserId: OWNER,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      f.service.start({
+        harness: 'claude-code',
+        machineId: MACHINE,
+        ownerUserId: OWNER,
+      }),
+    ).toThrow('fresh grant snapshot taken mid-pass')
+    expect(f.createSession).toHaveBeenCalledTimes(1)
+  })
+
   it('starts one purpose-labelled shell PTY from the harness manifest lane', () => {
     const f = fixture()
     const attempt = f.service.start({

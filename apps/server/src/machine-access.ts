@@ -71,6 +71,7 @@ import type { MachineGrant, MachineVerb, ResolvedMachine } from '@podium/protoco
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { onBehalfOfUser } from './command-principal'
+import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 
 /**
  * One machine's ownership facts — DERIVED from the handshake's
@@ -89,9 +90,9 @@ import { onBehalfOfUser } from './command-principal'
 export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'grants' | 'name'>
 
 /**
- * Where ownership facts come from. Consulted LIVE at every decision (D16.1):
- * revoking a grant must stop the NEXT apply, with no reaper to write and
- * therefore none to forget.
+ * Where ownership facts come from. A direct index may read live per question;
+ * rule-46 sites bind one to the lease for an authorization pass, then discard
+ * it so a revocation stops the next apply without an invalidation step.
  */
 export interface MachineOwnershipIndex {
   /** `undefined` = no such machine row exists at all. */
@@ -177,6 +178,43 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
         grants: edges,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
+    },
+  }
+}
+
+const ownershipByPassSlot = readScopeSlot(
+  () => new WeakMap<MachineRowSource, Map<MachineId, MachineOwnershipRow | undefined>>(),
+)
+
+/**
+ * Ownership facts held for exactly one authorization pass (spec rule 46).
+ *
+ * The explicit read scope is the pass's lease. Each machine is read at most
+ * once through its slot, so two checks in one externally observed answer cannot
+ * splice together pre- and post-revocation states. A new scope owns a new slot,
+ * so the next apply re-reads and sees every revocation committed before lease
+ * acquisition.
+ */
+export function ownershipFromMachinesPerPass(machines: MachineRowSource): MachineOwnershipIndex {
+  const scope = currentReadScope()
+  if (!scope.explicit) {
+    throw new Error(
+      'ownershipFromMachinesPerPass requires an explicit read scope for each authorization pass',
+    )
+  }
+  const snapshots = scope.slot(ownershipByPassSlot)
+  let rows = snapshots.get(machines)
+  if (!rows) {
+    rows = new Map()
+    snapshots.set(machines, rows)
+  }
+  const live = ownershipFromMachines(machines)
+  return {
+    rowFor: (machineId) => {
+      if (rows.has(machineId)) return rows.get(machineId)
+      const row = live.rowFor(machineId)
+      rows.set(machineId, row)
+      return row
     },
   }
 }

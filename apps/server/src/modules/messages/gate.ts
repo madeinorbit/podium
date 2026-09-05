@@ -34,6 +34,7 @@ import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
+import { withReadScope } from '../../store/executor/read-scope'
 import type { IssueService } from '../issues/service'
 import { findSessionById } from '../sessions/session-by-id'
 import {
@@ -251,6 +252,28 @@ export class MessageGate {
     correlationId?: string,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
+    return withReadScope(() =>
+      this.dispatchInScope(
+        capability,
+        overrideScope,
+        proc,
+        input,
+        transport,
+        deliveryMode,
+        correlationId,
+      ),
+    )
+  }
+
+  private dispatchInScope(
+    capability: Capability,
+    overrideScope: boolean | undefined,
+    proc: string,
+    input: unknown,
+    transport: TransportTag,
+    deliveryMode: MailDeliveryMode | undefined,
+    correlationId: string | undefined,
+  ): Promise<unknown> {
     const principal =
       this.principalForCapability?.(capability) ??
       resolvePrincipal(capability, {
