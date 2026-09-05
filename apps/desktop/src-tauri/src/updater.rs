@@ -844,8 +844,8 @@ where
     }
 }
 
-/// Resume only the durable exact target; a newer feed is used solely to construct
-/// the native plugin's configured verifier, never as fresh install authority.
+/// Resume only the durable exact target with the configured native verifier.
+/// Rolling-feed availability and discovery ordering are not recovery authority.
 pub async fn resume_supervisor_update(app: AppHandle) {
     let path = crate::bootstrap::state_dir().join("runtime/machine-update.json");
     let state: serde_json::Value = match std::fs::read(path)
@@ -874,25 +874,28 @@ pub async fn resume_supervisor_update(app: AppHandle) {
     let Ok(channel) = channel_from_name(channel_name) else {
         return;
     };
-    let Ok(updater) = updater_for_channel(&app, channel) else {
+    // Recovery has all release metadata in the durable grant. Building the plugin
+    // directly also avoids depending on the current rolling-feed configuration.
+    let Ok(updater) = app.updater_builder().build() else {
         return;
     };
-    let Ok(Some(mut update)) = updater.check().await else {
-        log::warn!("native recovery is waiting for its verifier configuration");
-        return;
-    };
-    let Some(url) = native["url"]
-        .as_str()
-        .and_then(|url| tauri::Url::parse(url).ok())
-    else {
+    let Some(url) = native["url"].as_str() else {
         return;
     };
     let Some(signature) = native["signature"].as_str() else {
         return;
     };
-    update.version = version.to_string();
-    update.download_url = url;
-    update.signature = signature.to_string();
+    let update = match updater.update_from_release(serde_json::json!({
+        "version": version,
+        "url": url,
+        "signature": signature,
+    })) {
+        Ok(update) => update,
+        Err(error) => {
+            log::error!("native recovery target is invalid: {error}");
+            return;
+        }
+    };
     let progress_app = app.clone();
     if let Err(error) =
         download_and_install_with_progress(&app, &update, channel, move |progress| {
