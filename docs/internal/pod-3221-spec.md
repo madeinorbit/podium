@@ -1105,6 +1105,23 @@ definition is that a file is unconverted until it holds no raw handle at all. So
 that way could delete no ledger line, and Stage A's exit gate is that array being empty. Wave 1 put it
 exactly: it would empty the ledger without moving anything, which is the failure rule 20 already names.
 
+**AMENDED AT R2 (coordinator decision, 2026-09-05).** "That array being empty" is unreachable while
+Stage A owns it, and the V3 review (finding H1) was right to say so. `STAGE_A_UNCONVERTED`'s last two
+entries are `legacy-handle-probe.ts` and the executor's `legacy` field, and POD-3326 MEASURED that
+converted repositories still execute on the raw handle through `clientOverWrapper` until B1 rebinds
+`syncQueries` onto the driver. Deleting either before the flip would take the probe's four named
+consumers to zero and leave three query-count tests asserting `toBeGreaterThan(0)` red, so the gate as
+written asked for a change that Stage A cannot safely make.
+
+STAGE A'S EXIT GATE IS THEREFORE: zero `DECISION` markers in production, and `STAGE_A_UNCONVERTED`
+containing NOTHING BUT entries that also appear in `FLIP_UNDELETED`. Both hold at the tip — markers
+are zero, and both remaining entries are listed in B1's deletion ledger. The obligation is not waived:
+it MOVES to B1, where `FLIP_UNDELETED` already fails if an entry's construct is gone early, and B1's
+exit gate is both ledgers empty. Nothing is deferred out of the epic; one phase boundary moved.
+
+I did not escalate this. It is an ordering defect in a plan I wrote, the fix is reversible, and
+holding the epic for a week of ticks to ask about it was the wrong call.
+
 SO THE EXECUTOR BUILDS IT ONCE AND EXPOSES IT. The executor already holds the handle; it constructs
 `drizzle({ client })` — the same call the migrator makes at `migrations/index.ts:277`, with
 `bunSqliteClient` — and exposes it as a synchronous drizzle database. A repository imports

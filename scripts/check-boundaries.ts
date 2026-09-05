@@ -1878,6 +1878,30 @@ export function checkCacheTableAnnouncement(file: string, source: string): Viola
  * Rule 13 — no raw handles, and no driver-only construct in a `sql` body, over
  * the store directories, the operations store and the sync SQLite adapter.
  */
+/**
+ * STAGE A'S AMENDED EXIT GATE (R2 coordinator decision, 2026-09-05).
+ *
+ * The original gate was "STAGE_A_UNCONVERTED is empty", which the V3 review
+ * (H1) showed is unreachable while Stage A owns it: converted repositories
+ * still execute on the raw handle through `clientOverWrapper` until B1 rebinds
+ * `syncQueries`, so deleting the probe or the executor's `legacy` field early
+ * takes the probe's consumers to zero and reddens three query-count tests.
+ *
+ * The gate is now: every surviving ledger entry must ALSO be in
+ * {@link FLIP_UNDELETED}, i.e. it is a deletion B1 already owns. The obligation
+ * moves rather than being waived, and this check is what stops it being waived
+ * by accident — a Stage A entry that B1 does not own fails here.
+ */
+export function checkStageAExitOwnership(): Violation[] {
+  const flipOwned = new Set(FLIP_UNDELETED.map((entry) => entry.file))
+  return STAGE_A_UNCONVERTED.filter((file) => !flipOwned.has(file)).map((file) => ({
+    file,
+    specifier: file,
+    rule: 'store-boundary-ledger',
+    message: `${file}: still in STAGE_A_UNCONVERTED but NOT in FLIP_UNDELETED. Stage A's exit gate allows a surviving ledger entry only when B1 already owns its deletion. Either convert this file now, or add it to FLIP_UNDELETED with the issue that deletes it (POD-3221 spec §, R2 amendment).`,
+  }))
+}
+
 export function checkStoreRawHandles(file: string, source: string): Violation[] {
   if (!inStoreBoundary(file)) return []
   if (isTestFile(file)) return []
@@ -2680,6 +2704,7 @@ export function runCheck(repoRoot: string): {
   }
   violations.push(...checkDeclaredDeps(repoRoot))
   violations.push(...checkStoreBoundaryLedger(repoRoot))
+  violations.push(...checkStageAExitOwnership())
   violations.push(...checkFlipUndeleted(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
