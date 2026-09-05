@@ -20,6 +20,7 @@ import {
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
+import { writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
@@ -210,19 +211,27 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     options.bootstrapToken || options.identityReadOnly
       ? undefined
       : (options.identityDir ?? stateDir())
-  const report = (patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>): void => {
-    if (!connectivityDir) return
+  const report = (
+    patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>,
+    machinePresence = true,
+  ): void => {
+    const observation = {
+      serverUrl: activeServerUrl,
+      processId: process.pid,
+      appVersion: deps.build.appVersion ?? 'dev',
+      ...(convergedVersion ? { convergedVersion } : {}),
+      ...patch,
+    }
+    // Read-only machine identity does not suppress this role's health witness.
+    // Bootstrap-authenticated sibling daemons need the same production probe.
     try {
-      writeConnectivity(
-        {
-          serverUrl: activeServerUrl,
-          processId: process.pid,
-          appVersion: deps.build.appVersion ?? 'dev',
-          ...(convergedVersion ? { convergedVersion } : {}),
-          ...patch,
-        },
-        connectivityDir,
-      )
+      writeDaemonHealth(observation, options.identityDir ?? stateDir())
+    } catch (error) {
+      log.warn('could not write daemon role health', { err: error })
+    }
+    if (!machinePresence || !connectivityDir) return
+    try {
+      writeConnectivity(observation, connectivityDir)
     } catch (error) {
       log.warn('could not write the connectivity status file', { err: error, connectivityDir })
     }
@@ -995,6 +1004,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     async close() {
       closing = true
       state = 'closed'
+      report({ state: 'disconnected' }, false)
       stopQueueDrainRetry()
       stopRuntimeEventRetry()
       if (reconnectTimer !== undefined) {
