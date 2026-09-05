@@ -36,7 +36,6 @@ import type { Capability, SessionId, SessionMeta } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
-import { findSessionById } from './session-by-id'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -59,22 +58,29 @@ export type SessionTargetRow = Pick<
  * account, everything visible — stated as a function rather than assumed, so
  * that turning it on is a policy change and not a second migration.
  */
-export type SessionVisibility = (principal: CommandPrincipal, session: SessionTargetRow) => boolean
+export type SessionVisibility = (
+  principal: CommandPrincipal,
+  session: SessionTargetRow,
+) => boolean | Promise<boolean>
 
 export const everythingVisible: SessionVisibility = () => true
 
 export interface SessionAccessDeps {
   /** Live sessions, as the wire lists them. */
-  listSessions(): SessionTargetRow[]
+  listSessions(): SessionTargetRow[] | Promise<SessionTargetRow[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionTargetRow | undefined
+   *  correct via the list-and-find fallback below, just slower. */
+  sessionById?(
+    sessionId: SessionId,
+  ): SessionTargetRow | undefined | Promise<SessionTargetRow | undefined>
   /** Issue index for the subtree gate, and cwd → issue derivation. */
   /** `issueForCwd` is `string | null` on IssueService and `undefined` on the
    *  narrow test fixtures; both spellings mean "no issue owns this cwd". */
-  issues: IssueAccessIndex & { issueForCwd(cwd: string): string | null | undefined }
+  issues: IssueAccessIndex & {
+    issueForCwd(cwd: string): string | null | undefined | Promise<string | null | undefined>
+  }
   visibility?: SessionVisibility
 }
 
@@ -87,14 +93,16 @@ export type SessionTarget =
 export const SESSION_NOT_FOUND = 'session not found'
 
 /** Resolve a caller-supplied session id. Never throws; the caller decides shape. */
-export function resolveSessionTarget(
+export async function resolveSessionTarget(
   principal: CommandPrincipal,
   sessionId: SessionId,
   deps: SessionAccessDeps,
-): SessionTarget {
-  const session = findSessionById(deps, sessionId)
+): Promise<SessionTarget> {
+  const session = deps.sessionById
+    ? await deps.sessionById(sessionId)
+    : (await deps.listSessions()).find((candidate) => candidate.sessionId === sessionId)
   if (!session) return { kind: 'absent' }
-  const visible = (deps.visibility ?? everythingVisible)(principal, session)
+  const visible = await (deps.visibility ?? everythingVisible)(principal, session)
   return visible ? { kind: 'visible', session } : { kind: 'absent' }
 }
 
@@ -119,7 +127,7 @@ export async function assertMayCommandSession(
 ): Promise<void> {
   if (principal.kind === 'system') return
   const capability: Capability = principal.capability
-  const targetIssueId = session.issueId ?? deps.issues.issueForCwd(session.cwd)
+  const targetIssueId = session.issueId ?? await deps.issues.issueForCwd(session.cwd)
   if (targetIssueId) {
     await checkIssueAccess(
       { capability, ...(overrideScope ? { overrideScope: true } : {}) },

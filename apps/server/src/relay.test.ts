@@ -4173,7 +4173,7 @@ describe('hibernation', () => {
       daemon.length = 0
 
       const result = await dispatchSessionCommand(
-        sessionCommandCtx(
+        await sessionCommandCtx(
           reg.modules,
           userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability,
         ),

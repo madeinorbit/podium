@@ -159,21 +159,23 @@ export interface SessionCommandDeps {
       createdByActor: string
       createdByOnBehalfOf: import('@podium/model').UserId
     },
-  ): { id: IssueId }
+  ): { id: IssueId } | Promise<{ id: IssueId }>
   /** Persist user uploads on the draft issue before its agent can run prime. */
   attachDraftArtifacts(
     issueId: IssueId,
     artifacts: readonly DraftIssueArtifactInput[],
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
-  discardUnlaunchedDraft(issueId: IssueId): boolean
-  issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
+  discardUnlaunchedDraft(issueId: IssueId): boolean | Promise<boolean>
+  issueOwner(
+    issueId: IssueId,
+  ): import('@podium/model').UserId | undefined | Promise<import('@podium/model').UserId | undefined>
   /** The runtime-contract staging leg for live sessions. */
   stageAttachment(input: {
     sessionId: SessionId
     source: { bytes: Uint8Array; filename: string; mediaType: string }
   }): Promise<RuntimeAttachmentRef | Refusal>
-  runtimeContractActive(sessionId: SessionId): boolean
+  runtimeContractActive(sessionId: SessionId): boolean | Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -242,7 +244,7 @@ export class SessionCommandCtx {
     sessionId: SessionId,
     proc: string,
   ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
-    const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
+    const resolved = await resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     await assertMayCommandSession(
       this.principal,
@@ -587,16 +589,18 @@ export const SESSION_COMMAND_HANDLERS = {
     const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(
       ctx.principal,
-      rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,
+      rest.issueId
+        ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) }
+        : undefined,
     )
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const createdDraftId =
       !rest.issueId && draftIssue
-        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
+        ? (await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
             ownerUserId: ownership.owner as import('@podium/model').UserId,
             createdByActor: attributionOf(ctx.principal).actor,
             createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
-          }).id
+          })).id
         : undefined
     const issueId = rest.issueId ?? createdDraftId
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
@@ -625,7 +629,7 @@ export const SESSION_COMMAND_HANDLERS = {
         },
       })
     } catch (error) {
-      if (createdDraftId) ctx.deps.discardUnlaunchedDraft(createdDraftId)
+      if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
       throw error
     }
   },
@@ -776,7 +780,7 @@ export const SESSION_COMMAND_HANDLERS = {
     const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
-    if (ctx.deps.runtimeContractActive(input.sessionId)) {
+    if (await ctx.deps.runtimeContractActive(input.sessionId)) {
       const staged = await ctx.deps.stageAttachment({
         sessionId: input.sessionId,
         source: {

@@ -259,7 +259,7 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
         {
           sessions: modules.sessions,
           mutations: modules.mutations,
-          principal: sessionCommandCtx(modules, ctx.capability).principal,
+          principal: (await sessionCommandCtx(modules, ctx.capability)).principal,
           legacyPrincipal: sessionStatePrincipal(ctx),
           // The rollback envelope, built lazily — the target path is the default.
           legacyRegistry: () => sessionStateRegistryFor(ctx),
@@ -310,9 +310,9 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
   const built = t.procedure
     .input(schema)
-    .mutation(({ ctx, input }): unknown =>
-      dispatchSessionCommand(
-        sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
+    .mutation(async ({ ctx, input }): Promise<unknown> =>
+      await dispatchSessionCommand(
+        await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
         key,
         input,
       ),

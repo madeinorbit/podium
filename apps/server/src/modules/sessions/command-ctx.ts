@@ -10,13 +10,13 @@
 
 import type { TransportTag } from '@podium/commands'
 import type { Capability, MachineId, MachineUseDecision, SessionId } from '@podium/model'
-import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipal, resolvePrincipalAsync } from '../../command-principal'
 import {
   canSeeMachine,
   isMachineOwner,
   type MachineOwnershipIndex,
   machineUseDecision,
-  ownershipFromMachines,
+  ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
@@ -54,7 +54,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
  * caller supplied. `onBehalfOfFor` is absent until POD-1075 lands accounts, so
  * every chain roots at the instance's one human.
  */
-export function sessionCommandCtx(
+export async function sessionCommandCtx(
   modules: RegistryModules,
   capability: Capability,
   overrideScope?: boolean,
@@ -66,11 +66,11 @@ export function sessionCommandCtx(
    * forgets to say gets the stricter answer rather than the looser one.
    */
   transport: TransportTag = 'relay',
-): SessionCommandCtx {
+): Promise<SessionCommandCtx> {
   const sessions = modules.sessions
   const issues = modules.issues
   const commandSessions = sessionCommandServices(modules)
-  const principal = resolvePrincipal(capability, {
+  const principal = await resolvePrincipalAsync(capability, {
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
     // hands back a `SessionId` with no cast here.
@@ -79,12 +79,12 @@ export function sessionCommandCtx(
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
       spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
-    onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
+    onBehalfOfFor: async (sessionId) => (await sessions.sessionOwner(sessionId))?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
-    runtimeContractActive: (sessionId) => sessions.receiptSender.onContract(sessionId),
+    runtimeContractActive: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
     // The capability is closed over HERE, at the composition root, so no handler
@@ -126,7 +126,7 @@ export function sessionCommandCtx(
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
     rpc: () => modules.rpc,
-    ownership: ownershipFromMachines(modules.machines),
+    ownership: await ownershipSnapshotFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other
     // transport while the original is still running would apply twice.
@@ -171,18 +171,19 @@ export async function visibleMachinesFor(
 export async function machinesForPrincipal(
   modules: Pick<RegistryModules, 'machines'>,
   principal: CommandPrincipal,
-  ownership: MachineOwnershipIndex = ownershipFromMachines(modules.machines),
-): Promise<ReturnType<RegistryModules['machines']['listMachines']>> {
+  ownership?: MachineOwnershipIndex,
+): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
+  const resolvedOwnership = ownership ?? await ownershipSnapshotFromMachines(modules.machines)
   return (await modules.machines
     .listMachines(
-      (machineId) => machineUseDecision(principal, machineId, ownership),
+      (machineId) => machineUseDecision(principal, machineId, resolvedOwnership),
       // POD-1495: the third viewer-relative answer this projection carries, next
       // to `use` and the `see` filter below — "may you give this machine away".
       // It is the SAME predicate the transfer gate refuses with, so the settings
       // panel cannot offer a transfer the server would reject.
-      (machineId) => isMachineOwner(principal, machineId, ownership),
+      (machineId) => isMachineOwner(principal, machineId, resolvedOwnership),
     ))
-    .filter((machine) => canSeeMachine(principal, machine.id, ownership))
+    .filter((machine) => canSeeMachine(principal, machine.id, resolvedOwnership))
 }
 
 /** One registered checkout, as the fleet view reports it. */
@@ -216,7 +217,10 @@ export async function fleetViewFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
   allRepos: FleetRepoRow[],
-): Promise<{ machines: ReturnType<RegistryModules['machines']['listMachines']>; repos: FleetRepoRow[] }> {
+): Promise<{
+  machines: Awaited<ReturnType<RegistryModules['machines']['listMachines']>>
+  repos: FleetRepoRow[]
+}> {
   const machines = await visibleMachinesFor(modules, capability)
   return { machines, repos: usableRepos(machines, allRepos) }
 }

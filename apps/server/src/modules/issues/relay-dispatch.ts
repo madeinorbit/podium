@@ -577,7 +577,7 @@ export function makeAgentRelayDispatch(
         const parsed = sessionHandoffInput.parse(input)
         return await issueSessionLifecycle.handoffSession(parsed, {
           capability,
-          principal: sessionCommandCtx(modules(), capability, overrideScope, 'relay').principal,
+          principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay')).principal,
         })
       }
       if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
@@ -586,7 +586,7 @@ export function makeAgentRelayDispatch(
             // `modules` is a getter, not a value: the root fills the
             // module set around this construction and the closure only
             // runs per request, long after.
-            sessionCommandCtx(modules(), capability, overrideScope, 'relay'),
+            await sessionCommandCtx(modules(), capability, overrideScope, 'relay'),
             proc,
             input,
           ),

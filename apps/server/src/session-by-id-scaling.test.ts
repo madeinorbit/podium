@@ -71,7 +71,10 @@ async function seedChain(reg: SessionRegistry, count: number, chainDepth: number
  * context resolves its principal. Counted at `SessionView.wire` — the per-
  * session half of the pass, so the number is "sessions projected", not "passes".
  */
-function sessionsProjectedResolvingPrincipal(reg: SessionRegistry, leaf: string): number {
+async function sessionsProjectedResolvingPrincipal(
+  reg: SessionRegistry,
+  leaf: string,
+): Promise<number> {
   const proto = SessionView.prototype as unknown as { wire: (...a: unknown[]) => unknown }
   const original = proto.wire
   let wired = 0
@@ -80,7 +83,7 @@ function sessionsProjectedResolvingPrincipal(reg: SessionRegistry, leaf: string)
     return original.apply(this, args)
   }
   try {
-    sessionCommandCtx(reg.modules, actorCapability(leaf))
+    await sessionCommandCtx(reg.modules, actorCapability(leaf))
   } finally {
     proto.wire = original
   }
@@ -100,7 +103,7 @@ describe('POD-1646 — resolving a principal does not project every session', ()
     expect(await reg.modules.sessions.sessionSpawnedBy(asSessionId(leaf))).toBeDefined()
 
     // Before the fix: CORPUS x (chain links + 1) = 80.
-    expect(sessionsProjectedResolvingPrincipal(reg, leaf)).toBe(0)
+    expect(await sessionsProjectedResolvingPrincipal(reg, leaf)).toBe(0)
   })
 
   it('costs the same whether the machine holds 8 sessions or 64', async () => {
@@ -111,8 +114,8 @@ describe('POD-1646 — resolving a principal does not project every session', ()
 
     // The property, stated directly: growing the corpus 8x must not grow the
     // per-request work at all. Before the fix these read 32 and 256.
-    expect(sessionsProjectedResolvingPrincipal(large, largeLeaf)).toBe(
-      sessionsProjectedResolvingPrincipal(small, smallLeaf),
+    expect(await sessionsProjectedResolvingPrincipal(large, largeLeaf)).toBe(
+      await sessionsProjectedResolvingPrincipal(small, smallLeaf),
     )
   })
 })
