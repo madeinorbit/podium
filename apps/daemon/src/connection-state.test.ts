@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
@@ -15,6 +15,9 @@ import {
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { readConnectivity, writeConnectivity } from '@podium/runtime/connectivity'
+import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
+import { ParentProcess } from '@podium/runtime/parent-process'
+import { removeRecord, writeRecord } from '@podium/runtime/run-registry'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import {
   readOrCreateUpdateSigningKey,
@@ -32,6 +35,7 @@ import { createRuntimeEventOutbox } from './runtime-event-outbox'
 const roots: string[] = []
 const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -157,8 +161,21 @@ describe('daemon connection credential state machine', () => {
     await state.close()
   })
 
-  it('persists the live process and boot convergence proof after authentication', async () => {
-    const options = localOptions(() => {})
+  it.each([
+    {},
+    { identityReadOnly: true },
+    { bootstrapToken: 'local-secret' },
+  ])('publishes role health independently of machine presence (%j)', async (extra) => {
+    const options = localOptions(() => {}, extra)
+    vi.stubEnv('PODIUM_STATE_DIR', options.identityDir!)
+    writeRecord({ role: 'daemon', pid: process.pid, startedAt: new Date().toISOString() })
+    // Construct only: use the actual default probe without spawning a parent or role.
+    const parent = new ParentProcess({ port: 1, children: ['daemon'], env: {} })
+    const probe = () => parent['deps'].probeDaemonHealth()
+    const machinePresence = writeConnectivity(
+      { state: 'connected', processId: 1, appVersion: 'supervisor' },
+      options.identityDir,
+    )
     const build = { ...buildReport(process.env, undefined), appVersion: '2.0.0' }
     const state = createDaemonConnection({
       options,
@@ -174,13 +191,65 @@ describe('daemon connection credential state machine', () => {
     })
 
     await state.start()
-    expect(readConnectivity(options.identityDir as string)).toMatchObject({
+    expect(readDaemonHealth(options.identityDir)).toMatchObject({
       state: 'connected',
       processId: process.pid,
       appVersion: '2.0.0',
       convergedVersion: '2.0.0',
     })
+    expect(await probe()).toEqual({
+      connected: true, appVersion: '2.0.0', convergedVersion: '2.0.0',
+    })
+    if (options.identityReadOnly || options.bootstrapToken) {
+      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+    } else {
+      expect(readConnectivity(options.identityDir)?.processId).toBe(process.pid)
+    }
     await state.close()
+    expect(readDaemonHealth(options.identityDir)?.state).toBe('disconnected')
+    expect((await probe()).connected).toBe(false)
+    if (options.identityReadOnly || options.bootstrapToken) {
+      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+    }
+    const next = connection(options, { token: 'token' })
+    await next.start()
+    expect(readDaemonHealth(options.identityDir)?.convergedVersion).toBeUndefined()
+    await next.close()
+  })
+
+  it('refuses missing, corrupt, mismatched and dead daemon witnesses in the default probe', async () => {
+    const dir = temp()
+    vi.stubEnv('PODIUM_STATE_DIR', dir)
+    const parent = new ParentProcess({ port: 1, children: ['daemon'], env: {} })
+    const probe = () => parent['deps'].probeDaemonHealth()
+    const down = { connected: false, appVersion: null, convergedVersion: null }
+    const witness = { state: 'connected' as const, processId: process.pid,
+      appVersion: '2.0.0', convergedVersion: '2.0.0' }
+    const record = (pid: number) => writeRecord({
+      role: 'daemon', pid, startedAt: new Date().toISOString(),
+    })
+    record(process.pid)
+    // Even matching legacy machine presence cannot substitute for role health.
+    writeConnectivity(witness, dir)
+    expect(await probe()).toEqual(down)
+    writeFileSync(join(dir, 'run', 'daemon-health.json'), '{invalid')
+    expect(await probe()).toEqual(down)
+    writeDaemonHealth({ ...witness, processId: undefined }, dir)
+    expect(await probe()).toEqual(down)
+    // This positive PID is beyond supported OS PID ranges; no child is spawned.
+    const deadPid = 2_147_483_647
+    writeDaemonHealth({ ...witness, processId: deadPid }, dir)
+    expect(await probe()).toEqual(down)
+    record(deadPid)
+    expect(await probe()).toEqual(down)
+    writeDaemonHealth(witness, dir)
+    removeRecord('daemon')
+    expect(await probe()).toEqual(down)
+    record(process.pid)
+    for (const state of ['connecting', 'awaiting-ack', 'disconnected', 'unauthorized', 'blocked'] as const) {
+      writeDaemonHealth({ ...witness, state }, dir)
+      expect((await probe()).connected).toBe(false)
+    }
   })
 
   it('pins the server key on first bootstrap and refuses later rotation', async () => {
@@ -775,6 +844,10 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
   void state.start()
 
   expect(state.state).toBe('connecting')
+  expect(readDaemonHealth(identityDir)).toMatchObject({
+    state: 'connecting',
+    processId: process.pid,
+  })
   expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
   expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
 
@@ -783,6 +856,7 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
   expect(socket.terminateCalls).toBe(1)
   expect(socket.closeCalls).toBe(0)
   expect(state.state).toBe('backoff')
+  expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
   expect(readConnectivity(identityDir)).toMatchObject({
     state: 'disconnected',
     retryBackoffMs: 500,
@@ -802,6 +876,7 @@ it('forcefully terminates an acknowledgement stall when graceful close emits not
 
   expect(socket.sent).toHaveLength(1)
   expect(state.state).toBe('awaiting-ack')
+  expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
   expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
   expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
 
@@ -901,6 +976,7 @@ it('normally reconnects and resets truthful connectivity state', async () => {
   sockets[0]?.emit('close')
 
   expect(state.state).toBe('backoff')
+  expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
   expect(readConnectivity(identityDir)).toMatchObject({
     state: 'disconnected',
     retryBackoffMs: 500,
@@ -909,10 +985,15 @@ it('normally reconnects and resets truthful connectivity state', async () => {
   harness.runNext(500)
 
   expect(state.state).toBe('connecting')
+  expect(readDaemonHealth(identityDir)).toMatchObject({
+    state: 'connecting',
+    processId: process.pid,
+  })
   expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
   expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
 
   sockets[1]?.emit('open')
+  expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
   expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
   sockets[1]?.message(ok)
 

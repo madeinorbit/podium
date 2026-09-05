@@ -425,6 +425,10 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         outcome.offeredCaps,
       )
       registry.modules.machines.broadcastMachines()
+      // Supervisor-only desktops have no daemon attach to wake standing catch-up.
+      // Publish only after the authenticated build and live sender are installed.
+      if (!registry.recoveryOnly)
+        registry.bus.emit('machine.connected', { machineId: outcome.machineId })
       return
     }
     if (outcome.kind === 'rejected') {
@@ -442,6 +446,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         )
       } else {
         registry.modules.updates.onStatus(principal.machine, message)
+        if (!registry.recoveryOnly) registry.modules.updateFleetBridge?.onFleetChanged()
       }
     } catch (error) {
       warnDroppedFrame('machine', error)
@@ -450,6 +455,9 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
   ws.on('close', () => {
     if (!principal || !send) return
     if (registry.modules.machines.detachSupervisor(principal.machine, send)) {
+      // A replaced socket closing is not a new lifecycle transition.
+      if (!registry.recoveryOnly)
+        registry.bus.emit('machine.disconnected', { machineId: principal.machine })
       registry.modules.machines.broadcastMachines()
     }
   })

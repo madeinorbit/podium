@@ -298,6 +298,7 @@ export class MachineUpdateExecutor {
     return true
   }
   private run(): Promise<void> {
+    if (this.active) return this.active
     const abort = new AbortController()
     this.abort = abort
     const execute = async () => {
@@ -333,7 +334,9 @@ export class MachineUpdateExecutor {
         if (restart === 'handover-pending') return
         // An adapter returning is not a version witness. Confirmation requires a
         // successor's boot-captured identity and its complete service health.
-        await this.confirmBoot(true)
+        // This run already owns execution. Re-entering public admission here
+        // would deadlock with a cancellation waiting for this run to settle.
+        await this.confirmJournalBoot(true)
       } catch (error) {
         if (abort.signal.aborted) return
         const detail = error instanceof Error ? error.message : String(error)
@@ -350,16 +353,35 @@ export class MachineUpdateExecutor {
     return done
   }
   async recoverBeforeBoot(): Promise<void> {
-    const journal = this.journal
-    if (journal?.phase === 'activating' && journal.prepared) {
-      try {
-        await this.deps.adapter.recoverActivation?.(journal.grant, journal.prepared)
-      } catch (error) {
-        this.transition('stuck', { detail: String(error) })
+    const release = await this.acquireAdmission()
+    try {
+      if (this.active) return this.active
+      const journal = this.journal
+      if (journal?.phase === 'activating' && journal.prepared) {
+        try {
+          await this.deps.adapter.recoverActivation?.(journal.grant, journal.prepared)
+        } catch (error) {
+          this.transition('stuck', { detail: String(error) })
+        }
       }
+    } finally {
+      release()
     }
   }
   async confirmBoot(healthy: boolean): Promise<void> {
+    const release = await this.acquireAdmission()
+    try {
+      // A grant can arrive before parent startup finishes. Join its owner rather
+      // than replacing its abort controller or touching its shared staging.
+      // Return (do not await) so cancellation can acquire admission while we wait.
+      if (this.active) return this.active
+      return this.confirmJournalBoot(healthy)
+    } finally {
+      release()
+    }
+  }
+  /** Called under admission, or by the active run after its restart completes. */
+  private async confirmJournalBoot(healthy: boolean): Promise<void> {
     const journal = this.journal
     if (!journal || terminal(journal.phase)) {
       this.replay()

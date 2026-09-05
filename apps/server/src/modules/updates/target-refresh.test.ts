@@ -1,4 +1,8 @@
-import type { UpdateChannel } from '@podium/model'
+import { asMachineId, type UpdateChannel } from '@podium/model'
+import type { UpdateTarget } from '@podium/protocol'
+import { UpdatesService } from './service'
+import type { UpdateRecoverySnapshot } from './recovery-store'
+import type { WaveMachine } from './wave'
 import { describe, expect, it, vi } from 'vitest'
 import {
   initialRefreshDelayMs,
@@ -190,5 +194,105 @@ describe('startTargetRefresh', () => {
       random: () => 0,
     })
     expect(clock.armed[0]?.ms).toBe(REFRESH_INITIAL_MIN_MS)
+  })
+})
+
+describe('scheduled refresh after supervised completion', () => {
+  it.each([
+    'unconfirmed',
+    'unprojected',
+    'completed',
+    'publication-replaced',
+    'approval-replaced',
+  ] as const)('classifies %s execution before and after restart without losing replay proof', async (phase) => {
+    const target: UpdateTarget = {
+      version: '0.4.2',
+      critical: false,
+      artifacts: { headless: { delivery: 'feed', platforms: {} } },
+    }
+    const fleet: WaveMachine[] = [
+      {
+        id: 'a',
+        version: '0.4.1',
+        state: 'current',
+        online: true,
+        busy: false,
+        channel: 'dev',
+        presenceSource: 'supervisor',
+        deliveryCaps: ['update.delivery.feed'],
+      },
+    ]
+    let saved: UpdateRecoverySnapshot | undefined
+    const recovery = {
+      read: () => saved && structuredClone(saved),
+      write: (snapshot: UpdateRecoverySnapshot) => {
+        saved = structuredClone(snapshot)
+      },
+    }
+    let approved = target
+    const resolve = vi.fn(async () => target)
+    const send = vi.fn()
+    const construct = () =>
+      new UpdatesService({
+        machines: () => fleet,
+        recovery,
+        approvedTarget: () => approved,
+        resolveTarget: resolve,
+        send,
+        now: () => 1000,
+        nextGrantId: () => 'g1',
+        concurrency: 1,
+        fleetChannel: () => 'dev',
+      })
+    let service = construct()
+    service.setTarget('dev', target)
+    service.authorize()
+    expect(send).toHaveBeenCalledTimes(1)
+    fleet[0]!.version = target.version
+    const report = {
+      type: 'updateStatus' as const,
+      state: 'current' as const,
+      version: target.version,
+      targetVersion: target.version,
+      grantId: 'g1',
+      phaseDetail: 'current',
+    }
+    if (phase !== 'unconfirmed') service.onStatus(asMachineId('a'), report)
+    if (phase !== 'unconfirmed' && phase !== 'unprojected') {
+      service.fleet()
+      service.withdrawAuthorization()
+      service.releaseInFlightGrants()
+      expect(recovery.read()?.grants).toHaveLength(1)
+    }
+    if (phase === 'publication-replaced') service.setTarget('dev', { ...target, critical: true })
+    if (phase === 'approval-replaced') approved = { ...target, critical: true }
+
+    for (const reboot of [false, true]) {
+      if (reboot) service = construct()
+      expect(service.operationActive('dev')).toBe(phase !== 'completed')
+      if (phase === 'completed') {
+        service.onStatus(asMachineId('a'), report)
+        expect(service.operationActive('dev')).toBe(false)
+        expect(recovery.read()?.grants[0]?.[1].grantId).toBe('g1')
+      }
+      resolve.mockClear()
+      const clock = fakeSchedule()
+      const handle = startTargetRefresh({
+        channels: ['dev'],
+        schedule: clock.schedule,
+        operationActive: (channel) => service.operationActive(channel),
+        refresh: (channel) => service.refreshTarget(channel),
+      })
+      try {
+        await clock.fire()
+        expect(resolve).toHaveBeenCalledTimes(phase === 'completed' ? 1 : 0)
+        expect(clock.armed.at(-1)?.ms).toBe(
+          phase === 'completed' ? REFRESH_INTERVAL_MS : REFRESH_RETRY_INTERVAL_MS,
+        )
+        expect(send).toHaveBeenCalledTimes(1)
+      } finally {
+        handle.stop()
+      }
+    }
   })
 })

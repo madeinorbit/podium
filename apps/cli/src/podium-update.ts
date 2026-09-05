@@ -171,6 +171,7 @@ export async function runUpdate(
     typeof arg === 'string' ? { channel: 'stable' as const, feedOverride: arg } : arg
   const dir = installDir()
   const cur = currentVersion(dir)
+  const runningDigest = installedArtifactDigest(dir)
   // Resolve the platform asset to look for in the manifest: explicit env override
   // (config seam), else the running host's os/arch mapping.
   const target = resolveUpdateTarget(process.env, platformTarget())
@@ -228,7 +229,7 @@ export async function runUpdate(
     adapter: createHeadlessMachineUpdateAdapter({
       installDir: dir,
       runningVersion: cur,
-      runningDigest: installedArtifactDigest(dir),
+      runningDigest,
       caps: ['update.delivery.feed'],
       platform: target,
       pubkey: pubkeyB64,
@@ -239,7 +240,27 @@ export async function runUpdate(
       if (status.detail) console.error(`[podium update] ${status.detail}`)
     },
   })
-  await executor.accept(grant)
+  const prior = executor.snapshot()
+  // A fresh legacy CLI can witness the previous manual installation. Confirm
+  // only that exact committed artifact: general boot recovery can retry an
+  // unresolved activation, which must still fence admission of this new target.
+  if (
+    prior &&
+    (prior.phase === 'activating' || prior.phase === 'restarting') &&
+    prior.prepared &&
+    cur === prior.grant.target.version &&
+    runningDigest === prior.prepared.digest
+  ) {
+    await executor.confirmBoot(true)
+  }
+  try {
+    await executor.accept(grant)
+  } catch (error) {
+    // The CLI crash net logs escaped errors and survives. Admission refusal
+    // must still be a failed one-shot command, with the committed journal intact.
+    process.exitCode = 1
+    throw error
+  }
   const result = executor.snapshot()
   if (result?.phase !== 'restarting' && result?.phase !== 'current') {
     process.exitCode = 1

@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSyn
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
-import { readConnectivity } from './connectivity'
+import { readDaemonHealth } from './daemon-health'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -124,6 +124,10 @@ export interface ParentProcessDeps {
   port: number
   /** Which OS children to supervise. Default: server then daemon. */
   children?: readonly SupervisedChild[]
+  /** A promoted target retains its remote recovery daemon until explicit acknowledgement. */
+  daemonLocal?: boolean
+  /** Refresh parent-owned assignment/endpoint before changed children are spawned. */
+  onTopology?: (children: readonly SupervisedChild[]) => void
   env?: NodeJS.ProcessEnv
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
@@ -292,7 +296,7 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
 }
 
 async function defaultProbeDaemonHealth(): Promise<DaemonHandoverHealthProbe> {
-  const connectivity = readConnectivity()
+  const connectivity = readDaemonHealth()
   const daemon = liveRecord('daemon')
   const isCurrentProcess =
     connectivity?.processId !== undefined && connectivity.processId === daemon?.pid
@@ -349,7 +353,7 @@ export class ParentProcess {
     this.installDir = deps.installDir ?? resolveInstallDir(this.env)
     this.installBinary = deps.installBinary ?? defaultInstallBinary(this.installDir, this.env)
     this.childOrder = [...(deps.children ?? CHILD_START_ORDER)]
-    this.daemonLocal = this.childOrder.includes('server')
+    this.daemonLocal = deps.daemonLocal ?? this.childOrder.includes('server')
     this.deps = {
       ...deps,
       port: deps.port,
@@ -599,6 +603,7 @@ export class ParentProcess {
     if (desired.length !== requested.length || new Set(requested).size !== requested.length) {
       throw new Error('topology request carried an invalid child set')
     }
+    this.deps.onTopology?.(desired)
     const previous = [...this.childOrder]
     this.childOrder = desired
     if (desired.includes('daemon') && (restartDaemon || !previous.includes('daemon'))) {
