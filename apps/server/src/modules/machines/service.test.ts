@@ -190,10 +190,9 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     // so the throw is caused by `use`, not by the fixture being unrunnable. And
     // the offline machine is here too, proving the two refusals are different
     // messages rather than one generic "unavailable".
-    // DECISION POD-3465
-    expect(() =>
+    await expect(
       serviceListing([{ ...runnable, online: true }]).requireAgent(MACHINE, 'codex'),
-    ).not.toThrow()
+    ).resolves.not.toThrow()
     expect(await refusal([{ ...runnable, online: true, use: 'denied' }])).toMatchObject({
       code: 'FORBIDDEN',
       message: "you do not have access to run agents on machine 'vmi'",
@@ -235,10 +234,9 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
   test('a shell on a denied machine is refused too — spawning is `use`', async () => {
     // Shells skip the harness checks, and that shortcut must not skip the access
     // gate. Counterfactual: the same shell request on an undenied machine passes.
-    // DECISION POD-3465
-    expect(() =>
+    await expect(
       serviceListing([{ id: MACHINE, name: 'vmi', online: true }]).requireAgent(MACHINE, 'shell'),
-    ).not.toThrow()
+    ).resolves.not.toThrow()
     await expect(
       serviceListing([{ id: MACHINE, name: 'vmi', online: true, use: 'denied' }]).requireAgent(
         MACHINE,
