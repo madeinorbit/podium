@@ -342,12 +342,12 @@ export function disposeOracles(): void {
 
 /** Resolve once `predicate()` holds, polling the macrotask queue. Throws on timeout. */
 export async function waitFor(
-  predicate: () => boolean,
+  predicate: () => boolean | Promise<boolean>,
   what: string,
   timeoutMs = 2_000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 1))
   }

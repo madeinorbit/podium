@@ -162,8 +162,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     // Wait on the question ROW appearing (predicate, never a sleep), then answer
     // it as the target agent would: a relayed messages.reply, which stamps the ack.
     let questionId = ''
-    await waitFor(() => {
-      const rows = o.store.messages.listLedger({ sessionId: target.sessionId })
+    await waitFor(async () => {
+      const rows = await o.store.messages.listLedger({ sessionId: target.sessionId })
       const q = rows.find((m) => m.kind === 'question')
       if (q) questionId = q.id
       return Boolean(q)

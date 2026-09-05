@@ -338,8 +338,8 @@ describe('oracle: queued sends re-authorize at drain', () => {
         revoked ? { ok: false, reason: 'sender no longer has access to the target' } : { ok: true },
     })
     try {
-      const target = h.createIssue({ title: 'target' })
-      const sender = h.createIssue({ title: 'sender' })
+      const target = await h.createIssue({ title: 'target' })
+      const sender = await h.createIssue({ title: 'sender' })
       h.put({ sessionId: asSessionId('sender-agent'), issueId: sender.id, phase: 'idle' })
       const sent = await h.svc.send(
         { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sender-agent') },
@@ -354,9 +354,9 @@ describe('oracle: queued sends re-authorize at drain', () => {
       expect((await h.svc.message(sent.message.id))?.status).toBe('dead_letter')
       expect(h.pushes.filter((push) => push.sessionId === 'target-agent')).toEqual([])
       expect(
-        h.svc
-          .inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })
-          .some((message) => message.body.includes('sender no longer has access')),
+        (await h.svc.inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })).some((message) =>
+          message.body.includes('sender no longer has access'),
+        ),
       ).toBe(true)
     } finally {
       h.store.close()
