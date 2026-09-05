@@ -269,7 +269,7 @@ export interface MessageDeliveryDeps {
   spawnOnWake?: SpawnOnWake
   /** Transaction seam (store.transact): an ack's row insert + acked_by stamp on
    *  the original commit atomically. Absent (tests) = plain sequential writes. */
-  transact?<T>(fn: () => T): T
+  transact?<T>(fn: () => T | Promise<T>): Promise<T>
   /** Existing notify path for needs-attention surfacing (best-effort). */
   notifyOperator?(input: { messageId: string; reason: string; body: string }): void
   /** Human-readable machine name for cross-machine provenance [POD-658];

@@ -174,7 +174,7 @@ export interface HarnessOptions {
    * blocking wait without ever sleeping on the wall clock (POD-757: a fixed
    * sleep before an assertion is itself a bug).
    */
-  onPoll?(poll: number): void
+  onPoll?(poll: number): void | Promise<void>
   /**
    * ADDITIVE, POD-728. The multi-user seams the mail vertical now consults, so a
    * test can exercise them without a second harness. Every default is exactly
@@ -384,7 +384,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       listSessions: () => sessions,
       spawnSession:
         opts?.spawnSession ??
-        ((input) => {
+        (async (input) => {
           gateSpawns.push(input as unknown as Record<string, unknown>)
           const sessionId = asSessionId(`child${gateSpawns.length}`)
           sessions.push(
@@ -409,7 +409,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       sleep: async (ms: number) => {
         nowMs += ms
         polls += 1
-        opts?.onPoll?.(polls)
+        await opts?.onPoll?.(polls)
         return await Promise.resolve()
       },
       awaitPollMs: opts?.awaitPollMs ?? 500,

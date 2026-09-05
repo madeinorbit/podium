@@ -58,7 +58,7 @@ export async function spawnAgentHandler(
     const inheritedOwner = scopeIssue
       ? ((await issues.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
       : callerOwner
-    issueId = deps.createIssue({
+    issueId = (await deps.createIssue({
       ownerUserId: inheritedOwner,
       createdByActor: attribution.actor,
       createdByOnBehalfOf: callerOwner,
@@ -67,7 +67,7 @@ export async function spawnAgentHandler(
       description: input.prompt,
       ...(scopeIssue ? { parentId: scopeIssue.id } : {}),
       origin: caller.capability.scope.kind === 'all' ? 'human' : 'agent',
-    }).id
+    })).id
   } else {
     throw new Error('pass --issue <ref> or --new "title"')
   }
@@ -81,7 +81,7 @@ export async function spawnAgentHandler(
   const budgeted = caller.capability.scope.kind !== 'all'
   if (budgeted && !(await deps.messages.takeSpawnBudget(asIssueId(issueId))).ok) {
     try {
-      deps.appendEvent?.({
+      await deps.appendEvent?.({
         ts: deps.now?.() ?? new Date().toISOString(),
         kind: 'agent.spawn_budget_exhausted',
         subject: issueId,
@@ -107,7 +107,7 @@ export async function spawnAgentHandler(
         : { kind: 'agent' },
   )
   const profile = input.executionProfileId
-    ? deps.resolveExecutionProfile?.({
+    ? await deps.resolveExecutionProfile?.({
         profileId: input.executionProfileId,
         caller,
         ...(input.workflowRunId ? { runId: input.workflowRunId } : {}),
@@ -182,7 +182,7 @@ export async function spawnAgentHandler(
   // relay deadline; on expiry SessionStart returns the honest probing refusal.
   if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
   const sessionOwner = (await issues.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
-  const spawned = deps.spawnSession({
+  const spawned = await deps.spawnSession({
     ownerUserId: sessionOwner,
     cwd,
     agentKind: harness,
@@ -213,7 +213,7 @@ export async function spawnAgentHandler(
   const actualAccountId =
     spawned.accountId === undefined ? profile?.accountId : (spawned.accountId ?? undefined)
   try {
-    deps.appendEvent?.({
+    await deps.appendEvent?.({
       ts: deps.now?.() ?? new Date().toISOString(),
       kind: 'agent.spawned',
       subject: sessionId,

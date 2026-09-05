@@ -77,7 +77,7 @@ export interface MessageGateDeps {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-  }): {
+  }): Promise<{
     sessionId: SessionId
     agentId?: string
     harness?: string
@@ -86,7 +86,7 @@ export interface MessageGateDeps {
     machine?: string
     machineId?: MachineId
     accountId?: AccountId | null
-  }
+  }>
   /** Wait for the current daemon connection's first inventory before spawning. */
   awaitMachineInventory?(machineId: MachineId): Promise<void>
   /** Resolve a named workflow execution profile. When a run + step are present,
@@ -96,14 +96,14 @@ export interface MessageGateDeps {
     runId?: string
     stepId?: string
     caller?: MailCaller
-  }): {
+  }): Promise<{
     id: string
     accountId: AccountId
     machineId: MachineId | null
     harness: string
     model: string
     effort: string
-  }
+  }>
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
     ownerUserId: UserId
@@ -114,9 +114,9 @@ export interface MessageGateDeps {
     description?: string
     parentId?: IssueId
     origin: 'human' | 'agent'
-  }): { id: string }
+  }): Promise<{ id: string }>
   /** Durable ledger for spawn events (best-effort). */
-  appendEvent?(e: { ts: string; kind: string; subject: string; payload: unknown }): void
+  appendEvent?(e: { ts: string; kind: string; subject: string; payload: unknown }): Promise<void>
   /** await polling seam (tests inject a fake clock/sleep). */
   sleep?(ms: number): Promise<void>
   awaitPollMs?: number
