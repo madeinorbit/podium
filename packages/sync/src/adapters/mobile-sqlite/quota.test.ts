@@ -43,6 +43,7 @@ import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
+import { isQuotaError } from './sql'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
 import {
   DiskFullError,
@@ -57,6 +58,16 @@ const M1: MutationId = 'm-1' as MutationId
 const M2: MutationId = 'm-2' as MutationId
 const CURSOR_1: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
 const CURSOR_2: Cursor = { feedId: 'feed', epoch: 'e1', seq: 2 }
+it('classifies a transitively wrapped SQLITE_FULL error as quota exhaustion', () => {
+  const original = Object.assign(new Error('opaque driver failure'), {
+    code: 'SQLITE_FULL',
+  })
+  const wrapped = new Error('outer query wrapper', {
+    cause: new Error('inner query wrapper', { cause: original }),
+  })
+
+  expect(isQuotaError(wrapped)).toBe(true)
+})
 
 const record = (mutationId: MutationId): OutboxRecord => ({
   mutationId,
