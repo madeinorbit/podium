@@ -1138,7 +1138,7 @@ export class IssuesRepository {
    *  free TEXT column narrowed to the domain's union — a decision, not a driver
    *  artefact — and the projection drops `actor`/`on_behalf_of`, which the row
    *  type does not carry. */
-  private mapIssueMessage(r: {
+  private async mapIssueMessage(r: {
     id: string
     issueId: IssueId
     fromAuthor: string
@@ -1147,7 +1147,7 @@ export class IssuesRepository {
     status: string
     claimedBy: string | null
     claimedAt: string | null
-  }): IssueMessageRow {
+  }): Promise<IssueMessageRow> {
     return {
       id: r.id,
       issueId: r.issueId,
@@ -1178,7 +1178,7 @@ export class IssuesRepository {
 
   async getIssueMessage(id: string): Promise<IssueMessageRow | null> {
     const r = await this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
-    return r ? this.mapIssueMessage(r) : null
+    return r ? await this.mapIssueMessage(r) : null
   }
 
   async listIssueMessages(
@@ -1195,7 +1195,7 @@ export class IssuesRepository {
       )
       .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
       .all()
-    return rows.map((r) => this.mapIssueMessage(r))
+    return await Promise.all(rows.map(async (r) => await this.mapIssueMessage(r)))
   }
 
   async countUnreadIssueMessages(issueId: IssueId): Promise<number> {

@@ -160,7 +160,7 @@ export class SuperagentRepository {
       )
       .orderBy(desc(superagentThreads.updatedAt))
       .all()
-    return rows.map((r) => this.mapSuperagentThread(r))
+    return await Promise.all(rows.map(async (r) => await this.mapSuperagentThread(r)))
   }
 
   async getSuperagentThread(
@@ -179,7 +179,7 @@ export class SuperagentRepository {
           : eq(superagentThreads.id, asThreadId(id)),
       )
       .get()
-    return r ? this.mapSuperagentThread(r) : undefined
+    return r ? await this.mapSuperagentThread(r) : undefined
   }
 
   async upsertSuperagentThread(t: {
@@ -394,9 +394,9 @@ export class SuperagentRepository {
    * nothing else. Every cast this used to carry is gone — the names and the
    * brands come off the schema now.
    */
-  private mapSuperagentThread(
+  private async mapSuperagentThread(
     r: typeof superagentThreads.$inferSelect,
-  ): SuperagentThreadRow {
+  ): Promise<SuperagentThreadRow> {
     return {
       id: r.id,
       ownerUserId: r.ownerUserId,

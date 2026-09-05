@@ -101,7 +101,7 @@ export class ObservationCheckpointsRepository {
     return currentTransaction() ?? this.rootDb
   }
 
-  private mapRow(r: LeaseSelect): ObservationLeaseRecord | null {
+  private async mapRow(r: LeaseSelect): Promise<ObservationLeaseRecord | null> {
     const provider = ObservationProvider.safeParse(r.provider)
     if (!provider.success) {
       log.warn('ignoring an observation lease with an invalid provider', {
@@ -143,7 +143,7 @@ export class ObservationCheckpointsRepository {
       .from(sessionObservationCheckpoints)
       .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
       .get()
-    return row ? this.mapRow(row) : null
+    return row ? await this.mapRow(row) : null
   }
 
   private async readRebindReceipt(sessionId: SessionId): Promise<{
@@ -190,7 +190,7 @@ export class ObservationCheckpointsRepository {
       .from(sessionObservationCheckpoints)
       .orderBy(sessionObservationCheckpoints.sessionId)
       .all()
-    return rows.map((row) => this.mapRow(row)).filter(
+    return (await Promise.all(rows.map(async (row) => await this.mapRow(row)))).filter(
       (row): row is ObservationLeaseRecord => row !== null,
     )
   }
