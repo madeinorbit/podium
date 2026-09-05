@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig, saveConfig } from './config'
+import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 import type { RunRole } from './run-registry'
 import { applySetup } from './setup'
 import {
@@ -89,6 +90,25 @@ describe('server transfer lifecycle', () => {
     if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = previousStateDir
     rmSync(root, { recursive: true, force: true })
+  })
+
+  it('moves both cached supervisor roles with the durable source and target config', () => {
+    const state = loadSupervisorState(root)
+    saveSupervisorState(root, { ...state, assignment: { server: true, agentExecution: false } })
+    saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    expect(loadSupervisorState(root).assignment).toEqual({ server: false, agentExecution: true })
+    applyTargetServerPromotion({
+      transferId: TRANSFER_TWO,
+      publicUrl: 'https://promoted.example',
+      bindHost: '0.0.0.0',
+    })
+    expect(loadSupervisorState(root).assignment).toEqual({ server: true, agentExecution: false })
+    expect(loadConfig().serverUrl).toBe('wss://target.example')
+    finalizeTargetServerPromotion()
+    expect(loadConfig().serverUrl).toBeUndefined()
+    expect(loadSupervisorState(root).assignment).toEqual({ server: true, agentExecution: false })
+    expect(loadSupervisorState(root).machineId).toBe(state.machineId)
   })
 
   it('durably creates the target machine identity', () => {

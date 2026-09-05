@@ -1350,6 +1350,7 @@ export class MachinesService {
     hostname: string,
     secret: string = randomUUID(),
     assignment?: MachineServiceAssignment,
+    transferredFrom?: MachineId,
   ): string {
     const id = this.deps.hostMachineId
     const existing = this.deps.store.machines.getMachine(id)
@@ -1372,6 +1373,15 @@ export class MachinesService {
       ownerUserId,
     })
     if (assignment) this.deps.store.machines.setServiceAssignment(id, assignment)
+    // Only the exact imported source is demoted; ordinary machine policy is unchanged.
+    // The composition root supplies this from durable target promotion evidence and
+    // never calls writable host bootstrap in recoveryOnly mode.
+    if (transferredFrom && transferredFrom !== id) {
+      this.deps.store.machines.setServiceAssignment(transferredFrom, {
+        server: false,
+        agentExecution: true,
+      })
+    }
     // The ledger owner wins over a stale or restored row. `upsertMachine`
     // deliberately preserves an existing owner, so project explicitly here.
     if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)

@@ -2,7 +2,12 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { effectiveAssignment, fallbackAssignment, loadSupervisorState } from './machine-supervisor'
+import {
+  effectiveAssignment,
+  fallbackAssignment,
+  loadSupervisorState,
+  reconcileSupervisorAssignment,
+} from './machine-supervisor'
 
 const dirs: string[] = []
 
@@ -56,6 +61,45 @@ describe('supervisor service assignment', () => {
     expect(fallbackAssignment('daemon')).toEqual({ server: false, agentExecution: true })
     expect(fallbackAssignment('all-in-one')).toEqual({ server: true, agentExecution: true })
     expect(fallbackAssignment('supervisor')).toEqual({ server: false, agentExecution: false })
+  })
+
+  it('uses committed transfer modes despite a late stale cache write', () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    for (const role of ['cutover', 'server-promotion']) {
+      writeFileSync(
+        join(dir, `config.json.backup-${role}-11111111-1111-4111-8111-111111111111`),
+        '{}',
+      )
+    }
+    expect(
+      reconcileSupervisorAssignment(
+        { ...state, assignment: { server: true, agentExecution: true } },
+        { mode: 'daemon', serverUrl: 'wss://new.example' },
+        dir,
+      ),
+    ).toEqual({ server: false, agentExecution: true })
+    expect(
+      reconcileSupervisorAssignment(
+        { ...state, assignment: { server: false, agentExecution: true } },
+        { mode: 'server' },
+        dir,
+      ),
+    ).toEqual({ server: true, agentExecution: false })
+    const disabled = { server: false, agentExecution: false }
+    expect(
+      reconcileSupervisorAssignment(
+        { ...state, assignment: disabled },
+        { mode: 'server' },
+        stateDir(),
+      ),
+    ).toEqual(disabled)
+    expect(
+      reconcileSupervisorAssignment({ ...state, assignment: disabled }, { mode: 'supervisor' }),
+    ).toEqual(disabled)
+    expect(
+      reconcileSupervisorAssignment({ ...state, assignment: disabled }, { mode: 'daemon' }),
+    ).toEqual(disabled)
   })
 
   it('lets the local lockout subtract agents but never add or remove the server', () => {

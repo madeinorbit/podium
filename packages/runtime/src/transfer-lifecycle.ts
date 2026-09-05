@@ -45,6 +45,7 @@ import {
 } from './config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
+import { fallbackAssignment, loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 import {
   assertConfigWritable,
   ephemeralTunnelWarning,
@@ -133,10 +134,7 @@ export class MachineIdentityConflictError extends Error {
  * accepted the transfer. An existing equal value is an idempotent success; any other value
  * is preserved and refused so promotion can never silently make the target wear a new ID.
  */
-export function establishTargetMachineId(
-  expected: MachineId,
-  dir: string = stateDir(),
-): MachineId {
+export function establishTargetMachineId(expected: MachineId, dir: string = stateDir()): MachineId {
   const path = join(dir, 'machine.id')
   const verifyExisting = (): MachineId => {
     const observed = readFileSync(path, 'utf8').trim()
@@ -186,9 +184,20 @@ function saveTransferConfig(config: PodiumConfig): void {
     syncPath(tempPath)
     renameSync(tempPath, path)
     syncParent(path)
+    saveTransferSupervisorAssignment(config)
   } finally {
     removeTemp(tempPath)
   }
+}
+
+function saveTransferSupervisorAssignment(config: PodiumConfig): void {
+  // Config is committed first. Startup repairs a crash between these two files from
+  // the explicit daemon/server mode, so the cache can never reverse a transfer.
+  const dir = stateDir()
+  if (!existsSync(join(dir, 'supervisor.json'))) return
+  const state = loadSupervisorState(dir)
+  state.assignment = fallbackAssignment(config.mode ?? 'all-in-one')
+  saveSupervisorState(dir, state)
 }
 
 function saveSourceDaemonIdentity(): void {
@@ -305,6 +314,7 @@ export function applySourceDemotion(input: SourceDemotionInput): SourceDemotionR
     prev.publicUrl === undefined &&
     prev.pairCode === undefined
   ) {
+    saveTransferSupervisorAssignment(cfg)
     const previousConfig = existsSync(backupPath) ? loadConfig(backupPath) : prev
     return {
       changed: false,
@@ -396,6 +406,7 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
     (port === undefined || prev.port === port) &&
     prev.pairCode === undefined
   ) {
+    saveTransferSupervisorAssignment(prev)
     return {
       changed: false,
       config: prev,
@@ -435,7 +446,11 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
 export function finalizeTargetServerPromotion(): void {
   assertConfigWritable()
   const prev = loadConfig()
-  if (prev.mode !== 'server' || prev.serverUrl === undefined) return
+  if (prev.mode !== 'server') return
+  if (prev.serverUrl === undefined) {
+    saveTransferSupervisorAssignment(prev)
+    return
+  }
   const { serverUrl: _recoveryEndpoint, ...finalConfig } = prev
   saveTransferConfig(finalConfig)
 }

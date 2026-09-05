@@ -21,6 +21,7 @@ import {
   type FeatureId,
   type LocalDaemonLink,
   resolveFeatureState,
+  SERVER_MOVE_CAPABILITY,
   wireSchemaDigest,
 } from '@podium/protocol'
 import {
@@ -57,8 +58,9 @@ import { startMachineUpdateControl } from '@podium/runtime/machine-update-contro
 import {
   createMachineSupervisorConnection,
   effectiveAssignment,
-  fallbackAssignment,
   loadSupervisorState,
+  reconcileSupervisorAssignment,
+  targetTransferRecovery,
   saveSupervisorState,
 } from '@podium/runtime/machine-supervisor'
 import { machineServiceReport } from '@podium/runtime/parent-supervisor'
@@ -1565,21 +1567,24 @@ export async function main(
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
       const compiled = import.meta.url.includes('/$bunfs/')
       const supervisorState = loadSupervisorState(stateDir())
+      let topologyConfig = config
+      const targetRecovery = targetTransferRecovery(supervisorState, config)
       const localBootstrapToken = plan.includeServer ? readOrCreateDaemonSecret() : undefined
-      if (plan.includeServer) {
+      if (plan.includeServer && !targetRecovery) {
         supervisorState.machineId = readOrCreateLocalMachineId()
         supervisorState.token = localBootstrapToken
         saveSupervisorState(stateDir(), supervisorState)
       }
-      let configuredAssignment =
-        supervisorState.assignment ?? fallbackAssignment(config.mode ?? 'all-in-one')
-      const runningAssignment = effectiveAssignment({
+      let configuredAssignment = reconcileSupervisorAssignment(supervisorState, config)
+      supervisorState.assignment = configuredAssignment
+      saveSupervisorState(stateDir(), supervisorState)
+      let runningAssignment = effectiveAssignment({
         configured: configuredAssignment,
         agentExecutionLockout: config.agentExecutionLockout,
       })
       const children: Array<'server' | 'daemon'> = [
         ...(runningAssignment.server ? (['server'] as const) : []),
-        ...(runningAssignment.agentExecution ? (['daemon'] as const) : []),
+        ...(runningAssignment.agentExecution || targetRecovery ? (['daemon'] as const) : []),
       ]
       /**
        * A SUCCESSOR is a parent spawned by a live predecessor during
@@ -1600,6 +1605,21 @@ export async function main(
       const parent = new ParentProcess({
         port: plan.port,
         children,
+        daemonLocal: runningAssignment.server && !targetRecovery,
+        onTopology: (desired) => {
+          topologyConfig = loadConfig()
+          configuredAssignment = reconcileSupervisorAssignment(
+            loadSupervisorState(stateDir()),
+            topologyConfig,
+          )
+          supervisorState.assignment = configuredAssignment
+          saveSupervisorState(stateDir(), supervisorState)
+          runningAssignment = {
+            server: desired.includes('server'),
+            agentExecution: desired.includes('daemon'),
+          }
+          supervisorConnection?.reconfigure()
+        },
         runningIdentity: { version: appVersion, digest: runningDigest },
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
@@ -1706,12 +1726,17 @@ export async function main(
       }
       const desktopManaged = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
       const installedPayload = compiled || process.env.PODIUM_HOME !== undefined
-      const deliveryCaps = !installedPayload ? [] : ['update.delivery.feed']
-      const machineServerUrl = children.includes('server')
-        ? localServerWsUrl(plan.port)
-        : config.serverUrl
-      if (!machineServerUrl) {
-        throw new Error('machine supervisor has no coordinating server URL')
+      const deliveryCaps = [
+        SERVER_MOVE_CAPABILITY,
+        ...(installedPayload ? ['update.delivery.feed'] : []),
+      ]
+      const machineServerUrl = (): string => {
+        // Remote endpoint commits may happen in the daemon while the parent remains live.
+        // Resolve again on every dial, including after the old coordinator retires.
+        const current = loadConfig()
+        const endpoint = runningAssignment.server ? localServerWsUrl(plan.port) : current.serverUrl
+        if (!endpoint) throw new Error('machine supervisor has no coordinating server URL')
+        return endpoint
       }
       const nativeAdapter = desktopManaged
         ? new NativeMachineUpdateAdapter({
@@ -1745,7 +1770,7 @@ export async function main(
         stateDir: stateDir(),
         state: supervisorState,
         ...(config.pairCode ? { pairCode: config.pairCode } : {}),
-        ...(localBootstrapToken ? { bootstrapToken: localBootstrapToken } : {}),
+        bootstrapToken: () => (runningAssignment.server ? readOrCreateDaemonSecret() : undefined),
         build: {
           appVersion,
           wireSchemaDigest: wireSchemaDigest(),
@@ -1761,7 +1786,12 @@ export async function main(
             crashOwner: desktopManaged ? 'desktop' : (config.persistence ?? 'foreground'),
           }),
         onAssignment: (assignment) => {
-          configuredAssignment = assignment
+          configuredAssignment = reconcileSupervisorAssignment(
+            { ...supervisorState, assignment },
+            topologyConfig,
+          )
+          supervisorState.assignment = configuredAssignment
+          saveSupervisorState(stateDir(), supervisorState)
         },
         onGrant: (grant) => {
           void updateRunner.accept(grant).catch((error) =>

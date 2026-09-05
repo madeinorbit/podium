@@ -1,5 +1,5 @@
 import { hostname } from 'node:os'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   asMachineId,
@@ -18,6 +18,7 @@ import { createLogger } from '@podium/logger'
 import { readOrCreateLocalMachineId } from './local-machine'
 import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
 import { writeConnectivity } from './connectivity'
+import { stateDir, type PodiumConfig } from './config'
 
 const log = createLogger('runtime:machine-supervisor')
 const STATE_FILE = 'supervisor.json'
@@ -85,6 +86,69 @@ export function fallbackAssignment(
   }
 }
 
+/** Transfer config backups precede the atomic mode write. They make that mode
+ * authoritative after a crash without changing ordinary server-assigned policy. */
+function hasTransferConfig(config: PodiumConfig, machineId: MachineId, dir: string): boolean {
+  const prefix =
+    config.mode === 'daemon'
+      ? 'config.json.backup-cutover-'
+      : config.mode === 'server'
+        ? 'config.json.backup-server-promotion-'
+        : undefined
+  if (!prefix) return false
+  try {
+    if (
+      readdirSync(dir).some(
+        (name) => name.startsWith(prefix) && /^[0-9a-f-]{36}$/i.test(name.slice(prefix.length)),
+      )
+    )
+      return true
+  } catch {}
+  // Older target promotion wrote config directly; its durable staging record is
+  // the recovery evidence for upgrades that enter through that previous seam.
+  if (config.mode !== 'server') return false
+  try {
+    const root = join(dir, '.server-transfer')
+    return readdirSync(root).some((name) => {
+      if (!/^[0-9a-f-]{36}$/i.test(name)) return false
+      const raw = readJson(join(root, name, 'state.json')) as Record<string, unknown> | null
+      return (
+        raw?.targetMachineId === machineId &&
+        raw.publicUrl === config.publicUrl &&
+        ['promoting', 'promoted', 'uncertain'].includes(String(raw.state))
+      )
+    })
+  } catch {
+    return false
+  }
+}
+
+export function targetTransferRecovery(
+  state: SupervisorState,
+  config: PodiumConfig,
+  dir = stateDir(),
+): boolean {
+  return (
+    config.mode === 'server' &&
+    config.serverUrl !== undefined &&
+    hasTransferConfig(config, state.machineId, dir)
+  )
+}
+
+export function reconcileSupervisorAssignment(
+  state: SupervisorState,
+  config: PodiumConfig,
+  dir = stateDir(),
+): MachineServiceAssignment {
+  const assignment = state.assignment ?? fallbackAssignment(config.mode ?? 'all-in-one')
+  const staleSource = config.mode === 'daemon' && assignment.server
+  const staleTarget = config.mode === 'server' && !assignment.server
+  if ((staleSource || staleTarget) && hasTransferConfig(config, state.machineId, dir)) {
+    return fallbackAssignment(config.mode!)
+  }
+  return assignment
+}
+
 export function effectiveAssignment(input: {
   configured: MachineServiceAssignment
   agentExecutionLockout?: boolean
@@ -96,11 +160,11 @@ export function effectiveAssignment(input: {
 }
 
 export interface MachineSupervisorConnectionDeps {
-  serverUrl: string
+  serverUrl: string | (() => string)
   stateDir: string
   state: SupervisorState
   pairCode?: string
-  bootstrapToken?: string
+  bootstrapToken?: string | (() => string | undefined)
   name?: string
   build: PeerBuild
   deliveryCaps: readonly string[]
@@ -115,6 +179,8 @@ export interface MachineSupervisorConnection {
   start(): void
   waitUntilConnected(timeoutMs?: number): Promise<boolean>
   report(): void
+  /** Re-resolve topology now; stale socket callbacks cannot mutate the new connection. */
+  reconfigure(): void
   send(message: MachineSupervisorMessage): void
   close(): void
 }
@@ -127,6 +193,9 @@ export function createMachineSupervisorConnection(
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let backoffMs = RECONNECT_MIN_MS
   let connected = false
+  const resolveServerUrl = (): string =>
+    typeof deps.serverUrl === 'function' ? deps.serverUrl() : deps.serverUrl
+  let activeServerUrl = resolveServerUrl()
   let firstSettled = false
   let resolveFirst!: (connected: boolean) => void
   const firstConnection = new Promise<boolean>((resolve) => {
@@ -143,7 +212,7 @@ export function createMachineSupervisorConnection(
     try {
       writeConnectivity(
         {
-          serverUrl: deps.serverUrl,
+          serverUrl: activeServerUrl,
           processId: process.pid,
           appVersion: deps.build.appVersion ?? 'dev',
           ...patch,
@@ -156,7 +225,9 @@ export function createMachineSupervisorConnection(
   }
 
   const credential = (): PeerCredential => {
-    if (deps.bootstrapToken) return { kind: 'daemonSecret', secret: deps.bootstrapToken }
+    const bootstrapToken =
+      typeof deps.bootstrapToken === 'function' ? deps.bootstrapToken() : deps.bootstrapToken
+    if (bootstrapToken) return { kind: 'daemonSecret', secret: bootstrapToken }
     if (deps.state.token)
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
     if (deps.pairCode) return { kind: 'pairCode', code: deps.pairCode }
@@ -179,6 +250,7 @@ export function createMachineSupervisorConnection(
       }
       deps.state.updatePubkey = updatePubkey
     }
+    deps.state.assignment = loadSupervisorState(deps.stateDir).assignment
     saveSupervisorState(deps.stateDir, deps.state)
     if (issuedToken) deps.onPaired?.()
     return true
@@ -223,10 +295,14 @@ export function createMachineSupervisorConnection(
       settleFirst(false)
       return
     }
-    const active = new WebSocket(deps.serverUrl.replace(/\/$/, '') + '/machine')
+    activeServerUrl = resolveServerUrl()
+    const active = new WebSocket(activeServerUrl.replace(/\/$/, '') + '/machine')
     socket = active
-    active.addEventListener('open', () => active.send(JSON.stringify(dialer.hello())))
+    active.addEventListener('open', () => {
+      if (socket === active) active.send(JSON.stringify(dialer.hello()))
+    })
     active.addEventListener('message', (event) => {
+      if (socket !== active) return
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
         if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations)) {
@@ -278,7 +354,8 @@ export function createMachineSupervisorConnection(
     })
     active.addEventListener('error', () => {})
     active.addEventListener('close', () => {
-      if (socket === active) socket = undefined
+      if (socket !== active) return
+      socket = undefined
       connected = false
       if (!closed) {
         reportConnectivity({ state: 'disconnected', retryBackoffMs: backoffMs })
@@ -300,6 +377,22 @@ export function createMachineSupervisorConnection(
       return result
     },
     report: sendReport,
+    reconfigure() {
+      const nextUrl = resolveServerUrl()
+      if (nextUrl === activeServerUrl && !closed) {
+        sendReport()
+        return
+      }
+      const previous = socket
+      socket = undefined
+      connected = false
+      closed = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+      backoffMs = RECONNECT_MIN_MS
+      previous?.close()
+      connect()
+    },
     send,
     close() {
       closed = true

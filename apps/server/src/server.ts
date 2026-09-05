@@ -739,8 +739,16 @@ export async function startServer(
       throw new Error('invalid parent-supplied machine service assignment', { cause: error })
     }
   }
+  const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   if (!recoveryOnly)
-    registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken, bootstrapAssignment)
+    registry.modules.machines.ensureHostMachine(
+      hostname(),
+      bootstrapToken,
+      bootstrapAssignment,
+      bootTargetPromotion?.targetMachineId === hostMachineId
+        ? bootTargetPromotion.sourceMachineId
+        : undefined,
+    )
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -1027,7 +1035,6 @@ export async function startServer(
   const parentReport = readParentOutcome()?.why
   const durableUsers = registry.sessionStore.users
   const serverMoveCrash = serverMoveFaultHook()
-  const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   if (!recoveryOnly)
     await registry.modules.operations.engine.adoptOnBoot(
       (row) => {
