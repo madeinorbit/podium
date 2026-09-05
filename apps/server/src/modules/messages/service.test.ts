@@ -1834,7 +1834,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     const spawns: string[] = []
     const { svc, store, attention } = await harness([], {
       spawnOnWake: {
-        spawn: ({ message }) => {
+        spawn: async ({ message }) => {
           spawns.push(message.id)
           return { ok: true, sessionId: asSessionId(`spawned-${spawns.length}`) }
         },
@@ -2859,7 +2859,7 @@ describe('readInbox (podium mail inbox)', () => {
     expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
     // Opening the inbox is the PULL-path confirmation: read, distinct from a
     // pushed `delivered` [POD-834 §04d].
-    const rows = svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    const rows = await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect(rows[0]!.status).toBe('read')
     expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
@@ -2983,7 +2983,7 @@ describe('sweep cooldown key for session-addressed wakes', () => {
       now: () => new Date(clock).toISOString(),
       queueText: () => ({ ok: false, reason: 'no resume ref' }),
       spawnOnWake: {
-        spawn: ({ message }) => {
+        spawn: async ({ message }) => {
           spawnAttempts.push(message.id)
           return { ok: false, reason: 'spawn backend down' }
         },
@@ -3063,7 +3063,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
     const now = () => new Date(clock).toISOString()
     const h1 = await harness([], {
       now,
-      spawnOnWake: { spawn: () => ({ ok: true, sessionId: asSessionId('spawned') }) },
+      spawnOnWake: { spawn: async () => ({ ok: true, sessionId: asSessionId('spawned') }) },
     })
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       clock += 60_000
@@ -3080,7 +3080,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
       now,
       store: h1.store,
       spawnOnWake: {
-        spawn: ({ message }) => {
+        spawn: async ({ message }) => {
           spawnsAfter.push(message.id)
           return { ok: true, sessionId: asSessionId('spawned2') }
         },

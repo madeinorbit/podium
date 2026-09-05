@@ -66,7 +66,7 @@ function row(over: Record<string, unknown>) {
 }
 
 describe('makeSpawnOnWake', () => {
-  it('spawns on the issue worktree via createSession with issue defaults + parent provenance', () => {
+  it('spawns on the issue worktree via createSession with issue defaults + parent provenance', async () => {
     const calls: Record<string, unknown>[] = []
     const seam = makeSpawnOnWake({
       issues: fakeIssues({ machineId: 'm1' } as Partial<typeof ISSUE>),
@@ -75,7 +75,7 @@ describe('makeSpawnOnWake', () => {
         return { sessionId: asSessionId('child1') }
       },
     })
-    const r = seam.spawn({
+    const r = await seam.spawn({
       issueId: asIssueId(ISSUE.id),
       message: row({ fromKind: 'agent', fromSession: 'sParent' }),
     })
@@ -89,7 +89,7 @@ describe('makeSpawnOnWake', () => {
     })
   })
 
-  it('falls back to the repo root for an unstarted issue; never starts the issue itself', () => {
+  it('falls back to the repo root for an unstarted issue; never starts the issue itself', async () => {
     const calls: Record<string, unknown>[] = []
     const seam = makeSpawnOnWake({
       issues: fakeIssues({ worktreePath: null } as unknown as Partial<typeof ISSUE>),
@@ -98,20 +98,20 @@ describe('makeSpawnOnWake', () => {
         return { sessionId: asSessionId('c') }
       },
     })
-    expect(seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) }).ok).toBe(true)
+    expect((await seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) })).ok).toBe(true)
     expect(calls[0]!.cwd).toBe('/repo')
   })
 
-  it('fails soft on a missing/unknown issue and on a throwing spawn', () => {
+  it('fails soft on a missing/unknown issue and on a throwing spawn', async () => {
     const seam = makeSpawnOnWake({
       issues: fakeIssues(),
       createSession: () => {
         throw new Error('daemon offline')
       },
     })
-    expect(seam.spawn({ issueId: null, message: row({}) }).ok).toBe(false)
-    expect(seam.spawn({ issueId: asIssueId('iss_nope'), message: row({}) }).ok).toBe(false)
-    expect(seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) })).toMatchObject({
+    expect((await seam.spawn({ issueId: null, message: row({}) })).ok).toBe(false)
+    expect((await seam.spawn({ issueId: asIssueId('iss_nope'), message: row({}) })).ok).toBe(false)
+    expect(await seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) })).toMatchObject({
       ok: false,
       reason: 'daemon offline',
     })
