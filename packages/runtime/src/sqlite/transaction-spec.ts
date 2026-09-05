@@ -4,7 +4,7 @@ import { transaction } from './transaction'
 import type { SqlDatabase } from './types'
 
 /**
- * Shared behaviors for the nesting-safe transaction helper [spec:SP-3fe2], run by
+ * Shared behaviors for the outer transaction helper [spec:SP-3fe2], run by
  * both runners over the one `bun:sqlite` driver — same split as
  * {@link sqliteShimSpec}.
  */
@@ -60,69 +60,6 @@ export function transactionSpec(t: SqlTestPrimitives): void {
       }
     })
 
-    it('commits nested savepoints when everything succeeds', () => {
-      const db = freshDb()
-      try {
-        transaction(db, () => {
-          db.prepare('INSERT INTO t VALUES (?)').run(1)
-          transaction(db, () => {
-            db.prepare('INSERT INTO t VALUES (?)').run(2)
-            transaction(db, () => {
-              db.prepare('INSERT INTO t VALUES (?)').run(3)
-            })
-          })
-        })
-        expect(values(db)).toEqual([1, 2, 3])
-      } finally {
-        db.close()
-      }
-    })
-
-    it('rolls back only the inner savepoint when the outer catches the throw', () => {
-      const db = freshDb()
-      try {
-        transaction(db, () => {
-          db.prepare('INSERT INTO t VALUES (?)').run(1)
-          try {
-            transaction(db, () => {
-              db.prepare('INSERT INTO t VALUES (?)').run(2)
-              throw new Error('inner boom')
-            })
-          } catch {
-            // swallowed — the outer transaction keeps going
-          }
-          db.prepare('INSERT INTO t VALUES (?)').run(3)
-        })
-        expect(values(db)).toEqual([1, 3])
-      } finally {
-        db.close()
-      }
-    })
-
-    it('rolls back everything when an inner throw propagates through the outer', () => {
-      const db = freshDb()
-      try {
-        let caught: unknown
-        try {
-          transaction(db, () => {
-            db.prepare('INSERT INTO t VALUES (?)').run(1)
-            transaction(db, () => {
-              db.prepare('INSERT INTO t VALUES (?)').run(2)
-              throw new Error('propagates')
-            })
-          })
-        } catch (err) {
-          caught = err
-        }
-        expect((caught as Error).message).toBe('propagates')
-        expect(values(db)).toEqual([])
-        db.exec('BEGIN IMMEDIATE')
-        db.exec('COMMIT')
-      } finally {
-        db.close()
-      }
-    })
-
     it('rejects a thenable-returning fn, rolling the transaction back', () => {
       const db = freshDb()
       try {
@@ -138,7 +75,7 @@ export function transactionSpec(t: SqlTestPrimitives): void {
         }
         expect((caught as Error).message).toContain('thenable')
         expect(values(db)).toEqual([])
-        // Depth bookkeeping recovered: a fresh transaction still works.
+        // A fresh transaction still works.
         transaction(db, () => {
           db.prepare('INSERT INTO t VALUES (?)').run(9)
         })
@@ -165,34 +102,9 @@ export function transactionSpec(t: SqlTestPrimitives): void {
         expect(String(thrown)).toMatch(/transaction|commit/i)
         expect(String(thrown)).not.toMatch(/cannot rollback/i)
         expect(values(db)).toEqual([9])
-        // Depth bookkeeping recovered: the helper is usable again.
+        // The helper is usable again.
         transaction(db, () => db.prepare('INSERT INTO t VALUES (?)').run(10))
         expect(values(db)).toEqual([9, 10])
-      } finally {
-        db.close()
-      }
-    })
-
-    it('a callback-created savepoint cannot hijack the helper boundary (namespaced names)', () => {
-      const db = freshDb()
-      try {
-        transaction(db, () => {
-          db.prepare('INSERT INTO t VALUES (?)').run(1)
-          let innerThrew = false
-          try {
-            transaction(db, () => {
-              db.exec('SAVEPOINT sp_1') // a name the helper once used at depth 1
-              db.prepare('INSERT INTO t VALUES (?)').run(2)
-              db.exec('RELEASE SAVEPOINT sp_1')
-              throw new Error('inner fails')
-            })
-          } catch {
-            innerThrew = true
-          }
-          expect(innerThrew).toBe(true)
-        })
-        // Inner insert rolled back to the HELPER boundary despite the callback savepoint.
-        expect(values(db)).toEqual([1])
       } finally {
         db.close()
       }

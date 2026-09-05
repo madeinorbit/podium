@@ -1526,10 +1526,7 @@ describe('store-boundary-ledger (POD-3252, Stage A’s completeness proof)', () 
 describe('flip-undeleted (POD-3221 B1 exit gate)', () => {
   it('finds every listed transitional construct on the real tree', () => {
     expect(checkFlipUndeleted(REPO_ROOT)).toEqual([])
-    expect(FLIP_UNDELETED.map(({ file, construct, issue }) => [file, construct, issue])).toEqual([
-      ['packages/runtime/src/sqlite/transaction.ts', 'the `podium_sp_` savepoints', 'POD-3267'],
-      ['packages/runtime/src/sqlite/transaction.ts', 'the `depths` WeakMap', 'POD-3267'],
-    ])
+    expect(FLIP_UNDELETED).toEqual([])
   })
 
   it('defeat: fires for a bogus entry naming a construct that never existed', () => {

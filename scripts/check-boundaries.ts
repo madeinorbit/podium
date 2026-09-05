@@ -1377,20 +1377,7 @@ export type FlipUndeletedEntry = Readonly<{
  * symbol is not the transitional machinery itself and must never keep an entry
  * looking live.
  */
-export const FLIP_UNDELETED: readonly FlipUndeletedEntry[] = [
-  {
-    file: 'packages/runtime/src/sqlite/transaction.ts',
-    construct: 'the `podium_sp_` savepoints',
-    issue: 'POD-3267',
-    target: { kind: 'code', pattern: /`podium_sp_\$\{depth\}`/ },
-  },
-  {
-    file: 'packages/runtime/src/sqlite/transaction.ts',
-    construct: 'the `depths` WeakMap',
-    issue: 'POD-3267',
-    target: { kind: 'code', pattern: /\bconst\s+depths\s*=\s*new\s+WeakMap\s*</ },
-  },
-]
+export const FLIP_UNDELETED: readonly FlipUndeletedEntry[] = []
 
 const inStoreBoundary = (file: string): boolean =>
   STORE_BOUNDARY_FILES.has(file) || STORE_BOUNDARY_ROOTS.some((root) => file.startsWith(root))

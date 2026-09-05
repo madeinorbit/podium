@@ -121,13 +121,15 @@ describe('serialisation', () => {
   it('serialises a burst of writers started in one turn', async () => {
     const h = open()
     await Promise.all(
-      Array.from({ length: 8 }, async (_, i) =>
-        await h.executor.transact(async (tx) => {
-          // An await INSIDE the body: without the queue this is where the next
-          // body would slip in.
-          await settle(2)
-          await tx.drizzle.run(insert, `w${i}`)
-        }),
+      Array.from(
+        { length: 8 },
+        async (_, i) =>
+          await h.executor.transact(async (tx) => {
+            // An await INSIDE the body: without the queue this is where the next
+            // body would slip in.
+            await settle(2)
+            await tx.drizzle.run(insert, `w${i}`)
+          }),
       ),
     )
     expect(await noteBodies(h.db)).toEqual(Array.from({ length: 8 }, (_, i) => `w${i}`))
@@ -260,6 +262,31 @@ describe('re-entrancy', () => {
     ])
   })
 
+  it('a callback-created savepoint cannot hijack the query helper boundary', async () => {
+    const h = open()
+    let callbackRan = false
+    await h.executor.transact(async () => {
+      h.raw.prepare('INSERT INTO notes (body) VALUES (?)').run('outer')
+      let innerThrew = false
+      try {
+        await h.executor.transact(async () => {
+          callbackRan = true
+          h.raw.exec('SAVEPOINT sp1')
+          h.raw.prepare('INSERT INTO notes (body) VALUES (?)').run('inner')
+          h.raw.exec('RELEASE SAVEPOINT sp1')
+          throw new Error('inner fails')
+        })
+      } catch {
+        innerThrew = true
+      }
+      expect(innerThrew).toBe(true)
+    })
+
+    expect(callbackRan).toBe(true)
+
+    expect(await noteBodies(h.db)).toEqual(['outer'])
+  })
+
   it('rolls the savepoint back without losing the outer transaction', async () => {
     const h = open()
     await h.executor.transact(async (tx) => {
@@ -294,7 +321,9 @@ describe('re-entrancy', () => {
       await expect(await tx.transact(async () => undefined)).rejects.toBeInstanceOf(
         ParallelNestedTransactionError,
       )
-      await expect(await tx.drizzle.all(bodies)).rejects.toBeInstanceOf(ParallelNestedTransactionError)
+      await expect(await tx.drizzle.all(bodies)).rejects.toBeInstanceOf(
+        ParallelNestedTransactionError,
+      )
       parked.release()
       await branch
       // Once the branch closes, the parent is addressable again.
@@ -341,8 +370,8 @@ describe('asynchronous savepoint boundary failures', () => {
     })
     const executor = createStoreExecutor<QueryClient>({ driver })
 
-    const failure = await (await executor
-      .transact(async (tx) => {
+    const failure = await (
+      await executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'outer')
         // The body catches the boundary failure and carries on, which is the
         // dangerous case: it must not be able to commit from here.
@@ -350,11 +379,11 @@ describe('asynchronous savepoint boundary failures', () => {
         await expect(await tx.drizzle.run(insert, 'after')).rejects.toBeInstanceOf(
           TransactionPoisonedError,
         )
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     expect(failure).toBeInstanceOf(TransactionPoisonedError)
     expect((failure as TransactionPoisonedError).cause).toBeInstanceOf(Error)
@@ -372,8 +401,8 @@ describe('asynchronous savepoint boundary failures', () => {
     })
     const executor = createStoreExecutor<QueryClient>({ driver })
 
-    const failure = await (await executor
-      .transact(async (tx) => {
+    const failure = await (
+      await executor.transact(async (tx) => {
         await expect(
           await tx.transact(async () => {
             throw new Error('nested failed')
@@ -381,11 +410,11 @@ describe('asynchronous savepoint boundary failures', () => {
           // The body's own error is what the caller asked about; the boundary
           // failure is what decides the transaction's fate.
         ).rejects.toThrow('nested failed')
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     expect(failure).toBeInstanceOf(TransactionPoisonedError)
     expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
@@ -411,7 +440,9 @@ describe('the active transaction token', () => {
     await expect(await stale.transact(async () => undefined)).rejects.toBeInstanceOf(
       StaleTransactionError,
     )
-    await expect(await stale.read(async () => undefined)).rejects.toBeInstanceOf(StaleTransactionError)
+    await expect(await stale.read(async () => undefined)).rejects.toBeInstanceOf(
+      StaleTransactionError,
+    )
     expect(await noteBodies(h.db)).toEqual(['committed'])
   })
 })
@@ -617,14 +648,14 @@ describe('scheduler liveness under driver failure', () => {
     })
     const scheduler = createScheduler({ driver })
 
-    const failure = await (await scheduler
-      .run('write', async () => {
+    const failure = await (
+      await scheduler.run('write', async () => {
         throw new Error('body failed')
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect((failure as AggregateError).errors.map((error: Error) => error.message)).toEqual([
@@ -697,7 +728,10 @@ describe('the batch capability', () => {
     const h = open()
     // The second statement violates NOT NULL, so the batch fails as a unit.
     await expect(
-      await h.db.batch([run('kept'), { sql: insert, params: [null], method: 'run', intent: 'write' }]),
+      await h.db.batch([
+        run('kept'),
+        { sql: insert, params: [null], method: 'run', intent: 'write' },
+      ]),
     ).rejects.toThrow()
     expect(await noteBodies(h.db), 'all of it or none of it').toEqual([])
 
@@ -858,7 +892,9 @@ describe('the declared write budget and busy retry', () => {
     const slept: number[] = []
     const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
 
-    await expect(await scheduler.run('write', async () => 'never')).rejects.toThrow('TRANSACTION_CLOSED')
+    await expect(await scheduler.run('write', async () => 'never')).rejects.toThrow(
+      'TRANSACTION_CLOSED',
+    )
     expect(attempts).toBe(1)
     expect(slept).toEqual([])
     await scheduler.close()
@@ -1074,7 +1110,9 @@ describe('post-commit', () => {
     // as one.
     expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
     expect(h.executor.health.healthy).toBe(false)
-    await expect(await h.executor.read(async () => undefined)).rejects.toBeInstanceOf(StoreUnhealthyError)
+    await expect(await h.executor.read(async () => undefined)).rejects.toBeInstanceOf(
+      StoreUnhealthyError,
+    )
   })
 
   it('marks a mechanism-1 failure committed, and a later refusal not committed', async () => {
@@ -1083,17 +1121,17 @@ describe('post-commit', () => {
     // otherwise not tell it from a rollback, and retrying it duplicates a
     // durable write (spec §3.3, rule 7).
     const h = open()
-    const failure = await (await h.executor
-      .transact(async (tx) => {
+    const failure = await (
+      await h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().applyCommit(() => {
           throw new Error('baseline fold failed')
         }, 'baseline')
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     expect(failure).toBeInstanceOf(StoreUnhealthyError)
     expect((failure as StoreUnhealthyError).committed).toBe(true)
@@ -1101,12 +1139,10 @@ describe('post-commit', () => {
 
     // The REFUSAL afterwards is the opposite case and must say so: the store is
     // unhealthy, the work never ran, and nothing committed.
-    const refusal = await (await h.executor
-      .read(async () => undefined))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+    const refusal = await (await h.executor.read(async () => undefined)).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
     expect(refusal).toBeInstanceOf(StoreUnhealthyError)
     expect((refusal as StoreUnhealthyError).committed).toBe(false)
   })
@@ -1155,17 +1191,17 @@ describe('post-commit', () => {
       onReportFailure: (_error, label) => lastResort.push(label),
     })
 
-    const failure = await (await h.executor
-      .transact(async (tx) => {
+    const failure = await (
+      await h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().applyCommit(() => {
           throw new Error('baseline fold failed')
         }, 'baseline')
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     // The reporter's own failure must not become the caller's error: that would
     // lose both the mechanism and the committed marker.
@@ -1178,8 +1214,8 @@ describe('post-commit', () => {
   it('reports a durable follow-up failure as a committed failure and still drains the rest', async () => {
     const h = open()
     const ran: string[] = []
-    const failure = await (await h.executor
-      .transact(async (tx) => {
+    const failure = await (
+      await h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().followUp(() => {
           ran.push('first')
@@ -1188,11 +1224,11 @@ describe('post-commit', () => {
         postCommit().followUp(() => {
           ran.push('second')
         }, 'nudge')
-      }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      )
+      })
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     expect(failure).toBeInstanceOf(PostCommitError)
     expect((failure as PostCommitError).committed).toBe(true)
@@ -1624,9 +1660,10 @@ describe('scopes that outlive the lease they run on', () => {
     let leaked: Promise<unknown> | undefined
 
     await h.executor.transact(async (tx) => {
-      leaked = (await escaped
-        .wait())
-        .then(async () => await h.executor.outsideTransaction(async (view) => await noteBodies(view.drizzle)))
+      leaked = (await escaped.wait()).then(
+        async () =>
+          await h.executor.outsideTransaction(async (view) => await noteBodies(view.drizzle)),
+      )
       await tx.drizzle.run(insert, 'committed')
     })
 
@@ -1652,12 +1689,14 @@ describe('post-commit runner retention', () => {
       })
     }
     await Promise.all(
-      Array.from({ length: 12 }, async (_, i) =>
-        await h.executor.transact(async (tx) => {
-          await tx.drizzle.run(insert, `burst-${i}`)
-          // A settled effect must not keep its runner either.
-          postCommit().effect(() => undefined, 'done')
-        }),
+      Array.from(
+        { length: 12 },
+        async (_, i) =>
+          await h.executor.transact(async (tx) => {
+            await tx.drizzle.run(insert, `burst-${i}`)
+            // A settled effect must not keep its runner either.
+            postCommit().effect(() => undefined, 'done')
+          }),
       ),
     )
     await h.executor.effectsSettled()
@@ -1717,11 +1756,13 @@ describe('frames per burst', () => {
 
     // Bind storm: many commits issued as one burst.
     await Promise.all(
-      Array.from({ length: 30 }, async (_, i) =>
-        await h.executor.transact(async (tx) => {
-          await tx.drizzle.run(insert, `bind-${i}`)
-          postCommit().effect(() => flusher.publish(i), 'publish')
-        }),
+      Array.from(
+        { length: 30 },
+        async (_, i) =>
+          await h.executor.transact(async (tx) => {
+            await tx.drizzle.run(insert, `bind-${i}`)
+            postCommit().effect(() => flusher.publish(i), 'publish')
+          }),
       ),
     )
     await h.executor.effectsSettled()
@@ -1849,7 +1890,10 @@ describe('the watchdog', () => {
     const parked = barrier()
     const { scheduler, reports } = watched(60, { execute: async () => await parked.wait() })
 
-    const running = await scheduler.run('write', async (lease) => await lease.session.execute(statement))
+    const running = await scheduler.run(
+      'write',
+      async (lease) => await lease.session.execute(statement),
+    )
     await parked.reached()
     await delay(400)
     expect(reports).toEqual([])
@@ -2108,7 +2152,9 @@ describe('declared write intent', () => {
       await session.execute({ sql: insert, params: ['sneaked'], method: 'run', intent: 'write' }),
     ).rejects.toThrow(/cannot write on a shared-read session/)
     await expect(
-      await session.executeBatch([{ sql: claim, params: ['sneaked'], method: 'all', intent: 'write' }]),
+      await session.executeBatch([
+        { sql: claim, params: ['sneaked'], method: 'all', intent: 'write' },
+      ]),
       'and through the batch door too',
     ).rejects.toThrow(/cannot write on a shared-read session/)
     await session.close()
@@ -2155,7 +2201,7 @@ describe('scope fencing over admitted work', () => {
     const done = await executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'body')
       // NOT awaited: the body returns with this still inside the driver.
-      void await tx.drizzle.run(insert, 'dropped')
+      void (await tx.drizzle.run(insert, 'dropped'))
     })
     await admittedAndParked(parked)
 
@@ -2187,7 +2233,7 @@ describe('scope fencing over admitted work', () => {
     const boom = new Error('the body failed')
 
     const done = await executor.transact(async (tx) => {
-      void await tx.drizzle.run(insert, 'dropped')
+      void (await tx.drizzle.run(insert, 'dropped'))
       throw boom
     })
     await admittedAndParked(parked)
@@ -2215,7 +2261,7 @@ describe('scope fencing over admitted work', () => {
 
     const done = await executor.transact(async (tx) => {
       await tx.transact(async (inner) => {
-        void await inner.drizzle.run(insert, 'dropped')
+        void (await inner.drizzle.run(insert, 'dropped'))
       })
     })
     await admittedAndParked(parked)
@@ -2246,7 +2292,7 @@ describe('scope fencing over admitted work', () => {
 
     const done = await executor.transact(async (tx) => {
       await tx.transact(async (inner) => {
-        void await inner.drizzle.run(insert, 'dropped')
+        void (await inner.drizzle.run(insert, 'dropped'))
         throw boom
       })
     })
@@ -2280,7 +2326,7 @@ describe('scope fencing over admitted work', () => {
     const done = await executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'body')
       postCommit().followUp(async () => {
-        void await executor.drizzle.run(insert, 'dropped')
+        void (await executor.drizzle.run(insert, 'dropped'))
       }, 'leak')
     })
     await admittedAndParked(parked)
