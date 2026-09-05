@@ -1500,6 +1500,38 @@ IF A SITE HAS NO POST-THROW ASSERTIONS, say so in the handoff rather than adding
 converted `rejects.toThrow` is acceptable where that is all the original pinned; inventing new
 assertions mid-flip is a different change and needs its own ruling.
 
+### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
+
+[Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
+`transaction-spec.ts`, the savepoint-hijack case, and now `synchronous-span.test.ts`'s orphaned
+`expect(reported).toEqual([])`. Every answer has been the same; make it a rule so the flip stops
+round-tripping through me.]
+
+SORT EVERY ASSERTION IN A DELETED MECHANISM'S TEST INTO ONE OF TWO PILES:
+
+- **MECHANISM** — it names the implementation, or observes ABSENCE from a registry/namespace/counter
+  that the deletion removes. `expect(reported).toEqual([])` against a deleted sink registry;
+  assertions naming `podium_sp_<depth>` or the `depths` WeakMap. These DIE with the construct. Keeping
+  one is worse than deleting it: it either fails to compile, or passes because nothing can populate
+  the thing it inspects, which is a green that means nothing.
+- **BEHAVIOUR** — it observes what a CALLER can see, and would still make sense written against the
+  replacement. `expect(ran).toEqual(['now'])`; the throw propagating rather than being swallowed;
+  rolling back only the inner savepoint; nothing appended after a failed write. These TRANSFER, and
+  they transfer VERBATIM to wherever the behaviour now lives.
+
+YOU MAY APPLY THIS WITHOUT ASKING. Report the split in the handoff — which assertions you dropped as
+mechanism, which you carried, and where the carried ones landed.
+
+THE ONE THING THAT IS NOT OPTIONAL: after removing a mechanism assertion, PROVE THE SURVIVORS ARE
+STILL ARMED. Break each remaining assertion's subject and watch it red by name. The risk is that the
+deleted assertion was the one doing the discriminating and the survivors pass regardless — which is
+how a suite gets greener while testing less, and that is precisely the shape of this epic's two
+critical findings.
+
+STOP AND ASK ONLY IF the behaviour pile is EMPTY — a test all of whose assertions were mechanism means
+the deletion removed a property nobody is checking any more, and I want to know that rather than have
+it silently disappear.
+
 ### Rule 49 — a cached RETENTION bound resolves PER PASS, and its fail-closed answer is re-bootstrap
 
 [Ruling on POD-3263's fifth boundary, 2026-09-05. Refines rule 47, which covers a synchronous reader
