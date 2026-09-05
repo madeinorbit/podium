@@ -55,7 +55,7 @@ export interface AutomationsDeps {
     title?: string
     issueId?: IssueId
     ownerUserId: UserId
-  }): { sessionId: SessionId }
+  }): Promise<{ sessionId: SessionId }> | { sessionId: SessionId }
   /** SessionLifecycle.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
@@ -63,12 +63,18 @@ export interface AutomationsDeps {
     text: string
     mutationId?: MutationId
     inputOrigin?: 'system'
-  }): {
+  }): Promise<{
+    ok: boolean
+    reason?: string
+  }> | {
     ok: boolean
     reason?: string
   }
   /** Wake and deliver to the previous run's session in resume mode. */
-  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: MutationId }): {
+  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: MutationId }): Promise<{
+    ok: boolean
+    reason?: string
+  }> | {
     ok: boolean
     reason?: string
   }
@@ -84,9 +90,9 @@ export interface AutomationsDeps {
     ownerUserId: UserId
     createdByActor: string
     createdByOnBehalfOf: UserId
-  }): { id: IssueId }
+  }): Promise<{ id: IssueId }> | { id: IssueId }
   /** Sessions currently running — the overlap check's input. */
-  liveSessionIds(): Set<SessionId>
+  liveSessionIds(): Promise<Set<SessionId>> | Set<SessionId>
   /** Re-resolve the creator account on every fire; disabled/removed means no principal. */
   principalForOwner(ownerUserId: UserId): CommandPrincipal | undefined
   /** Re-check the creator's current use grant on the selected machine. */
@@ -392,7 +398,7 @@ export class AutomationsService {
     const decisions = decideTick({
       now: this.now(),
       automations: await this.schedulables(),
-      liveSessionIds: this.deps.liveSessionIds(),
+      liveSessionIds: await this.deps.liveSessionIds(),
     })
     for (const decision of decisions) await this.apply(decision)
   }
@@ -619,7 +625,7 @@ export class AutomationsService {
       const previousSessionId =
         automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessions()).get(automation.id)
       if (previousSessionId) {
-        const resumed = this.deps.resumeAndSend({
+        const resumed = await this.deps.resumeAndSend({
           sessionId: previousSessionId,
           text: automation.prompt,
           mutationId: asMutationId(runId),
@@ -655,7 +661,7 @@ export class AutomationsService {
       )
     }
     const cwd = automation.repoPath ?? this.homeDir()
-    const issue = this.deps.createIssue({
+    const issue = await this.deps.createIssue({
       repoPath: cwd,
       title: automation.name,
       description: automation.prompt,
@@ -667,7 +673,7 @@ export class AutomationsService {
       createdByActor: `automation:${automation.id}`,
       createdByOnBehalfOf: automation.ownerUserId,
     })
-    const { sessionId } = this.deps.createSession({
+    const { sessionId } = await this.deps.createSession({
       cwd,
       agentKind,
       model: automation.model,
@@ -677,7 +683,7 @@ export class AutomationsService {
       issueId: issue.id,
       ownerUserId: automation.ownerUserId,
     })
-    const queued = this.deps.queueText({
+    const queued = await this.deps.queueText({
       sessionId,
       text: automation.prompt,
       mutationId: asMutationId(runId),
