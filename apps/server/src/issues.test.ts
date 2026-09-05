@@ -1762,7 +1762,7 @@ describe('IssueService.start', () => {
     const { svc, deps } = await harness()
     deps.prepareMachineStart = vi.fn()
     const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
-    return (await svc.start(created.id)).then(() => {
+    return svc.start(created.id).then(() => {
       expect(deps.prepareMachineStart).not.toHaveBeenCalled()
     })
   })
@@ -4279,12 +4279,20 @@ describe('IssueService.integrate (issue #70)', () => {
       parentBranch: 'main',
       startNow: false,
     })
-    const children = kids.map((k, i) => {
-      const c = h.svc.create({ repoPath: '/r', title: `K${i}`, parentId: epic.id, startNow: false })
-      if (k.branch !== null) h.svc.update(c.id, { branch: k.branch ?? `issue/${c.seq}-k${i}` })
-      if (k.closed !== false) h.svc.close(c.id)
-      return h.svc.get(c.id)!
-    })
+    const children = []
+    for (const [i, k] of kids.entries()) {
+      const c = await h.svc.create({
+        repoPath: '/r',
+        title: `K${i}`,
+        parentId: epic.id,
+        startNow: false,
+      })
+      if (k.branch !== null) {
+        await h.svc.update(c.id, { branch: k.branch ?? `issue/${c.seq}-k${i}` })
+      }
+      if (k.closed !== false) await h.svc.close(c.id)
+      children.push((await h.svc.get(c.id))!)
+    }
     return { epic, children }
   }
 
