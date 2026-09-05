@@ -338,7 +338,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     const o = await makeOracle()
     const host = o.store.hostMachineId
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    expect(o.meta(sessionId).machineId).toBe(host)
+    expect((await o.meta(sessionId)).machineId).toBe(host)
 
     // The instance owner — whoever set it up — may kill it.
     const asOwner = ctxFor(o, human(FIRST_ADMIN_USER_ID))
@@ -574,7 +574,7 @@ describe('chat interrupt ordering', () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
-    vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockReturnValue({
+    vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockResolvedValue({
       ok: false,
       reason: 'no active turn',
     })

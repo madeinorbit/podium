@@ -639,10 +639,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('captures a 588-session disconnect in one retryable batch', async () => {
     const registry = await makeRegistry()
-    const sessionIds = Array.from(
-      { length: 588 },
-      async (_, i) =>
-        (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` })).sessionId,
+    const sessionIds = await Promise.all(
+      Array.from(
+        { length: 588 },
+        async (_, i) =>
+          (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` })).sessionId,
+      ),
     )
     const clientId = attachTestClient(registry.clientGateway, () => {})
     for (const sessionId of sessionIds) {
