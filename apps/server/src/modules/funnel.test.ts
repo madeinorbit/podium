@@ -123,14 +123,14 @@ describe('WriteFunnel.run ordering', () => {
   it('authorize rejecting stops the write', async () => {
     const { funnel } = await makeFunnel()
     const write = vi.fn()
-    expect(() =>
+    await expect(
       funnel.run({
         authorize: () => {
           throw new Error('forbidden')
         },
         write,
       }),
-    ).toThrow('forbidden')
+    ).rejects.toThrow('forbidden')
     expect(write).not.toHaveBeenCalled()
   })
 })

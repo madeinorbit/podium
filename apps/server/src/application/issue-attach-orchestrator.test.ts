@@ -37,7 +37,7 @@ describe('IssueAttachOrchestrator', () => {
     expect(attachSession.mock.calls[0]?.[0].principal).toBe(principal)
   })
 
-  it('fails closed before opening a transaction when transport identity is absent', () => {
+  it('fails closed before opening a transaction when transport identity is absent', async () => {
     const transactionCall = vi.fn()
     const transact = <T>(work: () => T): T => {
       transactionCall()
@@ -48,12 +48,12 @@ describe('IssueAttachOrchestrator', () => {
       attention: { attachSession: vi.fn(async () => RESULT) },
     })
 
-    expect(() =>
+    await expect(
       orchestrator.execute(
         { capability: OPERATOR },
         { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
       ),
-    ).toThrow('transport-derived')
+    ).rejects.toThrow('transport-derived')
     expect(transactionCall).not.toHaveBeenCalled()
   })
 })

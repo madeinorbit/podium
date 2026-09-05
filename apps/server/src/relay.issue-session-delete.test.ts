@@ -102,7 +102,7 @@ describe('issue/session deletion lifecycle', () => {
       throw new Error('append failed')
     })
 
-    expect(() => registry.modules.issueSessionLifecycle.deleteIssue(issue.id)).toThrow(
+    await expect(registry.modules.issueSessionLifecycle.deleteIssue(issue.id)).rejects.toThrow(
       'append failed',
     )
     spy.mockRestore()
@@ -135,7 +135,7 @@ describe('issue/session deletion lifecycle', () => {
       throw new Error('restore append failed')
     })
 
-    expect(() => registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).toThrow(
+    await expect(registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).rejects.toThrow(
       'restore append failed',
     )
     spy.mockRestore()

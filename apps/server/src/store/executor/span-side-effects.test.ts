@@ -71,12 +71,12 @@ describe('a nested ledger.commit publishes after the OUTER commit', () => {
       for (const change of changes) delivered.push(change.id)
     })
 
-    expect(() =>
+    await expect(
       store.transact(async () => {
         await ledger.commit({ write: async () => 'ok', changes: () => [...upsert('i2', { v: 1 })] })
         throw new Error('the attach failed after the nested commit')
       }),
-    ).toThrow('the attach failed after the nested commit')
+    ).rejects.toThrow('the attach failed after the nested commit')
 
     // The change row went with the rollback, so a delivery would have described
     // a row the durable log does not have. Both halves are asserted, because
@@ -178,7 +178,7 @@ describe('the event log announces after the commit', () => {
     const announced: string[] = []
     await store.events.onAppend((_id, event) => announced.push(event.kind))
 
-    expect(() =>
+    await expect(
       store.transact(async () => {
         await store.events.appendEvent({
           ts: new Date().toISOString(),
@@ -187,7 +187,7 @@ describe('the event log announces after the commit', () => {
         })
         throw new Error('the lock transaction failed')
       }),
-    ).toThrow('the lock transaction failed')
+    ).rejects.toThrow('the lock transaction failed')
     expect(announced).toEqual([])
     expect(await store.events.maxEventId()).toBe(0)
   })
