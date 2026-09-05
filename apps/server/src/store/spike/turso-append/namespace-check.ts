@@ -115,7 +115,7 @@ async function worker(config: BackendConfig): Promise<void> {
     // Collect the namespace. A check that proves runs are isolated by giving
     // each one its own tables must not leave those tables behind, or the
     // evidence run is itself the thing that fills the shared database.
-    await (await slice.dropTables()).catch(() => {})
+    await slice.dropTables().catch(() => {})
     await slice.close()
   }
 }

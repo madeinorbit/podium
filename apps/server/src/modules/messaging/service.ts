@@ -313,7 +313,7 @@ export class MessagingService implements TelegramNoticePort {
         chatId,
         ...(threadRef ? { threadRef } : {}),
       }
-      void (await this.adapter.send(target, input.text)).catch((err) => {
+      void this.adapter.send(target, input.text).catch((err) => {
         log.warn('Telegram push failed', { err })
       })
       return
@@ -333,7 +333,7 @@ export class MessagingService implements TelegramNoticePort {
         chatId,
         ...(threadRef ? { threadRef } : {}),
       }
-      void (await this.adapter.send(target, text)).catch((err) => {
+      void this.adapter.send(target, text).catch((err) => {
         log.warn('Telegram push failed', { err })
       })
       return

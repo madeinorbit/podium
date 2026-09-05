@@ -159,11 +159,11 @@ export class SessionReadToolkit {
     // Full wire is intentional: status surfaces the derived panel todo projection.
     const issue = issueId ? await issues.get(issueId) : null
     const [log, status] = await Promise.all([
-      (await this.deps.repoOp('log', target.cwd, target.machineId)).catch(() => ({
+      this.deps.repoOp('log', target.cwd, target.machineId).catch(() => ({
         ok: false,
         output: '',
       })),
-      (await this.deps.repoOp('status', target.cwd, target.machineId)).catch(() => ({
+      this.deps.repoOp('status', target.cwd, target.machineId).catch(() => ({
         ok: false,
         output: '',
       })),

@@ -209,7 +209,7 @@ export class TelegramChannel implements ChannelAdapter {
     if (!this.stopped) return
     this.stopped = false
     this.abort = new AbortController()
-    this.loop = (await this.pollLoop(onMessage)).catch((err) => {
+    this.loop = this.pollLoop(onMessage).catch((err) => {
       log.warn('telegram poll loop died', { err })
     })
   }
@@ -349,11 +349,11 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   async sendTyping(target: ConversationRef): Promise<void> {
-    ;(await this.call('sendChatAction', {
+    await this.call('sendChatAction', {
       chat_id: target.chatId,
       ...(target.threadRef ? { message_thread_id: Number(target.threadRef) } : {}),
       action: 'typing',
-    })).catch(() => {})
+    }).catch(() => {})
   }
 }
 

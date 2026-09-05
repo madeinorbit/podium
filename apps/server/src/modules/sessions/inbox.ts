@@ -1735,13 +1735,13 @@ export class SessionInbox {
           stop()
           return
         }
-        void (await contractDeliver({
+        void contractDeliver({
           sessionId,
           turnId: head.sourceMessageId ?? head.id,
           text: head.text,
           origin: head.inputOrigin,
           principal: head.principal,
-        })).then(
+        }).then(
           (receipt) => {
             if (!isCurrent()) return
             const after = this.deps.getSession(sessionId)

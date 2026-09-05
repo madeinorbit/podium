@@ -547,8 +547,8 @@ export class SessionWorkspace {
     if (issue.worktreePath && !requestedMachineId) return { ok: true, cwd: issue.worktreePath }
     if (!issue.branch) return { ok: true, cwd: session.cwd }
     const ensured = requestedMachineId
-      ? await issues.ensureWorktree(issueId, requestedMachineId)
-      : await issues.ensureWorktree(issueId)
+      ? issues.ensureWorktree(issueId, requestedMachineId)
+      : issues.ensureWorktree(issueId)
     return ensured.then((recreated) => {
       if (!recreated.ok || !recreated.worktreePath) {
         return {

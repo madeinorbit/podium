@@ -299,7 +299,7 @@ export class ReceiptSender {
     // the driver's injection state machine answers with what it did — including
     // `deliveredAs: 'queue'`, the downgrade the server used to have to infer.
     const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
-    const settled = await this.ports.contract.send({
+    const settled = this.ports.contract.send({
       sessionId: input.sessionId,
       ...(input.sourceMessageId ? { turnId: input.sourceMessageId } : {}),
       text: input.text,

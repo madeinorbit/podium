@@ -839,7 +839,7 @@ export class HostsService {
       state: measuring,
       validUntilMs: Date.now() + RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
     })
-    void (await this.deps.daemonRequest
+    void this.deps.daemonRequest
       .request({
         kind: RECLAIM_DISK_ESTIMATE,
         timeoutMs: RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
@@ -851,7 +851,7 @@ export class HostsService {
           reclaimRoots: stableReclaimRoots,
         }),
         machineId,
-      }))
+      })
       .then((result) => {
         const current = this.reclaimDiskEstimateByMachine.get(key)
         if (current?.fingerprint !== fingerprint) return

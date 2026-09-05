@@ -2225,7 +2225,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
             ...(approved ? { releaseVersion: approved.version } : {}),
           })
         return current === null
-          ? (await readExistingDevBundle({ ...deps, fs, headSha, platforms })).then(async (existing) => {
+          ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
               if (!existing || (approved && existing.version !== approved.version)) return await build()
               const statePath = deps.publisherStateDir ?? stateDir()
               // Restoring still counts as publishing that build. Seed from the record

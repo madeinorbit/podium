@@ -654,7 +654,7 @@ export function wireDevBundlePublisher(deps: {
       // itself: its lines are still ONE attempt and must not merge with another's.
       const runId = mintReleaseTimingRunId()
       currentTimingRunId = runId
-      return (await publisher.requestBuild(true)).then(
+      return publisher.requestBuild(true).then(
         async (built) => {
           try {
             await observeBundleReadiness()
