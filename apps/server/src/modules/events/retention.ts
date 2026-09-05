@@ -64,7 +64,7 @@ export class EventLogRetention {
       this.pruneRerunRequested = true
       return this.pruneFlight
     }
-    const flight = await this.drainPruneRequests()
+    const flight = this.drainPruneRequests()
     this.pruneFlight = flight
     const clear = () => {
       if (this.pruneFlight === flight) this.pruneFlight = undefined
@@ -97,7 +97,7 @@ export class EventLogRetention {
   private async runPruneJob(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
     const batchSize = this.options.batchSize ?? EVENT_PRUNE_BATCH_ROWS
     let deleted = 0
-    let plan: ReturnType<EventsRepository['planEventPrune']> | undefined
+    let plan: Awaited<ReturnType<EventsRepository['planEventPrune']>> | undefined
     const metrics = await runTimeBudgetedJob(
       async () => {
         if (!plan) {
@@ -134,7 +134,7 @@ export class EventLogRetention {
 
   /** Timer failures are logged, never thrown into the process. */
   private async schedulePrune(): Promise<void> {
-    void (await this.pruneNow()).catch((err) => {
+    void this.pruneNow().catch((err) => {
       log.warn('event log prune failed', { err })
     })
   }

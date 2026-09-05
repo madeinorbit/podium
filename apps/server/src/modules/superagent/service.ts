@@ -613,7 +613,7 @@ export class SuperagentService {
     // sent a second apart could hang where the first ran. (The stricter rule
     // still governs `resumePendingTurns`' PENDING rows, where the concern is a
     // stale serialized credential from an older process — a different thing.)
-    void (await this.prepareQueuedInput(next, true)).catch(async (error) => {
+    void this.prepareQueuedInput(next, true).catch(async (error) => {
       await this.store.superagent.deleteQueuedInput(next.inputId)
       await this.failQueuedInput(next, error)
       this.turnInFlight.delete(threadId)
@@ -692,7 +692,7 @@ export class SuperagentService {
   ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const existing = this.preparingInputs.get(queued.inputId)
     if (existing) return existing
-    const preparing = (await this.prepareQueuedInputInner(queued, allowWithoutMcp)).finally(() => {
+    const preparing = this.prepareQueuedInputInner(queued, allowWithoutMcp).finally(() => {
       this.preparingInputs.delete(queued.inputId)
     })
     this.preparingInputs.set(queued.inputId, preparing)
@@ -869,7 +869,7 @@ export class SuperagentService {
       return
     }
     this.dispatchedTurnIds.add(pending.turnId)
-    const turn = await this.modules.headless.headlessTurn(
+    const turn = this.modules.headless.headlessTurn(
       {
         turnId: pending.turnId,
         sessionId: pending.podiumSessionId,
@@ -1509,9 +1509,11 @@ export class SuperagentService {
         needsHuman: needsHuman.length,
       })
     }
-    const sessions: ConciergeSessionInfo[] = (await this.listSessions())
-      .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
-      .map(async (s) => await this.sessionInfo(s.sessionId) ?? { sessionId: s.sessionId })
+    const sessions: ConciergeSessionInfo[] = await Promise.all(
+      (await this.listSessions())
+        .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
+        .map(async (s) => (await this.sessionInfo(s.sessionId)) ?? { sessionId: s.sessionId }),
+    )
     return {
       repos,
       sessions,
@@ -1566,10 +1568,13 @@ export class SuperagentService {
     const issue = await issueInfo(focus.issueId)
     const openIssue = await issueInfo(focus.openIssueId)
     const focused = focus.focusedSessionId ? await this.sessionInfo(focus.focusedSessionId) : undefined
-    const alsoVisible = (focus.visibleSessionIds ?? [])
-      .filter((id) => id !== focus.focusedSessionId)
-      .map(async (id) => await this.sessionInfo(id))
-      .filter((s): s is FocusSessionInfo => !!s)
+    const alsoVisible = (
+      await Promise.all(
+        (focus.visibleSessionIds ?? [])
+          .filter((id) => id !== focus.focusedSessionId)
+          .map(async (id) => await this.sessionInfo(id)),
+      )
+    ).filter((s): s is FocusSessionInfo => !!s)
     return buildFocusBlock({
       now: new Date().toISOString(),
       ...(focus.view ? { view: focus.view } : {}),

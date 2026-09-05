@@ -562,11 +562,11 @@ export class SettingsService {
     // server-held MAC key. `secretPresence` returns all-null for an empty value,
     // so an absent row cannot acquire a fingerprint by accident.
     const serverKey = this.fingerprintKey()
-    return (await this.secrets
-      .presence())
-      .map(async (row) =>
+    return await Promise.all(
+      (await this.secrets.presence()).map(async (row) =>
         secretPresence(row.key, await this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
-      )
+      ),
+    )
   }
 
   /**
