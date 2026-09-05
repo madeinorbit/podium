@@ -1420,6 +1420,35 @@ Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a spa
 self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
 construction lines in `store.ts` do NOT change — they still pass the one capability object.
 
+### Rule 48 — an exact-error capture helper goes async; the expected strings transfer VERBATIM
+
+[Ruling on POD-3263's fourth assertion boundary, 2026-09-05. The site is
+`modules/workflows/engine.test.ts`, whose `thrown(fn)` helper captures a throw as the exact string
+`` `${name}: ${message} | code=${code}` `` and returns `'NO THROW'` otherwise. 84 call sites; 15 now
+call commands that return promises.]
+
+CUSTODY TRANSFERS TO AN ASYNC CAPTURE HELPER. `await fn()` inside the same try/catch catches a
+synchronous throw AND a rejection, so ONE helper serves all 84 sites and the sync ones need no split.
+The returned string format and the `'NO THROW'` sentinel are preserved exactly, so every expected
+string in every assertion transfers UNCHANGED. Under the flip's mechanical rule that is await plus a
+helper rename and nothing else. **If any expected string has to change, that is a finding — stop and
+report it, do not adjust the expectation.**
+
+THE OTHER ARM IS IMPOSSIBLE, not merely undesirable. "Keep synchronous validation before returning a
+promise" cannot work where validation READS THE STORE, and these do: `'unknown workflow revision:
+wfr_nope'` can only be known by looking the revision up, and that read is async after the flip.
+Splitting the 15 into sync-validatable and not would also give one error class two failure modes,
+which is worse than either alone. It is an API redesign and the flip is not the place for it.
+
+THIS MIGRATION IS SAFE-BY-CONSTRUCTION, unlike the `rejects.toThrow` one in the awaitify ledger. A
+missed `await` here leaves `expect(Promise).toBe('Error: …')`, which FAILS LOUDLY. A missed `await` on
+`rejects.toThrow` passes silently. Same flip, opposite hazard — do not carry the caution from one to
+the other, and do not "harden" this helper into something that swallows the difference.
+
+PRESERVE THE COUNTERFACTUALS. Several of these tests pair a refusal with the same call by a
+higher-grade principal, explicitly so the refusal is known to be the rule firing rather than an
+incidental failure. Those are arming canaries. They transfer with the assertions they guard.
+
 ### Rule 47 — a synchronous reader over an async store LOADS AT AN ASYNC ENTRY POINT, never at composition
 
 [Ruling on POD-3263's no-rule boundary, 2026-09-05. The site is `FeedIdentityRegistry.current()`,
