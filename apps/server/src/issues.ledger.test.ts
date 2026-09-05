@@ -93,20 +93,20 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const cursorBefore = await ledger.cursor()
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
-    expect(() =>
+    await expect(
       ledger.commit({
         write: async () => await store.issues.upsertIssue({ ...row, title: 'mutated' }),
         changes: () => {
           throw new Error('declaration failed')
         },
       }),
-    ).toThrow('declaration failed')
+    ).rejects.toThrow('declaration failed')
     // The entity write inside the same transact span rolled back with the append.
     expect((await store.issues.listIssueRows()).find((r) => r.id === wire.id)?.title).toBe('original')
     expect(await ledger.cursor()).toBe(cursorBefore)
     // The baseline is untouched: re-declaring the ORIGINAL wire truth is a no-op.
     const redo = await ledger.commit({
-      write: () => {},
+      write: async () => {},
       changes: () => [{ entity: 'issue', id: wire.id, op: 'upsert', value: wire }],
     })
     expect(redo.changes).toEqual([])

@@ -36,10 +36,10 @@ describe('startServer port-in-use handling', () => {
     const { port } = held
 
     useFreshStateDir('second')
-    const outcome = await (await startServer({
+    const outcome = await startServer({
       janitorWorkerForTests: noJanitorWorkerForTests,
       port,
-    })).then(
+    }).then(
       (s) => {
         // If it somehow bound, don't leak — close it, then let the assertion fail.
         void s.close()
