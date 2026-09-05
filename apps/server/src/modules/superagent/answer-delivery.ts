@@ -181,7 +181,7 @@ export async function deliverAnswerToSession(
       ...(previewLayout ? { previewLayout: true } : {}),
     })
   }
-  const r = deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
+  const r = await deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
   // A reason only ever accompanies the undeliverable-choice refusal; the older
   // not-live refusal is bare, and keeps its original wording.
   if (!r.ok) return { ok: false, message: `failed: ${r.reason ?? 'session not running'}` }
