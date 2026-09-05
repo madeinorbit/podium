@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import { asMachineId, resolveMachineChannel } from '@podium/model'
 import type {
@@ -157,6 +158,8 @@ const CHANNEL_ORDER: readonly UpdateChannel[] = ['dev', 'edge', 'stable']
 const FORCED_CHECK_INTERVAL_MS = 30_000
 
 interface MachineConvergenceState {
+  /** A supervisor grant keeps its health fence across legacy presence fallback. */
+  requiresExecutionConfirmation?: boolean
   channel: UpdateChannel
   state: ConvergenceState
   version: string
@@ -169,6 +172,8 @@ interface MachineConvergenceState {
 }
 
 interface PendingGrant {
+  /** Freeze the exact descriptor, including same-version artifact replacements. */
+  targetFingerprint: string
   channel: UpdateChannel
   grantId: string
   issuedAt: number
@@ -747,7 +752,9 @@ export class UpdatesService {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     if (!machine) {
       if (
-        (message.state === 'rejected' || message.state === 'stuck') &&
+        (message.state === 'rejected' ||
+          message.state === 'stuck' ||
+          (message.state === 'current' && message.phaseDetail === 'current' && message.grantId)) &&
         message.targetVersion !== undefined
       ) {
         this.terminalStatusesBeforeMachine.set(machineId, message)
@@ -760,7 +767,9 @@ export class UpdatesService {
     const target = this.target(channel)
     if (!target) {
       if (
-        (message.state === 'rejected' || message.state === 'stuck') &&
+        (message.state === 'rejected' ||
+          message.state === 'stuck' ||
+          (message.state === 'current' && message.phaseDetail === 'current' && message.grantId)) &&
         message.targetVersion !== undefined
       ) {
         let deferred = this.terminalStatusesBeforeTarget.get(channel)
@@ -814,8 +823,36 @@ export class UpdatesService {
       return
     }
 
+    // The supervisor connects before parent.start(). Only the executor's terminal
+    // report proves that this exact grant ran and all required roles passed boot
+    // health; the hello's version and ordinary current heartbeats do not.
+    const requiresExecutionConfirmation =
+      machine.presenceSource === 'supervisor' ||
+      this.machineStates.get(machineId)?.requiresExecutionConfirmation === true
+    const confirmedExecution =
+      requiresExecutionConfirmation &&
+      pendingGrant !== undefined &&
+      message.grantId === pendingGrant.grantId &&
+      message.targetVersion === target.version &&
+      message.version === target.version &&
+      message.state === 'current' &&
+      message.phaseDetail === 'current' &&
+      this.grantMatchesTarget(pendingGrant, channel, target)
+    // Once accepted, ordinary heartbeats cannot undo the execution verdict while
+    // the directory catches up. A terminal failure can still supersede it.
+    if (
+      requiresExecutionConfirmation &&
+      this.machineStates.get(machineId)?.state === 'current' &&
+      message.state === 'current' &&
+      !confirmedExecution
+    ) {
+      return
+    }
+    // An unsolicited current heartbeat cannot erase a supervised failure after
+    // its pending grant has been retired.
+    if (requiresExecutionConfirmation && message.state === 'current' && !pendingGrant) return
     const effectiveState =
-      message.state === 'current' && pendingGrant !== undefined
+      message.state === 'current' && pendingGrant !== undefined && !confirmedExecution
         ? message.version === target.version
           ? 'restarting'
           : 'granted'
@@ -872,6 +909,7 @@ export class UpdatesService {
     this.machineStates.set(machineId, {
       channel,
       state: effectiveState,
+      requiresExecutionConfirmation,
       version: message.version,
       ...(pendingGrant && recoveredTerminal
         ? { grantId: pendingGrant.grantId }
@@ -1241,9 +1279,10 @@ export class UpdatesService {
    * is allowed to perform.
    *
    * WHY A READ GRANTS AT ALL. An installed daemon normally proves its new build
-   * by reconnecting, which refreshes the machine directory before an
-   * `updateStatus` message is guaranteed to arrive. Nothing else is watching for
-   * that edge, so without this the panel reaches "1 of N" and waits for a second
+   * by reconnecting; supervised machines additionally require their exact
+   * healthy executor verdict. The directory can refresh after that verdict, so
+   * the read also reconciles the two facts. Without this continuation, the
+   * panel can reach "1 of N" and wait for a second
    * Apply that should never be necessary.
    *
    * WHY IT IS TWO PROJECTIONS AND NOT ONE (POD-2180). The continuation issues
@@ -1260,10 +1299,26 @@ export class UpdatesService {
     if (continuing.size === 0) return machines
     for (const channel of continuing) this.tick(channel, WAVE_CONTINUATION_CAUSE)
     // The re-read cannot continue anything further: a machine is only ever
-    // `continuing` because its directory version proved the target while a
-    // convergence record still stood, and the projection above deleted that
-    // record. So this is a projection, not a second round of the same question.
+    // `continuing` because its directory version and applicable execution verdict
+    // proved the target while a convergence record still stood. The projection
+    // above deleted that record. So this is a projection, not a second round of the same question.
     return this.project().machines
+  }
+
+  /** Consent and publication must still name the descriptor this grant executed. */
+  private grantMatchesTarget(
+    pending: PendingGrant,
+    channel: UpdateChannel,
+    target: UpdateTarget | undefined,
+  ): boolean {
+    const approved = this.approvedTarget(channel)
+    return (
+      target !== undefined &&
+      pending.targetFingerprint === updateFingerprint(target) &&
+      (approved === undefined ||
+        approved.version !== target.version ||
+        pending.targetFingerprint === updateFingerprint(approved))
+    )
   }
 
   /**
@@ -1278,7 +1333,7 @@ export class UpdatesService {
    *
    * The state it does write is reconciliation, not rollout: the directory proof
    * makes the canary healthy and forgets the convergence record it supersedes.
-   * Both are idempotent, both are true the moment the handshake landed, and
+   * Both are idempotent, both require the applicable startup proof, and
    * neither sends anything to a machine.
    */
   private project(): {
@@ -1291,10 +1346,21 @@ export class UpdatesService {
       const targetVersion = this.target(channel)?.version
       const state = this.machineStates.get(machine.id)
       const currentState = state?.channel === channel ? state : undefined
-      // The machine directory is refreshed from the daemon handshake. Once it
-      // reports the selected authority's target, that durable fact wins over a
-      // stale in-memory grant from before a restart or channel switch.
-      if (targetVersion !== undefined && machine.version === targetVersion) {
+      // Legacy daemons announce after startup. A supervisor announces BEFORE
+      // children start: preserve its grant (and failures) until onStatus accepts
+      // exact healthy execution. Never let an early hello erase that fence.
+      const pending = this.pendingGrants.get(machine.id)
+      const awaitingSupervisorExecution =
+        (machine.presenceSource === 'supervisor' || currentState?.requiresExecutionConfirmation) &&
+        currentState !== undefined &&
+        (currentState.state !== 'current' ||
+          (pending !== undefined &&
+            !this.grantMatchesTarget(pending, channel, this.target(channel))))
+      if (
+        targetVersion !== undefined &&
+        machine.version === targetVersion &&
+        !awaitingSupervisorExecution
+      ) {
         if (currentState) {
           const rollout = this.rollout(channel)
           rollout.canaryHealthy = true
@@ -1305,6 +1371,11 @@ export class UpdatesService {
         return { ...machine, state: 'current', version: machine.version }
       }
       if (!currentState) return { ...machine }
+      // An accepted executor report and the directory must agree before either
+      // fleet readers or explicit ticks can use it as running-version proof.
+      if (currentState.requiresExecutionConfirmation && currentState.state === 'current') {
+        return { ...machine, state: 'restarting' }
+      }
       // NO AGEING HERE (POD-2101). Reading the fleet is not the passage of
       // time; the operation's step deadline is what ends a silent grant now.
       return {
@@ -1344,6 +1415,9 @@ export class UpdatesService {
       this.machineStates.set(machineId, {
         channel,
         state: 'stuck',
+        requiresExecutionConfirmation:
+          this.machineStates.get(machineId)?.requiresExecutionConfirmation ??
+          machine.presenceSource === 'supervisor',
         version: machine.version,
         detail,
       })
@@ -1427,10 +1501,19 @@ export class UpdatesService {
     return this.abandonWait(inFlight, detail)
   }
 
-  /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
+  /** Running directory proof plus the same execution fence used by fleet reads. */
   machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    return machine?.online === true && machine.version === targetVersion
+    if (machine?.online !== true || machine.version !== targetVersion) return false
+    const channel = this.channelOf(machine)
+    const state = this.machineStates.get(machineId)
+    if (state?.channel !== channel) return true
+    if (machine.presenceSource !== 'supervisor' && !state.requiresExecutionConfirmation) return true
+    const pending = this.pendingGrants.get(machineId)
+    return (
+      state.state === 'current' &&
+      (pending === undefined || this.grantMatchesTarget(pending, channel, this.target(channel)))
+    )
   }
 
   /**
@@ -1514,17 +1597,21 @@ export class UpdatesService {
         // itself. The planner holds this machine last for the same fact.
         handover: machine?.coordinator === true,
       })
-      this.deps.send(asMachineId(machineId), grant)
       this.pendingGrants.set(machineId, {
         channel,
         grantId: grant.grantId,
+        targetFingerprint: updateFingerprint(target),
         issuedAt: this.deps.now(),
       })
       this.machineStates.set(machineId, {
         channel,
         state: 'granted',
+        requiresExecutionConfirmation: machine?.presenceSource === 'supervisor',
         version: machine?.version ?? '',
       })
+      // Register correlation before dispatch: an in-process participant may
+      // synchronously report its terminal replay from send().
+      this.deps.send(asMachineId(machineId), grant)
       issued.push(machineId)
     }
     return issued
