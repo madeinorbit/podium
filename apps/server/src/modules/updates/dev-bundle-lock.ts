@@ -27,10 +27,13 @@ export interface DevBundleLockService {
       note?: string
       allowSibling?: boolean
     },
-  ): LockAcquireResultWire
-  cancel(caller: DevBundleLockCaller, input: DevBundleLockRef): unknown
-  renew(caller: DevBundleLockCaller, input: DevBundleLockRef & { ttlSeconds?: number }): unknown
-  release(caller: DevBundleLockCaller, input: DevBundleLockRef): unknown
+  ): Promise<LockAcquireResultWire> | LockAcquireResultWire
+  cancel(caller: DevBundleLockCaller, input: DevBundleLockRef): Promise<unknown> | unknown
+  renew(
+    caller: DevBundleLockCaller,
+    input: DevBundleLockRef & { ttlSeconds?: number },
+  ): Promise<unknown> | unknown
+  release(caller: DevBundleLockCaller, input: DevBundleLockRef): Promise<unknown> | unknown
 }
 
 const DEV_BUNDLE_LOCK_CALLER: DevBundleLockCaller = {
@@ -70,27 +73,27 @@ export function createServerDevBundleLock(
     async acquire() {
       const deadline = now() + DEV_BUNDLE_LOCK_TTL_SECONDS * 1_000
       for (;;) {
-        const result = locks.acquire(DEV_BUNDLE_LOCK_CALLER, {
+        const result = await locks.acquire(DEV_BUNDLE_LOCK_CALLER, {
           ...ref,
           ttlSeconds: DEV_BUNDLE_LOCK_TTL_SECONDS,
           note: 'server-owned development bundle build',
         })
         if (result.granted) return true
         if (now() >= deadline) {
-          locks.cancel(DEV_BUNDLE_LOCK_CALLER, ref)
+          await locks.cancel(DEV_BUNDLE_LOCK_CALLER, ref)
           return false
         }
         await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - now())))
       }
     },
     async renew() {
-      locks.renew(DEV_BUNDLE_LOCK_CALLER, {
+      await locks.renew(DEV_BUNDLE_LOCK_CALLER, {
         ...ref,
         ttlSeconds: DEV_BUNDLE_LOCK_TTL_SECONDS,
       })
     },
     async release() {
-      locks.release(DEV_BUNDLE_LOCK_CALLER, ref)
+      await locks.release(DEV_BUNDLE_LOCK_CALLER, ref)
     },
   }
 }
