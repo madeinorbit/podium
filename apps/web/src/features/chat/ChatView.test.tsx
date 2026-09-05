@@ -853,6 +853,7 @@ describe('ChatView composer', () => {
           expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
             asSessionId('s1'),
             failedRow.body,
+            expect.stringMatching(/^msg_/),
           )
           expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
         }
