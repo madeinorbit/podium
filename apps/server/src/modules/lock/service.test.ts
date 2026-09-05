@@ -22,7 +22,7 @@ async function harness(opts?: { alive?: Set<string>; workspace?: Map<string, str
   const appendEvent = vi.fn()
   const svc = new LockService({
     locks: store.locks,
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
     funnel: { run: (op) => op.write() },
     now: () => nowMs,
     resolveRepoId: (repoPath) => asRepoId(`repo:${repoPath}`),

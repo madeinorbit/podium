@@ -22,11 +22,11 @@ function rig(clock: { now: number } = { now: NOW }): {
   const bus = new EventBus()
   const rows: PodiumEventRecord[] = []
   const events = {
-    appendEvent(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
+    async appendEvent(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
       rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
       return rows.length
     },
-    listKindSubjectSinceWithPrior(kind: string, subject: string, since: string) {
+    async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string) {
       const inWindow = rows.filter(
         (row) => row.kind === kind && row.subject === subject && row.ts >= since,
       )

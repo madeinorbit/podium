@@ -83,13 +83,13 @@ describe('AgentConcurrencyHistory', () => {
     const sessions: FakeSession[] = []
     const rows: PodiumEventRecord[] = []
     const events = {
-      appendEvent(
+      async appendEvent(
         input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null },
       ) {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
         return rows.length
       },
-      listKindSinceWithPrior: () => rows,
+      listKindSinceWithPrior: async () => rows,
     }
     const history = new AgentConcurrencyHistory({
       sessions: () => sessions,
@@ -135,13 +135,13 @@ describe('AgentConcurrencyHistory', () => {
     const sessions: FakeSession[] = [live('working')]
     const rows: PodiumEventRecord[] = []
     const events = {
-      appendEvent(
+      async appendEvent(
         input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null },
       ) {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
         return rows.length
       },
-      listKindSinceWithPrior: () => rows,
+      listKindSinceWithPrior: async () => rows,
     }
     const history = new AgentConcurrencyHistory({
       sessions: () => sessions,
