@@ -82,7 +82,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     const path = tmpDb()
     await seedLegacyDb(path)
 
-    expect(() => openTestStore(path, HOST)).toThrow(
+    await expect(openTestStore(path, HOST)).rejects.toThrow(
       /retired machine sentinels.*machines\.id.*repos\.machine_id.*sessions\.machine_id/s,
     )
   })
@@ -103,7 +103,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     `)
     db.close()
 
-    expect(() => openTestStore(path, HOST)).toThrow(
+    await expect(openTestStore(path, HOST)).rejects.toThrow(
       /retired machine sentinels.*issues\.machine_id/s,
     )
   })
@@ -187,7 +187,7 @@ describe('a database that already ran the retired upgrades', () => {
   it('and the seed itself would have been refused — the assertion above is not vacuous', async () => {
     const path = tmpDb()
     await seedLegacyDb(path)
-    expect(() => openTestStore(path, HOST)).toThrow(/retired machine sentinels/)
+    await expect(openTestStore(path, HOST)).rejects.toThrow(/retired machine sentinels/)
   })
 })
 
@@ -317,11 +317,11 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
       workState: null,
     }
 
-    expect(() =>
+    await expect(
       // @ts-expect-error machineId is REQUIRED (POD-318) — this is the compile-time
       // half of the same guarantee the runtime throw below is the other half of.
       store.sessions.upsertSession(row),
-    ).toThrow()
+    ).rejects.toThrow()
     store.close()
   })
 })

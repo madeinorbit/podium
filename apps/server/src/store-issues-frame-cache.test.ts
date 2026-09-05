@@ -174,14 +174,13 @@ describe('issue frame read cache', () => {
     await Promise.resolve()
     expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
         // The read that would fill the cache from inside the transaction.
         expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
         throw new Error('rolled back')
       }),
-    ).toThrow('rolled back')
+    ).rejects.toThrow('rolled back')
 
     // Same turn, so the cache is still the one the transaction touched.
     expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')

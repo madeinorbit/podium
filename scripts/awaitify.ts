@@ -399,6 +399,31 @@ function alreadyAwaited(call: ts.Node): boolean {
   return ts.isAwaitExpression(n.parent) || isPromiseMatcherSubject(call)
 }
 
+interface RejectionAssertion {
+  arrow: ts.ArrowFunction
+  expectCall: ts.CallExpression
+}
+
+/** The Rule 48a shape: a positive sync throw assertion around one async call. */
+function rejectionAssertion(call: ts.CallExpression): RejectionAssertion | undefined {
+  let body: ts.Node = call
+  while (body.parent !== undefined && ts.isParenthesizedExpression(body.parent)) body = body.parent
+  const arrow = body.parent
+  if (!ts.isArrowFunction(arrow) || arrow.body !== body) return undefined
+  const expectCall = arrow.parent
+  if (
+    !ts.isCallExpression(expectCall) ||
+    !ts.isIdentifier(expectCall.expression) ||
+    expectCall.expression.text !== 'expect' ||
+    !expectCall.arguments.includes(arrow)
+  ) {
+    return undefined
+  }
+  const matcher = expectCall.parent
+  if (!ts.isPropertyAccessExpression(matcher) || matcher.name.text !== 'toThrow') return undefined
+  return { arrow, expectCall }
+}
+
 /** Does this expression sit at the very start of its statement? */
 function startsAStatement(call: ts.Node, sf: ts.SourceFile): boolean {
   let n: ts.Node = call
@@ -516,6 +541,7 @@ export function run(opts: RunOptions): RunResult {
   const siteHost = new Map<ts.Node, FnLike | undefined>()
   const siteTarget = new Map<ts.Node, ts.Node | undefined>()
   const mustStaySync = new Set<FnLike>()
+  const rejectionAssertions = new Map<ts.SourceFile, Map<ts.CallExpression, RejectionAssertion>>()
   const targets = program
     .getSourceFiles()
     .filter((sf) => !sf.isDeclarationFile && isAwaitTarget(sf.fileName))
@@ -568,6 +594,27 @@ export function run(opts: RunOptions): RunResult {
           ) {
             mustStaySync.add(target)
             changed = true
+          }
+        }
+        if (hit && !excluded && ts.isCallExpression(node)) {
+          const assertion = rejectionAssertion(node)
+          if (assertion !== undefined) {
+            const forFile = rejectionAssertions.get(sf) ?? new Map()
+            rejectionAssertions.set(sf, forFile)
+            if (!forFile.has(node)) {
+              forFile.set(node, assertion)
+              const outer = enclosingFn(assertion.expectCall)
+              if (outer !== undefined && outer !== 'illegal' && !isAsyncFn(outer)) {
+                const asyncForFile = asyncSites.get(sf) ?? new Set<FnLike>()
+                asyncSites.set(sf, asyncForFile)
+                if (!asyncForFile.has(outer)) {
+                  asyncForFile.add(outer)
+                  seed.add(outer)
+                  changed = true
+                }
+              }
+            }
+            return
           }
         }
         if (hit && !excluded) {
@@ -725,7 +772,12 @@ export function run(opts: RunOptions): RunResult {
   let sites = 0
   const files =
     opts.pass === 'awaits'
-      ? new Set([...awaitSites.keys(), ...asyncSites.keys(), ...awaitedTypeRefs.keys()])
+      ? new Set([
+          ...awaitSites.keys(),
+          ...asyncSites.keys(),
+          ...awaitedTypeRefs.keys(),
+          ...rejectionAssertions.keys(),
+        ])
       : opts.pass === 'rename'
         ? new Set(targets.filter(hasConstruction))
         : new Set<ts.SourceFile>()
@@ -737,8 +789,29 @@ export function run(opts: RunOptions): RunResult {
       parenthesised: parenSites.has(call),
       atStatementStart: startsAStatement(call, sf),
     }))
-    sites += callSites.length
+    const rejections = [...(rejectionAssertions.get(sf)?.values() ?? [])]
+    sites += callSites.length + rejections.length
     const edits: Edit[] = awaitEdits(callSites)
+    for (const { arrow, expectCall } of rejections) {
+      edits.push({
+        start: arrow.getStart(sf),
+        end: arrow.body.getStart(sf),
+        text: '',
+        why: 'unwrap throw callback',
+      })
+      edits.push({
+        start: expectCall.getStart(sf),
+        end: expectCall.getStart(sf),
+        text: 'await ',
+        why: 'await rejection assertion',
+      })
+      edits.push({
+        start: expectCall.getEnd(),
+        end: expectCall.getEnd(),
+        text: '.rejects',
+        why: 'rejection matcher',
+      })
+    }
     for (const fn of asyncSites.get(sf) ?? []) {
       // `async` goes after `export`/`static`, never before them.
       const mods = (fn as ts.HasModifiers).modifiers

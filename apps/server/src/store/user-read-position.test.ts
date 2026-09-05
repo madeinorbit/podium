@@ -85,9 +85,8 @@ describe('UserReadPositionRepository', () => {
   })
 
   it('refuses a stream outside the closed vocabulary', async () => {
-    expect(() =>
-      cursors.advance(ALICE, 'notAStream', { lastEventId: 1, seenAt: null }, AT),
-    ).toThrow(/not a known event stream/)
+    await expect(cursors.advance(ALICE, 'notAStream', { lastEventId: 1, seenAt: null }, AT),
+    ).rejects.toThrow(/not a known event stream/)
     expect(await cursors.getSnapshot(ALICE)).toEqual({})
   })
 

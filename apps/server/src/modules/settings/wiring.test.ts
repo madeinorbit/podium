@@ -211,8 +211,7 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
     })
     expect((await store.settingsAudit.list()).at(-1)?.actorKind).toBe('system')
 
-    expect(() =>
-      store.settingsAudit.append({
+    await expect(store.settingsAudit.append({
         command: 'settings.updateInstance',
         outcome: 'applied',
         actorKind: 'system',
@@ -223,6 +222,6 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
         redactedPaths: [],
         createdAt: '2026-07-31T00:00:00.000Z',
       }),
-    ).toThrow()
+    ).rejects.toThrow()
   })
 })

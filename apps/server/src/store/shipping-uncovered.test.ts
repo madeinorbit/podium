@@ -348,8 +348,8 @@ describe('shipping: isolating a failed train', () => {
     await s.shipping.appendStep(steps.planned)
     await s.shipping.appendStep(steps.running)
 
-    const call = (overrides: Record<string, unknown> = {}) =>
-      s.shipping.isolateTrainFailure({
+    const call = async (overrides: Record<string, unknown> = {}) =>
+      await s.shipping.isolateTrainFailure({
         trainId: claim.manifest.id,
         leaderOrderId: leader.id,
         leaderAttemptId: leaderAttempt.id,
@@ -362,12 +362,12 @@ describe('shipping: isolating a failed train', () => {
       })
 
     // THE CUSTODY FENCE, by its message: a generation that is not the leader's.
-    expect(() => call({ generation: leaderAttempt.leaseGeneration + 1 })).toThrow(
+    await expect(call({ generation: leaderAttempt.leaseGeneration + 1 })).rejects.toThrow(
       /isolation custody fence failed/,
     )
     // THE ISOLATION SET, by its message: empty, and containing a non-member.
-    expect(() => call({ failureOrderIds: [] })).toThrow(/isolation set is invalid/)
-    expect(() => call({ failureOrderIds: [asShipOrderId('order-not-a-member')] })).toThrow(
+    await expect(call({ failureOrderIds: [] })).rejects.toThrow(/isolation set is invalid/)
+    await expect(call({ failureOrderIds: [asShipOrderId('order-not-a-member')] })).rejects.toThrow(
       /isolation set is invalid/,
     )
     // Every refusal rolled back: the train is still claimable and no step landed.

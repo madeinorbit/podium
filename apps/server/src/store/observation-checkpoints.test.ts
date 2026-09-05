@@ -48,7 +48,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
     const nextLease = await store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
     expect(nextLease.observationGeneration).toBe(2)
     expect(nextLease.checkpoint).toEqual(checkpoint)
-    expect(() => store.observationCheckpoints.save(checkpoint)).toThrow(
+    await expect(store.observationCheckpoints.save(checkpoint)).rejects.toThrow(
       'observation checkpoint lease changed',
     )
     const rebound = await store.observationCheckpoints.rebindExact({

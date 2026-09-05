@@ -171,15 +171,14 @@ describe('store issues', () => {
       repoId,
       seq: 4,
     })
-    expect(() =>
-      s.issues.upsertIssue({
+    await expect(s.issues.upsertIssue({
         ...base(),
         id: asIssueId('t4'),
         repoPath: '/home/till/p',
         repoId,
         seq: 4,
       }),
-    ).toThrow()
+    ).rejects.toThrow()
     expect(await s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
 
@@ -251,7 +250,7 @@ describe('store issues', () => {
 
   it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', async () => {
     const s = await openTestStore(':memory:')
-    expect(() => s.issues.upsertIssue({ ...base(), stage: 'bogus' })).toThrow(/stage/i)
+    await expect(s.issues.upsertIssue({ ...base(), stage: 'bogus' })).rejects.toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
     expect(() => s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })).not.toThrow()
@@ -416,12 +415,11 @@ describe('shipping durable store', () => {
     await s.issues.upsertIssue(base())
     const order = shipOrder()
     expect(await s.shipping.createOrder(order)).toEqual(order)
-    expect(() =>
-      s.shipping.createOrder(
+    await expect(s.shipping.createOrder(
         shipOrder({ id: asShipOrderId('order-not-queued'), state: 'preflight' }),
       ),
-    ).toThrow(/created queued/)
-    expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-other') }))).toThrow(
+    ).rejects.toThrow(/created queued/)
+    await expect(s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-other') }))).rejects.toThrow(
       /already has active ship order/,
     )
     expect(() =>
@@ -498,27 +496,24 @@ describe('shipping durable store', () => {
     }
     expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
     expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
-    expect(() =>
-      s.shipping.appendStep({
+    await expect(s.shipping.appendStep({
         ...plannedStep,
         id: asShipStepId('step-collision'),
         summary: 'different',
       }),
-    ).toThrow(/idempotency collision/)
+    ).rejects.toThrow(/idempotency collision/)
     expect(await s.shipping.appendStep(runningStep)).toEqual(runningStep)
     expect(await s.shipping.appendStep(finishedStep)).toEqual(finishedStep)
     expect(await s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(finishedStep)
-    expect(() =>
-      s.shipping.appendStep({
+    await expect(s.shipping.appendStep({
         ...plannedStep,
         id: asShipStepId('step-stale-generation'),
         idempotencyKey: 'stale-generation',
         generation: 2,
       }),
-    ).toThrow(/generation fence/)
+    ).rejects.toThrow(/generation fence/)
 
-    expect(() =>
-      s.shipping.raiseHold({
+    await expect(s.shipping.raiseHold({
         id: asShipHoldId('hold-stale'),
         orderId: order.id,
         generation: 2,
@@ -529,7 +524,7 @@ describe('shipping durable store', () => {
         actions: ['retry'],
         raisedAt: '2026-08-12T10:04:00.000Z',
       }),
-    ).toThrow(/expected 1/)
+    ).rejects.toThrow(/expected 1/)
     await s.shipping.raiseHold({
       id: asShipHoldId('hold-1'),
       orderId: order.id,
@@ -561,8 +556,7 @@ describe('shipping durable store', () => {
           '2026-08-12T10:04:30.000Z',
         ),
     ).toThrow()
-    expect(() =>
-      s.shipping.raiseHold({
+    await expect(s.shipping.raiseHold({
         id: asShipHoldId('hold-second-open'),
         orderId: order.id,
         generation: 2,
@@ -573,26 +567,22 @@ describe('shipping durable store', () => {
         actions: ['retry'],
         raisedAt: '2026-08-12T10:04:30.000Z',
       }),
-    ).toThrow()
-    expect(() =>
-      s.shipping.resolveHold(order.id, 2, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
-    ).toThrow(/generation fence/)
-    expect(() =>
-      s.shipping.resolveHold(order.id, 1, 'retry', 'repairing', '2026-08-12T10:05:00.000Z'),
-    ).toThrow(/cannot transition/)
+    ).rejects.toThrow()
+    await expect(s.shipping.resolveHold(order.id, 2, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+    ).rejects.toThrow(/generation fence/)
+    await expect(s.shipping.resolveHold(order.id, 1, 'retry', 'repairing', '2026-08-12T10:05:00.000Z'),
+    ).rejects.toThrow(/cannot transition/)
     expect(
       await s.shipping.resolveHold(order.id, 1, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
     ).toMatchObject({ generation: 1, resolution: 'retry' })
 
-    expect(() =>
-      s.shipping.finishAttempt(attempt.id, 2, {
+    await expect(s.shipping.finishAttempt(attempt.id, 2, {
         finishedAt: '2026-08-12T10:06:00.000Z',
         outcome: 'succeeded',
       }),
-    ).toThrow(/generation fence/)
-    expect(() =>
-      s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
-    ).toThrow(/illegal ship order transition/)
+    ).rejects.toThrow(/generation fence/)
+    await expect(s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
+    ).rejects.toThrow(/illegal ship order transition/)
     const retry = await s.shipping.claimAttempt({
       orderId: order.id,
       expectedState: 'queued',
@@ -620,7 +610,7 @@ describe('shipping durable store', () => {
       destination: order.destination,
       completedAt: '2026-08-12T10:08:00.000Z',
     }
-    expect(() => s.shipping.completeVerifiedOrder(receipt)).toThrow(/successful proof/)
+    await expect(s.shipping.completeVerifiedOrder(receipt)).rejects.toThrow(/successful proof/)
     const finished = await s.shipping.finishAttempt(retry.attempt.id, retry.attempt.leaseGeneration, {
       finishedAt: '2026-08-12T10:07:30.000Z',
       outcome: 'succeeded',
@@ -643,13 +633,12 @@ describe('shipping durable store', () => {
     expect(await s.shipping.listReceipts()).toContainEqual(
       expect.objectContaining({ orderId: order.id, resultCommitSha: 'landed-ref' }),
     )
-    expect(() =>
-      s.shipping.completeVerifiedOrder({
+    await expect(s.shipping.completeVerifiedOrder({
         ...receipt,
         destinationSha: 'different-proof',
       }),
-    ).toThrow(/different immutable receipt/)
-    expect(() => s.shipping.transitionOrder(order.id, 'shipped', 'queued', 'later')).toThrow(
+    ).rejects.toThrow(/different immutable receipt/)
+    await expect(s.shipping.transitionOrder(order.id, 'shipped', 'queued', 'later')).rejects.toThrow(
       /terminal ship order.*immutable/,
     )
     expect(() =>
@@ -936,7 +925,7 @@ describe('shipping durable store', () => {
       await s.shipping.createOrder(shipOrder())
     })
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('shipping')
-    expect(() => s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).toThrow(
+    await expect(s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).rejects.toThrow(
       /stage fence/,
     )
     await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
@@ -968,12 +957,11 @@ describe('shipping durable store', () => {
       canonical,
     )
     expect(await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, 'other-head')).toBeNull()
-    expect(() =>
-      s.shipping.recordRootIntegrationReceipt({
+    await expect(s.shipping.recordRootIntegrationReceipt({
         ...receipt,
         descendants: [childA],
       }),
-    ).toThrow(/different descendants/)
+    ).rejects.toThrow(/different descendants/)
     expect(() =>
       rawDb(s)
         .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
@@ -1022,20 +1010,18 @@ describe('shipping durable store', () => {
       requestedAt: '2026-08-12T10:02:00.000Z',
     })
     for (const order of [a, b, c]) await s.shipping.createOrder(order)
-    expect(() =>
-      s.shipping.claimTrain({
+    await expect(s.shipping.claimTrain({
         leaderOrderId: b.id,
         startedAt: '2026-08-12T10:03:00.000Z',
         members: [a, b].map((order) => ({ orderId: order.id })),
       }),
-    ).toThrow(/cross an immutable delivery lane/)
-    expect(() =>
-      s.shipping.claimTrain({
+    ).rejects.toThrow(/cross an immutable delivery lane/)
+    await expect(s.shipping.claimTrain({
         leaderOrderId: c.id,
         startedAt: '2026-08-12T10:03:00.000Z',
         members: [{ orderId: c.id }],
       }),
-    ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
+    ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
     expect(await s.shipping.listAttempts()).toEqual([])
 
     const claimed = await s.shipping.claimTrain({
@@ -1072,13 +1058,12 @@ describe('shipping durable store', () => {
     await cyclic.shipping.createOrder(
       shipOrder({ id: lowerId, issueId: lowerIssue, deliveryDependsOn: [upperId] }),
     )
-    expect(() =>
-      cyclic.shipping.claimTrain({
+    await expect(cyclic.shipping.claimTrain({
         leaderOrderId: upperId,
         startedAt: '2026-08-12T10:06:00.000Z',
         members: [{ orderId: upperId }, { orderId: lowerId }],
       }),
-    ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
+    ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
     expect(await cyclic.shipping.listAttempts()).toEqual([])
     cyclic.close()
   })
@@ -1144,23 +1129,21 @@ describe('shipping durable store', () => {
     await s.issues.upsertIssue(base())
     expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
     expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
-    expect(() =>
-      s.shipping.createOrder({
+    await expect(s.shipping.createOrder({
         ...evidenced,
         currentIntegrationReceipt: {
           ...evidenced.currentIntegrationReceipt!,
           approvedHeadSha: 'stale-head',
         },
       }),
-    ).toThrow()
-    expect(() =>
-      s.shipping.createOrder(
+    ).rejects.toThrow()
+    await expect(s.shipping.createOrder(
         shipOrder({
           id: asShipOrderId('order-missing-receipt'),
           descendantManifest: [childA],
         }),
       ),
-    ).toThrow()
+    ).rejects.toThrow()
     expect(() =>
       rawDb(s)
         .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')

@@ -61,7 +61,7 @@ describe('SessionStore repos', () => {
   it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
     const store = await openTestStore(':memory:')
     store.beginTransferFence()
-    expect(() => store.repos.addRepo('/home/u/fenced', store.hostMachineId)).toThrow()
+    await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
     store.endTransferFence()
     expect(() => store.repos.addRepo('/home/u/reopened', store.hostMachineId)).not.toThrow()
     store.close()
@@ -195,7 +195,7 @@ describe('SessionStore sessions', () => {
     // never reach the table, since it later fails the sessionsChanged zod-parse and
     // blanks every client. Fail loudly at the source instead.
     const s = await openTestStore(':memory:')
-    expect(() => s.sessions.upsertSession(row({ agentKind: 'auto' }))).toThrow(/agentKind/i)
+    await expect(s.sessions.upsertSession(row({ agentKind: 'auto' }))).rejects.toThrow(/agentKind/i)
     s.close()
   })
 
@@ -511,7 +511,7 @@ describe('SessionStore sessions', () => {
 
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
-    expect(() => store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).toThrow(
+    await expect(store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).rejects.toThrow(
       /no user id/,
     )
     store.close()
@@ -737,7 +737,7 @@ describe('SessionStore tab order', () => {
 
   it('rejects an empty worktree path', async () => {
     const store = await openTestStore(':memory:')
-    expect(() => store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).toThrow(
+    await expect(store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).rejects.toThrow(
       'worktree path is empty',
     )
     store.close()

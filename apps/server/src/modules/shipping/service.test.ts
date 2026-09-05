@@ -1418,8 +1418,7 @@ describe('ShippingService enqueue transaction', () => {
       startedAt: '2026-08-13T10:00:01.000Z',
     })
     expect(claimed.attempt.leaseGeneration).toBe(2)
-    expect(() =>
-      store.shipping.claimAttempt({
+    await expect(store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1427,23 +1426,21 @@ describe('ShippingService enqueue transaction', () => {
         machineId: first.machineId,
         startedAt: '2026-08-13T10:00:01.000Z',
       }),
-    ).toThrow(/superseded/)
+    ).rejects.toThrow(/superseded/)
     await store.shipping.finishAttempt(claimed.attempt.id, 2, {
       finishedAt: '2026-08-13T10:00:02.000Z',
       outcome: 'failed',
     })
-    expect(() =>
-      store.shipping.finishAttempt(claimed.attempt.id, 2, {
+    await expect(store.shipping.finishAttempt(claimed.attempt.id, 2, {
         finishedAt: '2026-08-13T10:00:03.000Z',
         outcome: 'failed',
       }),
-    ).toThrow(/immutable/)
-    expect(() =>
-      store.shipping.finishAttempt(claimed.attempt.id, 1, {
+    ).rejects.toThrow(/immutable/)
+    await expect(store.shipping.finishAttempt(claimed.attempt.id, 1, {
         finishedAt: '2026-08-13T10:00:02.000Z',
         outcome: 'failed',
       }),
-    ).toThrow(/generation fence/)
+    ).rejects.toThrow(/generation fence/)
     service.dispose()
   })
 
@@ -1520,8 +1517,7 @@ describe('ShippingService enqueue transaction', () => {
     expect(await store.shipping.latestStepForEffect(first.id, effectKey)).toMatchObject({
       state: 'running',
     })
-    expect(() =>
-      store.shipping.claimAttempt({
+    await expect(store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1529,7 +1525,7 @@ describe('ShippingService enqueue transaction', () => {
         machineId: first.machineId,
         startedAt: '2026-08-13T10:00:01.000Z',
       }),
-    ).toThrow(/durable cancellation intent/)
+    ).rejects.toThrow(/durable cancellation intent/)
     service.dispose()
 
     const restarted = new ShippingService(deps)

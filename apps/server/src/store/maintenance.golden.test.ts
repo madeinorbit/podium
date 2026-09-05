@@ -153,7 +153,7 @@ it('refuses a batch size that is not a positive integer, before touching the dat
   try {
     await store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      expect(() => store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad)).toThrow(
+      await expect(store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad)).rejects.toThrow(
         RangeError,
       )
     }
@@ -175,7 +175,7 @@ it('throws rather than quarantining when a stored command reply is not a valid r
     rawDb(store)
       .prepare('UPDATE maintenance_commands SET result_json = ? WHERE job_kind = ? AND run_key = ?')
       .run('{"status":"nonsense"}', 'message-expiry', 'run-1')
-    expect(() => store.maintenance.getCommand('message-expiry', 'run-1')).toThrow()
+    await expect(store.maintenance.getCommand('message-expiry', 'run-1')).rejects.toThrow()
   } finally {
     store.close()
   }

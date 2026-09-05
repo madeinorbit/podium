@@ -52,8 +52,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
   it('does not serve a discovery the enclosing span rolled back (site 9)', async () => {
     const { store, memory } = await build()
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await memory.onDiscovery(machine, [conversation('c-rolled-back', 'draft')], [])
         // The savepoint has been released and the list is already installed
         // today. Read it here, inside the window the bug lived in: the staged
@@ -61,7 +60,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
         expect(idsOf(memory.allConversations())).toContain('c-rolled-back')
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // …and the database forgot the row, so the served list must have too.
     expect((await store.conversations.index.search({})).map((row) => row.id)).not.toContain(
@@ -84,12 +83,11 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     const { store, memory } = await build()
     await memory.onDiscovery(machine, [conversation('c-meta', 'original')], [])
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await memory.setConversationMeta(SYSTEM_READER, { id: 'c-meta', name: 'renamed' })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     const served = memory.allConversations().find((row) => row.id === 'c-meta')
     expect(served?.name).toBeUndefined()

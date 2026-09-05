@@ -78,15 +78,14 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     f.repo.persist(f.session) // no span open: 'committed title' installs at once
 
     f.session.title = 'rolled back'
-    expect(() =>
-      f.store.transact(() => {
+    await expect(f.store.transact(() => {
         // A NESTED persist: the ledger's span degrades to a savepoint and
         // releases when this returns.
         f.repo.persist(f.session)
         // …and the enclosing span fails afterwards.
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // The database forgot the row write.
     expect(await rowTitle(f.store, 'fold-1')).toBe('committed title')
@@ -103,12 +102,11 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     f.repo.persist(f.session)
 
     f.session.title = 'rolled back'
-    expect(() =>
-      f.store.transact(() => {
+    await expect(f.store.transact(() => {
         f.repo.persist(f.session)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     f.session.title = 'doomed'
     expect(() =>

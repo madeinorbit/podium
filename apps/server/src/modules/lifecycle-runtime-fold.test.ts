@@ -46,12 +46,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
     expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    expect(() =>
-      store.transact(() => {
+    await expect(store.transact(() => {
         registry.modules.sessions.killSession({ sessionId })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // The tombstone rolled back, so the session row is live again…
     expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
@@ -84,12 +83,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       startNow: false,
     })
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeFalsy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
@@ -116,12 +114,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
     expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
     expect(await liveSessionIds(registry)).toContain(sessionId)
@@ -152,12 +149,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
@@ -182,12 +178,11 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
     expect(await liveSessionIds(registry)).not.toContain(sessionId)
 
-    expect(() =>
-      store.transact(async () => {
+    await expect(store.transact(async () => {
         await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await store.sessions.loadSessions()).map((row) => row.id)).not.toContain(sessionId)
     expect(await liveSessionIds(registry)).not.toContain(sessionId)
