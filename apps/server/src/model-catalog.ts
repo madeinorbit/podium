@@ -1,5 +1,8 @@
-import type { MachineId } from '@podium/model'
-import { MODEL_CATALOG_MAX_AGE_MS, type ModelChoiceWire } from '@podium/protocol'
+import type { MachineId } from "@podium/model";
+import {
+  MODEL_CATALOG_MAX_AGE_MS,
+  type ModelChoiceWire,
+} from "@podium/protocol";
 
 /** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts`
  *  added, or the snapshot becoming machine-keyed) OR a probe fix means an older
@@ -7,7 +10,7 @@ import { MODEL_CATALOG_MAX_AGE_MS, type ModelChoiceWire } from '@podium/protocol
  *  roots on PATH, so every CLI agent persisted an empty list — POD-362), so a
  *  persisted snapshot from an older build is ignored and re-probed instead of
  *  served stale within its TTL. */
-export const MODEL_CATALOG_VERSION = 4
+export const MODEL_CATALOG_VERSION = 4;
 
 /**
  * Live per-agent model lists for ONE machine.
@@ -25,24 +28,26 @@ export const MODEL_CATALOG_VERSION = 4
  */
 export interface ModelCatalogSnapshot {
   /** The machine this fact is ABOUT — the scoping key, not decoration. */
-  machineId: MachineId
+  machineId: MachineId;
   /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
    *  back to the web's static catalog. */
-  byAgent: Record<string, ModelChoiceWire[]>
+  byAgent: Record<string, ModelChoiceWire[]>;
   /** Epoch ms of the last successful probe; 0 = never fetched yet. */
-  fetchedAt: number
+  fetchedAt: number;
   /** Shape version — a persisted snapshot with a different version is discarded. */
-  version?: number
+  version?: number;
 }
 
 /** Probe the live models for ONE machine. `machineId` is required so a probe
  *  cannot write an unkeyed catalog — and since POD-1466 it also SELECTS the host
  *  that answers: the real probe relays to that machine's own daemon, because a
  *  probe only ever sees the agent CLIs installed on the host it executes on. */
-export type ModelProbe = (machineId: MachineId) => Promise<Record<string, ModelChoiceWire[]>>
+export type ModelProbe = (
+  machineId: MachineId
+) => Promise<Record<string, ModelChoiceWire[]>>;
 
 function emptySnapshot(machineId: MachineId): ModelCatalogSnapshot {
-  return { machineId, byAgent: {}, fetchedAt: 0 }
+  return { machineId, byAgent: {}, fetchedAt: 0 };
 }
 
 /**
@@ -53,8 +58,9 @@ function emptySnapshot(machineId: MachineId): ModelCatalogSnapshot {
  * than the TTL. Purely query-driven — nothing runs unless a client asks.
  */
 export class ModelCatalog {
-  private readonly snapshots = new Map<string, ModelCatalogSnapshot>()
-  private readonly inflight = new Map<string, Promise<void>>()
+  private readonly snapshots = new Map<string, ModelCatalogSnapshot>();
+  private readonly inflight = new Map<string, Promise<void>>();
+  private readonly hydrated = new Set<string>();
 
   // Default probe is an empty no-op so `SessionRegistry.create()` (every test) never
   // reaches for a daemon; the real one (a `modelProbeRequest` to the named
@@ -63,46 +69,79 @@ export class ModelCatalog {
   constructor(
     private readonly probe: ModelProbe = async () => ({}),
     private readonly opts: {
-      ttlMs?: number
-      now?: () => number
+      ttlMs?: number;
+      now?: () => number;
       /** Persist across restarts: `load` seeds one machine's cache at first read
        *  (→ instant, non-cold first open after a redeploy); `save` writes each
        *  successful refresh. Both take/return a machine-keyed snapshot. */
-      load?: (machineId: MachineId) => ModelCatalogSnapshot | null
-      save?: (snapshot: ModelCatalogSnapshot) => void
-    } = {},
+      load?: (
+        machineId: MachineId
+      ) => ModelCatalogSnapshot | null | Promise<ModelCatalogSnapshot | null>;
+      save?: (snapshot: ModelCatalogSnapshot) => void | Promise<void>;
+    } = {}
   ) {}
 
   private now(): number {
-    return this.opts.now ? this.opts.now() : Date.now()
+    return this.opts.now ? this.opts.now() : Date.now();
   }
 
   private isStale(snapshot: ModelCatalogSnapshot): boolean {
-    const ttlMs = this.opts.ttlMs ?? MODEL_CATALOG_MAX_AGE_MS
-    return snapshot.fetchedAt === 0 || this.now() - snapshot.fetchedAt >= ttlMs
+    const ttlMs = this.opts.ttlMs ?? MODEL_CATALOG_MAX_AGE_MS;
+    return snapshot.fetchedAt === 0 || this.now() - snapshot.fetchedAt >= ttlMs;
   }
 
   /** Seed (or return) the in-memory entry for `machineId`. Only a persisted
    *  snapshot of the CURRENT shape that names the SAME machine is accepted —
    *  an older unkeyed or cross-machine snapshot is discarded so `get` re-probes. */
   private ensure(machineId: MachineId): ModelCatalogSnapshot {
-    const cached = this.snapshots.get(machineId)
-    if (cached) return cached
-    const persisted = this.opts.load?.(machineId)
-    const seeded =
-      persisted && persisted.version === MODEL_CATALOG_VERSION && persisted.machineId === machineId
-        ? persisted
-        : emptySnapshot(machineId)
-    this.snapshots.set(machineId, seeded)
-    return seeded
+    const cached = this.snapshots.get(machineId);
+    if (cached) return cached;
+    const seeded = emptySnapshot(machineId);
+    this.snapshots.set(machineId, seeded);
+    return seeded;
   }
 
   /** SWR read for one machine: returns that machine's snapshot immediately,
    *  refreshing in the background when it's empty or stale. Never blocks. */
-  async get(machineId: MachineId): Promise<ModelCatalogSnapshot> {
-    const snapshot = this.ensure(machineId)
-    if (this.isStale(snapshot)) void await this.refresh(machineId)
-    return snapshot
+  get(machineId: MachineId): ModelCatalogSnapshot {
+    const snapshot = this.ensure(machineId);
+    if (this.isStale(snapshot))
+      void this.refreshInBackground(machineId, snapshot);
+    return snapshot;
+  }
+
+  /** Hydrate once on first use, then probe only when the hydrated value is stale.
+   *  The returned snapshot remains the same object so a caller that chose to
+   *  yield after `get()` can observe a fast persisted read without `get()` ever
+   *  becoming a blocking boundary. */
+  private refreshInBackground(
+    machineId: MachineId,
+    returned: ModelCatalogSnapshot
+  ): Promise<void> {
+    const existing = this.inflight.get(machineId);
+    if (existing) return existing;
+    const pending = (async () => {
+      try {
+        if (!this.hydrated.has(machineId)) {
+          this.hydrated.add(machineId);
+          const persisted = await this.opts.load?.(machineId);
+          if (
+            persisted &&
+            persisted.version === MODEL_CATALOG_VERSION &&
+            persisted.machineId === machineId
+          ) {
+            Object.assign(returned, persisted);
+            this.snapshots.set(machineId, returned);
+            if (!this.isStale(returned)) return;
+          }
+        }
+        await this.probeInto(machineId);
+      } finally {
+        this.inflight.delete(machineId);
+      }
+    })();
+    this.inflight.set(machineId, pending);
+    return pending;
   }
 
   /** Refresh one machine now. Concurrent callers for the same machine share one
@@ -110,25 +149,34 @@ export class ModelCatalog {
    *  transiently-broken CLI doesn't wipe the cache). Different machines probe
    *  independently. */
   async refresh(machineId: MachineId): Promise<void> {
-    const existing = this.inflight.get(machineId)
-    if (existing) return existing
-    const pending = await (async () => {
+    const existing = this.inflight.get(machineId);
+    if (existing) return existing;
+    // A forced probe supersedes persisted hydration: its result is newer than
+    // anything the store could have supplied.
+    this.hydrated.add(machineId);
+    const pending = (async () => {
       try {
-        const snapshot: ModelCatalogSnapshot = {
-          machineId,
-          byAgent: await this.probe(machineId),
-          fetchedAt: this.now(),
-          version: MODEL_CATALOG_VERSION,
-        }
-        this.snapshots.set(machineId, snapshot)
-        this.opts.save?.(snapshot)
-      } catch {
-        // keep last-good; isStale() retries on the next get() past the TTL
+        await this.probeInto(machineId);
       } finally {
-        this.inflight.delete(machineId)
+        this.inflight.delete(machineId);
       }
-    })()
-    this.inflight.set(machineId, pending)
-    return pending
+    })();
+    this.inflight.set(machineId, pending);
+    return pending;
+  }
+
+  private async probeInto(machineId: MachineId): Promise<void> {
+    try {
+      const snapshot: ModelCatalogSnapshot = {
+        machineId,
+        byAgent: await this.probe(machineId),
+        fetchedAt: this.now(),
+        version: MODEL_CATALOG_VERSION,
+      };
+      this.snapshots.set(machineId, snapshot);
+      await this.opts.save?.(snapshot);
+    } catch {
+      // keep last-good; isStale() retries on the next get() past the TTL
+    }
   }
 }
