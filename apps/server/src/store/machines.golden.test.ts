@@ -35,12 +35,12 @@ import { openTestStore } from '../test-support/open-test-store'
 
 const owner = 'user-1' as UserId
 
-function register(
-  store: ReturnType<typeof openTestStore>,
+async function register(
+  store: Awaited<ReturnType<typeof openTestStore>>,
   id: string,
   over: Partial<{ podiumManaged: boolean; ownerUserId: UserId | null }> = {},
 ) {
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id,
     name: id,
     hostname: `${id}.local`,
@@ -57,9 +57,9 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
     // that distinguishes a boolean read from a numeric comparison. Verified by
     // mutation: comparing this column to `1` passes the whole store lane
     // without this assertion.
-    register(store, 'unmanaged', { podiumManaged: false })
-    register(store, 'managed', { podiumManaged: true })
-    register(store, 'defaulted')
+    await register(store, 'unmanaged', { podiumManaged: false })
+    await register(store, 'managed', { podiumManaged: true })
+    await register(store, 'defaulted')
 
     expect((await store.machines.getMachine('unmanaged'))?.podiumManaged).toBe(false)
     expect((await store.machines.getMachine('managed'))?.podiumManaged).toBe(true)

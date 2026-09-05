@@ -184,9 +184,9 @@ type Observed =
   | { readonly outcome: 'value'; readonly value: unknown }
   | { readonly outcome: 'throw'; readonly message: string }
 
-const observe = (read: () => unknown): Observed => {
+const observe = async (read: () => unknown): Promise<Observed> => {
   try {
-    return { outcome: 'value', value: read() }
+    return { outcome: 'value', value: await read() }
   } catch (err) {
     return { outcome: 'throw', message: err instanceof Error ? err.message : String(err) }
   }
@@ -215,7 +215,7 @@ interface OracleEntry {
   readonly where: string
   readonly params: (f: Fixture) => readonly unknown[]
   /** The projected value the reader hands back, or `undefined` for an unread column. */
-  readonly read?: (f: Fixture) => unknown
+  readonly read?: (f: Fixture) => unknown | Promise<unknown>
   /** Valid JSON whose SHAPE is wrong for this column (object where an array
    *  belongs, and the reverse). */
   readonly wrongShapeValue: string
@@ -589,7 +589,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'issues.getIssue().blockedBy',
     where: 'id = ?',
     params: () => ['iss_1'],
-    read: (f) => f.store.issues.getIssue('iss_1')?.blockedBy,
+    read: async (f) => (await f.store.issues.getIssue('iss_1'))?.blockedBy,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },
@@ -600,7 +600,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'issues.getIssue().humanQuestionOptions',
     where: 'id = ?',
     params: () => ['iss_1'],
-    read: (f) => f.store.issues.getIssue('iss_1')?.humanQuestionOptions,
+    read: async (f) => (await f.store.issues.getIssue('iss_1'))?.humanQuestionOptions,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: null },
     onWrongShape: { kind: 'quarantine', value: null },
@@ -611,7 +611,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'events.listEventsSince(0)[0].payload',
     where: 'id = (SELECT MIN(id) FROM podium_events)',
     params: () => [],
-    read: (f) => f.store.events.listEventsSince(0)[0]?.payload,
+    read: async (f) => (await f.store.events.listEventsSince(0))[0]?.payload,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: {} },
     onWrongShape: { kind: 'passthrough', value: [1, 2] },
@@ -622,8 +622,8 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.rootIntegrationReceipt().descendants',
     where: 'root_issue_id = ?',
     params: () => ['iss_1'],
-    read: (f) =>
-      f.store.shipping.rootIntegrationReceipt(asIssueId('iss_1'), 'approved-head')?.descendants,
+    read: async (f) =>
+      (await f.store.shipping.rootIntegrationReceipt(asIssueId('iss_1'), 'approved-head'))?.descendants,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },
@@ -634,7 +634,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'observationCheckpoints.get().checkpoint',
     where: 'session_id = ?',
     params: (f) => [f.sessionId],
-    read: (f) => f.store.observationCheckpoints.get(SESSION)?.checkpoint,
+    read: async (f) => (await f.store.observationCheckpoints.get(SESSION))?.checkpoint,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: null },
     onWrongShape: { kind: 'quarantine', value: null },
@@ -645,7 +645,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'observationCheckpoints.getTerminalCandidate()',
     where: 'session_id = ?',
     params: (f) => [f.sessionId],
-    read: (f) => f.store.observationCheckpoints.getTerminalCandidate(SESSION),
+    read: async (f) => f.store.observationCheckpoints.getTerminalCandidate(SESSION),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: null },
     onWrongShape: { kind: 'quarantine', value: null },
@@ -656,7 +656,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'settingsAudit.list()[0].detail',
     where: 'id = (SELECT MIN(id) FROM settings_audit_events)',
     params: () => [],
-    read: (f) => f.store.settingsAudit.list()[0]?.detail,
+    read: async (f) => (await f.store.settingsAudit.list())[0]?.detail,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: undefined },
     onWrongShape: { kind: 'passthrough', value: [1, 2] },
@@ -667,7 +667,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'settingsAudit.list()[0].redactedPaths',
     where: 'id = (SELECT MIN(id) FROM settings_audit_events)',
     params: () => [],
-    read: (f) => f.store.settingsAudit.list()[0]?.redactedPaths,
+    read: async (f) => (await f.store.settingsAudit.list())[0]?.redactedPaths,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'passthrough', value: { a: 1 } },
@@ -678,7 +678,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.openHoldForOrder().actions',
     where: 'id = ?',
     params: () => ['hold-1'],
-    read: (f) => f.store.shipping.openHoldForOrder(f.orderId)?.actions,
+    read: async (f) => (await f.store.shipping.openHoldForOrder(f.orderId))?.actions,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'throw', message: /at least 1 element/ },
     onWrongShape: { kind: 'throw', message: /at least 1 element/ },
@@ -689,7 +689,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.openHoldForOrder().evidenceRefs',
     where: 'id = ?',
     params: () => ['hold-1'],
-    read: (f) => f.store.shipping.openHoldForOrder(f.orderId)?.evidenceRefs,
+    read: async (f) => (await f.store.shipping.openHoldForOrder(f.orderId))?.evidenceRefs,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },
@@ -701,7 +701,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder()',
     where: 'id = ?',
     params: (f) => [f.stackedOrderId],
-    read: (f) => f.store.shipping.getOrder(f.stackedOrderId),
+    read: async (f) => f.store.shipping.getOrder(f.stackedOrderId),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /required when descendantManifest is non-empty/ },
     onWrongShape: { kind: 'throw', message: /required when descendantManifest is non-empty/ },
@@ -712,7 +712,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder().deliveryDependsOn',
     where: 'id = ?',
     params: (f) => [f.orderId],
-    read: (f) => f.store.shipping.getOrder(f.orderId)?.deliveryDependsOn,
+    read: async (f) => (await f.store.shipping.getOrder(f.orderId))?.deliveryDependsOn,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },
@@ -724,7 +724,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder().descendantManifest',
     where: 'id = ?',
     params: (f) => [f.orderId],
-    read: (f) => f.store.shipping.getOrder(f.orderId)?.descendantManifest,
+    read: async (f) => (await f.store.shipping.getOrder(f.orderId))?.descendantManifest,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },
@@ -736,7 +736,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder()',
     where: 'id = ?',
     params: (f) => [f.stackedOrderId],
-    read: (f) => f.store.shipping.getOrder(f.stackedOrderId),
+    read: async (f) => f.store.shipping.getOrder(f.stackedOrderId),
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'throw', message: /must bind approvedHeadSha/ },
     onWrongShape: { kind: 'throw', message: /must bind approvedHeadSha/ },
@@ -747,7 +747,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder().providerRef',
     where: 'id = ?',
     params: (f) => [f.stackedOrderId],
-    read: (f) => f.store.shipping.getOrder(f.stackedOrderId)?.providerRef,
+    read: async (f) => (await f.store.shipping.getOrder(f.stackedOrderId))?.providerRef,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: undefined },
     onWrongShape: { kind: 'quarantine', value: undefined },
@@ -758,7 +758,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.getOrder()',
     where: 'id = ?',
     params: (f) => [f.orderId],
-    read: (f) => f.store.shipping.getOrder(f.orderId),
+    read: async (f) => f.store.shipping.getOrder(f.orderId),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /must be present together/ },
     onWrongShape: { kind: 'throw', message: /must be present together/ },
@@ -769,7 +769,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.stepById()',
     where: 'id = ?',
     params: (f) => [f.stepId],
-    read: (f) => f.store.shipping.stepById(f.stepId),
+    read: async (f) => f.store.shipping.stepById(f.stepId),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /input/i },
     onWrongShape: { kind: 'throw', message: /input/i },
@@ -780,7 +780,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.trainManifestForAttempt()',
     where: 'id = ?',
     params: (f) => [f.trainId],
-    read: (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
+    read: async (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /authority mismatch/ },
     onWrongShape: { kind: 'throw', message: /authority mismatch/ },
@@ -791,7 +791,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.trainManifestForAttempt()',
     where: 'id = ?',
     params: (f) => [f.trainId],
-    read: (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
+    read: async (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /authority mismatch/ },
     onWrongShape: { kind: 'throw', message: /authority mismatch/ },
@@ -802,7 +802,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'shipping.trainManifestForAttempt()',
     where: 'train_id = ? AND ordinal = 1',
     params: (f) => [f.trainId],
-    read: (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
+    read: async (f) => f.store.shipping.trainManifestForAttempt(f.attemptId),
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'throw', message: /member authority mismatch/ },
     onWrongShape: { kind: 'throw', message: /member authority mismatch/ },
@@ -823,7 +823,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'workflows.getRevision().steps',
     where: 'id = ?',
     params: (f) => [f.revisionId],
-    read: (f) => f.store.workflows.getRevision(f.revisionId)?.steps,
+    read: async (f) => (await f.store.workflows.getRevision(f.revisionId))?.steps,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'throw', message: /./ },
@@ -834,7 +834,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'workflows.getRunSteps()[0].evidence',
     where: 'run_id = ? AND position = 0',
     params: (f) => [f.runId],
-    read: (f) => f.store.workflows.getRunSteps(f.runId)[0]?.evidence,
+    read: async (f) => (await f.store.workflows.getRunSteps(f.runId))[0]?.evidence,
     wrongShapeValue: '[1,2]',
     onInvalidJson: {
       kind: 'quarantine',
@@ -848,7 +848,7 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     reader: 'workflows.getRunSteps()[0].warnings',
     where: 'run_id = ? AND position = 0',
     params: (f) => [f.runId],
-    read: (f) => f.store.workflows.getRunSteps(f.runId)[0]?.warnings,
+    read: async (f) => (await f.store.workflows.getRunSteps(f.runId))[0]?.warnings,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'throw', message: /./ },
@@ -868,7 +868,7 @@ const HELPER_COLUMNS: readonly OracleEntry[] = [
     reader: 'superagent.loadSuperagentMessages()[0].toolCalls',
     where: 'id = (SELECT MIN(id) FROM superagent_messages)',
     params: () => [],
-    read: (f) => f.store.superagent.loadSuperagentMessages()[0]?.toolCalls,
+    read: async (f) => (await f.store.superagent.loadSuperagentMessages())[0]?.toolCalls,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: undefined },
     onWrongShape: { kind: 'passthrough', value: { a: 1 } },
@@ -879,7 +879,7 @@ const HELPER_COLUMNS: readonly OracleEntry[] = [
     reader: 'superagent.listQueuedInputs()[0].focus',
     where: 'input_id = ?',
     params: () => ['queued-1'],
-    read: (f) => f.store.superagent.listQueuedInputs()[0]?.focus,
+    read: async (f) => (await f.store.superagent.listQueuedInputs())[0]?.focus,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'quarantine', value: undefined },
     onWrongShape: { kind: 'passthrough', value: [1, 2] },
@@ -890,7 +890,7 @@ const HELPER_COLUMNS: readonly OracleEntry[] = [
     reader: 'superagent.listPendingTurns()',
     where: 'turn_id = ?',
     params: () => ['turn-1'],
-    read: (f) => f.store.superagent.listPendingTurns()[0]?.payload,
+    read: async (f) => (await f.store.superagent.listPendingTurns())[0]?.payload,
     wrongShapeValue: '[1,2]',
     onInvalidJson: { kind: 'throw', message: /invalid persisted superagent turn payload/ },
     onWrongShape: { kind: 'passthrough', value: [1, 2] },
@@ -1036,7 +1036,7 @@ describe.each(
     return () => fixture.store.close()
   })
 
-  const check = (planted: string, expected: Behaviour) => {
+  const check = async (planted: string, expected: Behaviour) => {
     plant(fixture.store, entry.table, entry.column, entry.where, entry.params(fixture), planted)
     if (expected.kind === 'unread') {
       // Nothing projects the column, so the claim under test is that the read
@@ -1046,7 +1046,7 @@ describe.each(
     }
     const read = entry.read
     if (!read) throw new Error(`${key(entry)} has no reader but expects ${expected.kind}`)
-    const observed = observe(() => read(fixture))
+    const observed = await observe(() => read(fixture))
     if (expected.kind === 'throw') {
       expect(observed).toMatchObject({ outcome: 'throw' })
       if (observed.outcome === 'throw') expect(observed.message).toMatch(expected.message)
@@ -1055,11 +1055,11 @@ describe.each(
     expect(observed).toEqual({ outcome: 'value', value: expected.value })
   }
 
-  it(`on invalid JSON: ${entry.onInvalidJson.kind}`, () => {
-    check(INVALID_JSON, entry.onInvalidJson)
+  it(`on invalid JSON: ${entry.onInvalidJson.kind}`, async () => {
+    await check(INVALID_JSON, entry.onInvalidJson)
   })
 
-  it(`on valid JSON of the wrong shape: ${entry.onWrongShape.kind}`, () => {
-    check(entry.wrongShapeValue, entry.onWrongShape)
+  it(`on valid JSON of the wrong shape: ${entry.onWrongShape.kind}`, async () => {
+    await check(entry.wrongShapeValue, entry.onWrongShape)
   })
 })
