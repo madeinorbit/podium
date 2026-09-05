@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -85,11 +94,16 @@ describe('supervisor service assignment', () => {
     reconcileSupervisorAssignment(state, {}, dir)
     expect(existsSync(join(dir, TRANSFER_ASSIGNMENT_FILE))).toBe(true)
     renameSync(prepared, join(dir, 'config.json'))
-    expect(reconcileSupervisorAssignment(state, config, dir)).toEqual({ server: false, agentExecution: true })
+    expect(reconcileSupervisorAssignment(state, config, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
     expect(loadSupervisorState(dir).assignment).toEqual({ server: false, agentExecution: true })
     expect(existsSync(join(dir, TRANSFER_ASSIGNMENT_FILE))).toBe(false)
     const intentional = { server: true, agentExecution: false }
-    expect(reconcileSupervisorAssignment({ ...state, assignment: intentional }, config, dir)).toEqual(intentional)
+    expect(
+      reconcileSupervisorAssignment({ ...state, assignment: intentional }, config, dir),
+    ).toEqual(intentional)
   })
 
   it('does not let old backups or a superseded config transaction override later policy', () => {
@@ -98,7 +112,10 @@ describe('supervisor service assignment', () => {
     const intentional = { server: false, agentExecution: false }
     state.assignment = intentional
     for (const role of ['cutover', 'server-promotion']) {
-      writeFileSync(join(dir, `config.json.backup-${role}-11111111-1111-4111-8111-111111111111`), '{}')
+      writeFileSync(
+        join(dir, `config.json.backup-${role}-11111111-1111-4111-8111-111111111111`),
+        '{}',
+      )
     }
     const prepared = join(dir, 'prepared.json')
     saveConfig({ mode: 'server' }, prepared)
@@ -115,12 +132,22 @@ describe('supervisor service assignment', () => {
     const state = loadSupervisorState(dir)
     const root = join(dir, '.server-transfer', '11111111-1111-4111-8111-111111111111')
     mkdirSync(root, { recursive: true })
-    const meta = { targetMachineId: state.machineId, publicUrl: 'https://new.example', state: 'promoted' }
+    const meta = {
+      targetMachineId: state.machineId,
+      publicUrl: 'https://new.example',
+      state: 'promoted',
+    }
     writeFileSync(join(root, 'state.json'), JSON.stringify(meta))
-    const config = { mode: 'server' as const, serverUrl: 'wss://old.example', publicUrl: meta.publicUrl }
+    const config = {
+      mode: 'server' as const,
+      serverUrl: 'wss://old.example',
+      publicUrl: meta.publicUrl,
+    }
     expect(targetTransferRecovery(state, config, dir)).toBe(true)
     expect(targetTransferRecovery(state, { ...config, serverUrl: undefined }, dir)).toBe(false)
-    expect(targetTransferRecovery(state, { ...config, publicUrl: 'https://later.example' }, dir)).toBe(false)
+    expect(
+      targetTransferRecovery(state, { ...config, publicUrl: 'https://later.example' }, dir),
+    ).toBe(false)
     writeFileSync(join(root, 'state.json'), JSON.stringify({ ...meta, acknowledged: true }))
     expect(targetTransferRecovery(state, config, dir)).toBe(false)
   })
@@ -141,7 +168,6 @@ describe('supervisor service assignment', () => {
   })
 })
 
-
 describe('supervisor endpoint reconfiguration', () => {
   it('renews same-endpoint credentials and rejects stale socket events after endpoint changes', () => {
     vi.useFakeTimers()
@@ -150,12 +176,24 @@ describe('supervisor endpoint reconfiguration', () => {
       static all: Socket[] = []
       readyState = 1
       sent: Array<Record<string, any>> = []
-      constructor(readonly url: string) { super(); Socket.all.push(this) }
-      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      constructor(readonly url: string) {
+        super()
+        Socket.all.push(this)
+      }
+      send(raw: string) {
+        this.sent.push(JSON.parse(raw))
+      }
       close() {} // The external transport may deliver close much later.
-      open() { this.dispatchEvent(new Event('open')) }
-      message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
-      accept() { this.open(); this.message({ type: 'peerHelloOk', v: this.sent[0]!.v, caps: [] }) }
+      open() {
+        this.dispatchEvent(new Event('open'))
+      }
+      message(value: unknown) {
+        this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) }))
+      }
+      accept() {
+        this.open()
+        this.message({ type: 'peerHelloOk', v: this.sent[0]!.v, caps: [] })
+      }
     }
     vi.stubGlobal('WebSocket', Socket)
     const dir = stateDir()
@@ -163,9 +201,16 @@ describe('supervisor endpoint reconfiguration', () => {
     let endpoint = 'ws://old.example'
     let token = 'old-secret'
     let acceptAssignment = true
-    const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
+    const service = {
+      policy: 'enabled' as const,
+      state: 'available' as const,
+      observedAt: new Date().toISOString(),
+    }
     const connection = createMachineSupervisorConnection({
-      serverUrl: () => endpoint, bootstrapToken: () => token, stateDir: dir, state,
+      serverUrl: () => endpoint,
+      bootstrapToken: () => token,
+      stateDir: dir,
+      state,
       build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest() },
       deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
       report: () => ({ server: service, agentExecution: service }),
@@ -189,7 +234,10 @@ describe('supervisor endpoint reconfiguration', () => {
       fresh.accept()
       const assignment = { server: false, agentExecution: true }
       fresh.message({ type: 'serviceAssignment', assignment })
-      old.message({ type: 'serviceAssignment', assignment: { server: true, agentExecution: false } })
+      old.message({
+        type: 'serviceAssignment',
+        assignment: { server: true, agentExecution: false },
+      })
       same.dispatchEvent(new Event('close'))
       old.dispatchEvent(new Event('close'))
       vi.advanceTimersByTime(10_000)
@@ -198,8 +246,13 @@ describe('supervisor endpoint reconfiguration', () => {
       const connectivity = JSON.parse(readFileSync(join(dir, 'connectivity.json'), 'utf8'))
       expect(connectivity).toMatchObject({ serverUrl: endpoint, state: 'connected' })
       acceptAssignment = false
-      fresh.message({ type: 'serviceAssignment', assignment: { server: true, agentExecution: false } })
+      fresh.message({
+        type: 'serviceAssignment',
+        assignment: { server: true, agentExecution: false },
+      })
       expect(loadSupervisorState(dir).assignment).toEqual(assignment)
-    } finally { connection.close() }
+    } finally {
+      connection.close()
+    }
   })
 })

@@ -119,7 +119,11 @@ describe('server transfer lifecycle', () => {
     saveSupervisorState(root, { ...state, assignment })
     applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
     expect(loadSupervisorState(root).assignment).toEqual(assignment)
-    const promotion = { transferId: TRANSFER_TWO, publicUrl: 'https://promoted.example', bindHost: '0.0.0.0' as const }
+    const promotion = {
+      transferId: TRANSFER_TWO,
+      publicUrl: 'https://promoted.example',
+      bindHost: '0.0.0.0' as const,
+    }
     applyTargetServerPromotion(promotion)
     saveSupervisorState(root, { ...state, assignment })
     applyTargetServerPromotion(promotion)
@@ -312,9 +316,9 @@ describe('server transfer lifecycle', () => {
         managed: ['server', 'janitor'],
       }),
     ).toEqual({
-      desired: ['daemon'],
+      desired: ['parent', 'daemon'],
       toStop: ['server', 'janitor'],
-      toStart: ['daemon'],
+      toStart: ['parent', 'daemon'],
       toDisarm: [],
     })
   })

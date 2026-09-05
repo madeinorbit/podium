@@ -44,7 +44,10 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { SUPERVISOR_SERVICE_ASSIGNMENT_ENV, targetTransferRecovery } from '@podium/runtime/machine-supervisor'
+import {
+  SUPERVISOR_SERVICE_ASSIGNMENT_ENV,
+  targetTransferRecovery,
+} from '@podium/runtime/machine-supervisor'
 import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
 import {
   formatTopQueries,
@@ -746,8 +749,8 @@ export async function startServer(
       bootstrapToken,
       bootstrapAssignment,
       targetTransferRecovery({ machineId: hostMachineId }, config) &&
-      bootTargetPromotion?.targetMachineId === hostMachineId &&
-      bootTargetPromotion.publicUrl === config.publicUrl
+        bootTargetPromotion?.targetMachineId === hostMachineId &&
+        bootTargetPromotion.publicUrl === config.publicUrl
         ? bootTargetPromotion.sourceMachineId
         : undefined,
     )

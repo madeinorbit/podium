@@ -45,7 +45,11 @@ import {
 } from './config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
-import { loadSupervisorState, prepareTransferAssignment, reconcileSupervisorAssignment } from './machine-supervisor'
+import {
+  loadSupervisorState,
+  prepareTransferAssignment,
+  reconcileSupervisorAssignment,
+} from './machine-supervisor'
 import {
   assertConfigWritable,
   ephemeralTunnelWarning,

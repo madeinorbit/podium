@@ -1,5 +1,16 @@
 import { hostname } from 'node:os'
-import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 import { join } from 'node:path'
 import {
@@ -93,21 +104,39 @@ export const TRANSFER_ASSIGNMENT_FILE = 'supervisor-transfer-pending.json'
 
 function syncFile(path: string): void {
   const fd = openSync(path, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function configIdentity(path: string): string | undefined {
   try {
     const stat = statSync(path, { bigint: true })
     return `${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.size}`
-  } catch { return undefined }
+  } catch {
+    return undefined
+  }
 }
 
-export function prepareTransferAssignment(config: PodiumConfig, preparedPath: string, dir = stateDir()): void {
+export function prepareTransferAssignment(
+  config: PodiumConfig,
+  preparedPath: string,
+  dir = stateDir(),
+): void {
   const state = loadSupervisorState(dir)
   const path = join(dir, TRANSFER_ASSIGNMENT_FILE)
   const temporary = path + '.tmp-' + process.pid
-  writeFileSync(temporary, JSON.stringify({ machineId: state.machineId, config, configIdentity: configIdentity(preparedPath) }), { mode: 0o600 })
+  writeFileSync(
+    temporary,
+    JSON.stringify({
+      machineId: state.machineId,
+      config,
+      configIdentity: configIdentity(preparedPath),
+    }),
+    { mode: 0o600 },
+  )
   syncFile(temporary)
   renameSync(temporary, path)
   syncFile(dir)
@@ -125,12 +154,21 @@ export function targetTransferRecovery(
     const root = join(dir, '.server-transfer')
     const newest = readdirSync(root)
       .filter((name) => /^[0-9a-f-]{36}$/i.test(name))
-      .map((name) => ({ path: join(root, name, 'state.json'), modified: statSync(join(root, name, 'state.json')).mtimeMs }))
+      .map((name) => ({
+        path: join(root, name, 'state.json'),
+        modified: statSync(join(root, name, 'state.json')).mtimeMs,
+      }))
       .sort((a, b) => b.modified - a.modified)[0]
-    const raw = newest && readJson(newest.path) as Record<string, unknown> | undefined
-    return raw?.targetMachineId === state.machineId && raw.publicUrl === config.publicUrl &&
-      raw.acknowledged !== true && ['promoting', 'promoted', 'uncertain'].includes(String(raw.state))
-  } catch { return false }
+    const raw = newest && (readJson(newest.path) as Record<string, unknown> | undefined)
+    return (
+      raw?.targetMachineId === state.machineId &&
+      raw.publicUrl === config.publicUrl &&
+      raw.acknowledged !== true &&
+      ['promoting', 'promoted', 'uncertain'].includes(String(raw.state))
+    )
+  } catch {
+    return false
+  }
 }
 
 export function reconcileSupervisorAssignment(
@@ -139,10 +177,17 @@ export function reconcileSupervisorAssignment(
   dir = stateDir(),
 ): MachineServiceAssignment {
   const path = join(dir, TRANSFER_ASSIGNMENT_FILE)
-  const pending = readJson(path) as { machineId?: unknown; config?: unknown; configIdentity?: unknown } | null
-  if (pending?.machineId === state.machineId && pending.configIdentity !== undefined &&
-      pending.configIdentity === configIdentity(join(dir, 'config.json')) &&
-      isDeepStrictEqual(pending.config, config)) {
+  const pending = readJson(path) as {
+    machineId?: unknown
+    config?: unknown
+    configIdentity?: unknown
+  } | null
+  if (
+    pending?.machineId === state.machineId &&
+    pending.configIdentity !== undefined &&
+    pending.configIdentity === configIdentity(join(dir, 'config.json')) &&
+    isDeepStrictEqual(pending.config, config)
+  ) {
     state.assignment = fallbackAssignment(config.mode ?? 'all-in-one')
     saveSupervisorState(dir, state)
     syncFile(join(dir, STATE_FILE))
