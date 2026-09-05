@@ -33,15 +33,15 @@ function ledger(): { led: MutationLedger; store: ReturnType<typeof fakeStore> } 
 }
 
 describe('MutationLedger', () => {
-  it('runs the body once per id; a duplicate delivery returns the recorded result', () => {
+  it('runs the body once per id; a duplicate delivery returns the recorded result', async () => {
     const { led, store } = ledger()
     let runs = 0
 
-    const first = led.apply(asMutationId('m-1'), 'sessions.rename', () => {
+    const first = await led.apply(asMutationId('m-1'), 'sessions.rename', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = led.apply(asMutationId('m-1'), 'sessions.rename', () => {
+    const replay = await led.apply(asMutationId('m-1'), 'sessions.rename', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -54,17 +54,17 @@ describe('MutationLedger', () => {
     expect(store.rows.get(asMutationId('m-1'))?.proc).toBe('sessions.rename')
   })
 
-  it('is keyed on the mutationId ALONE — the same id under a different proc still dedupes', () => {
+  it('is keyed on the mutationId ALONE — the same id under a different proc still dedupes', async () => {
     // The counterfactual that matters: if the key were (mutationId, proc), a
     // queued write arriving on two transports under two proc spellings would apply
     // TWICE. The second call names a different proc and must still be refused.
     const { led } = ledger()
     let runs = 0
-    led.once(asMutationId('m-same'), 'sessions.sendText', () => {
+    await led.once(asMutationId('m-same'), 'sessions.sendText', () => {
       runs += 1
       return 'first'
     })
-    const second = led.once(asMutationId('m-same'), 'sessions.resumeAndSend', () => {
+    const second = await led.once(asMutationId('m-same'), 'sessions.resumeAndSend', () => {
       runs += 1
       return 'second'
     })
@@ -72,29 +72,29 @@ describe('MutationLedger', () => {
     expect(second).toBe('first')
   })
 
-  it('a DIFFERENT id re-applies the same input', () => {
+  it('a DIFFERENT id re-applies the same input', async () => {
     const { led } = ledger()
     let runs = 0
-    const run = (id: MutationId) =>
+    const run = async (id: MutationId) =>
       led.once(id, 'sessions.rename', () => {
         runs += 1
         return id
       })
-    expect(run(asMutationId('m-a'))).toBe(asMutationId('m-a'))
-    expect(run(asMutationId('m-b'))).toBe(asMutationId('m-b'))
+    expect(await run(asMutationId('m-a'))).toBe(asMutationId('m-a'))
+    expect(await run(asMutationId('m-b'))).toBe(asMutationId('m-b'))
     expect(runs).toBe(2)
   })
 
-  it('no mutationId means NO dedup and NOTHING recorded', () => {
+  it('no mutationId means NO dedup and NOTHING recorded', async () => {
     const { led, store } = ledger()
     let runs = 0
-    const run = () =>
-      led.apply(undefined, 'sessions.rename', () => {
+    const run = async () =>
+      await led.apply(undefined, 'sessions.rename', () => {
         runs += 1
         return 1
       })
-    expect(run().outcome).toBe('applied')
-    expect(run().outcome).toBe('applied')
+    expect((await run()).outcome).toBe('applied')
+    expect((await run()).outcome).toBe('applied')
     expect(runs).toBe(2)
     expect(store.rows.size).toBe(0)
   })
@@ -132,14 +132,17 @@ describe('MutationLedger', () => {
       })
     }
 
-    const a = led.apply(asMutationId('m-batch'), 'issues.create', body)
-    const b = led.apply(asMutationId('m-batch'), 'issues.create', body)
+    const aPending = led.apply(asMutationId('m-batch'), 'issues.create', body)
+    const bPending = led.apply(asMutationId('m-batch'), 'issues.create', body)
+    await Promise.resolve()
     expect(runs).toBe(1)
-    expect(b.outcome).toBe('replayed')
 
     release('done')
-    await expect(a.value).resolves.toBe('done')
-    await expect(b.value).resolves.toBe('done')
+    const a = await aPending
+    const b = await bPending
+    expect(b.outcome).toBe('replayed')
+    expect(a.value).toBe('done')
+    expect(b.value).toBe('done')
   })
 
   it('a REJECTED async body records nothing, so the mutation stays retryable', async () => {
@@ -163,15 +166,15 @@ describe('MutationLedger', () => {
     expect(runs).toBe(2)
   })
 
-  it('records the applied-at stamp from the injected clock', () => {
+  it('records the applied-at stamp from the injected clock', async () => {
     const now = vi.fn(() => 4_242)
     const store = fakeStore()
     const record = vi.spyOn(store, 'recordAppliedMutation')
-    new MutationLedger(store, now).once(asMutationId('m-clock'), 'sessions.rename', () => 'x')
+    await new MutationLedger(store, now).once(asMutationId('m-clock'), 'sessions.rename', () => 'x')
     expect(record).toHaveBeenCalledWith(asMutationId('m-clock'), 'sessions.rename', '"x"', 4_242)
   })
 
-  it('a body returning undefined records null, and its replay does not re-run', () => {
+  it('a body returning undefined records null, and its replay does not re-run', async () => {
     // Every presence write returns void. If `undefined` recorded nothing, the
     // whole session-state class would silently lose its dedup — the exact regression
     // POD-379's per-route oracle was written to catch.
@@ -180,8 +183,8 @@ describe('MutationLedger', () => {
     const body = () => {
       runs += 1
     }
-    expect(led.apply(asMutationId('m-void'), 'sessions.setArchived', body).outcome).toBe('applied')
-    expect(led.apply(asMutationId('m-void'), 'sessions.setArchived', body).outcome).toBe('replayed')
+    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe('applied')
+    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe('replayed')
     expect(runs).toBe(1)
     expect(store.rows.get(asMutationId('m-void'))?.result).toBe('null')
   })
