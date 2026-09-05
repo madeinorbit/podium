@@ -37,9 +37,14 @@ async function harness() {
   return { caller, users, loginRequired }
 }
 
-const hashOf = (users: {
-  credentialFor(id: string): { passwordHash: string | null } | undefined
-}) => users.credentialFor(FIRST_ADMIN_USER_ID)?.passwordHash ?? ''
+const hashOf = async (users: {
+  credentialFor(
+    id: string,
+  ):
+    | { passwordHash: string | null }
+    | undefined
+    | Promise<{ passwordHash: string | null } | undefined>
+}) => (await users.credentialFor(FIRST_ADMIN_USER_ID))?.passwordHash ?? ''
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -76,16 +81,16 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   it('sets the caller’s own credential without requiring a current password', async () => {
     const { caller, users } = await harness()
     await caller.auth.setPassword({ next: 'first-pw' })
-    expect(await verifyPasswordHash('first-pw', hashOf(users))).toBe(true)
+    expect(await verifyPasswordHash('first-pw', await hashOf(users))).toBe(true)
   })
 
   it('changing a password requires the correct current one', async () => {
     const { caller, users } = await harness()
     await caller.auth.setPassword({ next: 'old-pw' })
     await expect(caller.auth.setPassword({ current: 'wrong', next: 'new-pw' })).rejects.toThrow()
-    expect(await verifyPasswordHash('old-pw', hashOf(users))).toBe(true)
+    expect(await verifyPasswordHash('old-pw', await hashOf(users))).toBe(true)
     await caller.auth.setPassword({ current: 'old-pw', next: 'new-pw' })
-    expect(await verifyPasswordHash('new-pw', hashOf(users))).toBe(true)
+    expect(await verifyPasswordHash('new-pw', await hashOf(users))).toBe(true)
   })
 
   it('rejects an empty new password', async () => {
@@ -105,7 +110,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   it('turns login off for the instance WITHOUT destroying the credential', async () => {
     const { caller, users, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
-    const hashBefore = hashOf(users)
+    const hashBefore = await hashOf(users)
 
     await expect(
       caller.auth.setLoginRequired({
@@ -124,7 +129,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     expect(await loginRequired()).toBe(false)
     // THE PROPERTY THE CONFIG FLAG BUYS: nobody's password was deleted, so turning login
     // back on does not make everyone re-enrol.
-    expect(hashOf(users)).toBe(hashBefore)
+    expect(await hashOf(users)).toBe(hashBefore)
     expect(await users.hasPerUserCredentials()).toBe(true)
   })
 
@@ -138,6 +143,6 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     })
     await caller.auth.setLoginRequired({ required: true, current: 'hunter2' })
     expect(await loginRequired()).toBe(true)
-    expect(await verifyPasswordHash('hunter2', hashOf(users))).toBe(true)
+    expect(await verifyPasswordHash('hunter2', await hashOf(users))).toBe(true)
   })
 })

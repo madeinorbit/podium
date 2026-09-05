@@ -68,7 +68,7 @@ export const SETUP_COMMANDS_TRPC = {
   },
   activate: {
     contract: SETUP_CONTRACTS.activate,
-    handler: ((svc) => svc.activate()) satisfies InstanceHandler<
+    handler: (async (svc) => await svc.activate()) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.activate>,
       unknown
     >,

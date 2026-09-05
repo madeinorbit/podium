@@ -72,7 +72,7 @@ export interface InstanceDeps {
   readonly users?: InstanceAccountStore | undefined
   readonly callerUserId?: UserId | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
-  readonly loginRequired?: (() => boolean) | undefined
+  readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
   /**
    * Called after the fleet default channel is written (POD-1882). Machines with
    * no pin of their own resolve against that value, so their projected channel
@@ -108,14 +108,21 @@ export interface InstanceDeps {
    * the effective value together with the layer that decided it. Read through a
    * function because a Settings write must be followed without a restart.
    */
-  readonly transcriptMirrorSetting?: (() => boolean | undefined) | undefined
+  readonly transcriptMirrorSetting?: (() => boolean | undefined | Promise<boolean | undefined>) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
-  get(userId: UserId): { role: string } | undefined
-  credentialFor(userId: UserId): { passwordHash: string | null } | undefined
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
+  get(userId: UserId): { role: string } | undefined | Promise<{ role: string } | undefined>
+  credentialFor(userId: UserId):
+    | { passwordHash: string | null }
+    | undefined
+    | Promise<{ passwordHash: string | null } | undefined>
+  setPasswordHash(
+    userId: UserId,
+    passwordHash: string,
+    updatedAt: string,
+  ): void | Promise<void>
 }
 
 /** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
@@ -151,13 +158,13 @@ export class InstanceService {
    * control can render disabled and say which variable is holding it rather than
    * offering a write the environment overrides.
    */
-  info() {
+  async info() {
     const c = loadConfig()
     const mode = resolveSetting('mode', c)
     const publicUrl = resolveSetting('publicUrl', c)
     const appUrl = resolveSetting('appUrl', c)
     const allowedOrigins = resolveSetting('allowedOrigins', c)
-    const transcriptLake = resolveTranscriptLakeSetting(this.deps.transcriptMirrorSetting?.(), c)
+    const transcriptLake = resolveTranscriptLakeSetting(await this.deps.transcriptMirrorSetting?.(), c)
     return {
       mode: mode.value ?? null,
       modeSource: mode.source,
@@ -311,7 +318,7 @@ export class InstanceService {
     // later from Settings → Machines). It is only a mandatory choice on a fresh,
     // password-less instance.
     // "Already set" is now the CALLER having a credential, not a file existing.
-    if (!password && !input.acknowledgeNoPassword && !this.callerCredential?.passwordHash) {
+    if (!password && !input.acknowledgeNoPassword && !(await this.callerCredential())?.passwordHash) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
@@ -329,7 +336,7 @@ export class InstanceService {
     // Setup's optional password is the caller's own credential, same as auth.setPassword.
     if (password) {
       const { users, callerUserId } = this.requireAccountStore()
-      users.setPasswordHash(callerUserId, await hashPassword(password), new Date().toISOString())
+      await users.setPasswordHash(callerUserId, await hashPassword(password), new Date().toISOString())
     }
     return cfg
   }
@@ -414,7 +421,7 @@ export class InstanceService {
    *    says so, rather than answering "restarting" and leaving the operator
    *    watching a screen that will never change.
    */
-  activate() {
+  async activate() {
     const readiness = this.deps.readiness?.()
     if (!readiness) {
       throw new TRPCError({
@@ -428,7 +435,7 @@ export class InstanceService {
         message: 'This instance is already running its saved setup; there is nothing to activate.',
       })
     }
-    this.requireAdmin()
+    await this.requireAdmin()
     const restart = this.deps.requestCoordinatorRestart
     if (!restart) {
       throw new TRPCError({
@@ -458,20 +465,20 @@ export class InstanceService {
    * no authenticated human. That throw is why nothing below re-checks for one: an
    * unauthenticated caller cannot reach these methods at all.
    */
-  private get callerCredential() {
+  private async callerCredential() {
     const userId = this.deps.callerUserId
-    return userId ? this.deps.users?.credentialFor(userId) : undefined
+    return userId ? await this.deps.users?.credentialFor(userId) : undefined
   }
 
   /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
    *  Still never the password or its hash — there is nothing else to return. */
-  status() {
+  async status() {
     return {
-      loginRequired: this.deps.loginRequired?.() ?? false,
-      hasOwnCredential: Boolean(this.callerCredential?.passwordHash),
+      loginRequired: (await this.deps.loginRequired?.()) ?? false,
+      hasOwnCredential: Boolean((await this.callerCredential())?.passwordHash),
       canManageInstance:
         this.deps.callerUserId !== undefined &&
-        this.deps.users?.get(this.deps.callerUserId)?.role === 'admin',
+        (await this.deps.users?.get(this.deps.callerUserId))?.role === 'admin',
     }
   }
 
@@ -480,12 +487,12 @@ export class InstanceService {
    *  the check (bootstrap). Shipped behaviour, now scoped to one account. */
   async setPassword(input: { current?: string | undefined; next: string }) {
     const { users, callerUserId } = this.requireAccountStore()
-    const existing = users.credentialFor(callerUserId)?.passwordHash
+    const existing = (await users.credentialFor(callerUserId))?.passwordHash
     if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
-    users.setPasswordHash(callerUserId, await hashPassword(input.next), new Date().toISOString())
-    return { loginRequired: this.deps.loginRequired?.() ?? true }
+    await users.setPasswordHash(callerUserId, await hashPassword(input.next), new Date().toISOString())
+    return { loginRequired: (await this.deps.loginRequired?.()) ?? true }
   }
 
   /**
@@ -507,21 +514,21 @@ export class InstanceService {
       })
     }
     const { users, callerUserId } = this.requireAccountStore()
-    const existing = users.credentialFor(callerUserId)?.passwordHash
+    const existing = (await users.credentialFor(callerUserId))?.passwordHash
     if (existing && !(await verifyPasswordHash(input.current, existing))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
     const config = loadConfig()
     saveConfig({ ...config, auth: { ...config.auth, openMode: !input.required } })
-    return { loginRequired: this.deps.loginRequired?.() ?? input.required }
+    return { loginRequired: (await this.deps.loginRequired?.()) ?? input.required }
   }
 
   /** The `admin` floor, enforced where this family enforces everything else — in
    *  the service. `status().canManageInstance` is the same question asked for the
    *  UI; this is the one that refuses. */
-  private requireAdmin() {
+  private async requireAdmin() {
     const { users, callerUserId } = this.requireAccountStore()
-    if (users.get(callerUserId)?.role !== 'admin') {
+    if ((await users.get(callerUserId))?.role !== 'admin') {
       throw new TRPCError({
         code: 'FORBIDDEN',
         message: 'Only an admin can restart this instance.',

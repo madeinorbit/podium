@@ -140,7 +140,7 @@ export interface FamilyState {
   readonly users?: UsersRepository | undefined
   /** Is login required on this instance — `credentialsRequired()` from server.ts,
    *  the ONE joined reader of open mode and per-user credentials. */
-  readonly loginRequired?: (() => boolean) | undefined
+  readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
   /**
    * The hosted-runtime provider, absent on deployments with no cloud. On the
    * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather

@@ -68,7 +68,7 @@ export interface Context {
    *  can be built without one, and the commands refuse rather than invent an account. */
   users?: UsersRepository
   /** Is login required on this instance — `credentialsRequired()` from server.ts. */
-  loginRequired?: () => boolean
+  loginRequired?: () => boolean | Promise<boolean>
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void
