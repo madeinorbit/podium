@@ -469,15 +469,15 @@ export class InteractionService {
    * and the chain is dropped once it drains.
    */
   private async chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
-    const prior = this.sessionChain.get(sessionId) ?? await Promise.resolve()
-    const next = await prior.catch(() => undefined).then(() => work())
+    const prior = this.sessionChain.get(sessionId) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(() => work())
     this.sessionChain.set(sessionId, next)
     void next.finally(() => {
       // Only the tail clears itself; an earlier link finishing must not drop a
       // chain that still has work queued behind it.
       if (this.sessionChain.get(sessionId) === next) this.sessionChain.delete(sessionId)
     })
-    return next
+    await next
   }
 
   async onStateChanged(input: {

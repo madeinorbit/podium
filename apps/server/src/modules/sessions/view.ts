@@ -233,9 +233,11 @@ export class SessionView {
       const found = await this.ports.store.issues.getIssues(refIssueIds)
       for (const id of refIssueIds) memo.issues.set(id, found.get(id) ?? null)
     }
-    return candidates
-      .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
-      .map(async (session) => await this.wire(session, principal, memo))
+    return await Promise.all(
+      candidates
+        .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
+        .map(async (session) => await this.wire(session, principal, memo)),
+    )
   }
 
   /**

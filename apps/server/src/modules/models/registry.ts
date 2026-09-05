@@ -36,7 +36,7 @@ import type { SettingsService } from '../settings/service'
 export interface ModelState {
   readonly settings: SettingsService
   /** `machines.defaultMachine()` — resolved lazily when the client omits machineId. */
-  readonly defaultMachine: () => MachineId
+  readonly defaultMachine: () => MachineId | Promise<MachineId>
 }
 
 export type ModelHandler<In, Out> = (state: ModelState, input: In) => Out
@@ -53,7 +53,7 @@ export const MODEL_COMMANDS_TRPC = {
     contract: MODEL_CONTRACTS.refresh,
     handler: (async (state, input) =>
       await state.settings.refreshModelCatalog(
-        input?.machineId ?? state.defaultMachine(),
+        input?.machineId ?? (await state.defaultMachine()),
       )) satisfies ModelHandler<z.infer<(typeof MODEL_CONTRACTS)['refresh']['input']>, unknown>,
   },
 } as const satisfies Record<ModelContractName, ModelCommand>
