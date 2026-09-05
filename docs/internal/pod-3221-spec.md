@@ -1500,6 +1500,38 @@ IF A SITE HAS NO POST-THROW ASSERTIONS, say so in the handoff rather than adding
 converted `rejects.toThrow` is acceptable where that is all the original pinned; inventing new
 assertions mid-flip is a different change and needs its own ruling.
 
+### Rule 51 — a SYNC CALLBACK PORT handed an async provider: decide by the CALLER, and here is the procedure
+
+[Standing rule, 2026-09-05. `relay.ts` alone has ~92 of the flip's remaining errors and about 60 are
+this one shape: `(userId) => Promise<boolean>` handed to a port typed `(userId) => boolean`. Rules 47
+and 49 each answered one instance. This is the general procedure so the flip stops stalling once per
+site.]
+
+THE QUESTION IS NEVER "can I make the port async". It is: **may the CALLER yield at the moment it
+invokes the callback?** Three answers, and the site tells you which:
+
+1. **THE CALLER MAY YIELD** — it is already async, or is only reached from async paths. Then WIDEN THE
+   PORT to return a promise and await it. This is the default and most sites are here. No permission
+   needed.
+
+2. **THE CALLER MAY NOT YIELD** — it runs inside a transport drain, a synchronous frame handler, a
+   comparator, or anything §2.5 covers. Then the port STAYS SYNC and you move the await EARLIER:
+   resolve the value at an async boundary that already precedes the call, and hand the callback a
+   value or a resolved lookup rather than a promise. This is rule 47's shape, and rule 49's if the
+   value can go stale in an unsafe direction.
+
+3. **YOU CANNOT TELL.** Then it is a real boundary — mail me. But say which of the two you suspect
+   and why; "I could not tell" without a hypothesis is not a question I can answer faster than you.
+
+HOW TO TELL, mechanically, rather than by feel: walk up from the callback's invocation site. If every
+frame to the nearest entry point is already `async`, you are in case 1. If you cross a drain loop, a
+frame router, an event handler that returns void, or a comparator, you are in case 2. If the same
+port is invoked from BOTH, that is case 3 and it is genuinely interesting — do not silently pick one.
+
+WHAT YOU MAY NOT DO, in any case: make the non-yielding path yield, or paper over it by caching the
+async result behind a sync reader without asking which way that cache drifts (rule 49). Those are the
+two failure modes this rule exists to prevent.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
