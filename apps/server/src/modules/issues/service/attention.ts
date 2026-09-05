@@ -52,7 +52,7 @@ export class IssueAttentionModule {
       | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): IssueWire
+      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
@@ -188,7 +188,9 @@ export class IssueAttentionModule {
               }
             : {}),
         })
-        if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+        if (opts.newSpinoff) {
+          await this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+        }
         target = await this.store.rowOrThrow(wire.id)
       }
     } else {

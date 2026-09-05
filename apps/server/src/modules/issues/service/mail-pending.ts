@@ -19,7 +19,7 @@ import type { SessionStore } from '../../../store'
 export async function countContextAwarePendingMail(
   store: Pick<SessionStore, 'messages' | 'issues'>,
   issueId: IssueId,
-  formatFromIssue: (fromIssue: string) => string = (id) => id,
+  formatFromIssue: (fromIssue: string) => string | Promise<string> = (id) => id,
   /** The READING session [POD-1379]. Given one, the count is per-reader: it
    *  never includes that session's own sends, never counts what it has already
    *  seen, and — the data-loss half — a peer's read cannot clear it. Absent
@@ -50,11 +50,13 @@ export async function countContextAwarePendingMail(
   const pureLegacy = legacyUnread.filter((m) => !seen.has(m.id))
   const senders = [
     ...new Set(
-      queued.senders.map((m) => {
-        if (m.fromKind !== 'agent') return m.fromKind
-        if (m.fromIssue) return formatFromIssue(m.fromIssue)
-        return m.fromSession ? `session:${m.fromSession}` : 'agent'
-      }),
+      await Promise.all(
+        queued.senders.map(async (m) => {
+          if (m.fromKind !== 'agent') return m.fromKind
+          if (m.fromIssue) return await formatFromIssue(m.fromIssue)
+          return m.fromSession ? `session:${m.fromSession}` : 'agent'
+        }),
+      ),
     ),
   ]
   return { unread: queued.count + pureLegacy.length, senders }
