@@ -60,7 +60,7 @@ beforeEach(async () => {
       instanceId: 'instance-one',
     }),
     loginRequired: () => true,
-    resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+    resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
     trustedProxyHops: 1,
     requestPeerAddress: () => peerAddress,
   })
@@ -278,7 +278,7 @@ describe('mobile pairing routes', () => {
       pairing,
       serverIdentity: () => ({ publicUrl: 'https://podium.example.ts.net', instanceId: 'one' }),
       loginRequired: () => true,
-      resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+      resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
       trustedProxyHops: 1,
       localControlRequest: (request) => request.headers.get('x-test-local') === 'yes',
       requestPeerAddress: () => peerAddress,
