@@ -244,8 +244,11 @@ export class IssueCommandCtx {
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */
-  withMutation<T>(mutationId: MutationId | undefined, fn: () => T): T {
-    return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
+  async withMutation<T>(
+    mutationId: MutationId | undefined,
+    fn: () => T | Promise<T>,
+  ): Promise<Awaited<T>> {
+    return await this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
   }
 
   // RETIRED at POD-309: `issueWrite(input, local)` sat between every issue mutation

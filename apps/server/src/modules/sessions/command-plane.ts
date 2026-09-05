@@ -661,9 +661,9 @@ export const SESSION_COMMAND_HANDLERS = {
       return { ok: false, reason: 'unknown session' }
     }
     const reserved = input.messageId
-      ? ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
+      ? (await ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
           ...INTERRUPTED_SEND,
-        })).outcome === 'applied'
+        }))).outcome === 'applied'
       : false
     // AWAITED: a server-family session's stop goes down the runtime contract and
     // answers asynchronously, so reading `.ok` off the return value would be
@@ -839,11 +839,11 @@ export type SessionCommandResult<K extends SessionCommandKey> = ReturnType<
  * with an undefined id runs the function and records nothing, which is what a
  * command that declares no idempotency key means.
  */
-export function dispatchSessionCommand<K extends SessionCommandKey>(
+export async function dispatchSessionCommand<K extends SessionCommandKey>(
   ctx: SessionCommandCtx,
   key: K,
   rawInput: unknown,
-): SessionCommandResult<K> {
+): Promise<Awaited<SessionCommandResult<K>>> {
   const contract = (sessionCommandPlane.defs as Record<string, CommandDef>)[key]
   if (!contract) throw new Error(`unknown session command '${key}'`)
   const handler = SESSION_COMMAND_HANDLERS[key] as (
@@ -865,11 +865,11 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
   // ledger's own documented no-dedup case — so this is behaviour-identical for the
   // six lifecycle commands and identical-by-construction for the three that do.
   const mutationId = (input as { mutationId?: unknown }).mutationId
-  return ctx.deps.mutations.once(
+  return await ctx.deps.mutations.once(
     typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
     name,
     () => handler(ctx, input),
-  ) as SessionCommandResult<K>
+  ) as Awaited<SessionCommandResult<K>>
 }
 
 /** Is this proc one of the migrated command-plane commands? */

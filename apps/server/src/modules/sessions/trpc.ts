@@ -179,8 +179,8 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
   if (!contract) throw new Error(`sessionStateProcedure: no contract named ${name}`)
   return t.procedure
     .input(sessionStateInputs[name])
-    .mutation(({ ctx, input }): SessionStateOutputs[N] => {
-      const result = sessionStateRegistryFor(ctx).execute(
+    .mutation(async ({ ctx, input }): Promise<SessionStateOutputs[N]> => {
+      const result = await sessionStateRegistryFor(ctx).execute(
         name,
         input,
         sessionStatePrincipal(ctx),
@@ -253,9 +253,9 @@ export function sessionStatePrincipal(ctx: Context) {
 function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionStateInputs['sessions.rename'])
-    .mutation(({ ctx, input }): void => {
+    .mutation(async ({ ctx, input }): Promise<void> => {
       const modules = familyState(ctx).modules
-      const dispatch = dispatchRename(
+      const dispatch = await dispatchRename(
         {
           sessions: modules.sessions,
           mutations: modules.mutations,

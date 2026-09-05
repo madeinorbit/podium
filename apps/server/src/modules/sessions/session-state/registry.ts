@@ -401,12 +401,12 @@ export class SessionStateRegistry {
    * refusal: see the §3.1.5 note in the file header — a denial and a not-found are
    * the same silent no-op, so a caller cannot tell them apart.
    */
-  execute(
+  async execute(
     name: string,
     rawInput: unknown,
     principal: SessionStatePrincipal,
     transport: SessionStateTransport = 'trpc',
-  ): SessionStateResult {
+  ): Promise<SessionStateResult> {
     const contract = sessionStateCommand(name)
     const registration = REGISTRATIONS[name]
     // Own-prototype lookup only: `REGISTRATIONS['toString']` must not resolve.
@@ -434,7 +434,7 @@ export class SessionStateRegistry {
     //    seam to omit it from.
     const mutationId =
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
-    const applied = this.deps.mutations.apply(mutationId, name, () =>
+    const applied = await this.deps.mutations.apply(mutationId, name, () =>
       registration.handler(input, principal, this.deps),
     )
     return { outcome: applied.outcome, value: applied.value }

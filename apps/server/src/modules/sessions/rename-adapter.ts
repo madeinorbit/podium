@@ -113,14 +113,14 @@ export interface RenameDispatchDeps {
  * the same error shape, while successful calls retain the public `void` result.
  * The legacy rollback path has no verdict and therefore returns `undefined`.
  */
-export function dispatchRename(
+export async function dispatchRename(
   deps: RenameDispatchDeps,
   input: unknown,
-): RenameDispatch | undefined {
+): Promise<RenameDispatch | undefined> {
   const { sessions, mutations } = deps
   if (renamePath() === 'legacy') {
-    deps.legacyRegistry().execute('sessions.rename', input, deps.legacyPrincipal, 'trpc')
+    await deps.legacyRegistry().execute('sessions.rename', input, deps.legacyPrincipal, 'trpc')
     return
   }
-  return renameOnTargetPath({ sessions, mutations }, input, deps.principal, 'trpc')
+  return await renameOnTargetPath({ sessions, mutations }, input, deps.principal, 'trpc')
 }
