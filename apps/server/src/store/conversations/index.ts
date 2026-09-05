@@ -289,6 +289,8 @@ export class ConversationIndexRepository {
       createdAt: (row.created_at as string | null) ?? undefined,
       updatedAt: (row.updated_at as string | null) ?? undefined,
       messageCount: (row.message_count as number | null) ?? undefined,
+      // EXTERNAL ROW BRAND DECODE: this search-port statement returns
+      // Record<string, unknown>; machine_id is not a schema-inferred value.
       machineId: row.machine_id ? asMachineId(row.machine_id as string) : undefined,
     }))
   }

@@ -275,7 +275,7 @@ export const sessions = sqliteTable(
     /** The actor's id — or, for a `system` actor, its JOB name (ADR 9 D8 S5
      *  gives that arm no id). Decoded through the model's `ActorRef`. */
     createdByActorId: text('created_by_actor_id'),
-    createdByOnBehalfOf: text('created_by_on_behalf_of'),
+    createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>(),
   },
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
@@ -983,7 +983,7 @@ export const telegramChatBindings = sqliteTable('telegram_chat_bindings', {
   // columns the `grants` table uses so the shape is one shape.
   actorKind: text('actor_kind').notNull(),
   actorId: text('actor_id'),
-  onBehalfOf: text('on_behalf_of'),
+  onBehalfOf: text('on_behalf_of').$type<UserId>(),
 })
 
 // `changes` and `applied_mutations` moved to
@@ -1026,7 +1026,7 @@ export const queuedMessages = sqliteTable(
 
 export const conversationIdentities = sqliteTable('conversation_identities', {
   podiumId: text('podium_id').$type<ConversationId>().primaryKey(),
-  parentPodiumId: text('parent_podium_id'),
+  parentPodiumId: text('parent_podium_id').$type<ConversationId>(),
   createdAt: text('created_at').notNull(),
 })
 
@@ -1323,7 +1323,7 @@ export const issues = sqliteTable(
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     visibility: text().default('personal').notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
-    createdByOnBehalfOf: text('created_by_on_behalf_of'),
+    createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>(),
     repoPath: text('repo_path').notNull(),
     repoId: text('repo_id').$type<RepoId>(),
     seq: integer().notNull(),
@@ -1350,7 +1350,7 @@ export const issues = sqliteTable(
     prUrl: text('pr_url'),
     priority: integer().default(2).notNull(),
     type: text().default('task').notNull(),
-    assignee: text(),
+    assignee: text().$type<UserId>(),
     parentId: brandedRef(
       text('parent_id').$type<IssueId>(),
       (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
@@ -1393,7 +1393,7 @@ export const issues = sqliteTable(
     needsHuman: integer('needs_human', { mode: 'boolean' }).default(sql`0`).notNull(),
     humanQuestion: text('human_question'),
     humanQuestionOptions: text('human_question_options'),
-    humanQuestionAskedBy: text('human_question_asked_by'),
+    humanQuestionAskedBy: text('human_question_asked_by').$type<SessionId>(),
     humanQuestionAskedAt: text('human_question_asked_at'),
     panel: text(),
     createdAt: text('created_at').notNull(),
@@ -1419,7 +1419,7 @@ export const issues = sqliteTable(
     coordinatorSessionId: text('coordinator_session_id').$type<SessionId>(),
     /** Bare session id of the agent session that created this issue (started-by
      *  provenance). Null for operator/human creates. Dangling-tolerant TEXT. */
-    startedBySession: text('started_by_session'),
+    startedBySession: text('started_by_session').$type<SessionId>(),
   },
   (table) => [
     index('idx_issues_deleted_at').on(table.deletedAt),
@@ -2014,7 +2014,7 @@ export const superagentQueuedInputs = sqliteTable(
      *  inside `focus_json` because it is a deliberate one-shot act, not part of
      *  the recomputed on-screen report — and a queued turn must not lose it
      *  across a restart, which an in-memory side map would. */
-    attachSessionId: text('attach_session_id'),
+    attachSessionId: text('attach_session_id').$type<SessionId>(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
@@ -2062,13 +2062,13 @@ export const messages = sqliteTable(
     threadId: text('thread_id').$type<ThreadId>().notNull(),
     inReplyTo: text('in_reply_to'),
     fromKind: text('from_kind').notNull(),
-    fromSession: text('from_session'),
-    fromIssue: text('from_issue'),
+    fromSession: text('from_session').$type<SessionId>(),
+    fromIssue: text('from_issue').$type<IssueId>(),
     // Transport-stamped attribution pair plus the opaque reference needed to
     // re-resolve an agent's delegation live on every apply.
     actorKind: text('actor_kind'),
     actorId: text('actor_id'),
-    onBehalfOf: text('on_behalf_of'),
+    onBehalfOf: text('on_behalf_of').$type<UserId>(),
     delegationRef: text('delegation_ref'),
     toKind: text('to_kind').notNull(),
     toId: text('to_id'),
@@ -2081,7 +2081,7 @@ export const messages = sqliteTable(
     createdAt: text('created_at').notNull(),
     status: text().default('queued').notNull(),
     deliveredAt: text('delivered_at'),
-    deliveredTo: text('delivered_to'),
+    deliveredTo: text('delivered_to').$type<SessionId>(),
     ackedBy: text('acked_by'),
     hop: integer().default(0).notNull(),
     clampedFrom: text('clamped_from'),
@@ -2420,7 +2420,10 @@ export const automations = sqliteTable(
     id: text().$type<AutomationId>().primaryKey(),
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
-    createdByOnBehalfOf: text('created_by_on_behalf_of').default('user:sole').notNull(),
+    createdByOnBehalfOf: text('created_by_on_behalf_of')
+      .default('user:sole')
+      .$type<UserId>()
+      .notNull(),
     name: text().notNull(),
     enabled: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     repoPath: text('repo_path'),
@@ -2448,7 +2451,7 @@ export const automationRuns = sqliteTable(
   {
     id: text().$type<AutomationRunId>().primaryKey(),
     actor: text().default('system:automation-migration').notNull(),
-    onBehalfOf: text('on_behalf_of').default('user:sole').notNull(),
+    onBehalfOf: text('on_behalf_of').default('user:sole').$type<UserId>().notNull(),
     automationId: brandedRef(text('automation_id').$type<AutomationId>(), () => automations.id, {
       onDelete: 'cascade',
     }).notNull(),

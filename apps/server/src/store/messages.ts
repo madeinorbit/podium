@@ -10,6 +10,7 @@ import {
   actorSystem,
   actorUser,
   asAgentIdentityId,
+  asIssueId,
   asSessionId,
   asUserId,
   type IssueId,
@@ -45,6 +46,9 @@ import {
 import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
+/** RETAINED EXTERNAL/POLYMORPHIC BRAND CASTS: delivery receipt methods accept
+ * reader ids as strings, while actor_id is decoded by actor_kind. All
+ * monomorphic selected message ids flow from the schema without casts. */
 /** A message recipient principal: `issue`/`session` carry an id; `operator` has none. */
 export interface MessagePrincipalRef {
   kind: MessageToKind
@@ -75,6 +79,8 @@ function storedActor(r: MessageSelect): ActorRef | null {
   const kind = r.actorKind
   const id = r.actorId
   if (!kind || !id) return null
+  // POLYMORPHIC BRAND DECODE: actor_id is a UserId, AgentIdentityId, or system
+  // job according to actor_kind, so one schema brand would be a lie.
   if (kind === 'user') return actorUser(asUserId(id))
   if (kind === 'agent') return actorAgent(asAgentIdentityId(id))
   return actorSystem(id)
@@ -98,15 +104,14 @@ function mapMessage(r: MessageSelect): MessageRow {
     threadId: r.threadId,
     inReplyTo: r.inReplyTo ?? null,
     fromKind: r.fromKind as MessageRow['fromKind'],
-    fromSession: (r.fromSession as SessionId | null) ?? null,
+    fromSession: r.fromSession ?? null,
     ...(r.fromName !== null && r.fromName !== undefined ? { fromName: r.fromName } : {}),
-    fromIssue: (r.fromIssue as IssueId | null) ?? null,
+    fromIssue: r.fromIssue ?? null,
     ...(actor
       ? {
           attribution: {
             actor,
-            onBehalfOf:
-              r.onBehalfOf === null || r.onBehalfOf === undefined ? null : asUserId(r.onBehalfOf),
+            onBehalfOf: r.onBehalfOf ?? null,
           },
         }
       : {}),
@@ -122,9 +127,7 @@ function mapMessage(r: MessageSelect): MessageRow {
     createdAt: r.createdAt,
     status: r.status as MessageStatus,
     deliveredAt: r.deliveredAt ?? null,
-    // SERIALIZATION EDGE: `delivered_to` carries no `$type` on the schema, so the
-    // session id genuinely re-enters its brand space here.
-    deliveredTo: (r.deliveredTo as SessionId | null) ?? null,
+    deliveredTo: r.deliveredTo ?? null,
     readAt: r.readAt ?? null,
     injectedAt: r.injectedAt ?? null,
     deliveryDeferredAt: r.deliveryDeferredAt ?? null,
@@ -620,12 +623,15 @@ export class MessagesRepository {
    *  proves the producer already acted — the steward's notice would just be a
    *  duplicate waiting to happen. */
   alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): boolean {
+    // EXTERNAL INPUT BRAND DECODE: the steward compatibility port supplies a
+    // raw issue id; schema-branded from_issue makes this query narrow it here.
+    const brandedFromIssue = asIssueId(fromIssue)
     const row = this.db
       .select({ hit: sql<number>`1` })
       .from(messagesTable)
       .where(
         and(
-          eq(messagesTable.fromIssue, fromIssue),
+          eq(messagesTable.fromIssue, brandedFromIssue),
           gte(messagesTable.createdAt, sinceIso),
           ...addressedTo(to),
         ),
@@ -770,14 +776,17 @@ export class MessagesRepository {
    *  does the ledger claim the agent has it in context. Guarded on status so a
    *  duplicate/late echo is a no-op (returns false). */
   markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): boolean {
+    // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
+    // supply strings, so narrow once before writing the branded column.
+    const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
     const r = this.db
       .update(messagesTable)
-      .set({ status: 'delivered', deliveredAt, deliveredTo })
+      .set({ status: 'delivered', deliveredAt, deliveredTo: brandedDeliveredTo })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
       .run()
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
-    if (deliveredTo) this.recordRead(id, asSessionId(deliveredTo), deliveredAt)
+    if (brandedDeliveredTo) this.recordRead(id, brandedDeliveredTo, deliveredAt)
     return r.changes === 1
   }
 

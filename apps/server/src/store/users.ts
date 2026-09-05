@@ -188,6 +188,8 @@ export class UsersRepository {
         this.db
           .insert(users)
           .values({
+            // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
+            // boundary and deliberately carries its source id as a string.
             id: asUserId(account.id),
             displayName: account.displayName,
             role: account.role,
@@ -198,6 +200,7 @@ export class UsersRepository {
         this.db
           .insert(userCredentials)
           .values({
+            // Same external account id, branded independently for this write.
             userId: asUserId(account.id),
             source: 'per-user-scrypt',
             passwordHash,

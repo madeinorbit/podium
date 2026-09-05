@@ -1,3 +1,4 @@
+import type { MutationId, SessionId } from '@podium/model'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -27,7 +28,7 @@ export const testQueuedMessages = sqliteTable(
   'queued_messages',
   {
     id: text().primaryKey(),
-    sessionId: text('session_id').notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     text: text().notNull(),
     queuedAt: integer('queued_at').notNull(),
     inputOrigin: text('input_origin').default('unknown').notNull(),
@@ -48,7 +49,7 @@ export const testQueuedMessages = sqliteTable(
 )
 
 export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
-  mutationId: text('mutation_id').primaryKey(),
+  mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
   proc: text().notNull(),
   input: text().notNull(),
   queuedAt: integer('queued_at').notNull(),

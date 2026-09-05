@@ -25,7 +25,7 @@
  * at its site.
  */
 
-import { asMutationId, type MutationId, type SessionId } from '@podium/model'
+import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { and, asc, count, eq, gt, inArray, lt, lte, max, min, sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -554,9 +554,8 @@ export class SyncRepository {
       .where(eq(this.queuedMessages.sessionId, sessionId))
       .orderBy(asc(this.queuedMessages.queuedAt), asc(sql`rowid`))
       .all()
-    // The casts are the structural port's, not the driver's — see the field
-    // declaration above: an injected table's columns are bare `SQLiteColumn`, so
-    // their values arrive `unknown` exactly as they did before the conversion.
+    // Non-identity values stay unknown at the narrow structural port and are
+    // decoded here. Branded identity columns name their data types in the port.
     return rows.map((r) => ({
       id: r.id as string,
       text: r.text as string,
@@ -579,8 +578,7 @@ export class SyncRepository {
       .from(this.queuedMessages)
       .groupBy(this.queuedMessages.sessionId)
       .all()
-    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
-    return new Map(rows.map((r) => [r.sessionId as SessionId, r.n]))
+    return new Map(rows.map((r) => [r.sessionId, r.n]))
   }
 
   deleteQueuedMessage(id: string): void {
@@ -637,7 +635,7 @@ export class SyncRepository {
       .orderBy(asc(this.upstreamOutbox.queuedAt), asc(sql`rowid`))
       .all()
     return rows.map((r) => ({
-      mutationId: asMutationId(r.mutationId as string),
+      mutationId: r.mutationId,
       proc: r.proc as string,
       queuedAt: Number(r.queuedAt),
     }))

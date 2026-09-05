@@ -55,15 +55,17 @@ function toAttribution(r: BindingRow): Attribution | undefined {
   if (kind === 'user') {
     if (!id) return undefined
     return {
+      // POLYMORPHIC BRAND DECODE: actor_id shares storage with the system-job
+      // arm, so actor_kind is the evidence that this value is a UserId.
       actor: { kind: 'user', id: asUserId(id) },
-      onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null,
+      onBehalfOf,
     }
   }
   if (kind === 'system') {
     if (!id) return undefined
     return {
       actor: { kind: 'system', job: id },
-      onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null,
+      onBehalfOf,
     }
   }
   // `agent` and `machine` arms are representable in the model and are not
@@ -89,7 +91,7 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
   if (r.userId === '') return undefined
   const boundBy = toAttribution(r)
   if (!boundBy) return undefined
-  return { chatId: r.chatId, userId: asUserId(r.userId), boundAt: r.boundAt, boundBy }
+  return { chatId: r.chatId, userId: r.userId, boundAt: r.boundAt, boundBy }
 }
 
 export class TelegramBindingsRepository {

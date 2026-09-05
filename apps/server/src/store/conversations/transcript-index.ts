@@ -191,6 +191,8 @@ export class TranscriptIndexRepository {
       WHERE transcript_fts MATCH ${fts} ORDER BY rank`,
     )
     return rows.map((row) => ({
+      // EXTERNAL ROW BRAND DECODE: FTS rows bypass the drizzle schema, so this
+      // raw result is decoded at the search-port boundary.
       machineId: asMachineId(row.machine_id as string),
       nativeId: row.native_id as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,

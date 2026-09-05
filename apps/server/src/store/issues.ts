@@ -51,6 +51,9 @@ import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState }
 
 const log = createLogger('server:store')
 
+/** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
+ * ids and repo-path resolution still returns a string. Query/write casts decode
+ * those inputs; selected issue fields are schema-branded. */
 export class IssuesRepository {
   /** Rows skipped by the last {@link listIssueRows} because they were
    *  structurally corrupt (row-level quarantine). Diagnostic counter. */
@@ -394,13 +397,8 @@ export class IssuesRepository {
     return row
   }
 
-  /**
-   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
-   * an `IssueRow`. Every cast below is a decode of an untyped column, brands
-   * included: sqlite has no type to carry a brand, so this is where a stored
-   * string re-enters the branded id space. Casts here are NOT POD-361 adapter
-   * casts; above this function every issue id is branded.
-   */
+  /** Map the schema-inferred row into the domain row. Branded ids arrive from
+   * the schema; the remaining mapping is semantic validation and quarantine. */
   private mapIssueRow(r: typeof issues.$inferSelect): IssueRow {
     return {
       id: r.id,
@@ -413,9 +411,7 @@ export class IssuesRepository {
           ? r.visibility
           : 'personal',
       createdByActor: r.createdByActor,
-      // SERIALIZATION EDGE: `created_by_on_behalf_of` carries no `$type` in the
-      // schema, so the brand cannot flow from the column and re-enters here.
-      createdByOnBehalfOf: (r.createdByOnBehalfOf as UserId | null) ?? null,
+      createdByOnBehalfOf: r.createdByOnBehalfOf ?? null,
       repoPath: r.repoPath,
       repoId: r.repoId,
       seq: r.seq,
@@ -442,8 +438,7 @@ export class IssuesRepository {
       prUrl: r.prUrl,
       priority: r.priority,
       type: r.type,
-      // SERIALIZATION EDGE, as above: `assignee` carries no `$type`.
-      assignee: (r.assignee as UserId | null) ?? null,
+      assignee: r.assignee ?? null,
       parentId: r.parentId,
       design: r.design,
       acceptance: r.acceptance,
@@ -472,8 +467,7 @@ export class IssuesRepository {
             return v.length > 0 ? v : null
           })()
         : null,
-      // SERIALIZATION EDGE, as above: `human_question_asked_by` carries no `$type`.
-      humanQuestionAskedBy: (r.humanQuestionAskedBy as SessionId | null) ?? null,
+      humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
       humanQuestionAskedAt: r.humanQuestionAskedAt,
       panel: r.panel,
       createdAt: r.createdAt,
@@ -488,10 +482,7 @@ export class IssuesRepository {
       // pre-existing row, so a null here would mean a hand-mangled database.
       revision: r.revision ?? 1,
       coordinatorSessionId: r.coordinatorSessionId,
-      // SERIALIZATION EDGE, as above: `started_by_session` carries no `$type`
-      // either, so this is the fourth column whose brand cannot flow from the
-      // schema.
-      startedBySession: (r.startedBySession as SessionId | null) ?? null,
+      startedBySession: r.startedBySession ?? null,
     }
   }
 

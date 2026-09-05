@@ -27,12 +27,13 @@
  * is on its forbidden-specifier list for kernel modules.
  */
 
-import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core'
+import type { MutationId, SessionId } from '@podium/model'
+import type { AnySQLiteColumn, SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core'
 
 /** `queued_messages` — the session inbox (spec docs/spec/outbox-write-path.md). */
 export type QueuedMessagesTable = SQLiteTable & {
   readonly id: SQLiteColumn
-  readonly sessionId: SQLiteColumn
+  readonly sessionId: AnySQLiteColumn<{ data: SessionId; notNull: true }>
   readonly text: SQLiteColumn
   readonly queuedAt: SQLiteColumn
   readonly attempts: SQLiteColumn
@@ -49,7 +50,7 @@ export type QueuedMessagesTable = SQLiteTable & {
 /** `upstream_outbox` — ARCHIVED at POD-309; this adapter has the one surviving
  *  reader (`SyncRepository.listParkedUpstreamMutations`). */
 export type UpstreamOutboxTable = SQLiteTable & {
-  readonly mutationId: SQLiteColumn
+  readonly mutationId: AnySQLiteColumn<{ data: MutationId; notNull: true }>
   readonly proc: SQLiteColumn
   readonly queuedAt: SQLiteColumn
 }
