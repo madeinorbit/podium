@@ -104,7 +104,7 @@ export interface OperationEngineDeps {
   /** Injectable so a test can name its operations; production mints `op_<uuid>`. */
   newId?: () => string
   /** Called after every persisted transition, for whoever pushes state to clients. */
-  onChanged?: (row: OperationRow) => void
+  onChanged?: (row: OperationRow) => void | Promise<void>
 }
 
 export type StartResult =
@@ -1430,7 +1430,7 @@ export class OperationEngine {
 
   private async announce(operationId: string): Promise<void> {
     const row = await this.deps.store.get(operationId)
-    if (row) this.deps.onChanged?.(row)
+    if (row) await this.deps.onChanged?.(row)
   }
 
   private now(): number {

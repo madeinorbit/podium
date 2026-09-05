@@ -1506,9 +1506,9 @@ describe('observers', () => {
       registry,
       clock: fakeClock().clock,
       newId: () => 'op_1',
-      onChanged: (row) => {
+      onChanged: async (row) => {
         // What an observer reads must already be what the database holds.
-        expect(row.state).toBe(store.get(row.id)?.state)
+        expect(row.state).toBe((await store.get(row.id))?.state)
         seen.push(row.state)
       },
     })
