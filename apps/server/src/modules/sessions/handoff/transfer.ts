@@ -287,7 +287,7 @@ export class HandoffTransfer {
       // reports, never `newCwd` (which may be a `cwdSubpath` below it). An older
       // daemon sends no root; leave the issue alone rather than guess its layout.
       if (session.issueId && imported.worktreeRoot) {
-        this.ports.rehomeIssue(session.issueId, {
+        await this.ports.rehomeIssue(session.issueId, {
           machineId: input.machineId,
           repoPath: targetRepo.path,
           worktreePath: imported.worktreeRoot,

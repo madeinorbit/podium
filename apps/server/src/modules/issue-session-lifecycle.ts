@@ -71,7 +71,7 @@ export class IssueSessionLifecycle {
     issueId: IssueId
     reason: ClosedIssueSweepReason
   }): Promise<void> {
-    void (await this.stopClosedIssueNow(input)).catch((error) => {
+    void this.stopClosedIssueNow(input).catch((error) => {
       log.warn('closed issue cleanup failed', { err: error, issueId: input.issueId })
     })
   }
@@ -79,7 +79,7 @@ export class IssueSessionLifecycle {
   private async stopClosedIssueNow(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
-  }): Promise<Promise<void>> {
+  }): Promise<void> {
     let issueId: IssueId
     try {
       issueId = await this.deps.issues.resolveRef(input.issueId)
@@ -94,7 +94,7 @@ export class IssueSessionLifecycle {
     const inFlight = this.closedIssueStops.get(issueId)
     if (inFlight) return inFlight
 
-    const task = await (async (): Promise<void> => {
+    const task = (async (): Promise<void> => {
       const current = await this.deps.issues.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
       const result = await this.stopIssue({
@@ -154,7 +154,7 @@ export class IssueSessionLifecycle {
   /** Start the boot pass and the bounded periodic backstop exactly once. */
   async startClosedIssueSweep(): Promise<void> {
     if (this.closedIssueSweepTimer) return
-    void (await this.sweepClosedIssues('startup')).catch((error) => {
+    void this.sweepClosedIssues('startup').catch((error) => {
       log.warn('closed issue startup sweep failed', { err: error })
     })
     this.closedIssueSweepTimer = setInterval(() => {

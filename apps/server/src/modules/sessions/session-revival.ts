@@ -249,7 +249,9 @@ export class SessionRevival {
       listMachines: async () => await this.ports.machines.listMachines(),
       waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
       issueMeta: async (issueId) => await this.ports.issueAccess.getMeta(issueId) ?? undefined,
-      rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
+      rehomeIssue: async (issueId, where) => {
+        await issues.rehome(issueId, where)
+      },
       ensureTargetRepo: async (sourceRepo, targetMachineId) =>
         await this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       write: (session, mutate) => this.ports.repository.write(session, mutate),
@@ -342,18 +344,15 @@ export class SessionRevival {
     // succeeds, so consulting its still-source-machine worktree here would
     // mistake the ordered handoff transition for stale resume state.
     const ensured = adoptedBinding
-      ? { ok: true, cwd: session.cwd }
-      : await this.ports.workspace.ensureSessionWorktree(session, issues)
-    if (ensured instanceof Promise) {
-      const resurrection = await ensured
-        .then(async (e) => await this.finishResurrect(session, e, adoptedBinding))
-        .finally(() => {
-          this.pendingResurrections.delete(sessionId)
-        })
-      this.pendingResurrections.set(sessionId, resurrection)
-      return resurrection
-    }
-    return await Promise.resolve(await this.finishResurrect(session, ensured, adoptedBinding))
+      ? Promise.resolve({ ok: true, cwd: session.cwd })
+      : Promise.resolve(this.ports.workspace.ensureSessionWorktree(session, issues))
+    const resurrection = ensured
+      .then(async (result) => await this.finishResurrect(session, result, adoptedBinding))
+      .finally(() => {
+        this.pendingResurrections.delete(sessionId)
+      })
+    this.pendingResurrections.set(sessionId, resurrection)
+    return await resurrection
   }
 
   async finishResurrect(

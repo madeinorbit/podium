@@ -211,12 +211,12 @@ export interface HandoffPorts {
   getSession(sessionId: SessionId): Session | undefined
   /** Every session, for the target worktree-occupancy guard. */
   listSessions(): { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
-  listRepos(): HandoffRepo[]
-  listMachines(): HandoffMachine[]
+  listRepos(): HandoffRepo[] | Promise<HandoffRepo[]>
+  listMachines(): HandoffMachine[] | Promise<HandoffMachine[]>
   /** Join a freshly attached target's first current-generation inventory report. */
   waitForInventory(machineId: MachineId): Promise<void>
-  issueMeta(issueId: IssueId): HandoffIssue | undefined
-  rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void
+  issueMeta(issueId: IssueId): HandoffIssue | undefined | Promise<HandoffIssue | undefined>
+  rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void | Promise<void>
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(session: Session, mutate: (draft: SessionDurableState) => void): void

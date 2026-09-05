@@ -151,7 +151,7 @@ export class HandoffCoordinator {
     // machines. Join the target daemon's reconnect probe before placement
     // interprets an omitted inventory as a retryable refusal.
     await this.ports.waitForInventory(input.machineId)
-    const placement = resolveHandoffPlacement(this.ports, input, caller)
+    const placement = await resolveHandoffPlacement(this.ports, input, caller)
     const prepared = await this.preflight.prepare(placement, input, assertMachineUse)
     return await this.transfer.apply(placement, prepared, input, caller, assertMachineUse)
   }
