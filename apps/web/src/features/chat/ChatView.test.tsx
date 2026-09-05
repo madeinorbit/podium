@@ -586,6 +586,63 @@ This is agent mail, not the operator's latest prompt.
 })
 
 describe('ChatView composer', () => {
+  it('releases the composer before a busy-session send is confirmed', async () => {
+    let confirmSend:
+      | ((result: {
+          ok: true
+          queued: true
+          disposition: 'accepted'
+          position: number
+        }) => void)
+      | undefined
+    let sendConfirmed = false
+    const confirmation = new Promise<{
+      ok: true
+      queued: true
+      disposition: 'accepted'
+      position: number
+    }>((resolve) => {
+      confirmSend = resolve
+    }).then((result) => {
+      sendConfirmed = true
+      return result
+    })
+    fakeTrpc.sessions.sendText.mutate.mockImplementationOnce(() => confirmation)
+    storeDrafts = { s1: 'first thought' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    const sendButton = container.querySelector<HTMLButtonElement>('button[title="Send (Enter)"]')
+    expect(textarea).not.toBeNull()
+    expect(sendButton).not.toBeNull()
+    if (!textarea || !sendButton) return
+
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+
+    expect(sendConfirmed).toBe(false)
+    expect(storeActions.setSessionDraft).toHaveBeenCalledWith('s1', '')
+    expect(container.querySelector('.transcript-pending')?.textContent).toContain('first thought')
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(textarea, 'second thought')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(sendConfirmed).toBe(false)
+    expect(sendButton.disabled).toBe(false)
+
+    confirmSend?.({ ok: true, queued: true, disposition: 'accepted', position: 1 })
+    await flush()
+  })
+
   it('shows the queue position returned by a busy live session', async () => {
     fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
       ok: true,
