@@ -1102,7 +1102,7 @@ describe('shipping durable store', () => {
     })
 
     const admissionProofs: RootIntegrationReceiptStore = s.shipping
-    const current = admissionProofs.rootIntegrationReceipt(rootIssueId, 'integrated-root-head')
+    const current = await admissionProofs.rootIntegrationReceipt(rootIssueId, 'integrated-root-head')
     expect(current).not.toBeNull()
     if (!current) throw new Error('expected typed integration proof')
     expect(

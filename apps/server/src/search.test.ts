@@ -320,7 +320,7 @@ describe('MemoryService omni-search', () => {
       return await listForResources(kind, ids)
     }
 
-    let visible: ReturnType<typeof registry.modules.memory.searchConversations>
+    let visible: Awaited<ReturnType<typeof registry.modules.memory.searchConversations>>
     try {
       visible = await registry.modules.memory.searchConversations(READER, { projectPath: '/repo' })
     } finally {
