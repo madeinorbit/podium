@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
 
-async function registryWithDaemon(store = openTestStore(':memory:')) {
+async function registryWithDaemon(store?: Awaited<ReturnType<typeof openTestStore>>) {
   const messages: unknown[] = []
-  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const resolvedStore = store ?? (await openTestStore(':memory:'))
+  const registry = await SessionRegistry.create(resolvedStore, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => messages.push(message))
-  return { registry, store, messages }
+  return { registry, store: resolvedStore, messages }
 }
 
 describe('issue/session deletion lifecycle', () => {
