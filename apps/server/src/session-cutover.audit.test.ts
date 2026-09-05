@@ -340,7 +340,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'original' })
 
-    o.reg.modules.mutations.once(asMutationId('planted'), 'sessions.rename', () => null)
+    await o.reg.modules.mutations.once(asMutationId('planted'), 'sessions.rename', () => null)
     await o.call.sessions.rename({ sessionId, name: 'should not apply', mutationId: 'planted' })
 
     expect((await o.meta(sessionId)).name).toBe('original')
@@ -358,7 +358,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       mutations: o.reg.modules.mutations,
     })
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
-    const applied = presence.execute(
+    const applied = await presence.execute(
       'sessions.rename',
       { sessionId, name: 'mine', mutationId: 'revoke-1' },
       owner,
@@ -375,7 +375,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       onBehalfOf: asUserId('user:stranger'),
       humanDirect: true,
     }
-    const replay = presence.execute(
+    const replay = await presence.execute(
       'sessions.rename',
       { sessionId, name: 'mine', mutationId: 'revoke-1' },
       stranger,
@@ -606,7 +606,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     })
 
     // A HUMAN acting directly writes a user-sourced name…
-    presence.execute(
+    await presence.execute(
       'sessions.rename',
       { sessionId, name: 'human choice' },
       {
@@ -622,7 +622,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // agent-naming path enforces [spec:SP-eb60]'s precedence. The distinction is
     // read off the principal's pair, not off which transport was used — and the
     // payload's own `humanDirect` / `actor` claims are not even representable.
-    const result = presence.execute(
+    const result = await presence.execute(
       'sessions.rename',
       {
         sessionId,
@@ -980,13 +980,13 @@ describe('AC7 · the command surface is not an existence oracle', () => {
 
       mutations: o.reg.modules.mutations,
     })
-    const ghost = presence.execute(
+    const ghost = await presence.execute(
       'sessions.rename',
       { sessionId: GHOST, name: 'x' },
       soleHumanSessionStatePrincipal(OPERATOR),
     )
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const denied = presence.execute(
+    const denied = await presence.execute(
       'sessions.rename',
       { sessionId, name: 'x' },
       {

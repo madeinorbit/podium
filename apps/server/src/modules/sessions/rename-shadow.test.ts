@@ -112,7 +112,7 @@ async function runLegacy(input: { sessionId: string; name: string }, actor: Acto
   const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
 
-  const result = presence.execute(
+  const result = await presence.execute(
     'sessions.rename',
     { ...input, sessionId: created.sessionId },
     soleHumanSessionStatePrincipal(capability),
@@ -138,7 +138,7 @@ async function runTarget(input: { sessionId: string; name: string }, actor: Acto
   const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   const deps = { sessions: sessions as RenameServices, mutations }
 
-  const dispatch = renameOnTargetPath(
+  const dispatch = await renameOnTargetPath(
     deps,
     { ...input, sessionId: created.sessionId },
     actor === 'agent' ? agentPrincipal : humanPrincipal,
@@ -196,7 +196,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // verbatim — a migration that quietly reworded a user-visible refusal would
     // fail here rather than ship.
     const legacy = await runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
-    const legacyAgent = new SessionStateRegistry({
+    const legacyAgent = await new SessionStateRegistry({
       sessions: legacy.sessions,
       state: legacy.sessions.state,
       mutations: legacy.mutations,
@@ -208,7 +208,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     )
 
     const target = await runTarget({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
-    const targetAgent = renameOnTargetPath(
+    const targetAgent = await renameOnTargetPath(
       target.deps,
       { sessionId: target.created.sessionId, name: 'agent guess' },
       agentPrincipal,
@@ -237,13 +237,13 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // answer or the migration itself becomes the oracle.
     const { store, sessions, mutations } = await stack()
     const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
-    const legacy = presence.execute(
+    const legacy = await presence.execute(
       'sessions.rename',
       { sessionId: asSessionId('no-such-session'), name: 'x' },
       soleHumanSessionStatePrincipal(OPERATOR),
       'trpc',
     )
-    const target = renameOnTargetPath(
+    const target = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: asSessionId('no-such-session'), name: 'x' },
       humanPrincipal,
@@ -408,7 +408,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
       chain: [],
     }
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: created.sessionId, name: 'mine to rename' },
       ownAgent,
@@ -433,7 +433,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
       chain: [],
     }
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: created.sessionId, name: 'not yours' },
       strangersAgent,

@@ -155,7 +155,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     const bob = sessionStatePrincipal(f.agents.bob)
     const aliceUntil = '2099-08-01T01:00:00.000Z'
     const bobUntil = '2099-08-01T02:00:00.000Z'
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'snoozes.set',
       {
         sessionId: f.alice.sessionId,
@@ -166,19 +166,19 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
-    f.sessionState.execute(
+    await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    await f.sessionState.execute(
       'pins.set',
       { kind: 'panel', id: f.alice.sessionId, pinned: true },
       alice,
     )
-    f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
-    f.sessionState.execute(
+    await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
+    await f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
       alice,
     )
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
       bob,
@@ -201,7 +201,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
 
   it(`${MUST_NOT_CHANGE}: readAt is keyed by the on-behalf-of human and one viewer cannot clear another viewer's marker`, async () => {
     const f = await twoUserOracle()
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'sessions.markRead',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.alice),
@@ -211,7 +211,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     )
     expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
     expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'sessions.markUnread',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.bob),

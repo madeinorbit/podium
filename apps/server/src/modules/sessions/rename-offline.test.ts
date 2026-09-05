@@ -139,7 +139,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     // whole file would prove nothing.
     const s = await revocableStack()
 
-    const drained = renameOnTargetPath(
+    const drained = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'queued while offline', mutationId: 'm1' },
       human,
@@ -160,7 +160,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     // client knows, and nothing on the server was told to go and invalidate a copy.
     s.ownership.owner = 'user:someone-else'
 
-    const drained = renameOnTargetPath(
+    const drained = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'queued while offline', mutationId: 'm1' },
       human,
@@ -182,17 +182,17 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
 
     // Instrument first: this agent CAN write before the revocation.
     expect(
-      renameOnTargetPath(
+      (await renameOnTargetPath(
         s.deps,
         { sessionId: s.sessionId, name: 'agent name', mutationId: 'pre' },
         agent,
         'outbox',
-      ).outcome,
+      )).outcome,
     ).toBe('applied')
 
     s.ownership.owner = 'user:someone-else'
 
-    const drained = renameOnTargetPath(
+    const drained = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'after revoke', mutationId: 'm2' },
       agent,
@@ -210,23 +210,23 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
     expect(
-      renameOnTargetPath(
+      (await renameOnTargetPath(
         s.deps,
         { sessionId: s.sessionId, name: 'nope', mutationId: 'a' },
         human,
         'outbox',
-      ).outcome,
+      )).outcome,
     ).toBe('denied')
 
     s.ownership.owner = FIRST_ADMIN_USER_ID
 
     expect(
-      renameOnTargetPath(
+      (await renameOnTargetPath(
         s.deps,
         { sessionId: s.sessionId, name: 'yes', mutationId: 'b' },
         human,
         'outbox',
-      ).outcome,
+      )).outcome,
     ).toBe('applied')
     expect(await s.nameNow()).toBe('yes')
   })
@@ -237,23 +237,23 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     s.ownership.grants = [FIRST_ADMIN_USER_ID]
 
     expect(
-      renameOnTargetPath(
+      (await renameOnTargetPath(
         s.deps,
         { sessionId: s.sessionId, name: 'granted', mutationId: 'g1' },
         human,
         'outbox',
-      ).outcome,
+      )).outcome,
     ).toBe('applied')
 
     // Revoke the GRANT specifically (ownership unchanged) — the write stops.
     s.ownership.grants = []
     expect(
-      renameOnTargetPath(
+      (await renameOnTargetPath(
         s.deps,
         { sessionId: s.sessionId, name: 'after grant revoked', mutationId: 'g2' },
         human,
         'outbox',
-      ).outcome,
+      )).outcome,
     ).toBe('denied')
     expect(await s.nameNow()).toBe('granted')
   })
@@ -271,7 +271,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
     // authorization first precisely so this cannot happen (ADR 3 D8).
     const s = await revocableStack()
 
-    const first = renameOnTargetPath(
+    const first = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'authored while allowed', mutationId: 'dup-1' },
       human,
@@ -285,7 +285,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
 
     s.ownership.owner = 'user:someone-else'
 
-    const replay = renameOnTargetPath(
+    const replay = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'authored while allowed', mutationId: 'dup-1' },
       human,
@@ -299,13 +299,13 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
     // The counterfactual: idempotency is not simply broken. Same replay, rights
     // intact, and it is served from the cache as `replayed` rather than applied twice.
     const s = await revocableStack()
-    renameOnTargetPath(
+    await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'once', mutationId: 'dup-2' },
       human,
       'outbox',
     )
-    const replay = renameOnTargetPath(
+    const replay = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'DIFFERENT NAME', mutationId: 'dup-2' },
       human,
@@ -341,15 +341,19 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
     // between calls, flipping ownership between two otherwise identical drains
     // could not change the outcome. It does.
     const s = await revocableStack()
-    const call = (mutationId: string) =>
-      renameOnTargetPath(s.deps, { sessionId: s.sessionId, name: 'n', mutationId }, human, 'outbox')
-        .outcome
+    const call = async (mutationId: string) =>
+      (await renameOnTargetPath(
+        s.deps,
+        { sessionId: s.sessionId, name: 'n', mutationId },
+        human,
+        'outbox',
+      )).outcome
 
-    expect(call('s1')).toBe('applied')
+    expect(await call('s1')).toBe('applied')
     s.ownership.owner = 'user:someone-else'
-    expect(call('s2')).toBe('denied')
+    expect(await call('s2')).toBe('denied')
     s.ownership.owner = FIRST_ADMIN_USER_ID
-    expect(call('s3')).toBe('applied')
+    expect(await call('s3')).toBe('applied')
   })
 })
 
@@ -364,7 +368,7 @@ describe('the offline transport is served because the CONTRACT says so', () => {
     // payload proves the exposure check ran FIRST — a parse-first envelope would
     // have answered `invalid-input`.
     const s = await revocableStack()
-    const refused = renameOnTargetPath(s.deps, { total: 'garbage' }, human, 'relay')
+    const refused = await renameOnTargetPath(s.deps, { total: 'garbage' }, human, 'relay')
     expect(refused.outcome).toBe('not-exposed')
   })
 })
@@ -405,7 +409,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
       capability: OPERATOR,
     }
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'operator wrote this', mutationId: 'op-1' },
       operator,
@@ -427,7 +431,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'agent tried', mutationId: 'op-2' },
       agentOf('agent-sess-7', FIRST_ADMIN_USER_ID),

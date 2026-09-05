@@ -677,11 +677,11 @@ describe('framework idempotency (modules.mutations)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let runs = 0
-    const first = reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
+    const first = await reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
+    const replay = await reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -690,7 +690,7 @@ describe('framework idempotency (modules.mutations)', () => {
     expect(replay).toEqual(first) // deep-equal via the JSON round-trip
 
     // A different id runs again.
-    const other = reg.modules.mutations.once(asMutationId('m-2'), 'test.proc', () => {
+    const other = await reg.modules.mutations.once(asMutationId('m-2'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['c'] }
     })
@@ -698,11 +698,11 @@ describe('framework idempotency (modules.mutations)', () => {
     expect(other).toEqual({ ok: true, ids: ['c'] })
 
     // No id at all = today's behavior: always runs.
-    reg.modules.mutations.once(undefined, 'test.proc', () => {
+    await reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
-    reg.modules.mutations.once(undefined, 'test.proc', () => {
+    await reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
@@ -737,8 +737,8 @@ describe('framework idempotency (modules.mutations)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-      const send = () =>
-        reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', () =>
+      const send = async () =>
+        await reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', () =>
           reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
       // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES (POD-2842): the send is
@@ -746,8 +746,8 @@ describe('framework idempotency (modules.mutations)', () => {
       // that the bytes are not on the wire yet — see the note above
       // `describe('queueText (durable outbox sends)')` for why that is the
       // contract, and why this file used to say the opposite on this very line.
-      expect(send()).toEqual({ ok: true, queued: true })
-      expect(send()).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
+      expect(await send()).toEqual({ ok: true, queued: true })
+      expect(await send()).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
       // Nothing is typed into a composer that has not proven it is mounted.
       vi.advanceTimersByTime(100)
       expect(decodedInputs(daemon)).toEqual([])
