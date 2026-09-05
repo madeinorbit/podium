@@ -183,10 +183,10 @@ interface DaemonRpcDeps {
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  defaultMachine(): MachineId
-  resolveMachine(requested: string | undefined, cwd: string): string
+  defaultMachine(): MachineId | Promise<MachineId>
+  resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   hasDaemon(machineId: MachineId): boolean
-  machineName(id: MachineId): string
+  machineName(id: MachineId): string | Promise<string>
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
   portableStateFence?: PortableStateWriteFence
@@ -424,8 +424,8 @@ export class DaemonRpcService {
    * the segment lookup that turns a path into a session has to be scoped to the
    * daemon whose walk produced it (POD-1858).
    */
-  answeringMachineId(): MachineId {
-    return this.deps.defaultMachine()
+  async answeringMachineId(): Promise<MachineId> {
+    return await this.deps.defaultMachine()
   }
 
   nextRequestId(prefix: string): string {
@@ -690,7 +690,7 @@ export class DaemonRpcService {
     return await Promise.all(
       machineIds.map(async (machineId) => {
         const { hostname, agents } = await this.agentQuota(refresh, machineId)
-        return { machineId, machineName: this.deps.machineName(machineId), hostname, agents }
+        return { machineId, machineName: await this.deps.machineName(machineId), hostname, agents }
       }),
     )
   }
@@ -707,7 +707,7 @@ export class DaemonRpcService {
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      asMachineId(machineId ?? this.deps.resolveMachine(undefined, cwd)),
+      asMachineId(machineId ?? await this.deps.resolveMachine(undefined, cwd)),
     )
   }
 
@@ -1558,7 +1558,7 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
     const manifest = input.manifest as ServerTransferManifest
-    const sourceMachineId = this.deps.defaultMachine()
+    const sourceMachineId = await this.deps.defaultMachine()
     if (
       manifest.transferId !== input.transferId ||
       manifest.sourceMachineId !== sourceMachineId ||

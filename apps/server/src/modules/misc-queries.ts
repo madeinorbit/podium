@@ -170,7 +170,7 @@ export const USAGE_QUERIES = {
         // last window's numbers as current and keeps a transcript that has
         // since fallen out of the window contributing to "attributed".
         const foldSinceMs = sourcesSinceMs ?? sinceMs
-        await new CostService(s.store).ingest(s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
+        await new CostService(s.store).ingest(await s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
       } catch (err) {
         log.warn('cost fold failed — usage buckets unaffected', { err })
       }
