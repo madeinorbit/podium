@@ -98,12 +98,12 @@ const automationInput = {
 }
 
 describe('POD-1509 — a removal reaches the principal who owned the row', () => {
-  it("delivers the automation's `remove` to its owner, not a bare watermark", () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it("delivers the automation's `remove` to its owner, not a bare watermark", async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
 
-    const created = reg.modules.automations.create(automationInput, principal)
+    const created = await reg.modules.automations.create(automationInput, principal)
 
     // CONTROL: the arm that always worked. If this is empty the subscription is
     // wrong and the remove assertion below would pass for the wrong reason.
@@ -113,7 +113,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       op: 'upsert',
     })
 
-    expect(reg.modules.automations.remove(created.id, principal)).toEqual({ removed: true })
+    expect(await reg.modules.automations.remove(created.id, principal)).toEqual({ removed: true })
 
     // THE ASSERTION THAT WAS FAILING. Before the fix this array held the upsert
     // and nothing else: the removal was evaluated, refused, and turned into a
@@ -126,16 +126,16 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
 
     // …and the row really is gone from the server's own truth, so this is a
     // deletion that was BROADCAST rather than a broadcast that was faked.
-    expect(reg.modules.automations.list()).toEqual([])
+    expect(await reg.modules.automations.list()).toEqual([])
   })
 
-  it("delivers a run's `remove` too — the cascade no longer fires, so it is stamped", () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it("delivers a run's `remove` too — the cascade no longer fires, so it is stamped", async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
     const store = (reg as unknown as { store: { automations: AutomationRunWriter } }).store
 
-    const created = reg.modules.automations.create(automationInput, principal)
+    const created = await reg.modules.automations.create(automationInput, principal)
     // THROUGH THE LEDGER, exactly as `recordRun` does, and not straight into the
     // store. The Authority drops a `remove` for an id its log never recorded, so
     // a run inserted behind the ledger would make this assertion fail for a
@@ -151,12 +151,12 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       actor: OWNER,
       onBehalfOf: OWNER,
     }
-    ledgerOf(reg).commit({
+    await ledgerOf(reg).commit({
       write: () => store.automations.addRun(run),
       changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
     })
 
-    reg.modules.automations.remove(created.id, principal)
+    await reg.modules.automations.remove(created.id, principal)
 
     // `automation_runs` used to leave through `ON DELETE CASCADE`. The parent row
     // now survives as a tombstone, so that cascade does not fire and the child
@@ -168,16 +168,16 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       entityId: 'run_pod1509',
       op: 'remove',
     })
-    expect(reg.modules.automations.runs(created.id)).toEqual([])
+    expect(await reg.modules.automations.runs(created.id)).toEqual([])
   })
 
-  it('does not deliver another user’s removal — the fix widens delivery, not visibility', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('does not deliver another user’s removal — the fix widens delivery, not visibility', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const owner = userCommandPrincipal(OWNER, 'admin')
     const stranger = deliveriesFor(reg, feedPrincipalFor('user:someone-else'))
 
-    const created = reg.modules.automations.create(automationInput, owner)
-    reg.modules.automations.remove(created.id, owner)
+    const created = await reg.modules.automations.create(automationInput, owner)
+    await reg.modules.automations.remove(created.id, owner)
 
     // Reading ownership THROUGH the tombstone must not become "everyone may see
     // deletions". A principal who could never see the automation is told

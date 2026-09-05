@@ -198,14 +198,6 @@ interface StagedRow {
   payload: string | null
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value != null &&
-    (typeof value === 'object' || typeof value === 'function') &&
-    typeof (value as { then?: unknown }).then === 'function'
-  )
-}
-
 /** One subscription: who it is for, and where its deliveries go. */
 interface ScopedSubscription {
   readonly principal: Principal
@@ -214,6 +206,7 @@ interface ScopedSubscription {
 
 export class Authority implements AuthorityPort {
   private readonly baseline: ChangeBaseline
+  private readonly ready: Promise<void>
   private readonly subscribers = new Set<ScopedSubscription>()
 
   constructor(private readonly deps: AuthorityDeps) {
@@ -221,16 +214,18 @@ export class Authority implements AuthorityPort {
     // ONE decision, made where the staging happens, instead of being asked here
     // and answered there.
     this.baseline = new ChangeBaseline(deps.applyCommit)
-    this.baseline.seed(deps.store)
+    this.ready = this.baseline.seed(deps.store)
   }
 
   /** Current durable values for one entity kind, used only for full snapshot assembly. */
-  snapshot(entity: MetadataEntityKind): readonly unknown[] {
+  async snapshot(entity: MetadataEntityKind): Promise<readonly unknown[]> {
+    await this.ready
     this.baseline.freshen()
     return this.baseline.values(entity)
   }
 
-  commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T> {
+  async commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>> {
+    await this.ready
     // 0. Before the span opens, while "is a span open?" still answers about the
     //    CALLER's span rather than this commit's own. The check is on the way IN
     //    and there is deliberately no abort hook: nothing has to REMEMBER to
@@ -239,7 +234,7 @@ export class Authority implements AuthorityPort {
     //    never kept [POD-3328].
     this.baseline.freshen()
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
-    op.authorize?.()
+    await op.authorize?.()
 
     // 2. ARBITRATE + 3. WRITE + APPEND, one span. The current-state hook runs
     //    INSIDE this transaction, immediately before the write, so arbitration
@@ -249,13 +244,13 @@ export class Authority implements AuthorityPort {
     //    its own clock the only one a field-LWW row may arbitrate on, and the
     //    port has nowhere for a caller to supply a different one.
     const eventTime = this.deps.now()
-    const committed = this.deps.transact(() => {
+    const committed = await this.deps.transact(async () => {
       if (op.arbitrate !== undefined) {
         const { current, ...request } = op.arbitrate
         const verdict = arbitrate({
           ...request,
           attempt: { ...request.attempt, eventTime },
-          ...(current === undefined ? {} : { current: current() }),
+          ...(current === undefined ? {} : { current: await current() }),
         })
         if (verdict.kind === 'reject') {
           return verdict.detail === undefined
@@ -264,18 +259,9 @@ export class Authority implements AuthorityPort {
         }
       }
 
-      const result = op.write()
-      // An async write() smuggles a Promise past transact()'s own thenable check:
-      // it is wrapped in this object, not returned directly, so the change row
-      // would commit now while the entity write ran later outside the transaction.
-      if (isThenable(result)) {
-        throw new TypeError(
-          'Authority.commit: write() returned a thenable — the entity write must be synchronous ' +
-            'so it commits atomically with the change append (ADR 2 D10).',
-        )
-      }
+      const result = await op.write()
       const rows = this.stage(op.changes(result))
-      const seqs = rows.length > 0 ? this.append(rows, eventTime) : []
+      const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       return { outcome: 'committed', result, rows, seqs } as const
     })
 
@@ -290,18 +276,20 @@ export class Authority implements AuthorityPort {
     }
   }
 
-  capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[] {
+  async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
+    await this.ready
     this.baseline.freshen()
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
+    const seqs = staged.length > 0 ? await this.append(staged, eventTime) : []
     return this.finalize(staged, seqs)
   }
 
-  reconcile(
+  async reconcile(
     entity: MetadataEntityKind,
     rows: readonly { readonly id: string; readonly value: unknown }[],
-  ): readonly SequencedChange[] {
+  ): Promise<readonly SequencedChange[]> {
+    await this.ready
     this.baseline.freshen()
     const specs: StagedChangeSpec[] = rows.map((r) => ({
       entity,
@@ -319,7 +307,7 @@ export class Authority implements AuthorityPort {
     }
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
+    const seqs = staged.length > 0 ? await this.append(staged, eventTime) : []
     return this.finalize(staged, seqs)
   }
 
@@ -334,14 +322,16 @@ export class Authority implements AuthorityPort {
    * reachable here rather than only on the live path because a heal is how a
    * replica recovers from every rung of the ladder.
    */
-  changesSince(cursor: number | null, principal: Principal): ScopedDelivery | null {
-    const rows = readChangesSince(this.deps.store, cursor)
+  async changesSince(cursor: number | null, principal: Principal): Promise<ScopedDelivery | null> {
+    await this.ready
+    const rows = await readChangesSince(this.deps.store, cursor)
     if (rows === null) return null
-    return this.scope(principal, rows.map(fromWire), this.cursor())
+    return this.scope(principal, rows.map(fromWire), await this.cursor())
   }
 
-  cursor(): number {
-    return this.deps.store.maxChangeSeq()
+  async cursor(): Promise<number> {
+    await this.ready
+    return await this.deps.store.maxChangeSeq()
   }
 
   /**
@@ -375,9 +365,10 @@ export class Authority implements AuthorityPort {
    * it stands, which is what the v1 snapshot could never offer because its
    * message carried no position at all.
    */
-  bootstrap(principal: Principal): ScopedBootstrap {
+  async bootstrap(principal: Principal): Promise<ScopedBootstrap> {
+    await this.ready
     const state: SequencedChange[] = []
-    for (const row of this.deps.store.latestChangeStates()) {
+    for (const row of await this.deps.store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload === null) continue
       try {
         state.push({
@@ -394,7 +385,7 @@ export class Authority implements AuthorityPort {
         // into every replica.
       }
     }
-    return scopeBootstrap({ policy: this.deps.visibility }, principal, state, this.cursor())
+    return scopeBootstrap({ policy: this.deps.visibility }, principal, state, await this.cursor())
   }
 
   /**
@@ -412,8 +403,8 @@ export class Authority implements AuthorityPort {
    * forward falls below `minAvailableSeq` and re-bootstraps for lack of news. The
    * CADENCE is POD-337's measured threshold; this is the operation it calls.
    */
-  watermark(principal: Principal): ScopedDelivery {
-    return this.scope(principal, [], this.cursor())
+  async watermark(principal: Principal): Promise<ScopedDelivery> {
+    return this.scope(principal, [], await this.cursor())
   }
 
   subscribe(principal: Principal, subscriber: ChangeSubscriber): () => void {
@@ -509,8 +500,8 @@ export class Authority implements AuthorityPort {
     return rows
   }
 
-  private append(rows: readonly StagedRow[], eventTime: number): number[] {
-    return this.deps.store.appendChanges(
+  private async append(rows: readonly StagedRow[], eventTime: number): Promise<number[]> {
+    return await this.deps.store.appendChanges(
       rows.map((r) => ({
         entity: r.spec.entity,
         entityId: r.spec.entityId,

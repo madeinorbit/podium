@@ -69,7 +69,7 @@ export async function awaitAgentHandler(
       return finishAwait(ctx, isParent, caller, input.sessionId, {
         done: true,
         result: 'acked',
-        ack: access.wire(ack),
+        ack: await access.wire(ack),
         snapshot: snap(s),
       })
     }

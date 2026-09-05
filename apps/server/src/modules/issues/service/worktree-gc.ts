@@ -37,19 +37,19 @@ export class IssueWorktreeGcModule {
     id: string,
     principal: CommandPrincipal,
   ): Promise<ReleaseWorktreeResult> {
-    const row = this.store.rowOrThrow(id)
+    const row = await this.store.rowOrThrow(id)
     const worktreePath = row.worktreePath
     if (!worktreePath) return { freed: false }
     const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.listSessions())
     if (stillUsing.length > 0) {
-      return this.refuseRelease(
+      return await this.refuseRelease(
         row,
         worktreePath,
         `${stillUsing.length} live session(s) still in ${worktreePath}`,
       )
     }
     const freed = await this.freeWorktreeKeepBranch(id, principal)
-    if (!freed.ok) return this.refuseRelease(row, worktreePath, freed.output)
+    if (!freed.ok) return await this.refuseRelease(row, worktreePath, freed.output)
     return freed.worktreeFreed ? { freed: true } : { freed: false }
   }
 
@@ -64,7 +64,7 @@ export class IssueWorktreeGcModule {
     const { afterDays } = this.store.d.getSettings().worktreeGc
     const targetMachineId = machineId ?? this.store.d.store.hostMachineId
     const live = this.store.d.listSessions()
-    const repoRows = this.store.d.store.repos.listRepos(targetMachineId)
+    const repoRows = await this.store.d.store.repos.listRepos(targetMachineId)
     const discovered = new Map<
       string,
       {
@@ -196,7 +196,7 @@ export class IssueWorktreeGcModule {
       return { outcome: 'precondition' as const }
     }
     if (observed.mode === 'propose') {
-      this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
+      await this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
         seq: row.seq,
         worktreePath: observed.worktreePath,
         closedAt: observed.closedAt,
@@ -209,8 +209,8 @@ export class IssueWorktreeGcModule {
     return { outcome: 'refused' as const, reason: result.reason ?? 'not released' }
   }
 
-  private refuseRelease(row: IssueRow, worktreePath: string, reason: string) {
-    this.store.emitEvent('issue.worktree_free_refused', row.id, {
+  private async refuseRelease(row: IssueRow, worktreePath: string, reason: string) {
+    await this.store.emitEvent('issue.worktree_free_refused', row.id, {
       seq: row.seq,
       worktreePath,
       reason,

@@ -13,15 +13,15 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function client() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function client() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   return registry.issueCommands.asIssueTrpc(OPERATOR)
 }
 
 describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
   it('forwards a mutation (.mutate) through the registry pipeline', async () => {
-    const c = client()
+    const c = await client()
     const created = (await c.issues.create.mutate({
       repoPath: '/r',
       title: 'via adapter',
@@ -32,14 +32,14 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
   })
 
   it('forwards a query (.query) through the registry pipeline', async () => {
-    const c = client()
+    const c = await client()
     await c.issues.create.mutate({ repoPath: '/r', title: 'q', startNow: false })
     const list = await c.issues.list.query({ repoPath: '/r' })
     expect(list).toHaveLength(1)
   })
 
   it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree ([spec:SP-0fc9])', async () => {
-    const c = client()
+    const c = await client()
     const created = (await c.issues.create.mutate({
       repoPath: '/r',
       title: 'a',
@@ -58,7 +58,7 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
   })
 
   it('an unknown router/proc throws the historical "no such issue procedure"', async () => {
-    const c = client()
+    const c = await client()
     expect(() => c.specs.list.query({})).toThrow(/no such issue procedure: specs\.list/)
   })
 })

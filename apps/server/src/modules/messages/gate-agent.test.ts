@@ -177,7 +177,7 @@ describe('agent spawn (gate)', () => {
       },
     })
 
-    const pending = gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+    const pending = await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
       issue: ISSUE.id,
       prompt: 'start after probing',
       harness: 'claude-code',
@@ -298,7 +298,7 @@ describe('agent spawn (gate)', () => {
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
       await expect(
-        gate.dispatch(PARENT, true, 'spawnAgent', {
+        await gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
           executionProfileId: 'prof_x',
@@ -316,7 +316,7 @@ describe('agent spawn (gate)', () => {
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
       await expect(
-        gate.dispatch(PARENT, true, 'spawnAgent', {
+        await gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
           executionProfileId: 'prof_x',
@@ -406,7 +406,7 @@ describe('agent spawn (gate)', () => {
   it('authz: a subtree caller spawning onto ANOTHER issue needs --outside-scope', async () => {
     const { gate } = await harness()
     await expect(
-      gate.dispatch(PARENT, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      await gate.dispatch(PARENT, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/outside your subtree/)
   })
 
@@ -430,13 +430,13 @@ describe('agent spawn (gate)', () => {
   it('rejects --issue AND --new together, and neither', async () => {
     const { gate } = await harness()
     await expect(
-      gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
         issue: ISSUE.id,
         newTitle: 't',
         prompt: 'x',
       }),
     ).rejects.toThrow(/not both/)
-    await expect(gate.dispatch(OPERATOR, undefined, 'spawnAgent', { prompt: 'x' })).rejects.toThrow(
+    await expect(await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { prompt: 'x' })).rejects.toThrow(
       /--issue|--new/,
     )
   })
@@ -448,7 +448,7 @@ describe('agent spawn (gate)', () => {
     }
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY)
     await expect(
-      gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/spawn budget exhausted/)
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY) // the refused spawn never ran
     // Durably ledgered for the audit trail.
@@ -456,7 +456,7 @@ describe('agent spawn (gate)', () => {
     expect(evs).toHaveLength(1)
     // Operator spawns are never budgeted.
     await expect(
-      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).resolves.toMatchObject({ ok: true })
   })
 
@@ -468,7 +468,7 @@ describe('agent spawn (gate)', () => {
     // Fresh service + gate over the SAME store: the budget is still spent.
     const second = await harness({ store: first.store })
     await expect(
-      second.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      await second.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/spawn budget exhausted/)
   })
 
@@ -488,13 +488,13 @@ describe('agent spawn (gate)', () => {
       },
     })
     await expect(
-      gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow("machine 'Builder' is offline")
     // Recorded as-is rather than judged: the unit is consumed before the seam
     // runs and is NOT refunded when the seam throws, so the next call is the
     // second of the day. A looping agent whose spawns all fail is still braked,
     // which is the reason the ordering is this way round.
-    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id)).count).toBe(2)
+    expect((await svc.takeSpawnBudget(asIssueId(ISSUE.id))).count).toBe(2)
     // …but the charge is IN-MEMORY: no `agent.spawned` event was written, so a
     // restart forgives it. That asymmetry is the thing to notice if this ever
     // needs changing — the durable half and the live half disagree on purpose.
@@ -514,7 +514,7 @@ describe('agent spawn (gate)', () => {
     expect(spawned.some((e) => 'budgetIssue' in (e.payload as object))).toBe(false)
     // And an agent's budget on the same issue is untouched — the operator's
     // spawns did not spend it.
-    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
+    expect(await svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
   })
 
   it('--new needs --repo when the caller has NO issue scope to inherit one from', async () => {
@@ -523,7 +523,7 @@ describe('agent spawn (gate)', () => {
     // inherit from, so the repo has to be named or the child has nowhere to live.
     const { gate, created } = await harness()
     await expect(
-      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
+      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
     ).rejects.toThrow('--new needs --repo (no issue scope to inherit a repo from)')
     expect(created).toEqual([])
     await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
@@ -559,17 +559,17 @@ describe('agent spawn (gate)', () => {
     // minute either side of midnight UTC is the whole difference.
     let clock = '2026-07-20T23:59:00.000Z'
     const { svc } = await harness({ now: () => clock })
-    for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) svc.takeSpawnBudget(asIssueId(ISSUE.id))
-    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id)).ok).toBe(false)
+    for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) await svc.takeSpawnBudget(asIssueId(ISSUE.id))
+    expect((await svc.takeSpawnBudget(asIssueId(ISSUE.id))).ok).toBe(false)
     clock = '2026-07-21T00:01:00.000Z'
-    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
+    expect(await svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
   })
 
   it('--worktree on an unstarted issue refuses (issue start stays deliberate)', async () => {
     const { gate } = await harness()
     await gate.dispatch(PARENT, undefined, 'spawnAgent', { newTitle: 'w', prompt: 'x' }) // iss_new: no worktree
     await expect(
-      gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
         issue: 'iss_new',
         prompt: 'x',
         worktree: true,
@@ -752,7 +752,7 @@ describe('agent await (bounded, never hangs)', () => {
     const sessions = [child({})] // live + working: the await actually waits
     const { gate, svc } = await harness({ sessions, now })
     // Parent messages the child; the child acks back to the parent session.
-    const sent = svc.send(
+    const sent = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'report in' },
     )
@@ -760,13 +760,13 @@ describe('agent await (bounded, never hangs)', () => {
       child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
     )
     t = 2_000
-    const p = gate.dispatch(PARENT, undefined, 'awaitAgent', {
+    const p = await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 5,
     }) as Promise<{ done: boolean; result: string; ack?: { body: string } }>
     // The ack postdates the await start (the freshness contract).
     t = 3_000
-    svc.sendReply(
+    await svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: sent.message.id, body: 'done: merged 3 commits' },
     )
@@ -781,7 +781,7 @@ describe('agent await (bounded, never hangs)', () => {
     const now = () => new Date(t).toISOString()
     const sessions = [child({ status: 'exited' })]
     const { gate, svc } = await harness({ sessions, now })
-    const sent = svc.send(
+    const sent = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'report in' },
     )
@@ -790,7 +790,7 @@ describe('agent await (bounded, never hangs)', () => {
     )
     // Ack after waitStart but child already exited — ack wins over gone.
     t = 2_000
-    svc.sendReply(
+    await svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: sent.message.id, body: 'shipped; exiting' },
     )
@@ -809,14 +809,14 @@ describe('agent await (bounded, never hangs)', () => {
     const sessions = [child({ status: 'exited' })]
     const { gate, svc } = await harness({ sessions, now })
     // Round 1: parent asked, child acked, parent awaited — all in the past.
-    const sent = svc.send(
+    const sent = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'first instruction' },
     )
     sessions.push(
       child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
     )
-    svc.sendReply(
+    await svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: sent.message.id, body: 'round 1 done' },
     )
@@ -839,7 +839,7 @@ describe('agent await (bounded, never hangs)', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     await expect(
-      gate.dispatch(stranger, undefined, 'awaitAgent', {
+      await gate.dispatch(stranger, undefined, 'awaitAgent', {
         sessionId: asSessionId('child1'),
         timeoutSeconds: 0,
       }),
@@ -1003,8 +1003,8 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     expect(r).not.toHaveProperty('position')
     // The durable row is the reload projection's source of truth. Once the
     // boundary confirms it, a fresh lookup agrees that no queued position remains.
-    expect(svc.message(r.id)).toMatchObject({ status: 'delivered' })
-    expect(svc.message(r.id)).not.toHaveProperty('queuePosition')
+    expect(await svc.message(r.id)).toMatchObject({ status: 'delivered' })
+    expect(await svc.message(r.id)).not.toHaveProperty('queuePosition')
   })
 
   it('an fyi send returns at queued without blocking', async () => {
@@ -1037,7 +1037,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
 
   it('round-trips: question → delivery with the answer-then-resume envelope → ack carries the answer back', async () => {
     const { gate, svc, sent } = await harness({ sessions: [child({})] })
-    const p = gate.dispatch(PARENT, true, 'ask', {
+    const p = await gate.dispatch(PARENT, true, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
       timeoutSeconds: 5,
@@ -1053,7 +1053,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
     const id = /podium message (msg_\S+) /.exec(text)![1]!
     expect(text).toContain(`podium mail reply ${id}`)
     // The child answers via the ack — only the answer crosses back.
-    svc.sendReply(
+    await svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: id, body: 'port 18787' },
     )
@@ -1063,7 +1063,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
 
   it('an OPERATOR ask against a live idle target round-trips: the question frame carries the reply pointer', async () => {
     const { gate, svc, sent } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
-    const p = gate.dispatch(OPERATOR, undefined, 'ask', {
+    const p = await gate.dispatch(OPERATOR, undefined, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
       timeoutSeconds: 5,
@@ -1079,7 +1079,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
     expect(id).not.toBe('')
     expect(text).toContain(`podium mail reply ${id}`)
     // The target acks with the answer — the round trip completes.
-    svc.sendReply(
+    await svc.sendReply(
       { kind: 'agent', sessionId: asSessionId('child1'), issueId: asIssueId(ISSUE.id) },
       { inReplyTo: id, body: 'port 18787' },
     )
@@ -1128,13 +1128,13 @@ describe('session ask — the seance (#237 tier 4)', () => {
       timeoutSeconds: 0,
     })) as { clamped?: boolean; questionId: string }
     expect(second.clamped).toBe(true)
-    expect(svc.message(second.questionId)?.lifecycle).toBe('wait')
+    expect((await svc.message(second.questionId))?.lifecycle).toBe('wait')
   })
 
   it('is subject to the session-target scope gate: denied outside the subtree without --outside-scope', async () => {
     const { gate } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
     await expect(
-      gate.dispatch(PARENT, undefined, 'ask', {
+      await gate.dispatch(PARENT, undefined, 'ask', {
         sessionId: asSessionId('child1'),
         question: 'q',
         timeoutSeconds: 0,
@@ -1156,7 +1156,7 @@ describe('message ledger (gate)', () => {
   it('operator reads an issue ledger with delivery fields; reads never consume', async () => {
     let t = 1_000 // fake clock: 'second' must strictly postdate 'first'
     const { gate, svc } = await harness({ now: () => new Date(t).toISOString() })
-    svc.send(
+    await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       {
         to: { kind: 'issue', id: ISSUE.id },
@@ -1164,7 +1164,7 @@ describe('message ledger (gate)', () => {
       },
     )
     t = 2_000
-    svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'second' })
+    await svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'second' })
     const rows = (await gate.dispatch(OPERATOR, undefined, 'ledger', {
       issueId: ISSUE.id,
     })) as Record<string, unknown>[]
@@ -1195,8 +1195,8 @@ describe('message ledger (gate)', () => {
       } as unknown as SessionMeta,
     ]
     const { gate, svc } = await harness({ sessions })
-    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'to the session' })
-    svc.send(
+    await svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'to the session' })
+    await svc.send(
       { kind: 'agent', issueId: asIssueId(ISSUE.id), sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: SENDER_ISSUE.id }, body: 'from the session' },
     )
@@ -1213,11 +1213,11 @@ describe('message ledger (gate)', () => {
   it('gives an agent only its OWN traffic — never another principal’s', async () => {
     const { gate, svc } = await harness()
     // A row PARENT is a party to (it sent it) and a row it is not.
-    svc.send(
+    await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'mine' },
     )
-    svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'not mine' })
+    await svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'not mine' })
     const rows = (await gate.dispatch(PARENT, undefined, 'ledger', {
       issueId: ISSUE.id,
     })) as { body: string }[]
@@ -1236,7 +1236,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
     // Unlike the operator-only ledger, an agent may query its OWN send — this is
     // how a sender learns delivered/read/dead_letter after a sync send at queued.
     const { gate, svc } = await harness()
-    const r = svc.send(
+    const r = await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'status me' },
     )
@@ -1253,8 +1253,8 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
   it('refuses a message the caller neither sent nor received', async () => {
     const { gate, svc } = await harness()
     // A message between two OTHER principals (operator → a foreign issue box).
-    const r = svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
-    await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
+    const r = await svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
+    await expect(await gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
       /neither sent nor received/,
     )
   })
@@ -1263,7 +1263,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
 describe('mail dismiss — recipient-only clear', () => {
   it('marks recipient mail read and removes it from the unread queue', async () => {
     const { gate, svc, store } = await harness()
-    const sent = svc.send(
+    const sent = await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'dismiss me' },
     )
@@ -1279,7 +1279,7 @@ describe('mail dismiss — recipient-only clear', () => {
     expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
     expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     await expect(
-      gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
+      await gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
     ).rejects.toThrow(/only the recipient/)
   })
 })

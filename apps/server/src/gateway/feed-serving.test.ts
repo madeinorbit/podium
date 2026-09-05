@@ -78,7 +78,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       DEVICE_GRADE_PRINCIPAL,
       rescoped.routingPrincipal(rescopePeer.id),
     )
-    rescoped.serving.publish(DEVICE_GRADE_PRINCIPAL, {
+    await rescoped.serving.publish(DEVICE_GRADE_PRINCIPAL, {
       kind: 'rescope',
       throughSeq: 1,
       reason: 'rights-changed',
@@ -98,7 +98,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       DEVICE_GRADE_PRINCIPAL,
       evicted.routingPrincipal(evictPeer.id),
     )
-    evicted.serving.publish(DEVICE_GRADE_PRINCIPAL, {
+    await evicted.serving.publish(DEVICE_GRADE_PRINCIPAL, {
       kind: 'batch',
       throughSeq: 1,
       changes: [{ seq: 1, entity: 'session', entityId: 's1', op: 'evict' }],
@@ -149,7 +149,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     const p = await feedTestPlumbing()
     commit(p, 'issue', 'i1', { id: 'i1' })
     commit(p, 'issue', 'i2', { id: 'i2' })
-    p.ledger.commit({
+    await p.ledger.commit({
       write: () => {},
       changes: () => [{ entity: 'issue', id: 'i1', op: 'remove' }],
     })
@@ -165,7 +165,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     commit(p, 'session', 's1', { sessionId: 's1' })
     const peer = new Peer('modern-v1', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
-    const bootstrapSeq = p.authority.cursor()
+    const bootstrapSeq = await p.authority.cursor()
 
     commit(p, 'session', 's2', { sessionId: 's2' })
     publishPending(p, bootstrapSeq)
@@ -314,10 +314,10 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
         seq: number
         changes: { entityId: string }[]
       }
-      expect(advancedWorld.seq).toBe(p.authority.cursor())
+      expect(advancedWorld.seq).toBe(await p.authority.cursor())
       expect(advancedWorld.changes.map((change) => change.entityId)).toEqual(['s1', 's2'])
 
-      p.ledger.commit({
+      await p.ledger.commit({
         write: () => {},
         changes: () => [{ entity: 'session', id: 's1', op: 'remove' }],
       })

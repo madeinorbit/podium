@@ -60,9 +60,9 @@ describe('oracle: who created this session', () => {
 
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const parent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const parent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -86,9 +86,9 @@ describe('oracle: who created this session', () => {
 describe('oracle: who named this session', () => {
   it(`${NO_PERSON}: nameSource records the CLASS of writer ('user' | 'agent'), never which user or which agent`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -193,9 +193,9 @@ describe('oracle: who typed into this session', () => {
 describe('oracle: who asked the human a question', () => {
   it(`${NO_PERSON}: humanQuestionAskedBy is stamped from the transport principal, and an agent cannot attribute a question to another session`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -212,7 +212,7 @@ describe('oracle: who asked the human a question', () => {
 
     // Stamped from the capability's actorSessionId — a bare session id, and the
     // only attribution the answer-routing path has to work with.
-    expect(o.reg.issues.getMeta(issue.id)?.humanQuestionAskedBy).toBe(agent.sessionId)
+    expect((await o.reg.issues.getMeta(issue.id))?.humanQuestionAskedBy).toBe(agent.sessionId)
 
     // Payload identity is inert (ADR 3 D7): claiming to be someone else is refused.
     const spoofed = await o.relay({

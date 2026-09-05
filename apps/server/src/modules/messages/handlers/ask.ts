@@ -31,7 +31,7 @@ export async function askHandler(
   const { caller, deps, access } = ctx
   access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages
-  const r = svc.send(senderFromPrincipal(caller.principal), {
+  const r = await svc.send(senderFromPrincipal(caller.principal), {
     to: { kind: 'session', id: input.sessionId },
     body: input.question,
     kind: 'question',

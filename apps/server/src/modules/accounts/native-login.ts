@@ -54,20 +54,20 @@ export class NativeLoginService {
     machineId?: MachineId
     ownerUserId: UserId
   }): NativeLoginAttempt {
-    return withReadScope(() => this.startInScope(input))
+    return withReadScope(async () => await this.startInScope(input))
   }
 
-  private startInScope(input: {
+  private async startInScope(input: {
     harness: HarnessAgent
     machineId?: MachineId
     ownerUserId: UserId
-  }): NativeLoginAttempt {
+  }): Promise<NativeLoginAttempt> {
     const existing = this.attempts.get(input.harness)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
-    const candidates = this.deps.machines
-      .listMachines()
+    const candidates = (await this.deps.machines
+      .listMachines())
       .filter(
         (machine) =>
           machine.online &&
@@ -94,7 +94,7 @@ export class NativeLoginService {
     const refusal = authorize(machine.id)
     if (refusal) throw new Error(refusal)
 
-    const spawned = this.deps.sessions.createSession({
+    const spawned = await this.deps.sessions.createSession({
       agentKind: 'shell',
       loginHarness: input.harness,
       cwd: this.deps.cwdForMachine(machine.id),
@@ -132,10 +132,10 @@ export class NativeLoginService {
     this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
   }
 
-  private onInventory(machineId: MachineId): void {
+  private async onInventory(machineId: MachineId): Promise<void> {
     for (const [harness, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
-      const machine = this.deps.machines.listMachines().find((row) => row.id === machineId)
+      const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {
         this.attempts.set(harness, { ...attempt, status: 'succeeded' })

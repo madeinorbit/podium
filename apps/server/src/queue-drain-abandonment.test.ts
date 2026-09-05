@@ -54,7 +54,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       })
       await store.machines.setMachineInventory(id, INVENTORY)
     }
-    registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     toDaemon = []
     registry.gateway.attachDaemon(MACHINE, (message) => toDaemon.push(message))
     registry.gateway.attachDaemon(OTHER_MACHINE, () => {})
@@ -68,12 +68,12 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   async function queuedMessageFor(
     body: string,
   ): Promise<{ sessionId: SessionId; messageId: string }> {
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
       machineId: asMachineId(MACHINE),
     })
-    const sent = registry.modules.messages.send(
+    const sent = await registry.modules.messages.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body, urgency: 'next-turn' },
     )

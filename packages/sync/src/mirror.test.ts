@@ -261,16 +261,16 @@ describe('MirrorService', () => {
     fs.readBarrier = new Promise<void>((resolve) => {
       releaseRead = resolve
     })
-    mirror.enqueue(M1, 'pause-a', pathA)
-    mirror.enqueue(M1, 'pause-b', pathB)
+    await mirror.enqueue(M1, 'pause-a', pathA)
+    await mirror.enqueue(M1, 'pause-b', pathB)
     await vi.waitFor(() => expect(fs.log).toHaveLength(1))
 
     let pauseResolved = false
     const paused = mirror.pause().then(() => {
       pauseResolved = true
     })
-    mirror.enqueue(M1, 'pause-c', pathC)
-    mirror.enqueue(M1, 'pause-a', pathA) // still deduplicated while parked
+    await mirror.enqueue(M1, 'pause-c', pathC)
+    await mirror.enqueue(M1, 'pause-a', pathA) // still deduplicated while parked
     await Promise.resolve()
 
     expect(pauseResolved).toBe(false)
@@ -284,7 +284,7 @@ describe('MirrorService', () => {
     expect(existsSync(mirror.lakePath(M1, 'pause-b'))).toBe(false)
     expect(existsSync(mirror.lakePath(M1, 'pause-c'))).toBe(false)
 
-    mirror.resume()
+    await mirror.resume()
     await settle(mirror, M1)
 
     expect(fs.log.map((read) => read.path)).toEqual([pathA, pathA, pathB, pathC])
@@ -306,7 +306,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'pause-cursor')
     fs.set(path, content)
 
-    mirror.enqueue(M1, 'pause-cursor', path)
+    await mirror.enqueue(M1, 'pause-cursor', path)
     await vi.waitFor(() => expect(pausePromise).toBeDefined())
     await pausePromise
 
@@ -316,7 +316,7 @@ describe('MirrorService', () => {
       content.subarray(0, MirrorService.CHUNK_BYTES),
     )
 
-    mirror.resume()
+    await mirror.resume()
     await settle(mirror, M1)
 
     expect(fs.log.map((read) => read.offset)).toEqual([0, MirrorService.CHUNK_BYTES])
@@ -348,7 +348,7 @@ describe('MirrorService', () => {
       await writeBarrier
     }
 
-    mirror.enqueue(M1, 'pause-dispose', path)
+    await mirror.enqueue(M1, 'pause-dispose', path)
     await lakeWritten
     expect(readFileSync(mirror.lakePath(M1, 'pause-dispose'))).toEqual(content)
     expect(store.mirrorCursor(M1, 'pause-dispose')).toBe(0)
@@ -374,7 +374,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'big')
     fs.set(path, content)
 
-    mirror.enqueue(M1, 'big', path)
+    await mirror.enqueue(M1, 'big', path)
     await settle(mirror, M1)
 
     expect(readFileSync(mirror.lakePath(M1, 'big')).equals(content)).toBe(true)
@@ -393,14 +393,14 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'grow')
     const before = Buffer.from('{"line":1}\n{"line":2}\n')
     fs.set(path, before)
-    mirror.enqueue(M1, 'grow', path)
+    await mirror.enqueue(M1, 'grow', path)
     await settle(mirror, M1)
     expect(store.mirrorCursor(M1, 'grow')).toBe(before.length)
 
     const grown = Buffer.concat([before, Buffer.from('{"line":3}\n')])
     fs.set(path, grown)
     const logBefore = fs.log.length
-    mirror.enqueue(M1, 'grow', path)
+    await mirror.enqueue(M1, 'grow', path)
     await settle(mirror, M1)
 
     // The first new read starts exactly at the old size — no re-pull of the head.
@@ -414,7 +414,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'rewrite')
     const original = patternBytes(50_000, 1)
     fs.set(path, original)
-    mirror.enqueue(M1, 'rewrite', path)
+    await mirror.enqueue(M1, 'rewrite', path)
     await settle(mirror, M1)
     expect(store.mirrorCursor(M1, 'rewrite')).toBe(original.length)
 
@@ -422,7 +422,7 @@ describe('MirrorService', () => {
     // re-pull, never leave a stale tail (spec invariant 1).
     const rewritten = patternBytes(12_345, 2)
     fs.set(path, rewritten)
-    mirror.enqueue(M1, 'rewrite', path)
+    await mirror.enqueue(M1, 'rewrite', path)
     await settle(mirror, M1)
 
     expect(readFileSync(mirror.lakePath(M1, 'rewrite')).equals(rewritten)).toBe(true)
@@ -436,12 +436,12 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'reused-id')
     const predecessor = Buffer.from('first incarnation keeps its complete history\n')
     fs.set(path, predecessor)
-    mirror.enqueue(M1, 'reused-id', path)
+    await mirror.enqueue(M1, 'reused-id', path)
     await settle(mirror, M1)
 
     const replacement = Buffer.from('new turn\n')
     fs.replace(path, replacement)
-    mirror.enqueue(M1, 'reused-id', path)
+    await mirror.enqueue(M1, 'reused-id', path)
     await settle(mirror, M1)
 
     expect(readFileSync(mirror.archivedLakePath(M1, 'reused-id', 1)).equals(predecessor)).toBe(true)
@@ -470,7 +470,7 @@ describe('MirrorService', () => {
       mirror.enqueueDirty(M1)
     }
 
-    mirror.enqueueDirty(M1)
+    await mirror.enqueueDirty(M1)
     await settle(mirror, M1)
 
     expect(fs.log.map((read) => read.offset)).toEqual([0, predecessor.length, 0])
@@ -486,7 +486,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'gone')
     store.setMirrorCursor(M1, 'gone', 500, new Date().toISOString()) // lake holds 500B already
     fs.errors.set(path, 'denied')
-    mirror.enqueue(M1, 'gone', path)
+    await mirror.enqueue(M1, 'gone', path)
     await settle(mirror, M1)
     // reported == mirrored: the dirty query no longer selects it — scans go quiet.
     expect(store.segmentsToMirrorDirty(M1).find((x) => x.nativeId === 'gone')).toBeUndefined()
@@ -504,7 +504,7 @@ describe('MirrorService', () => {
       fs.set(path, 'never served\n')
       fs.errors.set(path, 'timeout')
 
-      mirror.enqueue(M1, 'denied', path)
+      await mirror.enqueue(M1, 'denied', path)
       await settle(mirror, M1)
 
       expect(store.mirrorCursor(M1, 'denied')).toBe(0)
@@ -514,7 +514,7 @@ describe('MirrorService', () => {
       // Inside the backoff window the segment is not retried, even if the source
       // would now succeed — no new read requests at all.
       fs.errors.delete(path)
-      mirror.enqueue(M1, 'denied', path)
+      await mirror.enqueue(M1, 'denied', path)
       await settle(mirror, M1)
       expect(fs.log.length).toBe(1)
       expect(store.mirrorCursor(M1, 'denied')).toBe(0)
@@ -532,7 +532,7 @@ describe('MirrorService', () => {
     fs.set(pathA, patternBytes(70_000, 3))
     fs.set(pathB, patternBytes(70_000, 4))
 
-    mirror.enqueueMachine(M1)
+    await mirror.enqueueMachine(M1)
     await settle(mirror, M1)
 
     expect(fs.maxInFlight).toBe(1)
@@ -548,8 +548,8 @@ describe('MirrorService', () => {
     fs.set(pathA, patternBytes(30_000, 5))
     fs.set(pathB, patternBytes(30_000, 6))
 
-    mirror.enqueueMachine(M1)
-    mirror.enqueueMachine(M2)
+    await mirror.enqueueMachine(M1)
+    await mirror.enqueueMachine(M2)
     await settle(mirror, M1)
     await settle(mirror, M2)
 
@@ -565,8 +565,8 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'dup')
     fs.set(path, 'single small file\n')
 
-    mirror.enqueue(M1, 'dup', path)
-    mirror.enqueue(M1, 'dup', path) // in flight → no-op
+    await mirror.enqueue(M1, 'dup', path)
+    await mirror.enqueue(M1, 'dup', path) // in flight → no-op
     await settle(mirror, M1)
 
     expect(fs.log.length).toBe(1)
@@ -578,13 +578,13 @@ describe('MirrorService', () => {
     const { store, fs, mirror, lakeDir } = setup()
     const path = seed(store, M1, 'wiped')
     fs.set(path, Buffer.from('line-1\nline-2\n'))
-    mirror.enqueue(M1, 'wiped', path)
+    await mirror.enqueue(M1, 'wiped', path)
     await settle(mirror, M1)
     // Ops event: the lake dir is wiped while the DB keeps its cursors. Without the
     // guard, truncate(cursor) would EXTEND the empty file with NUL bytes and the
     // eof-check would mark garbage as fully mirrored.
     rmSync(join(lakeDir, M1), { recursive: true, force: true })
-    mirror.enqueue(M1, 'wiped', path)
+    await mirror.enqueue(M1, 'wiped', path)
     await settle(mirror, M1)
     expect(readFileSync(mirror.lakePath(M1, 'wiped'))).toEqual(Buffer.from('line-1\nline-2\n'))
     expect(store.mirrorCursor(M1, 'wiped')).toBe('line-1\nline-2\n'.length)
@@ -595,7 +595,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'resume')
     const content = patternBytes(9_000, 7)
     fs.set(path, content)
-    mirror.enqueue(M1, 'resume', path)
+    await mirror.enqueue(M1, 'resume', path)
     await settle(mirror, M1)
     expect(store.mirrorCursor(M1, 'resume')).toBe(content.length)
 
@@ -604,7 +604,7 @@ describe('MirrorService', () => {
     // reports eof) and must not rewrite the lake file.
     const mirror2 = new MirrorService(store, lakeDir, fs.read)
     fs.log.length = 0
-    mirror2.enqueueMachine(M1)
+    await mirror2.enqueueMachine(M1)
     await settle(mirror2, M1)
 
     expect(fs.log).toEqual([{ path, offset: content.length, maxBytes: MirrorService.CHUNK_BYTES }])
@@ -626,7 +626,7 @@ describe('MirrorService', () => {
     }
     const total = () => segs.reduce((sum, id) => sum + store.mirrorCursor(M1, id), 0)
 
-    mirror.enqueueMachine(M1)
+    await mirror.enqueueMachine(M1)
     await settle(mirror, M1)
 
     // Pass 1 stopped at the budget (may overshoot by at most one chunk) and left
@@ -644,7 +644,7 @@ describe('MirrorService', () => {
     while (total() < segs.length * size) {
       passes++
       expect(passes).toBeLessThanOrEqual(10)
-      mirror.enqueueMachine(M1)
+      await mirror.enqueueMachine(M1)
       await settle(mirror, M1)
     }
     for (const [i, nativeId] of segs.entries()) {
@@ -670,7 +670,7 @@ describe('MirrorService', () => {
     const path = seed(store, M1, 'breathe')
     fs.set(path, patternBytes(MirrorService.CHUNK_BYTES * 2 + 100, 20)) // 3 chunks
 
-    mirror.enqueueMachine(M1)
+    await mirror.enqueueMachine(M1)
     await settle(mirror, M1)
 
     expect(store.mirrorCursor(M1, 'breathe')).toBe(MirrorService.CHUNK_BYTES * 2 + 100)
@@ -706,7 +706,7 @@ describe('MirrorService', () => {
       lastTick = now
     }, sampleMs)
     try {
-      mirror.enqueueMachine(M1)
+      await mirror.enqueueMachine(M1)
       await settle(mirror, M1)
     } finally {
       clearInterval(sampler)
@@ -733,7 +733,7 @@ describe('MirrorService', () => {
       // observed size at eof), so it must NOT be touched by the dirty trigger.
       const caughtUpPath = seed(store, M1, 'caught-up', caughtUp.length)
       fs.set(caughtUpPath, caughtUp)
-      mirror.enqueue(M1, 'caught-up', caughtUpPath)
+      await mirror.enqueue(M1, 'caught-up', caughtUpPath)
       await settle(mirror, M1)
       expect(store.mirrorCursor(M1, 'caught-up')).toBe(caughtUp.length)
 
@@ -745,7 +745,7 @@ describe('MirrorService', () => {
       fs.set(preUpgradePath, preUpgrade)
 
       const logBefore = fs.log.length
-      mirror.enqueueDirty(M1)
+      await mirror.enqueueDirty(M1)
       await settle(mirror, M1)
 
       // Exactly the two dirty segments were read — never the caught-up one.
@@ -763,7 +763,7 @@ describe('MirrorService', () => {
       // issues zero daemon round trips (the old full sweep paid one eof-check
       // read per segment, ~1,150 per attach in production).
       const logAfterConvergence = fs.log.length
-      mirror.enqueueDirty(M1)
+      await mirror.enqueueDirty(M1)
       await settle(mirror, M1)
       expect(fs.log.length).toBe(logAfterConvergence)
     })
@@ -777,7 +777,7 @@ describe('MirrorService', () => {
       const path = seed(store, M1, 'offline-growth', grown.length) // persisted last-known size
       fs.set(path, grown)
 
-      mirror.enqueueDirty(M1) // the attach trigger — nothing scanned this life
+      await mirror.enqueueDirty(M1) // the attach trigger — nothing scanned this life
       await settle(mirror, M1)
 
       expect(readFileSync(mirror.lakePath(M1, 'offline-growth')).equals(grown)).toBe(true)

@@ -73,9 +73,9 @@ export type EpochBumpCause =
  */
 export interface FeedIdentityStore {
   /** The persisted identity, or `null` on a database that has never had one. */
-  readIdentity(): FeedIdentity | null
+  readIdentity(): Promise<FeedIdentity | null>
   /** Persist. MUST be durable before the caller publishes a frame carrying it. */
-  writeIdentity(identity: FeedIdentity): void
+  writeIdentity(identity: FeedIdentity): Promise<void>
 }
 
 /** Injected opaque-id source — a ULID or UUID v4 generator. Never a counter. */
@@ -135,10 +135,10 @@ export class FeedIdentityRegistry {
    * authoritative, which is what makes "survives a restart" a property a test can
    * assert by building a second registry over the same store.
    */
-  current(): FeedIdentity {
+  async current(): Promise<FeedIdentity> {
     const cached = this.cached
     if (cached !== null) return cached
-    const persisted = this.store.readIdentity()
+    const persisted = await this.store.readIdentity()
     if (persisted !== null) {
       assertOpaqueEpoch(persisted.epoch)
       this.cached = persisted
@@ -146,7 +146,7 @@ export class FeedIdentityRegistry {
     }
     const minted: FeedIdentity = { feedId: this.mint(), epoch: this.mint() }
     assertOpaqueEpoch(minted.epoch)
-    this.store.writeIdentity(minted)
+    await this.store.writeIdentity(minted)
     this.cached = minted
     return minted
   }
@@ -161,8 +161,8 @@ export class FeedIdentityRegistry {
    * epoch bump that produces the same epoch is precisely the silent-no-op that
    * leaves every replica applying a foreign timeline with no mismatch to catch.
    */
-  bump(cause: EpochBumpCause): FeedIdentity {
-    const previous = this.current()
+  async bump(cause: EpochBumpCause): Promise<FeedIdentity> {
+    const previous = await this.current()
     const epoch = this.mint()
     assertOpaqueEpoch(epoch)
     if (epoch === previous.epoch) {
@@ -172,7 +172,7 @@ export class FeedIdentityRegistry {
       )
     }
     const next: FeedIdentity = { feedId: previous.feedId, epoch }
-    this.store.writeIdentity(next)
+    await this.store.writeIdentity(next)
     this.cached = next
     return next
   }

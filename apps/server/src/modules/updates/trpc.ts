@@ -373,8 +373,8 @@ function contextFor(
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
     // The server step waits on THIS one; it stages behind the database fence and
     // proves the result in a child process (POD-3068).
-    prepareVerifiedDatabaseSnapshot: (from, target) =>
-      state.store.verifiedSnapshotBeforeUpdate(from, target),
+    prepareVerifiedDatabaseSnapshot: async (from, target) =>
+      await state.store.verifiedSnapshotBeforeUpdate(from, target),
     // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
     // enough for a request; it is still gated to the confirmed-operation path
     // because a polled startability preview has no use for restore guidance.
@@ -514,7 +514,7 @@ export async function startUpdateOperation(
   })
   if (!result.started) {
     if ('alreadyRunning' in result) {
-      const row = engine.active(LIFECYCLE_EXCLUSION_GROUP)
+      const row = await engine.active(LIFECYCLE_EXCLUSION_GROUP)
       return {
         operationId: result.alreadyRunning,
         operation: row?.operation ?? null,
@@ -606,12 +606,12 @@ function describeWaveDecision(
 }
 
 /** The fleet read model used by the dialog and Settings. */
-export function updateFleet(ctx: Context): UpdateFleetSnapshot {
+export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const state = familyState(ctx)
   const updates = state.modules.updates
   const fleet = fleetSnapshot(updates, state.modules.updatesReconciler, state.store.hostMachineId)
   const preparation = ctx.updatePreparation?.()
-  const active = state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
+  const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   // The queued version belongs to the same authority as the counts above: a dev
   // publication is not what a stable host is waiting its turn for (POD-2222).
   const queued = updates.nextTarget(updates.operationChannel(state.store.hostMachineId))
@@ -716,18 +716,18 @@ export function updateProcedures() {
     approveProposal: t.procedure
       .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
       .mutation(({ ctx, input }) => approveReleaseProposal(ctx, input)),
-    fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
+    fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
     /**
      * "Check for updates now" (spec §9.2). The daily timer answers "is anything
      * new"; this answers it for a human who is looking at the panel and does not
      * want to wait a day. Rate-limited per channel inside the service, so a
      * held-down button is one feed request, not a loop.
      */
-    checkNow: t.procedure.mutation(({ ctx }) => familyState(ctx).modules.updates.checkNow()),
+    checkNow: t.procedure.mutation(async ({ ctx }) => await familyState(ctx).modules.updates.checkNow()),
     /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
     repairPayload: t.procedure
       .input(z.object({ id: z.string().min(1).optional() }).optional())
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         const state = familyState(ctx)
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
         const outcome = state.modules.updates.repairMachine(machineId, {
@@ -748,7 +748,7 @@ export function updateProcedures() {
                   : `Payload repair is ${outcome.result}.`,
           })
         }
-        return { outcome, fleet: updateFleet(ctx) }
+        return { outcome, fleet: await updateFleet(ctx) }
       }),
     repairCompatibility: t.procedure.mutation(({ ctx }) => {
       if (!ctx.requestCoordinatorRestart) {
@@ -785,7 +785,7 @@ export function updateProcedures() {
      */
     retry: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
       const engine = familyState(ctx).modules.operations.engine
-      const row = engine.history(UPDATE_OPERATION_KIND, 100).find((r) => r.id === input.id)
+      const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find((r) => r.id === input.id)
       if (!row) {
         throw new TRPCError({
           code: 'NOT_FOUND',
@@ -838,8 +838,8 @@ export function updateProcedures() {
        */
       await engine.whenSettled(started.operationId)
       const operation =
-        engine.active(LIFECYCLE_EXCLUSION_GROUP)?.operation ??
-        engine.history(UPDATE_OPERATION_KIND, 1)[0]?.operation ??
+        (await engine.active(LIFECYCLE_EXCLUSION_GROUP))?.operation ??
+        (await engine.history(UPDATE_OPERATION_KIND, 1))[0]?.operation ??
         started.operation
       throwIfFailedOnStart(operation)
       return legacyConvergeResult(

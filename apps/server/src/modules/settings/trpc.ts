@@ -108,20 +108,20 @@ export type SettingsProcedures = {
  * `assertNoSecretChange` and every model-level validation refuse inside the
  * handler, and those are the refusals an operator most wants to see.
  */
-function runSettingsCommand(
+async function runSettingsCommand(
   name: SettingsCommandName,
   ctx: Context,
   input: unknown,
-): unknown | Promise<unknown> {
-  const deps = settingsAuthzDeps(ctx)
+): Promise<unknown | Promise<unknown>> {
+  const deps = await settingsAuthzDeps(ctx)
   // ONE `familyState(ctx).modules`, used for both the trail and the handler. Two calls would be
   // two `router-triple-access` sites where one is needed, and the audit
   // repository is deliberately NOT reached out of `familyState(ctx).store`:
   // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
   // transport never touches the store.
   const service = familyState(ctx).modules.settings
-  const record = (outcome: 'applied' | 'refused', error?: string): void => {
-    service.recordCommand({
+  const record = async (outcome: 'applied' | 'refused', error?: string): Promise<void> => {
+    await service.recordCommand({
       command: name,
       outcome,
       principal: deps.principal,
@@ -132,7 +132,7 @@ function runSettingsCommand(
 
   const refusal = settingsAuthzFailure(name, deps)
   if (refusal) {
-    record('refused', refusal.message)
+    await record('refused', refusal.message)
     throw refusal
   }
 
@@ -146,7 +146,7 @@ function runSettingsCommand(
   const actor = onBehalfOfUser(deps.principal)
   if (actor === null) {
     const message = `${name} writes on behalf of a user, and this principal has none`
-    record('refused', message)
+    await record('refused', message)
     throw new TRPCError({ code: 'FORBIDDEN', message })
   }
 
@@ -164,10 +164,10 @@ function runSettingsCommand(
   // synchronous result would make every settings write a microtask later than it
   // is today; not awaiting an async one would record `applied` for a command
   // that is about to reject. `Promise.resolve`-free branch on the actual result.
-  const fail = (e: unknown): never => {
+  const fail = async (e: unknown): Promise<never> => {
     const raw = e instanceof Error ? e.message : String(e)
     const safe = redactErrorMessage(name, input, raw)
-    record('refused', safe)
+    await record('refused', safe)
     // RE-THROWN WITH THE REDACTED MESSAGE, not the original. This is the wire
     // half of the error path: a handler that built its message from the material
     // must not hand that message to a browser just because the trail was careful.
@@ -180,26 +180,26 @@ function runSettingsCommand(
   try {
     result = run(service, input, actor)
   } catch (e) {
-    return fail(e)
+    return await fail(e)
   }
   if (result instanceof Promise) {
     return result.then(
-      (value) => {
-        record('applied')
+      async (value) => {
+        await record('applied')
         return value
       },
-      (e) => fail(e),
+      async (e) => await fail(e),
     )
   }
-  record('applied')
+  await record('applied')
   return result
 }
 
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
   const proc = t.procedure.input(contract.input)
-  const call = ({ ctx, input }: { ctx: Context; input: unknown }): unknown =>
-    runSettingsCommand(name, ctx, input)
+  const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
+    await runSettingsCommand(name, ctx, input)
   // Derived from the contract, never chosen here — see `IsRead` above.
   return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
 }

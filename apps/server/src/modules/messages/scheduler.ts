@@ -131,12 +131,12 @@ export class DeliveryScheduler {
 
   // ---- entry path 1: the coalesced trigger queue ---------------------------
 
-  queueDeliveryTarget(
+  async queueDeliveryTarget(
     target: DeliveryTarget,
     preferred?: SessionMeta,
     after?: MessagePageCursor,
     through?: MessagePageCursor,
-  ): void {
+  ): Promise<void> {
     const key = deliveryTargetKey(target)
     if (!after && !through && this.activeBoundaryTargets.has(key)) {
       if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
@@ -145,7 +145,7 @@ export class DeliveryScheduler {
     }
 
     try {
-      if (this.deps.messages.countPending(target) === 0) return
+      if (await this.deps.messages.countPending(target) === 0) return
     } catch (error) {
       this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
       return
@@ -185,7 +185,7 @@ export class DeliveryScheduler {
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): void {
+  async flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): Promise<void> {
     if (this.deliveryTriggerTimer) {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
@@ -215,7 +215,7 @@ export class DeliveryScheduler {
     for (const work of works) {
       let page: MessageRow[]
       try {
-        page = this.deps.messages.pendingForPage(work.target, {
+        page = await this.deps.messages.pendingForPage(work.target, {
           ...(work.after ? { after: work.after } : {}),
           ...(work.through ? { through: work.through } : {}),
           limit: DELIVERY_TARGET_PAGE_LIMIT,
@@ -230,7 +230,7 @@ export class DeliveryScheduler {
         pageCursor &&
         (!work.through || compareCursor(pageCursor, work.through) < 0)
       ) {
-        this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
+        await this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
       }
       for (const message of page) {
         selected.set(message.id, message)
@@ -273,14 +273,14 @@ export class DeliveryScheduler {
    * whose preferred work this drain owns; the depth counting, the deferral set
    * and the loop bound stay here, because they are this owner's invariant.
    */
-  runBoundaryDrain(keys: readonly string[], sessionId: SessionId, enqueue: () => void): void {
+  async runBoundaryDrain(keys: readonly string[], sessionId: SessionId, enqueue: () => void): Promise<void> {
     for (const key of keys) {
       this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
     }
     try {
       enqueue()
       do {
-        this.flushDeliveryTriggers(sessionId)
+        await this.flushDeliveryTriggers(sessionId)
         // Each preferred continuation is bounded by the captured high-water.
         // A fresh/reentrant trigger is held for the next macrotask instead of
         // resetting this snapshot's cursor or expanding its synchronous work.
@@ -297,7 +297,7 @@ export class DeliveryScheduler {
       }
       const deferred = [...this.deferredBoundaryTargets.values()]
       this.deferredBoundaryTargets.clear()
-      for (const target of deferred) this.queueDeliveryTarget(target)
+      for (const target of deferred) await this.queueDeliveryTarget(target)
     }
   }
 
@@ -305,21 +305,21 @@ export class DeliveryScheduler {
 
   /** True when there is nothing durable to walk — the service skips the whole
    *  boot enumeration on the overwhelmingly common empty-queue path. */
-  queueIsEmpty(): boolean {
-    return this.deps.messages.countQueued() === 0
+  async queueIsEmpty(): Promise<boolean> {
+    return await this.deps.messages.countQueued() === 0
   }
 
   /** Begin a bounded startup walk. Each page schedules the next macrotask so
    * every durable principal is enumerated without one unbounded boot turn. */
-  reconcile(): void {
-    this.runReconcilePage()
+  async reconcile(): Promise<void> {
+    await this.runReconcilePage()
   }
 
-  private runReconcilePage(after?: MessagePageCursor): void {
+  private async runReconcilePage(after?: MessagePageCursor): Promise<void> {
     this.reconcileTimer = null
     let page: MessageRow[]
     try {
-      page = this.deps.messages.listQueuedPage({
+      page = await this.deps.messages.listQueuedPage({
         ...(after ? { after } : {}),
         limit: DELIVERY_RECONCILE_PAGE_LIMIT,
       })
@@ -329,9 +329,9 @@ export class DeliveryScheduler {
     }
     for (const message of page) {
       const target = this.runner.targetOf(message)
-      if (target) this.queueDeliveryTarget(target)
+      if (target) await this.queueDeliveryTarget(target)
     }
-    this.flushDeliveryTriggers()
+    await this.flushDeliveryTriggers()
     if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
     const next = cursorOf(page.at(-1)!)
     this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
@@ -342,7 +342,7 @@ export class DeliveryScheduler {
 
   /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
    *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
-  sweep(): void {
+  async sweep(): Promise<void> {
     const now = this.deps.now()
     // SINGLE-FLIGHT ON THE PASS, NOT ON THE TIMER HANDLE (POD-3258). A retry
     // pass spans pages, and `retryBackstopTimer` is null for the whole of every
@@ -358,14 +358,14 @@ export class DeliveryScheduler {
     if (this.retryPassStartedAt !== null) return
     this.retryBackstopCursor = null
     this.retryPassStartedAt = Date.parse(now)
-    this.runRetryBackstopPage()
+    await this.runRetryBackstopPage()
   }
 
-  private runRetryBackstopPage(after?: MessagePageCursor): void {
+  private async runRetryBackstopPage(after?: MessagePageCursor): Promise<void> {
     this.retryBackstopTimer = null
     let page: MessageRow[]
     try {
-      page = this.deps.messages.listQueuedPage({
+      page = await this.deps.messages.listQueuedPage({
         ...(after ? { after } : {}),
         limit: DELIVERY_RETRY_BACKSTOP_LIMIT,
       })

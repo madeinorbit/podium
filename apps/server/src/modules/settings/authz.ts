@@ -156,7 +156,7 @@ export function settingsAuthzFailure(
  * ADR 9 D5 A1 and POD-352's exit item verbatim: there is no serialized
  * effective-capability snapshot, because there is nothing here to serialize.
  */
-export function settingsAuthzDeps(ctx: Context): SettingsAuthzDeps {
+export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps> {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
@@ -168,7 +168,7 @@ export function settingsAuthzDeps(ctx: Context): SettingsAuthzDeps {
   const user = onBehalfOfUser(principal)
   return {
     principal,
-    role: user === null ? undefined : ctx.registry.sessionStore.users.roleOf(user),
+    role: user === null ? undefined : await ctx.registry.sessionStore.users.roleOf(user),
   }
 }
 

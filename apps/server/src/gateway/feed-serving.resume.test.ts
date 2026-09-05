@@ -60,11 +60,11 @@ async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
   commit(p, 's2')
   const cold = new Peer('cold')
   p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
-  const identity = p.serving.identity()
+  const identity = await p.serving.identity()
   const held: FeedCursorField = {
     feedId: identity.feedId,
     epoch: identity.epoch,
-    seq: p.authority.cursor(),
+    seq: await p.authority.cursor(),
   }
   return { p, cold, held }
 }
@@ -106,9 +106,9 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     const peer = reconnect(ctx, ctx.held)
 
     commit(ctx.p, 's3')
-    const delivery = ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
+    const delivery = await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
     if (delivery === null) throw new Error('the log could not serve from that cursor')
-    ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+    await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
 
     // CHAINS ONTO WHAT THE REPLICA HOLDS. `fromSeq === cursor.seq` is the exact
     // acceptance rule (ADR 2 Am1 D13), so this frame applies without a heal —
@@ -168,7 +168,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     // Head above the floor, so the boundary being tested is the FLOOR and not
     // the "cursor from the future" refusal sitting in front of it.
     for (let i = 3; i <= 6; i += 1) commit(compacted.p, `s${i}`)
-    expect(compacted.p.authority.cursor()).toBe(6)
+    expect(await compacted.p.authority.cursor()).toBe(6)
 
     expect(reconnect(compacted, { ...compacted.held, seq: 3 }).types()).not.toContain('feedResume')
     expect(reconnect(compacted, { ...compacted.held, seq: 4 }).types()).toEqual(['feedResume'])
@@ -201,12 +201,12 @@ describe('the transfer a reconnect actually costs', () => {
 
     const cold = new Peer('cold')
     p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
-    const identity = p.serving.identity()
+    const identity = await p.serving.identity()
     const resumed = new Peer('resumed')
     p.serving.renegotiate(resumed, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(resumed.id), {
       feedId: identity.feedId,
       epoch: identity.epoch,
-      seq: p.authority.cursor(),
+      seq: await p.authority.cursor(),
     })
 
     // Counted in ROWS and in BYTES, because the point of the finding was both: a

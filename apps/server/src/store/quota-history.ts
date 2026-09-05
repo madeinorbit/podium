@@ -33,7 +33,8 @@ import {
 } from '@podium/model'
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import { quotaWindows } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -113,7 +114,7 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
 }
 
 export class QuotaHistoryRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -124,7 +125,7 @@ export class QuotaHistoryRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -132,12 +133,12 @@ export class QuotaHistoryRepository {
    * the sampler logs those, because a reset is the one event in this feature
    * that is worth a line in the log.
    */
-  record(sample: QuotaSample, samplingIntervalMs: number): { openedWindow: boolean } {
-    return this.createOrJoinTransaction(() => {
+  async record(sample: QuotaSample, samplingIntervalMs: number): Promise<{ openedWindow: boolean }> {
+    return await this.createOrJoinTransaction(async () => {
       // The candidate is the newest window we hold for this series. A sample
       // older than it (backfill walking files out of order) is matched against it
       // anyway: `isSameInstance` compares reset times, not arrival order.
-      const candidate = this.db
+      const candidate = await this.db
         .select()
         .from(quotaWindows)
         .where(
@@ -153,28 +154,28 @@ export class QuotaHistoryRepository {
       if (candidate) {
         const instance = toInstance(candidate)
         if (isSameInstance(instance, sample)) {
-          this.update(candidate.resetsAtBucket, foldSample(instance, sample, samplingIntervalMs))
+          await this.update(candidate.resetsAtBucket, foldSample(instance, sample, samplingIntervalMs))
           return { openedWindow: false }
         }
         // An older window arriving after a newer one — a backfill reaching further
         // back than the rows already stored. It is a separate instance, and its
         // own bucket keeps it separate.
         if (sample.resetsAtMs < instance.resetsAtMs) {
-          const older = this.findByBucket(sample)
+          const older = await this.findByBucket(sample)
           if (older) {
             const merged = foldSample(toInstance(older), sample, samplingIntervalMs)
-            this.update(older.resetsAtBucket, merged)
+            await this.update(older.resetsAtBucket, merged)
             return { openedWindow: false }
           }
         }
       }
-      this.insert(openInstance(sample, samplingIntervalMs))
+      await this.insert(openInstance(sample, samplingIntervalMs))
       return { openedWindow: true }
     })
   }
 
-  private findByBucket(sample: QuotaSample): Row | undefined {
-    return this.db
+  private async findByBucket(sample: QuotaSample): Promise<Row | undefined> {
+    return await this.db
       .select()
       .from(quotaWindows)
       .where(
@@ -187,13 +188,13 @@ export class QuotaHistoryRepository {
       .get()
   }
 
-  private insert(instance: QuotaWindowInstance): void {
+  private async insert(instance: QuotaWindowInstance): Promise<void> {
     // The three `MAX`/`+ 1` expressions stay as `sql` FRAGMENTS inside the
     // builder query (spec §6 rule 1): they read the CURRENT row beside
     // `excluded`, which the builder has no expression for. The conflict target
     // is the composite primary key, unchanged, and this statement was already an
     // `ON CONFLICT` rather than an `OR REPLACE`.
-    this.db
+    ;await (this.db
       .insert(quotaWindows)
       .values({
         accountKey: instance.accountKey,
@@ -215,7 +216,7 @@ export class QuotaHistoryRepository {
         partial: instance.partial,
         source: instance.source,
         trailJson: JSON.stringify(instance.trail),
-      })
+      }))
       .onConflictDoUpdate({
         target: [quotaWindows.accountKey, quotaWindows.windowKey, quotaWindows.resetsAtBucket],
         set: {
@@ -228,8 +229,8 @@ export class QuotaHistoryRepository {
   }
 
   /** Rewrites everything except the bucket, which is identity and never moves. */
-  private update(bucket: number, instance: QuotaWindowInstance): void {
-    this.db
+  private async update(bucket: number, instance: QuotaWindowInstance): Promise<void> {
+    await this.db
       .update(quotaWindows)
       .set({
         label: instance.label,
@@ -259,8 +260,8 @@ export class QuotaHistoryRepository {
   }
 
   /** Every window that reset at or after `sinceMs`, oldest first. */
-  list(sinceMs: number, nowMs: number): QuotaWindowHistoryWire[] {
-    const rows = this.db
+  async list(sinceMs: number, nowMs: number): Promise<QuotaWindowHistoryWire[]> {
+    const rows = await this.db
       .select()
       .from(quotaWindows)
       .where(gte(quotaWindows.resetsAtMs, sinceMs))
@@ -274,8 +275,8 @@ export class QuotaHistoryRepository {
   }
 
   /** The stored burn curve for one window instance. Empty when unknown. */
-  trail(accountKey: string, windowKey: string, resetsAtMs: number): [number, number][] {
-    const row = this.db
+  async trail(accountKey: string, windowKey: string, resetsAtMs: number): Promise<[number, number][]> {
+    const row = await this.db
       .select({ trailJson: quotaWindows.trailJson })
       .from(quotaWindows)
       .where(
@@ -297,13 +298,13 @@ export class QuotaHistoryRepository {
    * fails to parse a `MaintenanceCommand` naming a kind it does not know. A
    * single indexed DELETE on a table of this size does not warrant that.
    */
-  prune(cutoffMs: number): number {
-    const res = this.db.delete(quotaWindows).where(lt(quotaWindows.resetsAtMs, cutoffMs)).run()
+  async prune(cutoffMs: number): Promise<number> {
+    const res = await this.db.delete(quotaWindows).where(lt(quotaWindows.resetsAtMs, cutoffMs)).run()
     return Number(res.changes)
   }
 
-  countAll(): number {
-    const row = this.db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).get()
+  async countAll(): Promise<number> {
+    const row = await this.db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).get()
     return row?.n ?? 0
   }
 }

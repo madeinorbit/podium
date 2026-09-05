@@ -3,7 +3,7 @@ import { desc, eq } from 'drizzle-orm'
 import { operations } from '../../migrations/schema'
 import type {
   StoreQueries,
-  SyncDrizzle,
+  StoreDrizzle,
   TransactionRunner,
 } from '../../store/executor/sync-drizzle'
 
@@ -108,7 +108,7 @@ export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 export const DEFAULT_RETENTION = 20
 
 export class OperationStore {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -128,8 +128,8 @@ export class OperationStore {
     return this.rootDb
   }
 
-  insert(operation: PersistedOperation): void {
-    this.db.insert(operations).values(rowFor(operation)).run()
+  async insert(operation: PersistedOperation): Promise<void> {
+    ;await (await this.db.insert(operations).values(rowFor(operation))).run()
   }
 
   /**
@@ -138,11 +138,11 @@ export class OperationStore {
    * frozen contract's whole point is that no writer knows them all — a
    * successor's field would be dropped on the first progress event.
    */
-  update(operation: PersistedOperation): void {
+  async update(operation: PersistedOperation): Promise<void> {
     // `id` is the key and is deliberately not in the SET list, exactly as the
     // statement this replaces had it: seven columns set, matched on the eighth.
     const { id, ...rest } = rowFor(operation)
-    this.db.update(operations).set(rest).where(eq(operations.id, id)).run()
+    await this.db.update(operations).set(rest).where(eq(operations.id, id)).run()
   }
 
   /**
@@ -156,19 +156,19 @@ export class OperationStore {
    * the columns are authoritative for scheduling, which is the same rule that
    * governs every other read here.
    */
-  markTerminal(id: string, state: string, at: number): void {
+  async markTerminal(id: string, state: string, at: number): Promise<void> {
     // THREE COLUMNS, and `payload` is not one of them — see above. A `set` names
     // exactly the columns it lists, so the bytes are left untouched rather than
     // rewritten with a value this binary may not have been able to read.
-    this.db
+    await this.db
       .update(operations)
       .set({ state, updatedAt: at, finishedAt: at })
       .where(eq(operations.id, id))
       .run()
   }
 
-  get(id: string): OperationRow | undefined {
-    const r = this.db.select().from(operations).where(eq(operations.id, id)).get()
+  async get(id: string): Promise<OperationRow | undefined> {
+    const r = await this.db.select().from(operations).where(eq(operations.id, id)).get()
     return r ? toRow(r) : undefined
   }
 
@@ -180,8 +180,8 @@ export class OperationStore {
    * protocol package, shared with everything that renders one. The candidate
    * set is at most a handful of rows — history is swept to twenty.
    */
-  activeByGroup(group: string): OperationRow | undefined {
-    const rows = this.db
+  async activeByGroup(group: string): Promise<OperationRow | undefined> {
+    const rows = await this.db
       .select()
       .from(operations)
       .where(eq(operations.exclusionGroup, group))
@@ -198,20 +198,20 @@ export class OperationStore {
    * is what lets adoption resolve it instead of leaving the group wedged by an
    * operation nothing will ever drive.
    */
-  active(): OperationRow[] {
-    const rows = this.db.select().from(operations).orderBy(desc(operations.createdAt)).all()
+  async active(): Promise<OperationRow[]> {
+    const rows = await this.db.select().from(operations).orderBy(desc(operations.createdAt)).all()
     return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
   /** Newest first — what Settings → Updates lists (§3.7). */
-  history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): OperationRow[] {
+  async history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): Promise<OperationRow[]> {
     // The two arms stay two statements rather than one with a conditional
     // predicate: an absent `kind` means EVERY kind here, not a kind that is
     // null, and folding them would make that distinction a runtime accident.
     const rows =
       kind === undefined
-        ? this.db.select().from(operations).orderBy(desc(operations.createdAt)).limit(limit).all()
-        : this.db
+        ? await this.db.select().from(operations).orderBy(desc(operations.createdAt)).limit(limit).all()
+        : await this.db
             .select()
             .from(operations)
             .where(eq(operations.kind, kind))
@@ -227,21 +227,21 @@ export class OperationStore {
    * retention rule that could delete the row a running engine is driving would
    * turn a full history into a lost update.
    */
-  sweepRetention(kind: string, keep: number = DEFAULT_RETENTION): number {
+  async sweepRetention(kind: string, keep: number = DEFAULT_RETENTION): Promise<number> {
     // TWO COLUMNS, named rather than spread [spec rule 39]: the statement this
     // replaces read `id, state` out of the eight, and a sweep that dragged the
     // payload of every finished operation back with it would read seven columns
     // nobody asked for, on every row, on every sweep.
-    const finished = this.db
+    const finished = (await this.db
       .select({ id: operations.id, state: operations.state })
       .from(operations)
       .where(eq(operations.kind, kind))
       .orderBy(desc(operations.createdAt))
-      .all()
+      .all())
       .filter((r) => isTerminalOperationState(r.state))
     const doomed = finished.slice(keep)
     for (const row of doomed) {
-      this.db.delete(operations).where(eq(operations.id, row.id)).run()
+      await this.db.delete(operations).where(eq(operations.id, row.id)).run()
     }
     return doomed.length
   }

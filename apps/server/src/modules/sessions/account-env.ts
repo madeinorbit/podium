@@ -10,12 +10,12 @@ import type { AccountId } from '@podium/model'
 import { credentialEnv } from '@podium/runtime'
 import type { AccountsRepository } from '../../store/accounts'
 
-export function resolveAccountEnv(
+export async function resolveAccountEnv(
   accounts: AccountsRepository,
   accountId: AccountId,
-): { env?: Record<string, string> } {
+): Promise<{ env?: Record<string, string> }> {
   if (!accountId.startsWith('managed:')) return {}
-  const row = accounts.get(accountId)
+  const row = await accounts.get(accountId)
   if (!row) return {}
   const env = credentialEnv({
     provider: row.provider,

@@ -86,40 +86,40 @@ function recordingDriver(
     return {
       async execute(statement) {
         note(statement.sql)
-        return session.execute(statement)
+        return await session.execute(statement)
       },
       async executeBatch(statements) {
         // ONE entry, not one per statement: whether a batch reached the driver
         // as a single call is the whole question, and the individual SQL is
         // visible in the results.
         note(`BATCH[${statements.length}]`)
-        return session.executeBatch(statements)
+        return await session.executeBatch(statements)
       },
       async begin(lane: Lane) {
         if (lane === 'write') note('BEGIN IMMEDIATE')
-        return session.begin(lane)
+        return await session.begin(lane)
       },
       async commit() {
         note('COMMIT')
-        return session.commit()
+        return await session.commit()
       },
       async rollback() {
         note('ROLLBACK')
-        return session.rollback()
+        return await session.rollback()
       },
       async enterSavepoint(name) {
         note(`SAVEPOINT ${name}`)
-        return session.enterSavepoint(name)
+        return await session.enterSavepoint(name)
       },
       async releaseSavepoint(name) {
         note(`RELEASE ${name}`)
-        return session.releaseSavepoint(name)
+        return await session.releaseSavepoint(name)
       },
       async rollbackToSavepoint(name) {
         note(`ROLLBACK TO ${name}`)
-        return session.rollbackToSavepoint(name)
+        return await session.rollbackToSavepoint(name)
       },
-      close: () => session.close(),
+      close: async () => await session.close(),
     }
   }
   const openReader = inner.openReader
@@ -142,7 +142,7 @@ function recordingDriver(
         }
       : {}),
     client: (route, routeBatch) => inner.client(route, routeBatch),
-    close: () => inner.close(),
+    close: async () => await inner.close(),
   }
 }
 
@@ -438,6 +438,6 @@ export function openHarness(options: HarnessOptions = {}): Harness {
     db: executor.drizzle,
     log,
     raw,
-    close: () => executor.close(),
+    close: async () => await executor.close(),
   }
 }

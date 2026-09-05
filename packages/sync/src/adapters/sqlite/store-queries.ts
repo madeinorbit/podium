@@ -70,13 +70,13 @@ export interface SyncRunResult {
  * COMPILE ERROR rather than a convention [spec rule 45]. Drizzle's own
  * transaction keeps its own nesting state and would issue a fresh BEGIN inside a
  * span the store already opened; {@link StoreQueries.createOrJoinTransaction} is the only
- * boundary, and it is the same omission `apps/server`'s `SyncDrizzle` makes.
+ * boundary, and it is the same omission `apps/server`'s `StoreDrizzle` makes.
  *
  * `'sync'` is the result kind — every terminal method returns its value rather
  * than a promise, which is what Stage A requires and what B1 changes.
  */
-export type SyncDrizzle = Omit<
-  SQLiteAsyncDatabase<'sync', SyncRunResult, EmptyRelations>,
+export type StoreDrizzle = Omit<
+  SQLiteAsyncDatabase<'async', SyncRunResult, EmptyRelations>,
   'transaction'
 >
 
@@ -101,11 +101,11 @@ export type SyncDrizzle = Omit<
  * composition root's own spans run on, so a `SessionStore.transact` wrapping an
  * `appendChanges` still degrades the inner span to a savepoint.
  */
-export type TransactionRunner = <T>(fn: () => T) => T
+export type TransactionRunner = <T>(fn: () => Promise<T>) => Promise<T>
 
 export interface StoreQueries {
-  /** The root drizzle instance a repository queries through. */
-  readonly rootDb: SyncDrizzle
+  /** The ambient drizzle instance a repository queries through. */
+  readonly rootDb: StoreDrizzle
   /** Creates a root transaction or joins the enclosing transaction when nested. */
   readonly createOrJoinTransaction: TransactionRunner
 }

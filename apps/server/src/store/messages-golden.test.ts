@@ -38,7 +38,7 @@ import type { MessageRow } from './types'
  * `test-support` would put several parallel conversion waves in one shared file.
  */
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).syncQueries
+  const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }
@@ -634,8 +634,8 @@ describe('batched id predicates', () => {
 })
 
 describe('the ack and settle sets', () => {
-  const unacked = (id: string, over: Omit<Partial<MessageRow>, 'id'> = {}) =>
-    add({
+  const unacked = async (id: string, over: Omit<Partial<MessageRow>, 'id'> = {}) =>
+    await add({
       id,
       status: 'delivered',
       deliveredAt: 't1',

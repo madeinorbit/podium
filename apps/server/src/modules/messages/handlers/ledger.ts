@@ -17,10 +17,10 @@ import type { ContractInput, mailLedgerContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
-export function ledgerHandler(
+export async function ledgerHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailLedgerContract>,
-): MessageWire[] {
+): Promise<MessageWire[]> {
   const { caller, deps, access } = ctx
   // Admin grade — today's `scope.kind === 'all'` — is the CROSS-USER projection:
   // every row, unfiltered. This is the arm that exposes other principals'
@@ -33,7 +33,7 @@ export function ledgerHandler(
     const resolved = access.resolveIssueAddress(input.issueId)
     if (resolved.kind !== 'issue') return []
   }
-  const rows = deps.messages.ledger(input)
+  const rows = await deps.messages.ledger(input)
   // A member sees the delivery ledger for traffic they sent or received — the
   // "why did my wake not fire" question the view exists to answer, answerable
   // entirely from their own rows. Same `mayView` predicate the show/status

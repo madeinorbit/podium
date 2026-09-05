@@ -29,7 +29,6 @@ import type {
   StoreDriver,
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
-import { syncQueriesOver } from './sync-drizzle'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface BunDriverOptions {
@@ -272,7 +271,7 @@ function session(
 }
 
 export interface BunStoreExecutorOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'legacy'> {
+  extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
   /** The shared connection. Becomes both the driver's and the legacy handle. */
   database: SqlDatabase
   /** See {@link BunDriverOptions.openReader}. */
@@ -303,14 +302,6 @@ export function createBunStoreExecutor(
       ...(openReader ? { openReader } : {}),
       ...(onClose ? { onClose } : {}),
     }),
-    legacy: database,
-    // The synchronous query capability, built here because this is where the bun
-    // handle is known. Undefined on a non-bun handle, which the restore path and
-    // some fixtures use.
-    ...(() => {
-      const sync = syncQueriesOver(database)
-      return sync ? { syncQueries: sync } : {}
-    })(),
     ...executor,
   })
 }

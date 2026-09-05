@@ -851,55 +851,55 @@ describe('conversation index', () => {
 
   it('indexes discovered conversations and finds them by keyword', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
-    const hits = store.conversations.index.search({ query: 'keyboard' })
+    const hits = await store.conversations.index.search({ query: 'keyboard' })
     expect(hits.map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
+    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
     ])
-    const hits = store.conversations.index.search({ projectPath: '/src/app' })
+    const hits = await store.conversations.index.search({ projectPath: '/src/app' })
     expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
     store.close()
   })
 
   it('excludes subagent (sidechain) conversations from the resume picker', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect(store.conversations.index.search({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
     store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect(store.conversations.index.search({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
+    expect((await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
       'newer',
       'older',
     ])
@@ -908,13 +908,13 @@ describe('conversation index', () => {
 
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a')])
-    store.conversations.index.setMeta('a', {
+    await store.conversations.index.upsert([conv('a')])
+    await store.conversations.index.setMeta('a', {
       name: 'Soft keyboard epic',
       summary: 'shipped; awaiting review',
     })
-    store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
-    const [hit] = store.conversations.index.search({ query: 'epic' })
+    await store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
+    const [hit] = await store.conversations.index.search({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
@@ -923,33 +923,33 @@ describe('conversation index', () => {
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
     ])
     // Both match before the delete.
     expect(
-      store.conversations.index
-        .search({ query: 'keyboard' })
+      (await store.conversations.index
+        .search({ query: 'keyboard' }))
         .map((h) => h.id)
         .sort(),
     ).toEqual(['a', 'b'])
 
-    store.conversations.index.delete(['b'])
+    await store.conversations.index.delete(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect(store.conversations.index.search({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a')])
-    store.conversations.index.delete([])
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert([conv('a')])
+    await store.conversations.index.delete([])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 })

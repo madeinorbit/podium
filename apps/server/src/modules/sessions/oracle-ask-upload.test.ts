@@ -142,9 +142,9 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const target = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const target = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -232,13 +232,13 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${AGENT_ONLY}: ask is NOT relay-reachable — the allowlist refuses it BEFORE the dispatch arm that implements it`, async () => {
     const o = await makeOracle()
-    const a = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
-    const peer = o.reg.modules.sessions.createSession({
+    const peer = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,

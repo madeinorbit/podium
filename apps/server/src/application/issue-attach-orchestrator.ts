@@ -6,7 +6,7 @@ import type { IssueAttentionCapability } from '../modules/issues/service'
 export type IssueAttachInput = Parameters<IssueAttentionCapability['attachSession']>[0]
 
 export interface IssueAttachOrchestratorPorts {
-  transact<T>(work: () => T): T
+  transact<T>(work: () => Promise<T>): Promise<T>
   attention: Pick<IssueAttentionCapability, 'attachSession'>
 }
 
@@ -21,10 +21,10 @@ export interface IssueAttachOrchestratorPorts {
 export class IssueAttachOrchestrator {
   constructor(private readonly ports: IssueAttachOrchestratorPorts) {}
 
-  execute(caller: IssueCaller, input: IssueAttachInput): IssueWire {
+  async execute(caller: IssueCaller, input: IssueAttachInput): Promise<IssueWire> {
     const principal = this.transportPrincipal(caller)
-    return this.ports.transact(() =>
-      this.ports.attention.attachSession({
+    return await this.ports.transact(async () =>
+      await this.ports.attention.attachSession({
         ...input,
         principal,
       }),

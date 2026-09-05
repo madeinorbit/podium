@@ -46,7 +46,7 @@ async function regWithTwoDaemons() {
   })
   await store.machines.setMachineInventory('m1', inventory)
   await store.machines.setMachineInventory('m2', inventory)
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
   reg.gateway.attachDaemon('m1', (msg) => m1.push(msg))
@@ -102,7 +102,7 @@ async function regWithRevocableMachineGrant() {
     actorId: COLLEAGUE,
     onBehalfOf: COLLEAGUE,
   })
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(SHARED_MACHINE, () => {})
   reg.gateway.routeDaemonFrame(SHARED_MACHINE, {
     type: 'inventoryReport',
@@ -121,11 +121,11 @@ async function regWithRevocableMachineGrant() {
   let grantReads = 0
   const liveGrants = reg.modules.machines.grantsForMachine.bind(reg.modules.machines)
   const revokeAfterFirstGrantRead = () => {
-    vi.spyOn(reg.modules.machines, 'grantsForMachine').mockImplementation((machineId) => {
-      const snapshot = liveGrants(machineId)
+    vi.spyOn(reg.modules.machines, 'grantsForMachine').mockImplementation(async (machineId) => {
+      const snapshot = await liveGrants(machineId)
       grantReads += 1
       if (grantReads === 1) {
-        store.grants.remove('machine', SHARED_MACHINE, FIRST_ADMIN_USER_ID, 'use')
+        await store.grants.remove('machine', SHARED_MACHINE, FIRST_ADMIN_USER_ID, 'use')
       }
       return snapshot
     })
@@ -186,7 +186,7 @@ describe('rule 46 grant snapshots at relay composition', () => {
 describe('multi-daemon routing', () => {
   it('routes a spawn to the chosen machine only', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
-    reg.modules.sessions.createSession({
+    await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/x',
       machineId: asMachineId('m2'),
@@ -197,12 +197,12 @@ describe('multi-daemon routing', () => {
 
   it('a session carries its machineId in meta', async () => {
     const { reg } = await regWithTwoDaemons()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/x',
       machineId: asMachineId('m2'),
     })
-    const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta).toBeDefined()
     expect(meta?.machineId).toBe('m2')
     expect(meta?.machineName).toBe('two')
@@ -211,12 +211,12 @@ describe('multi-daemon routing', () => {
   it('stamps the reporting machine when a remote session adopts its worktree', async () => {
     const { reg } = await regWithTwoDaemons()
     try {
-      const issue = reg.modules.issues.create({
+      const issue = await reg.modules.issues.create({
         repoPath: '/repo',
         title: 'Remote adoption',
         startNow: false,
       })
-      const { sessionId } = reg.modules.sessions.createSession({
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
         issueId: issue.id,
@@ -232,7 +232,7 @@ describe('multi-daemon routing', () => {
         repoRoot: '/repo',
       })
 
-      expect(reg.modules.issues.get(issue.id)).toMatchObject({
+      expect(await reg.modules.issues.get(issue.id)).toMatchObject({
         worktreePath: '/repo/.worktrees/remote-adoption',
         branch: 'issue/remote-adoption',
         machineId: 'm2',
@@ -244,7 +244,7 @@ describe('multi-daemon routing', () => {
 
   it('acknowledges an exact native binding back to its owner after storing it', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
       machineId: asMachineId('m1'),
@@ -260,7 +260,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-a' })
     expect(m1).toContainEqual({
@@ -274,7 +274,7 @@ describe('multi-daemon routing', () => {
 
   it('rejects a native binding and acknowledgement from a non-owner daemon', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
       machineId: asMachineId('m1'),
@@ -291,7 +291,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toBeUndefined()
     expect(m1).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
@@ -306,7 +306,7 @@ describe('multi-daemon routing', () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     const logs = captureLogs()
 
-    const browse = reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
+    const browse = await reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
     const request = m1.find((msg) => msg.type === 'browseDirsRequest')
     expect(request, 'the browse must have been sent to m1').toBeDefined()
     expect(m2.filter((msg) => msg.type === 'browseDirsRequest')).toHaveLength(0)
@@ -354,16 +354,16 @@ describe('multi-daemon routing', () => {
 
   it('detaching m1 only marks m1 sessions reconnecting', async () => {
     const { reg } = await regWithTwoDaemons()
-    const a = reg.modules.sessions.createSession({
+    const a = (await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/a',
       machineId: asMachineId('m1'),
-    }).sessionId
-    const b = reg.modules.sessions.createSession({
+    })).sessionId
+    const b = (await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/b',
       machineId: asMachineId('m2'),
-    }).sessionId
+    })).sessionId
     // mark both live as a bind would
     reg.gateway.routeDaemonFrame('m1', {
       type: 'bind',
@@ -382,18 +382,18 @@ describe('multi-daemon routing', () => {
       geometry: { cols: 80, rows: 24 },
     })
     reg.gateway.detachDaemon('m1')
-    const meta = (id: string) => reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
-    expect(meta(a)?.status).toBe('reconnecting')
-    expect(meta(b)?.status).toBe('live')
+    const meta = async (id: string) => (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === id)
+    expect((await meta(a))?.status).toBe('reconnecting')
+    expect((await meta(b))?.status).toBe('live')
   })
 
   it('lists machines with their online status from the registry', async () => {
     const { reg } = await regWithTwoDaemons()
-    const machines = reg.modules.machines.listMachines()
+    const machines = await reg.modules.machines.listMachines()
     expect(machines.find((m) => m.id === 'm1')?.online).toBe(true)
     expect(machines.find((m) => m.id === 'm2')?.online).toBe(true)
     reg.gateway.detachDaemon('m1')
-    const after = reg.modules.machines.listMachines()
+    const after = await reg.modules.machines.listMachines()
     expect(after.find((m) => m.id === 'm1')?.online).toBe(false)
     expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
   })
@@ -401,12 +401,12 @@ describe('multi-daemon routing', () => {
   it('routes an unresolved spawn (no machineId, unregistered cwd) to an online machine, not __local__', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     // No machineId provided, cwd matches no registered repo — must NOT dead-queue under __local__.
-    reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/no/repo/here' })
+    await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/no/repo/here' })
     const spawns = [...m1, ...m2].filter((m) => m.type === 'spawn')
     // The spawn must have reached one of the online daemons, not vanished into __local__.
     expect(spawns).toHaveLength(1)
     // Confirm the session's machineId is one of the two online machines.
-    const sessions = reg.modules.sessions.listSessions()
+    const sessions = await reg.modules.sessions.listSessions()
     expect(sessions).toHaveLength(1)
     expect(['m1', 'm2']).toContain(sessions[0]?.machineId)
   })
@@ -487,7 +487,7 @@ async function handoffRegistry(
   let targetRepoPath = '/target/repo'
   if (opts.targetHasRepo !== false)
     await store.repos.addRepo(targetRepoPath, asMachineId('m2'), 'git@github.com:example/repo.git')
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const sha = 'a'.repeat(40)
@@ -631,10 +631,10 @@ async function handoffRegistry(
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
   const issue = opts.withIssue
-    ? reg.modules.issues.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    ? await reg.modules.issues.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
     : undefined
   if (issue) {
-    reg.modules.issues.update(issue.id, {
+    await reg.modules.issues.update(issue.id, {
       worktreePath: '/source/repo/.worktrees/x',
       branch: 'x',
       machineId: asMachineId('m1'),
@@ -661,7 +661,7 @@ describe('session handoff orchestration', () => {
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(reg.modules.sessions.listSessions()).toMatchObject([
+      expect(await reg.modules.sessions.listSessions()).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
       ])
       expect(source).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
@@ -688,7 +688,7 @@ describe('session handoff orchestration', () => {
       kind: 'worktree',
       repoRoot: '/source/repo',
     })
-    expect(reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions()).toMatchObject([
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x' },
     ])
 
@@ -699,7 +699,7 @@ describe('session handoff orchestration', () => {
       kind: 'worktree',
       repoRoot: '/target/repo',
     })
-    expect(reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions()).toMatchObject([
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x/apps/web' },
     ])
   })
@@ -727,7 +727,7 @@ describe('session handoff orchestration', () => {
         }),
       }),
     )
-    expect(reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions()).toMatchObject([
       {
         sessionId,
         machineId: 'm2',
@@ -746,7 +746,7 @@ describe('session handoff orchestration', () => {
     })
     const targetRepo = (await store.repos.listRepos(asMachineId('m2')))[0]
     expect(prepared).toEqual({ cwd: targetRepo?.path, machineId: 'm2' })
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       ...prepared,
     })
@@ -769,7 +769,7 @@ describe('session handoff orchestration', () => {
       cwd: '/old-machine/repo',
       kind: 'none',
     })
-    expect(reg.modules.issues.getMeta(issueId!)).toMatchObject({
+    expect(await reg.modules.issues.getMeta(issueId!)).toMatchObject({
       worktreePath: '/source/repo/.worktrees/x',
       machineId: asMachineId('m1'),
     })
@@ -845,13 +845,13 @@ describe('session handoff orchestration', () => {
         withIssue: true,
         landInSubdir: true,
       })
-      const before = reg.modules.issues.get(issueId!)
+      const before = await reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(reg.modules.issues.get(issueId!)).toMatchObject({
+      expect(await reg.modules.issues.get(issueId!)).toMatchObject({
         // The ROOT, even though the agent resumed in .../x/apps/web.
         worktreePath: '/target/repo/.worktrees/x',
         repoPath: '/target/repo',
@@ -859,7 +859,7 @@ describe('session handoff orchestration', () => {
       })
       // Identity survives the move: the nice-id prefix and repo scoping resolve
       // through repoId, which is origin-derived and the same on both machines.
-      expect(reg.modules.issues.get(issueId!)?.seq).toBe(before?.seq)
+      expect((await reg.modules.issues.get(issueId!))?.seq).toBe(before?.seq)
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior
@@ -880,7 +880,7 @@ describe('session handoff orchestration', () => {
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(reg.modules.issues.get(issueId!)).toMatchObject({
+      expect(await reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
         repoPath: '/source/repo',
         machineId: asMachineId('m1'),
@@ -894,12 +894,12 @@ describe('session handoff orchestration', () => {
   it('resumes the unchanged source row when export fails', async () => {
     const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
-      reg.modules.issueSessionLifecycle.handoffSession(
+      await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
     ).rejects.toThrow('export exploded')
-    expect(reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions()).toMatchObject([
       { sessionId, machineId: 'm1', cwd: '/source/repo/.worktrees/x', status: 'starting' },
     ])
     expect(source.filter((message) => message.type === 'spawn')).toHaveLength(2)

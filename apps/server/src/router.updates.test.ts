@@ -86,18 +86,18 @@ async function fileBackedStore(runChild?: SnapshotChildRunner): Promise<SessionS
   return store
 }
 
-function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
+async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
   const opts =
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
+  const registry = await SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
   if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
-  registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
+  await registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const readServedWeb =
     typeof opts.servedWebDigest === 'function'
       ? opts.servedWebDigest
@@ -145,7 +145,7 @@ afterEach(() => {
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
 describe('fleet default update channel', () => {
-  async function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+  async function addMachine(registry: Awaited<ReturnType<typeof harness>>['registry'], id: string) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -157,31 +157,31 @@ describe('fleet default update channel', () => {
 
   it('resolves an unpinned machine onto the fleet default', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
-    const { registry } = harness()
+    const { registry } = await harness()
     await addMachine(registry, 'unpinned')
 
-    const machine = registry.modules.machines
-      .listMachines()
+    const machine = (await registry.modules.machines
+      .listMachines())
       .find((candidate) => candidate.id === 'unpinned')
     expect(machine?.updateChannelOverride ?? null).toBeNull()
     expect(machine?.updateChannel).toBe('edge')
-    expect(registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
+    expect(await registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
     registry.dispose()
   })
 
   it('lets a pin win over the fleet default, and survives it changing', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
-    const { registry } = harness()
+    const { registry } = await harness()
     await addMachine(registry, 'pinned')
-    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
+    await registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
 
-    expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
+    expect(await registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
 
     // The fleet moves; the pinned machine does not.
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
-    expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
-    const pinned = registry.modules.machines
-      .listMachines()
+    expect(await registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
+    const pinned = (await registry.modules.machines
+      .listMachines())
       .find((candidate) => candidate.id === 'pinned')
     expect(pinned?.updateChannelOverride).toBe('stable')
     registry.dispose()
@@ -189,13 +189,13 @@ describe('fleet default update channel', () => {
 
   it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
-    const { registry } = harness()
+    const { registry } = await harness()
     await addMachine(registry, 'follower')
     await addMachine(registry, 'pinned')
-    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
+    await registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     registry.modules.updates.setTarget(target())
 
-    const before = registry.modules.machines.listMachines()
+    const before = await registry.modules.machines.listMachines()
     const followerBefore = before.find((m) => m.id === 'follower')
     expect(followerBefore?.updateChannel).toBe('stable')
 
@@ -203,7 +203,7 @@ describe('fleet default update channel', () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
     registry.modules.machines.refreshFleetChannel()
 
-    const after = registry.modules.machines.listMachines()
+    const after = await registry.modules.machines.listMachines()
     expect(after.find((m) => m.id === 'follower')?.updateChannel).toBe('dev')
     // Target is resolved per machine from its channel, so it moves with it.
     expect(after.find((m) => m.id === 'follower')?.targetVersion).not.toBe(
@@ -219,16 +219,16 @@ describe('fleet default update channel', () => {
 
   it('hands a machine back to the fleet default when its pin is cleared', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
-    const { registry } = harness()
+    const { registry } = await harness()
     await addMachine(registry, 'released')
-    registry.modules.machines.setUpdateChannel(asMachineId('released'), 'dev')
-    expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('dev')
+    await registry.modules.machines.setUpdateChannel(asMachineId('released'), 'dev')
+    expect(await registry.modules.machines.updateChannel(asMachineId('released'))).toBe('dev')
 
-    registry.modules.machines.setUpdateChannel(asMachineId('released'), null)
+    await registry.modules.machines.setUpdateChannel(asMachineId('released'), null)
 
-    expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
-    const released = registry.modules.machines
-      .listMachines()
+    expect(await registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
+    const released = (await registry.modules.machines
+      .listMachines())
       .find((candidate) => candidate.id === 'released')
     expect(released?.updateChannelOverride ?? null).toBeNull()
     registry.dispose()
@@ -246,7 +246,7 @@ describe('fleet default update channel', () => {
  * three paths, one channel.
  */
 describe('one default channel', () => {
-  async function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+  async function addMachine(registry: Awaited<ReturnType<typeof harness>>['registry'], id: string) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -258,7 +258,7 @@ describe('one default channel', () => {
 
   it('resolves an unpinned machine identically through channelOf and both fleet handlers', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
@@ -279,7 +279,7 @@ describe('one default channel', () => {
 
   it('follows the fleet default onto dev as readily as onto stable', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
@@ -295,7 +295,7 @@ describe('one default channel', () => {
   })
 
   it('updates Podium on a machine whose agent software is not Podium-managed', async () => {
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await registry.sessionStore.machines.upsertMachine({
       id: 'shared',
       name: 'Shared machine',
@@ -306,7 +306,7 @@ describe('one default channel', () => {
     })
     const sharedMachineId = asMachineId('shared')
     registry.gateway.attachDaemon(sharedMachineId, () => {})
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       sharedMachineId,
       { appVersion: '0.4.1' },
       [],
@@ -320,7 +320,7 @@ describe('one default channel', () => {
     await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
     const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
 
-    expect(registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
+    expect(await registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
     expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev', 'dev'])
     expect(outcome).toEqual({ result: 'granted', version: '0.4.2' })
     registry.dispose()
@@ -328,9 +328,9 @@ describe('one default channel', () => {
 
   it('lets a pin win over the fleet default on every path', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await addMachine(registry, 'pinned')
-    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
+    await registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
@@ -357,7 +357,7 @@ describe('release target checks', () => {
   it('exposes per-channel checked-at and outcome on the fleet payload', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
     const fetchSpy = offline()
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await registry.modules.updates.refreshTarget('stable')
 
     const fleet = await caller.updates.fleet()
@@ -379,7 +379,7 @@ describe('release target checks', () => {
 
   it('adds current component identities to the existing fleet payload', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       servedWebDigest: '47a01e3',
       servedMobileWeb: {
         present: true,
@@ -402,7 +402,7 @@ describe('release target checks', () => {
 
   it('does not integrity-check database snapshots while polling fleet state', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     registry.modules.updates.setTarget(target())
     const latestSnapshot = vi.spyOn(registry.sessionStore, 'latestDatabaseSnapshot')
 
@@ -414,7 +414,7 @@ describe('release target checks', () => {
   })
 
   it('has nothing to say about a channel it has never checked', async () => {
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
 
     await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
     registry.dispose()
@@ -423,7 +423,7 @@ describe('release target checks', () => {
   it('checkNow checks the channels in use and returns their outcomes', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
     const fetchSpy = offline()
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
 
     const results = await caller.updates.checkNow()
 
@@ -454,21 +454,21 @@ describe('release target checks', () => {
  * grantable places" true: the set counted here IS the set that mutation grants.
  */
 describe('the fleet counted is the fleet the global action would grant', () => {
-  const hostAt = (
-    registry: ReturnType<typeof harness>['registry'],
+  const hostAt = async (
+    registry: Awaited<ReturnType<typeof harness>>['registry'],
     channel: UpdateChannel,
     appVersion: string,
   ) => {
     const id = registry.sessionStore.hostMachineId
-    registry.modules.machines.setUpdateChannel(id, channel)
-    registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
+    await registry.modules.machines.setUpdateChannel(id, channel)
+    await registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
   }
 
   /** THE DEFECT: a real stable release, a host behind it, and a read model that
    *  reported an empty dev wave — `targetVersion` null, nothing behind. */
   it('counts a stable-pinned host as behind its own stable target', async () => {
-    const { registry, caller } = harness()
-    hostAt(registry, 'stable', '0.1.2')
+    const { registry, caller } = await harness()
+    await hostAt(registry, 'stable', '0.1.2')
     registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
@@ -483,9 +483,9 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   })
   it('excludes a source checkout while retaining an outdated packaged machine', async () => {
     const release = '0.1.1-dev.1+6e57311'
-    const { registry, caller } = harness({ serverInstallKind: 'source' })
+    const { registry, caller } = await harness({ serverInstallKind: 'source' })
     const host = registry.sessionStore.hostMachineId
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       host,
       { appVersion: 'dev+6e57311', installKind: 'source' },
       ['podium.shipping-train'],
@@ -499,8 +499,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
     registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
-    registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('packaged'),
       { appVersion: '0.1.1-dev.0+old0000', installKind: 'installed' },
       ['update.delivery.feed', 'podium.shipping-train'],
@@ -514,7 +514,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(offered.machines.map((machine) => machine.id)).toEqual(['packaged'])
     expect(offered.allMachines.map((machine) => machine.id)).toContain(host)
 
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       asMachineId('packaged'),
       { appVersion: release, installKind: 'installed' },
       ['update.delivery.feed', 'podium.shipping-train'],
@@ -543,8 +543,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
    * `updates.start` would plan and grant in full.
    */
   it('counts a behind stable machine when the coordinator itself is current', async () => {
-    const { registry, caller } = harness()
-    hostAt(registry, 'stable', '0.1.3')
+    const { registry, caller } = await harness()
+    await hostAt(registry, 'stable', '0.1.3')
     await registry.sessionStore.machines.upsertMachine({
       id: 'stable-vps',
       name: 'VPS',
@@ -552,8 +552,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       tokenHash: 'vps-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
       [],
@@ -576,8 +576,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
    * behind place this dialog cannot move.
    */
   it('still leaves an off-channel machine out of the wave the dialog counts', async () => {
-    const { registry, caller } = harness()
-    hostAt(registry, 'dev', 'dev+47a01e3')
+    const { registry, caller } = await harness()
+    await hostAt(registry, 'dev', 'dev+47a01e3')
     await registry.sessionStore.machines.upsertMachine({
       id: 'stable-vps',
       name: 'VPS',
@@ -585,8 +585,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       tokenHash: 'vps-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
       [],
@@ -608,8 +608,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
 
   /** The invariant behind both cases, asserted directly rather than implied. */
   it('scopes the wave to the same channel the operation would be computed on', async () => {
-    const { registry, caller } = harness()
-    hostAt(registry, 'stable', '0.1.2')
+    const { registry, caller } = await harness()
+    await hostAt(registry, 'stable', '0.1.2')
     registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
@@ -628,7 +628,7 @@ describe('updates tRPC', () => {
       bundleReady: false,
       failureDetail: 'The website could not be rebuilt. See the server log.',
     }
-    const { registry, caller } = harness({ updatePreparation: () => preparation })
+    const { registry, caller } = await harness({ updatePreparation: () => preparation })
 
     await expect(caller.updates.fleet()).resolves.toMatchObject({ preparation })
     registry.dispose()
@@ -642,7 +642,7 @@ describe('updates tRPC', () => {
    */
   it('refuses a convergence request in prose when nothing is published', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -664,7 +664,7 @@ describe('updates tRPC', () => {
     const detail =
       'The source checkout has 2 uncommitted changes and no longer matches HEAD (ee135e3). ' +
       'Commit or stash them to publish dev+ee135e3.'
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       updatePreparation: () => ({ webReady: false, bundleReady: false, failureDetail: detail }),
     })
 
@@ -677,8 +677,8 @@ describe('updates tRPC', () => {
 
   it('refuses a convergence request when every place is already on target', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    const { registry, caller } = harness()
-    registry.modules.machines.setMachineBuild(
+    const { registry, caller } = await harness()
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
       [],
@@ -699,11 +699,11 @@ describe('updates tRPC', () => {
     const requestWebRebuild = vi.fn(() => {
       digest = '47a01e3'
     })
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       requestWebRebuild,
       servedWebDigest: () => digest,
     })
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -737,9 +737,9 @@ describe('updates tRPC', () => {
    * guarantee is that the ordinary published feed target reaches it.
    */
   async function devFleet(requestDestBundle: () => Promise<unknown>) {
-    const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
+    const { registry, caller } = await harness({ servedWebDigest: '47a01e3', requestDestBundle })
     const grants: unknown[] = []
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -752,10 +752,10 @@ describe('updates tRPC', () => {
       tokenHash: 'source-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
+    await registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
     // The caps an INSTALLED daemon reports (`build-report.ts`): a feed, and
     // nothing else now that the bundle kind is retired.
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       asMachineId('source-machine'),
       { appVersion: 'dev+aaaaaaa' },
       ['update.delivery.feed'],
@@ -819,12 +819,12 @@ describe('updates tRPC', () => {
   it('does not grant dest machines a dest+commit that dest cannot deliver', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestDestBundle = vi.fn().mockResolvedValue(undefined)
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       servedWebDigest: '47a01e3',
       requestDestBundle,
     })
     const grants: unknown[] = []
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -837,8 +837,8 @@ describe('updates tRPC', () => {
       tokenHash: 'installed-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -871,13 +871,13 @@ describe('updates tRPC', () => {
       digest = '47a01e3'
     })
     const requestDestBundle = vi.fn().mockResolvedValue(undefined)
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       requestWebRebuild,
       requestDestBundle,
       servedWebDigest: () => digest,
     })
     const grants: unknown[] = []
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -890,8 +890,8 @@ describe('updates tRPC', () => {
       tokenHash: 'installed-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -934,11 +934,11 @@ describe('updates tRPC', () => {
           publish = resolve
         }),
     )
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       servedWebDigest: '47a01e3',
       requestDestBundle,
     })
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -951,8 +951,8 @@ describe('updates tRPC', () => {
       tokenHash: 'installed-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -1004,12 +1004,12 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
     const requestCoordinatorRestart = vi.fn()
     const requestDestBundle = vi.fn().mockRejectedValue(new Error('compile failed'))
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
     })
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -1073,7 +1073,7 @@ describe('updates tRPC', () => {
     // A coordinator with no update receiver of its own: no host daemon, no
     // local participant. Nothing in the fleet will swap this machine, so the
     // operation owns its replacement and the `server` step is planned.
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       store,
       hostUpdateReceiver: false,
       requestCoordinatorRestart,
@@ -1087,8 +1087,8 @@ describe('updates tRPC', () => {
       tokenHash: 'installed-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -1112,8 +1112,8 @@ describe('updates tRPC', () => {
       tokenHash: 'bundle-machine-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
+    await registry.modules.machines.setMachineBuild(
       bundleMachine,
       { appVersion: 'dev+aaaaaaa' },
       ['update.delivery.bundle'],
@@ -1124,8 +1124,8 @@ describe('updates tRPC', () => {
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     expect(
-      registry.modules.operations.engine
-        .active('lifecycle')
+      (await registry.modules.operations.engine
+        .active('lifecycle'))
         ?.operation?.steps?.map((step) => step.id),
     ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
@@ -1167,7 +1167,7 @@ describe('updates tRPC', () => {
 
     // The one waved machine reports the target, so the wave is done and the
     // plan reaches the step that replaces this process.
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+47a01e3' },
       [],
@@ -1192,14 +1192,14 @@ describe('updates tRPC', () => {
     const hostControl: unknown[] = []
     // The all-in-one / server-only shape after POD-2668: this machine has an
     // update receiver, so it is a rollout target like any other.
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       store,
       hostUpdateReceiver: (message) => hostControl.push(message),
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
     })
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
       [],
@@ -1239,7 +1239,7 @@ describe('updates tRPC', () => {
     await vi.waitFor(() =>
       expect(hostControl).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
     )
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -1262,11 +1262,11 @@ describe('updates tRPC', () => {
   it('still refuses when server, web stamp, and fleet all match', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestWebRebuild = vi.fn()
-    const { registry, caller } = harness({
+    const { registry, caller } = await harness({
       requestWebRebuild,
       servedWebDigest: '47a01e3',
     })
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
@@ -1294,8 +1294,8 @@ describe('updates tRPC', () => {
    */
   describe('the phone website', () => {
     /** Server and target both on dev+47a01e3, so only a dist can be behind. */
-    const settle = (registry: SessionRegistry): void => {
-      registry.modules.machines.setMachineBuild(
+    const settle = async (registry: SessionRegistry): Promise<void> => {
+      await registry.modules.machines.setMachineBuild(
         registry.sessionStore.hostMachineId,
         { appVersion: 'dev+47a01e3' },
         [],
@@ -1311,12 +1311,12 @@ describe('updates tRPC', () => {
     it('CAN SAY NO: rebuilds when only the phone export is on an older commit', async () => {
       process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
       const requestWebRebuild = vi.fn()
-      const { registry, caller } = harness({
+      const { registry, caller } = await harness({
         requestWebRebuild,
         servedWebDigest: '47a01e3',
         servedMobileWeb: { present: true, digest: 'aaaaaaa' },
       })
-      settle(registry)
+      await settle(registry)
 
       const result = await caller.updates.converge()
       expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
@@ -1327,12 +1327,12 @@ describe('updates tRPC', () => {
     it('rebuilds a phone export that cannot name its commit at all', async () => {
       process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
       const requestWebRebuild = vi.fn()
-      const { registry, caller } = harness({
+      const { registry, caller } = await harness({
         requestWebRebuild,
         servedWebDigest: '47a01e3',
         servedMobileWeb: { present: true },
       })
-      settle(registry)
+      await settle(registry)
 
       await caller.updates.converge()
       expect(requestWebRebuild).toHaveBeenCalledOnce()
@@ -1342,12 +1342,12 @@ describe('updates tRPC', () => {
     it('leaves an installation with no phone website alone', async () => {
       process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
       const requestWebRebuild = vi.fn()
-      const { registry, caller } = harness({
+      const { registry, caller } = await harness({
         requestWebRebuild,
         servedWebDigest: '47a01e3',
         servedMobileWeb: { present: false },
       })
-      settle(registry)
+      await settle(registry)
 
       await expect(caller.updates.converge()).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
@@ -1360,12 +1360,12 @@ describe('updates tRPC', () => {
     it('is current when both dists name the target commit', async () => {
       process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
       const requestWebRebuild = vi.fn()
-      const { registry, caller } = harness({
+      const { registry, caller } = await harness({
         requestWebRebuild,
         servedWebDigest: '47a01e3',
         servedMobileWeb: { present: true, digest: '47a01e3' },
       })
-      settle(registry)
+      await settle(registry)
 
       await expect(caller.updates.converge()).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
@@ -1378,7 +1378,7 @@ describe('updates tRPC', () => {
   it('can rebuild a source web app even when the server is already on target', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const requestCoordinatorRestart = vi.fn()
-    const { registry, caller } = harness(requestCoordinatorRestart)
+    const { registry, caller } = await harness(requestCoordinatorRestart)
     registry.modules.updates.setTarget(target())
 
     await expect(caller.updates.repairCompatibility()).resolves.toEqual({
@@ -1390,7 +1390,7 @@ describe('updates tRPC', () => {
   })
 
   it('explains when this installation cannot rebuild its web app', async () => {
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
 
     await expect(caller.updates.repairCompatibility()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -1401,10 +1401,10 @@ describe('updates tRPC', () => {
 
   it('starts a machine-only wave while the coordinating server is current', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     const grants: unknown[] = []
 
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
       [],
@@ -1417,8 +1417,8 @@ describe('updates tRPC', () => {
       tokenHash: 'flatblock-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('flatblock'),
       { appVersion: '0.4.1' },
       [],
@@ -1442,8 +1442,8 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
     const store = await fileBackedStore()
-    const { registry, caller } = harness({ store, requestCoordinatorRestart })
-    registry.modules.machines.setMachineBuild(
+    const { registry, caller } = await harness({ store, requestCoordinatorRestart })
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
       [],
@@ -1466,7 +1466,7 @@ describe('updates tRPC', () => {
 
   it('does not count or grant a machine selected onto another channel', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     await registry.sessionStore.machines.upsertMachine({
       id: 'stable-machine',
       name: 'Stable machine',
@@ -1474,8 +1474,8 @@ describe('updates tRPC', () => {
       tokenHash: 'stable-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel(asMachineId('stable-machine'), 'stable')
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setUpdateChannel(asMachineId('stable-machine'), 'stable')
+    await registry.modules.machines.setMachineBuild(
       asMachineId('stable-machine'),
       { appVersion: '0.4.1' },
       [],
@@ -1490,7 +1490,7 @@ describe('updates tRPC', () => {
 
   it('exposes the fleet query and propagates convergence failures', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness()
+    const { registry, caller } = await harness()
     registry.modules.updates.setTarget(target())
 
     const fleet = await caller.updates.fleet()
@@ -1514,10 +1514,10 @@ describe('updates tRPC', () => {
  * single-flight, a queue, a remainder retry.
  */
 describe('the update operation', () => {
-  function behindHarness(options: Parameters<typeof harness>[0] = {}) {
+  async function behindHarness(options: Parameters<typeof harness>[0] = {}) {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const built = harness(options)
-    built.registry.modules.machines.setMachineBuild(
+    const built = await harness(options)
+    await built.registry.modules.machines.setMachineBuild(
       built.registry.sessionStore.hostMachineId,
       { appVersion: '0.4.1' },
       [],
@@ -1528,7 +1528,7 @@ describe('the update operation', () => {
   }
 
   it('answers an operation id, and puts it on the fleet payload for the old panel', async () => {
-    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     const latestSnapshot = vi.spyOn(registry.sessionStore, 'latestDatabaseSnapshot')
     const started = await caller.updates.start()
     expect(started.operationId).toMatch(/^op_/)
@@ -1569,9 +1569,9 @@ describe('the update operation', () => {
     // A snapshot exists on disk and is UNVERIFIED: the tempting case, where a
     // background scan would look like a helpful thing to start.
     store.snapshotBeforeUpdate('0.4.1', '0.4.2')
-    const { registry, caller } = harness({ store })
+    const { registry, caller } = await harness({ store })
     // The host is already on the target; only a daemon machine is behind.
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
       [],
@@ -1586,13 +1586,13 @@ describe('the update operation', () => {
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
     registry.gateway.attachDaemon(behind, () => {})
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       behind,
       { appVersion: '0.4.1' },
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.machines.setUpdateChannel(behind, 'dev')
+    await registry.modules.machines.setUpdateChannel(behind, 'dev')
     registry.modules.updates.setTarget(target('0.4.2'))
     const discover = vi.spyOn(registry.sessionStore, 'discoverDatabaseSnapshots')
 
@@ -1611,7 +1611,7 @@ describe('the update operation', () => {
   })
 
   it('gives two concurrent starts one operation id', async () => {
-    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     const [first, second] = await Promise.all([caller.updates.start(), caller.updates.start()])
     expect(second.operationId).toBe(first.operationId)
     expect(second.alreadyRunning).toBe(true)
@@ -1624,7 +1624,7 @@ describe('the update operation', () => {
    * mutated; the newcomer waits and is offered when the operation terminates.
    */
   it('queues a version published mid-operation and does not change the running target', async () => {
-    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     await caller.updates.start()
     registry.modules.updates.setTarget(target('0.4.3'))
 
@@ -1635,17 +1635,17 @@ describe('the update operation', () => {
 
     // The operation ends; the queued version becomes an OFFER, not a second
     // operation — the human decision was about the version that just finished.
-    registry.modules.operations.engine.cancel(fleet.operationId as string)
+    await registry.modules.operations.engine.cancel(fleet.operationId as string)
     expect(registry.modules.updates.target('dev')?.version).toBe('0.4.3')
     expect((await caller.updates.fleet()).nextTargetVersion).toBeUndefined()
-    expect(registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
+    expect(await registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
     registry.dispose()
   })
 
   it('retries the remainder as a NEW operation, linked to the one it retries', async () => {
-    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     const first = await caller.updates.start()
-    registry.modules.operations.engine.cancel(first.operationId)
+    await registry.modules.operations.engine.cancel(first.operationId)
 
     const retried = await caller.updates.retry({ id: first.operationId })
     expect(retried.operationId).not.toBe(first.operationId)
@@ -1657,7 +1657,7 @@ describe('the update operation', () => {
   })
 
   it('refuses to retry an update it has no record of', async () => {
-    const { registry, caller } = behindHarness()
+    const { registry, caller } = await behindHarness()
     await expect(caller.updates.retry({ id: 'op_nope' })).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
@@ -1666,8 +1666,8 @@ describe('the update operation', () => {
 
   it('still refuses to start when every place is already on target', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    const { registry, caller } = harness()
-    registry.modules.machines.setMachineBuild(
+    const { registry, caller } = await harness()
+    await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
       [],

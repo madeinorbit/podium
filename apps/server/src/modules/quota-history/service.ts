@@ -48,16 +48,16 @@ export const QUOTA_HISTORY_DEFAULT_DAYS = 90
  * of serving quota, and a failure to write history must never turn a working
  * `quota.summary` into an error for the person watching the meter.
  */
-export function recordQuotaSamples(
+export async function recordQuotaSamples(
   history: QuotaHistoryRepository,
   machines: MachineQuotaWire[],
   intervalMs: number = QUOTA_SAMPLE_INTERVAL_MS,
-): { recorded: number; openedWindows: number } {
+): Promise<{ recorded: number; openedWindows: number }> {
   let recorded = 0
   let openedWindows = 0
   for (const sample of samplesFromQuota(machines)) {
     try {
-      const { openedWindow } = history.record(sample, intervalMs)
+      const { openedWindow } = await history.record(sample, intervalMs)
       recorded += 1
       if (openedWindow) {
         openedWindows += 1
@@ -135,9 +135,9 @@ export class QuotaSampler {
    * concurrent fan-outs — bounded by the daemon's own 120 s memo, which is what
    * keeps the cost off the providers.
    */
-  sampleNow(): Promise<void> {
+  async sampleNow(): Promise<void> {
     if (this.inFlight) return this.inFlight
-    const flight = this.runPass().finally(() => {
+    const flight = (await this.runPass()).finally(() => {
       if (this.inFlight === flight) this.inFlight = undefined
     })
     this.inFlight = flight
@@ -156,13 +156,13 @@ export class QuotaSampler {
       return
     }
     if (this.disposed) return
-    recordQuotaSamples(this.history, machines, this.intervalMs)
-    this.pruneExpired()
+    await recordQuotaSamples(this.history, machines, this.intervalMs)
+    await this.pruneExpired()
   }
 
-  private pruneExpired(): void {
+  private async pruneExpired(): Promise<void> {
     try {
-      const deleted = this.history.prune(this.now() - this.retentionMs)
+      const deleted = await this.history.prune(this.now() - this.retentionMs)
       if (deleted > 0) log.debug('pruned quota windows', { deleted })
     } catch (err) {
       log.debug('quota prune failed', { err: String(err) })

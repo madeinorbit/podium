@@ -46,9 +46,9 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
       { batchSize: 500, now: () => monotonicMs },
     )
 
-    const first = retention.pruneNow()
-    const second = retention.pruneNow()
-    const third = retention.pruneNow()
+    const first = await retention.pruneNow()
+    const second = await retention.pruneNow()
+    const third = await retention.pruneNow()
     await Promise.all([first, second, third])
 
     expect(planEventPrune).toHaveBeenCalledTimes(2)
@@ -66,8 +66,8 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
     const pruneEventBatch = vi.fn(() => 0)
     const retention = new EventLogRetention({ planEventPrune, pruneEventBatch })
 
-    const first = retention.pruneNow()
-    const second = retention.pruneNow()
+    const first = await retention.pruneNow()
+    const second = await retention.pruneNow()
     const results = await Promise.allSettled([first, second])
 
     expect(results).toEqual([

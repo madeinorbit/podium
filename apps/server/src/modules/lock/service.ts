@@ -133,8 +133,8 @@ export class LockService {
     }
   }
 
-  private toWire(lock: LockRow): LockWire {
-    const queue = this.deps.locks.listWaiters(lock.repoId, lock.name).map((w, i) => ({
+  private async toWire(lock: LockRow): Promise<LockWire> {
+    const queue = (await this.deps.locks.listWaiters(lock.repoId, lock.name)).map((w, i) => ({
       position: i + 1,
       ...this.principalWire(w.sessionId, w.issueId, w.label),
       sessionId: w.sessionId,
@@ -160,16 +160,16 @@ export class LockService {
    * owner, and their real issue ids do not match each other. `--allow-sibling`
    * opts into genuine concurrent multi-session access.
    */
-  private findSibling(
+  private async findSibling(
     lock: LockRow,
     caller: LockCallerIdentity,
-  ): {
+  ): Promise<{
     kind: 'holder' | 'waiter'
     reason: 'issue' | 'workspace'
     sessionId: LockHolderId | null
     label: string
     position?: number
-  } | null {
+  } | null> {
     const callerKey = this.sessionKey(caller)
     const callerWorkspace =
       normalizeWorkspace(caller.workspace) ?? this.workspaceOf(caller.sessionId)
@@ -207,7 +207,7 @@ export class LockService {
         label: lock.holderLabel,
       }
     }
-    const waiters = this.deps.locks.listWaiters(lock.repoId, lock.name)
+    const waiters = await this.deps.locks.listWaiters(lock.repoId, lock.name)
     for (let i = 0; i < waiters.length; i++) {
       const w = waiters[i]!
       if (w.sessionId === callerKey) continue
@@ -238,14 +238,14 @@ export class LockService {
 
   /** Grant `lock.name` to a waiter/caller: write the lease and notify by mail
    *  when the new holder has a bound issue. */
-  private grantTo(
+  private async grantTo(
     repoId: RepoId,
     name: string,
     holder: LockCallerIdentity,
     ttlSeconds: number,
     note: string | null,
     opts?: { notify?: boolean },
-  ): LockRow {
+  ): Promise<LockRow> {
     const acquiredAt = this.nowIso()
     const row: LockRow = {
       repoId,
@@ -257,7 +257,7 @@ export class LockService {
       acquiredAt,
       expiresAt: new Date(this.deps.now() + ttlSeconds * 1000).toISOString(),
     }
-    this.deps.locks.upsertLock(row)
+    await this.deps.locks.upsertLock(row)
     if (opts?.notify && holder.issueId) {
       this.deps.sendMail(
         holder.issueId,
@@ -274,8 +274,8 @@ export class LockService {
    * one (with a grant-notification mail), or delete the lock row when the
    * queue is empty. Returns the new holder row, or null when the lock is free.
    */
-  private advanceQueue(repoId: RepoId, name: string): LockRow | null {
-    for (const w of this.deps.locks.listWaiters(repoId, name)) {
+  private async advanceQueue(repoId: RepoId, name: string): Promise<LockRow | null> {
+    for (const w of await this.deps.locks.listWaiters(repoId, name)) {
       // Skip/prune waiters whose sessions are gone. Operator and in-process
       // system identities have no session and are never pruned — they discover
       // grants via polling.
@@ -284,11 +284,11 @@ export class LockService {
         !isSystemLockSession(w.sessionId) &&
         !this.deps.sessionAlive(w.sessionId)
       ) {
-        this.deps.locks.removeWaiter(w.id)
+        await this.deps.locks.removeWaiter(w.id)
         continue
       }
-      this.deps.locks.removeWaiter(w.id)
-      return this.grantTo(
+      await this.deps.locks.removeWaiter(w.id)
+      return await this.grantTo(
         repoId,
         name,
         {
@@ -302,15 +302,15 @@ export class LockService {
         { notify: true },
       )
     }
-    this.deps.locks.deleteLock(repoId, name)
+    await this.deps.locks.deleteLock(repoId, name)
     return null
   }
 
   /** Lazy expiry: retire every expired lease in the repo, advancing each queue
    *  (with grant-notification mail). Runs first on every lock operation. */
-  private sweepExpired(repoId: RepoId): void {
-    for (const lock of this.deps.locks.listExpiredLocks(repoId, this.nowIso())) {
-      this.advanceQueue(lock.repoId, lock.name)
+  private async sweepExpired(repoId: RepoId): Promise<void> {
+    for (const lock of await this.deps.locks.listExpiredLocks(repoId, this.nowIso())) {
+      await this.advanceQueue(lock.repoId, lock.name)
     }
   }
 
@@ -318,7 +318,7 @@ export class LockService {
     return this.deps.resolveRepoId(repoPath)
   }
 
-  acquire(
+  async acquire(
     caller: LockCallerIdentity,
     input: {
       repoPath: string
@@ -331,10 +331,10 @@ export class LockService {
        */
       allowSibling?: boolean
     },
-  ): LockAcquireResult {
+  ): Promise<LockAcquireResult> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {
           this.sweepExpired(repoId)
@@ -399,12 +399,12 @@ export class LockService {
     })
   }
 
-  release(
+  async release(
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string },
-  ): { released: true; next: LockHolderWire | null } {
+  ): Promise<{ released: true; next: LockHolderWire | null }> {
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {
           this.sweepExpired(repoId)
@@ -428,12 +428,12 @@ export class LockService {
 
   /** Leave the FIFO wait queue: remove the caller's own waiter entry. Errors
    *  when the caller isn't queued (a holder should `release`, not cancel). */
-  cancel(
+  async cancel(
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string },
-  ): { cancelled: true } {
+  ): Promise<{ cancelled: true }> {
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {
           this.sweepExpired(repoId)
@@ -452,17 +452,17 @@ export class LockService {
     })
   }
 
-  renew(
+  async renew(
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string; ttlSeconds?: number },
-  ): LockWire {
+  ): Promise<LockWire> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
-        this.deps.transact(() => {
-          this.sweepExpired(repoId)
-          const existing = this.deps.locks.getLock(repoId, input.name)
+        this.deps.transact(async () => {
+          await this.sweepExpired(repoId)
+          const existing = await this.deps.locks.getLock(repoId, input.name)
           if (!existing) throw new Error(`lock '${input.name}' is not held`)
           if (!this.sameHolder(existing, caller)) {
             throw new Error(
@@ -470,26 +470,26 @@ export class LockService {
             )
           }
           const expiresAt = new Date(this.deps.now() + ttl * 1000).toISOString()
-          this.deps.locks.renewLock(repoId, input.name, existing.holderSessionId, expiresAt)
-          const row = this.deps.locks.getLock(repoId, input.name)
+          await this.deps.locks.renewLock(repoId, input.name, existing.holderSessionId, expiresAt)
+          const row = await this.deps.locks.getLock(repoId, input.name)
           if (!row) throw new Error(`lock '${input.name}' vanished during renew`)
-          return this.toWire(row)
+          return await this.toWire(row)
         }),
     })
   }
 
   /** All locks in the repo, or just `name` (empty array when free). */
-  status(input: { repoPath: string; name?: string }): LockWire[] {
+  async status(input: { repoPath: string; name?: string }): Promise<LockWire[]> {
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
-        this.deps.transact(() => {
-          this.sweepExpired(repoId)
+        this.deps.transact(async () => {
+          await this.sweepExpired(repoId)
           if (input.name != null) {
-            const lock = this.deps.locks.getLock(repoId, input.name)
-            return lock ? [this.toWire(lock)] : []
+            const lock = await this.deps.locks.getLock(repoId, input.name)
+            return lock ? [await this.toWire(lock)] : []
           }
-          return this.deps.locks.listLocks(repoId).map((l) => this.toWire(l))
+          return (await this.deps.locks.listLocks(repoId)).map((l) => this.toWire(l))
         }),
     })
   }
@@ -497,13 +497,13 @@ export class LockService {
   /** Force-take regardless of holder (humans/stuck cases). Logged to the event
    *  log; the previous holder's issue gets a best-effort mail. The queue is
    *  kept intact; the stealer's own queue entry (if any) is removed. */
-  steal(
+  async steal(
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string; ttlSeconds?: number; note?: string },
-  ): { lock: LockWire; previousHolder: LockHolderWire | null } {
+  ): Promise<{ lock: LockWire; previousHolder: LockHolderWire | null }> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
     const repoId = this.repoIdFor(input.repoPath)
-    return this.deps.funnel.run({
+    return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {
           this.sweepExpired(repoId)
@@ -543,8 +543,8 @@ export class LockService {
   /** Session-bound auto-release: on session exit, release every lock it holds
    *  (advancing each queue with grant-notification mail) and prune its queue
    *  entries. Fired from the session-lifecycle bus wiring. */
-  releaseForSession(sessionId: SessionId): void {
-    this.deps.funnel.run({
+  async releaseForSession(sessionId: SessionId): Promise<void> {
+    await this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {
           for (const w of this.deps.locks.listWaitsBySession(sessionId)) {

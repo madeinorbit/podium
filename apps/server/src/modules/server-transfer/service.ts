@@ -306,7 +306,7 @@ export class ServerTransferService {
         )
       }
       if (existing?.state === 'commit-uncertain') {
-        return this.inspectUncertain(existing.record, authorization)
+        return await this.inspectUncertain(existing.record, authorization)
       }
       if (existing && isActiveTransfer(existing.state)) {
         throw fail(
@@ -518,7 +518,7 @@ export class ServerTransferService {
 
   private async snapshot(record: TransferRecord, packageDir: string) {
     const identity = this.deps.sourceFeedIdentity()
-    return createPortableSnapshot({
+    return await createPortableSnapshot({
       stateRoot: this.deps.stateRoot,
       packageDir,
       transferId: record.transferId,

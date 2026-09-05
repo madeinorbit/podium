@@ -237,7 +237,7 @@ const bindFrame = (sessionId: SessionId, cwd: string) => ({
 async function buildFixture(): Promise<Fixture> {
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { SessionStore } = await import('../apps/server/src/store')
-  const store = new SessionStore(':memory:')
+  const store = await SessionStore.open(':memory:')
   for (const [id, name] of [
     ['m1', 'one'],
     ['m2', 'two'],

@@ -94,6 +94,6 @@ export class CompositeMcpProvider implements McpToolProvider {
   ): Promise<string> {
     const owner = this.providers.find((p) => p.mcpToolSpecs().some((s) => s.name === name))
     if (!owner) throw new Error(`unknown tool: ${name}`)
-    return owner.callMcpTool(name, args, threadId)
+    return await owner.callMcpTool(name, args, threadId)
   }
 }

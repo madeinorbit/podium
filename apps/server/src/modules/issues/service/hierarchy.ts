@@ -10,7 +10,7 @@ export class IssueHierarchyModule {
     private readonly crud: () => Pick<IssueCrudModule, 'update'>,
   ) {}
   /** Dependency-only path; parent containment never participates. */
-  private dependencyPath(startId: string, targetId: string): string[] | null {
+  private async dependencyPath(startId: string, targetId: string): Promise<string[] | null> {
     const seen = new Set<string>()
     const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
     while (pending.length) {
@@ -18,7 +18,7 @@ export class IssueHierarchyModule {
       if (current.id === targetId) return current.path
       if (seen.has(current.id)) continue
       seen.add(current.id)
-      for (const dep of this.store.deps.store.issues.listIssueDeps(current.id)) {
+      for (const dep of await this.store.deps.store.issues.listIssueDeps(current.id)) {
         if (dep.type === 'blocks') {
           pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
         }
@@ -41,15 +41,15 @@ export class IssueHierarchyModule {
     return null
   }
 
-  addDep(fromRef: string, toRef: string, type = 'blocks'): IssueWire {
+  async addDep(fromRef: string, toRef: string, type = 'blocks'): Promise<IssueWire> {
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
-    const fromId = this.store.resolveRef(fromRef)
-    const toId = this.store.resolveRef(toRef)
-    const row = this.store.draftOrThrow(fromId)
-    this.store.rowOrThrow(toId)
+    const fromId = await this.store.resolveRef(fromRef)
+    const toId = await this.store.resolveRef(toRef)
+    const row = await this.store.draftOrThrow(fromId)
+    await this.store.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
     if (type === 'blocks') {
-      const returnPath = this.dependencyPath(toId, fromId)
+      const returnPath = await this.dependencyPath(toId, fromId)
       if (returnPath) {
         throw new Error(
           `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
@@ -61,18 +61,18 @@ export class IssueHierarchyModule {
       () => this.store.deps.store.issues.addIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges([{ fromId, toId, type }], 'upsert') },
     )
-    this.store.broadcastListForDerivedRipple()
+    await this.store.broadcastListForDerivedRipple()
     return wire
   }
 
-  removeDep(fromRef: string, toRef: string, type?: string): IssueWire {
+  async removeDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire> {
     if (type === 'parent-child')
       throw new Error('parent-child is managed by reparent, not removeDep')
-    const fromId = this.store.resolveRef(fromRef)
-    const toId = this.store.resolveRef(toRef)
-    const row = this.store.draftOrThrow(fromId)
-    const removed = this.store.deps.store.issues
-      .listIssueDeps(fromId)
+    const fromId = await this.store.resolveRef(fromRef)
+    const toId = await this.store.resolveRef(toRef)
+    const row = await this.store.draftOrThrow(fromId)
+    const removed = (await this.store.deps.store.issues
+      .listIssueDeps(fromId))
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
       .map((d) => ({ fromId, toId, type: d.type }))
     const wire = this.store.persistWith(
@@ -80,14 +80,14 @@ export class IssueHierarchyModule {
       () => this.store.deps.store.issues.removeIssueDep(fromId, toId, type),
       { extraChanges: this.store.depChanges(removed, 'remove') },
     )
-    this.store.broadcastListForDerivedRipple()
+    await this.store.broadcastListForDerivedRipple()
     return wire
   }
 
-  setParentForUpdate(row: IssueRow, newParentId: IssueId | null): void {
+  async setParentForUpdate(row: IssueRow, newParentId: IssueId | null): Promise<void> {
     if (newParentId === row.parentId) return
     if (newParentId) {
-      this.store.rowOrThrow(newParentId)
+      await this.store.rowOrThrow(newParentId)
       const returnPath = this.containmentPath(newParentId, row.id)
       if (returnPath) {
         throw new Error(
@@ -110,18 +110,18 @@ export class IssueHierarchyModule {
    * existing outside-scope confirmation instead of treating this as a silent
    * structural-only edit.
    */
-  reparent(id: string, parentId: string | null): IssueWire {
-    const row = this.store.draftOrThrow(id)
-    this.setParentForUpdate(row, parentId == null ? null : this.store.resolveRef(parentId))
+  async reparent(id: string, parentId: string | null): Promise<IssueWire> {
+    const row = await this.store.draftOrThrow(id)
+    await this.setParentForUpdate(row, parentId == null ? null : await this.store.resolveRef(parentId))
     const wire = this.store.persist(row)
-    this.store.broadcastList()
+    await this.store.broadcastList()
     return wire
   }
 
-  ancestorIds(id: string): string[] {
+  async ancestorIds(id: string): Promise<string[]> {
     const out: string[] = []
     const seen = new Set<string>()
-    let cur = this.store.rows.get(this.store.resolveRef(id))?.parentId ?? null
+    let cur = this.store.rows.get(await this.store.resolveRef(id))?.parentId ?? null
     while (cur && !seen.has(cur)) {
       seen.add(cur)
       out.push(cur)
@@ -130,38 +130,38 @@ export class IssueHierarchyModule {
     return out
   }
 
-  inProposedSubtree(id: string): boolean {
+  async inProposedSubtree(id: string): Promise<boolean> {
     let row: IssueRow | undefined
     try {
-      row = this.store.rows.get(this.store.resolveRef(id))
+      row = this.store.rows.get(await this.store.resolveRef(id))
     } catch {
       row = undefined
     }
     if (!row) return true
     if (row.stage === 'proposed') return true
-    return this.ancestorIds(row.id).some(
+    return (await this.ancestorIds(row.id)).some(
       (ancestor) => this.store.rows.get(ancestor)?.stage === 'proposed',
     )
   }
 
-  supersede(oldRef: string, newRef: string): IssueWire {
-    const oldId = this.store.resolveRef(oldRef)
-    const newId = this.store.resolveRef(newRef)
-    this.store.rowOrThrow(newId)
-    this.addDep(oldId, newId, 'supersedes')
-    return this.crud().update(oldId, {
+  async supersede(oldRef: string, newRef: string): Promise<IssueWire> {
+    const oldId = await this.store.resolveRef(oldRef)
+    const newId = await this.store.resolveRef(newRef)
+    await this.store.rowOrThrow(newId)
+    await this.addDep(oldId, newId, 'supersedes')
+    return await this.crud().update(oldId, {
       stage: 'done',
       closedReason: 'superseded',
       supersededBy: newId,
     })
   }
 
-  duplicate(ref: string, canonicalRef: string): IssueWire {
-    const id = this.store.resolveRef(ref)
-    const canonicalId = this.store.resolveRef(canonicalRef)
-    this.store.rowOrThrow(canonicalId)
-    this.addDep(id, canonicalId, 'related')
-    return this.crud().update(id, {
+  async duplicate(ref: string, canonicalRef: string): Promise<IssueWire> {
+    const id = await this.store.resolveRef(ref)
+    const canonicalId = await this.store.resolveRef(canonicalRef)
+    await this.store.rowOrThrow(canonicalId)
+    await this.addDep(id, canonicalId, 'related')
+    return await this.crud().update(id, {
       stage: 'done',
       closedReason: 'duplicate',
       duplicateOf: canonicalId,

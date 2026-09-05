@@ -16,7 +16,7 @@ let service: LayoutService
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   service = new LayoutService({
     layout: new UserLayoutRepository(stage),
@@ -24,18 +24,18 @@ beforeEach(() => {
 })
 
 describe('LayoutService', () => {
-  it('set returns the full snapshot and does not leak across users', () => {
-    const alice = service.set(ALICE, { dockTab: 'files', superOpen: true }, 't1')
+  it('set returns the full snapshot and does not leak across users', async () => {
+    const alice = await service.set(ALICE, { dockTab: 'files', superOpen: true }, 't1')
     expect(alice).toEqual({ dockTab: 'files', superOpen: true })
-    expect(service.getSnapshot(BOB)).toEqual({})
+    expect(await service.getSnapshot(BOB)).toEqual({})
 
-    service.set(BOB, { dockTab: 'shell' }, 't2')
-    expect(service.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
-    expect(service.getSnapshot(BOB)).toEqual({ dockTab: 'shell' })
+    await service.set(BOB, { dockTab: 'shell' }, 't2')
+    expect(await service.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
+    expect(await service.getSnapshot(BOB)).toEqual({ dockTab: 'shell' })
   })
 
-  it('clear removes keys and leaves the rest', () => {
-    service.set(ALICE, { dockTab: 'files', superOpen: true }, 't1')
-    expect(service.clear(ALICE, ['superOpen'])).toEqual({ dockTab: 'files' })
+  it('clear removes keys and leaves the rest', async () => {
+    await service.set(ALICE, { dockTab: 'files', superOpen: true }, 't1')
+    expect(await service.clear(ALICE, ['superOpen'])).toEqual({ dockTab: 'files' })
   })
 })

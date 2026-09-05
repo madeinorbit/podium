@@ -20,13 +20,13 @@ export interface ClientSessionStore {
     expiresAt: string,
     label?: string,
     metadata?: ClientSessionMetadata,
-  ): void
-  getClientSession(tokenHash: string): ClientSessionRecord | undefined
-  isClientSessionValid(tokenHash: string, nowIso: string): boolean
-  extendClientSession(tokenHash: string, expiresAt: string): void
-  deleteClientSession(tokenHash: string): void
-  touchClientSession?(tokenHash: string, lastSeenAt: string): void
-  deleteExpiredClientSessions?(nowIso: string): void
+  ): Promise<void>
+  getClientSession(tokenHash: string): Promise<ClientSessionRecord | undefined>
+  isClientSessionValid(tokenHash: string, nowIso: string): Promise<boolean>
+  extendClientSession(tokenHash: string, expiresAt: string): Promise<void>
+  deleteClientSession(tokenHash: string): Promise<void>
+  touchClientSession?(tokenHash: string, lastSeenAt: string): Promise<void>
+  deleteExpiredClientSessions?(nowIso: string): Promise<void>
 }
 
 export interface ClientSessionMetadata {
@@ -251,7 +251,7 @@ export function clientAuthGuard(opts: {
 }
 
 export interface AccountCredentialStore {
-  get(userId: UserId): { role: UserRole } | undefined
+  get(userId: UserId): Promise<{ role: UserRole } | undefined>
   create(
     account: {
       id: string
@@ -261,11 +261,11 @@ export interface AccountCredentialStore {
       disabledAt: null
     },
     passwordHash: string,
-  ): void
+  ): Promise<void>
   credentialFor(
     userId: UserId,
-  ): { source: CredentialSource; passwordHash: string | null } | undefined
-  hasPerUserCredentials(): boolean
+  ): Promise<{ source: CredentialSource; passwordHash: string | null } | undefined>
+  hasPerUserCredentials(): Promise<boolean>
 }
 
 export interface AuthRouteOptions {

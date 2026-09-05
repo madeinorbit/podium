@@ -56,7 +56,7 @@ describe('SessionStore query capability construction', () => {
     const error = constructionErrorWithoutSyncQueries()
 
     expect(executorFixture.constructed).toHaveLength(1)
-    expect(executorFixture.constructed[0]?.syncQueries).toBeUndefined()
+    expect(executorFixture.constructed[0]?.queries).toBeUndefined()
     expect(error.message).toBe(MISSING_SYNC_QUERIES_MESSAGE)
   })
 })

@@ -35,8 +35,8 @@ const query = <In extends z.ZodTypeAny, Out>(
 const catalogInput = z.object({ machineId: MachineIdField.optional() }).passthrough().optional()
 
 export const MODEL_QUERIES = {
-  catalog: query(catalogInput, (state, input) =>
-    state.settings.getModelCatalog(input?.machineId ?? state.defaultMachine()),
+  catalog: query(catalogInput, async (state, input) =>
+    await state.settings.getModelCatalog(input?.machineId ?? state.defaultMachine()),
   ),
 } as const
 

@@ -37,7 +37,8 @@ import type {
 } from '@podium/protocol'
 import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -127,7 +128,7 @@ function toRow(r: InteractionSelect): InteractionRow {
 }
 
 export class InteractionsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -144,7 +145,7 @@ export class InteractionsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -155,8 +156,8 @@ export class InteractionsRepository {
    * event: a collapsed duplicate must NOT re-announce, or every re-render of a
    * classified menu would ping every surface again.
    */
-  insert(row: InteractionInsert): { row: InteractionRow; inserted: boolean } {
-    const res = this.db
+  async insert(row: InteractionInsert): Promise<{ row: InteractionRow; inserted: boolean }> {
+    const res = await (this.db
       .insert(pendingInteractions)
       .values({
         id: row.id,
@@ -169,31 +170,31 @@ export class InteractionsRepository {
         status: 'asked',
         askedAt: row.askedAt,
         expiresAt: row.expiresAt ?? null,
-      })
+      }))
       // NO TARGET, exactly as the raw form had none: the conflict this collapses
       // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
       // 'asked', which is not a target drizzle can name.
       .onConflictDoNothing()
       .run()
     if (res.changes > 0) {
-      const inserted = this.get(row.id)
+      const inserted = await this.get(row.id)
       if (inserted) return { row: inserted, inserted: true }
     }
-    const open = this.openByFingerprint(row.sessionId, row.fingerprint)
+    const open = await this.openByFingerprint(row.sessionId, row.fingerprint)
     if (open) return { row: open, inserted: false }
     // Neither inserted nor found: the conflicting row was resolved between the
     // two statements. Retry once — now there is nothing to conflict with.
-    const retried = this.insert(row)
+    const retried = await this.insert(row)
     return retried
   }
 
-  get(id: string): InteractionRow | null {
-    const r = this.db.select().from(pendingInteractions).where(eq(pendingInteractions.id, id)).get()
+  async get(id: string): Promise<InteractionRow | null> {
+    const r = await this.db.select().from(pendingInteractions).where(eq(pendingInteractions.id, id)).get()
     return r ? toRow(r) : null
   }
 
-  openByFingerprint(sessionId: SessionId, fingerprint: string): InteractionRow | null {
-    const r = this.db
+  async openByFingerprint(sessionId: SessionId, fingerprint: string): Promise<InteractionRow | null> {
+    const r = await this.db
       .select()
       .from(pendingInteractions)
       .where(
@@ -210,8 +211,8 @@ export class InteractionsRepository {
   }
 
   /** Every open ask, oldest first — the enumeration §4 promises. */
-  listOpen(sessionId?: SessionId): InteractionRow[] {
-    return this.db
+  async listOpen(sessionId?: SessionId): Promise<InteractionRow[]> {
+    return (await this.db
       .select()
       .from(pendingInteractions)
       .where(
@@ -221,18 +222,18 @@ export class InteractionsRepository {
         ),
       )
       .orderBy(asc(pendingInteractions.askedAt), asc(pendingInteractions.id))
-      .all()
+      .all())
       .map(toRow)
   }
 
-  listForSession(sessionId: SessionId, limit = 100): InteractionRow[] {
-    return this.db
+  async listForSession(sessionId: SessionId, limit = 100): Promise<InteractionRow[]> {
+    return (await this.db
       .select()
       .from(pendingInteractions)
       .where(eq(pendingInteractions.sessionId, sessionId))
       .orderBy(desc(pendingInteractions.askedAt), desc(pendingInteractions.id))
       .limit(limit)
-      .all()
+      .all())
       .map(toRow)
   }
 
@@ -242,14 +243,14 @@ export class InteractionsRepository {
    * delivery. The `WHERE status = 'asked'` is the whole idempotency guarantee:
    * two concurrent answers race here and exactly one wins.
    */
-  answer(input: {
+  async answer(input: {
     id: string
     answer: InteractionAnswer
     answeredBy: InteractionAnsweredBy
     deliveredVia: NonNullable<PendingInteractionWire['deliveredVia']>
     at: string
-  }): boolean {
-    const res = this.db
+  }): Promise<boolean> {
+    const res = await this.db
       .update(pendingInteractions)
       .set({
         status: 'answered',
@@ -275,11 +276,11 @@ export class InteractionsRepository {
    * Guarded on `status = 'answered'` so a late delivery report cannot resurrect
    * a row that expired underneath it.
    */
-  recordDelivery(
+  async recordDelivery(
     id: string,
     deliveredVia: NonNullable<PendingInteractionWire['deliveredVia']>,
-  ): boolean {
-    const res = this.db
+  ): Promise<boolean> {
+    const res = await this.db
       .update(pendingInteractions)
       .set({ deliveredVia })
       .where(and(eq(pendingInteractions.id, id), eq(pendingInteractions.status, 'answered')))
@@ -315,8 +316,8 @@ export class InteractionsRepository {
    * Returns false when the row moved underneath us, which is the caller's cue
    * that somebody else settled it.
    */
-  reopen(id: string, answeredBy: InteractionAnsweredBy): boolean {
-    const res = this.db
+  async reopen(id: string, answeredBy: InteractionAnsweredBy): Promise<boolean> {
+    const res = await this.db
       .update(pendingInteractions)
       .set({
         status: 'asked',
@@ -352,13 +353,13 @@ export class InteractionsRepository {
    * correction aimed at one class must never retire the other's row underneath
    * it. Returns false when the row moved first.
    */
-  retireClaimed(
+  async retireClaimed(
     id: string,
     status: 'expired' | 'superseded',
     at: string,
     answeredBy: InteractionAnsweredBy,
-  ): boolean {
-    const res = this.db
+  ): Promise<boolean> {
+    const res = await this.db
       .update(pendingInteractions)
       .set({ status, expiredAt: at })
       .where(
@@ -383,8 +384,8 @@ export class InteractionsRepository {
    * ever holds the same instant under a different name is a field somebody has
    * to keep in step for nothing.
    */
-  close(id: string, status: 'expired' | 'superseded', at: string): boolean {
-    const res = this.db
+  async close(id: string, status: 'expired' | 'superseded', at: string): Promise<boolean> {
+    const res = await this.db
       .update(pendingInteractions)
       .set({ status, expiredAt: at })
       .where(and(eq(pendingInteractions.id, id), eq(pendingInteractions.status, 'asked')))
@@ -393,10 +394,10 @@ export class InteractionsRepository {
   }
 
   /** Every open ask on a session closes at once. Returns the ids that moved. */
-  closeSession(sessionId: SessionId, status: 'expired' | 'superseded', at: string): string[] {
-    const open = this.listOpen(sessionId)
+  async closeSession(sessionId: SessionId, status: 'expired' | 'superseded', at: string): Promise<string[]> {
+    const open = await this.listOpen(sessionId)
     if (open.length === 0) return []
-    this.db
+    await this.db
       .update(pendingInteractions)
       .set({ status, expiredAt: at })
       .where(
@@ -409,8 +410,8 @@ export class InteractionsRepository {
   /** Retention: drop RESOLVED rows older than the cutoff. Open asks are never
    *  trimmed — an ask nobody answered is the one thing this table must not
    *  forget. */
-  pruneResolvedBefore(cutoffIso: string): number {
-    const res = this.db
+  async pruneResolvedBefore(cutoffIso: string): Promise<number> {
+    const res = await this.db
       .delete(pendingInteractions)
       .where(
         and(

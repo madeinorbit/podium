@@ -135,8 +135,8 @@ export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAc
     has: (id) => tracker.reports.has(id),
     ownedTarget: (id, action) => tracker.reports.ownedTarget(id, action),
     ancestorIds: (id) => tracker.hierarchy.ancestorIds(id),
-    getMeta: (id) => tracker.reports.getMeta(id),
-    resolveRef: (ref, scopeRepoPath) => tracker.reports.resolveRef(ref, scopeRepoPath),
+    getMeta: async (id) => await tracker.reports.getMeta(id),
+    resolveRef: async (ref, scopeRepoPath) => await tracker.reports.resolveRef(ref, scopeRepoPath),
   }
 }
 
@@ -207,14 +207,14 @@ export class IssueCommandCtx {
     return user
   }
 
-  mayReadIssue(id: string): boolean {
-    const target = this.reports.ownedTarget(id, 'read')
+  async mayReadIssue(id: string): Promise<boolean> {
+    const target = await this.reports.ownedTarget(id, 'read')
     const user = this.readerUser()
     return target !== undefined && (target.owner === user || target.grants.includes(user))
   }
 
-  requireReadableIssue(id: string): void {
-    if (!this.mayReadIssue(id)) {
+  async requireReadableIssue(id: string): Promise<void> {
+    if (!await this.mayReadIssue(id)) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
     }
   }
@@ -223,8 +223,8 @@ export class IssueCommandCtx {
     return rows.filter((row) => this.mayReadIssue(row.id))
   }
 
-  readIssue<T>(id: string, read: () => T): T {
-    this.requireReadableIssue(id)
+  async readIssue<T>(id: string, read: () => T): Promise<T> {
+    await this.requireReadableIssue(id)
     return read()
   }
 
@@ -257,9 +257,9 @@ export class IssueCommandCtx {
 
   /** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
    *  for a subtree-scoped agent, else 'operator'. */
-  mailIdentity(): string {
+  async mailIdentity(): Promise<string> {
     if (this.caller.capability.scope.kind === 'subtree') {
-      const me = this.reports.getMeta(this.caller.capability.scope.rootId)
+      const me = await this.reports.getMeta(this.caller.capability.scope.rootId)
       if (me) return `issue:#${me.seq}`
     }
     return 'operator'
@@ -294,9 +294,9 @@ export class IssueCommandCtx {
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
-  ownerAttribution(id: string): { actor: string; onBehalfOf: import('@podium/model').UserId } {
+  async ownerAttribution(id: string): Promise<{ actor: string; onBehalfOf: import('@podium/model').UserId }> {
     const principal = this.caller.principal
-    const row = this.reports.getMeta(id)
+    const row = await this.reports.getMeta(id)
     if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
     }
@@ -326,13 +326,13 @@ export class IssueCommandCtx {
 
   /** Resolve `issues.ship`'s optional target only from authenticated server
    * scope. Operators and unattached agents have no implicit issue. */
-  shipIssue(id?: string): IssueId {
+  async shipIssue(id?: string): Promise<IssueId> {
     if (id) {
       const scopeRepoPath =
         this.caller.capability.scope.kind === 'subtree'
-          ? (this.reports.getMeta(this.caller.capability.scope.rootId)?.repoPath ?? undefined)
+          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ?? undefined)
           : undefined
-      return this.reports.resolveRef(id, scopeRepoPath)
+      return await this.reports.resolveRef(id, scopeRepoPath)
     }
     if (this.caller.capability.scope.kind === 'subtree') {
       return this.caller.capability.scope.rootId
@@ -364,13 +364,13 @@ export class IssueCommandCtx {
    *  its subtree (mirrors the scope gate, which cannot reach into the `source`
    *  shape). Relationship sources are resolved against the caller's own subtree
    *  at match time, so they never reach here. */
-  assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): void {
+  async assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): Promise<void> {
     if (source.kind === 'issue') {
-      const id = this.reports.resolveRef(source.ref)
+      const id = await this.reports.resolveRef(source.ref)
       const decision = authorize(
         this.caller.capability,
         'write',
-        { id, ancestorIds: this.hierarchy.ancestorIds(id) },
+        { id, ancestorIds: await this.hierarchy.ancestorIds(id) },
         { override: this.caller.overrideScope },
       )
       if (decision === 'confirm-required') {
@@ -391,7 +391,7 @@ export class IssueCommandCtx {
       bound != null &&
       authorize(this.caller.capability, 'write', {
         id: bound,
-        ancestorIds: this.hierarchy.ancestorIds(bound),
+        ancestorIds: await this.hierarchy.ancestorIds(bound),
       }) === 'allow'
     if (!ok) {
       throw new TRPCError({
@@ -404,12 +404,12 @@ export class IssueCommandCtx {
   /** Walk an issue's parent chain; true iff some ancestor is human-audience —
    *  i.e. the board's filterBoardScope will surface this (internal) issue nested
    *  under it. Cycle-guarded. (#198) */
-  hasHumanAudienceAncestor(issue: { parentId?: string | null }): boolean {
+  async hasHumanAudienceAncestor(issue: { parentId?: string | null }): Promise<boolean> {
     const seen = new Set<string>()
     let parentId: string | null | undefined = issue.parentId
     while (parentId && !seen.has(parentId)) {
       seen.add(parentId)
-      const parent = this.reports.getMeta(parentId)
+      const parent = await this.reports.getMeta(parentId)
       if (!parent) return false
       if (parent.audience === 'human') return true
       parentId = parent.parentId

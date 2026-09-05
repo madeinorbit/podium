@@ -36,17 +36,17 @@ describe('bind-storm regression', () => {
       tokenHash: 'y',
       ownerUserId: asUserId('user:sole'),
     })
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon('m1', () => {})
     registry.gateway.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {
-      registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
+      await registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
     const bound: { sessionId: SessionId; cwd: string; machineId: string }[] = []
     for (let i = 0; i < opts.sessions; i++) {
       const machineId = i % 2 ? 'm2' : 'm1'
       const cwd = `/repo/w${i}`
-      const { sessionId } = registry.modules.sessions.createSession({
+      const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'shell',
         cwd,
         machineId: asMachineId(machineId),
@@ -127,13 +127,13 @@ describe('bind-storm regression', () => {
     const { registry, bound, inbox } = await makeStorm({ sessions: 2, issues: 0 })
     for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
-    registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')
+    await registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')
     registry.modules.sessions.flushBroadcasts()
     expect(
       sessionChanges(inbox).findLast((change) => (change.value as SessionMeta).machineId === 'm1')
         ?.value,
     ).toMatchObject({ machineName: 'renamed-one' })
-    expect(registry.modules.machines.listMachines().find((m) => m.id === 'm1')?.name).toBe(
+    expect((await registry.modules.machines.listMachines()).find((m) => m.id === 'm1')?.name).toBe(
       'renamed-one',
     )
     registry.dispose()

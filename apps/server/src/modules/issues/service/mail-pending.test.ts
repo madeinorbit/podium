@@ -13,7 +13,7 @@ import { countContextAwarePendingMail } from './mail-pending'
  * `test-support` would put several parallel conversion waves in one shared file.
  */
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).syncQueries
+  const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }
@@ -131,7 +131,7 @@ describe('countContextAwarePendingMail', () => {
       expect([...counts].reduce((total, [, count]) => total + count, 0)).toBe(2)
       counts.clear()
 
-      const result = countContextAwarePendingMail(
+      const result = await countContextAwarePendingMail(
         { messages, issues: store.issues },
         asIssueId('iss_target'),
         (fromIssue) => `issue:${fromIssue}`,
@@ -191,7 +191,7 @@ describe('countContextAwarePendingMail', () => {
       })
 
       expect(
-        countContextAwarePendingMail(
+        await countContextAwarePendingMail(
           store,
           asIssueId('iss_target'),
           (fromIssue) => `issue:${fromIssue}`,
@@ -199,7 +199,7 @@ describe('countContextAwarePendingMail', () => {
         ),
       ).toEqual({ unread: 0, senders: [] })
       expect(
-        countContextAwarePendingMail(
+        await countContextAwarePendingMail(
           store,
           asIssueId('iss_target'),
           (fromIssue) => `issue:${fromIssue}`,

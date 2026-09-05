@@ -205,11 +205,11 @@ export class TelegramChannel implements ChannelAdapter {
     throw err
   }
 
-  start(onMessage: (msg: InboundChatMessage) => void): void {
+  async start(onMessage: (msg: InboundChatMessage) => void): Promise<void> {
     if (!this.stopped) return
     this.stopped = false
     this.abort = new AbortController()
-    this.loop = this.pollLoop(onMessage).catch((err) => {
+    this.loop = (await this.pollLoop(onMessage)).catch((err) => {
       log.warn('telegram poll loop died', { err })
     })
   }
@@ -339,21 +339,21 @@ export class TelegramChannel implements ChannelAdapter {
       const retryAfter = (err as { retryAfter?: number }).retryAfter
       if (!floodRetried && typeof retryAfter === 'number' && retryAfter <= 30) {
         await sleep(retryAfter * 1000)
-        return this.sendChunk(target, text, { floodRetried: true, plainFallback })
+        return await this.sendChunk(target, text, { floodRetried: true, plainFallback })
       }
       if (!plainFallback && isTelegramMarkdownParseError(err)) {
-        return this.sendChunk(target, stripTelegramMarkdownV2(text), { plainFallback: true })
+        return await this.sendChunk(target, stripTelegramMarkdownV2(text), { plainFallback: true })
       }
       throw err
     }
   }
 
-  sendTyping(target: ConversationRef): void {
-    this.call('sendChatAction', {
+  async sendTyping(target: ConversationRef): Promise<void> {
+    ;(await this.call('sendChatAction', {
       chat_id: target.chatId,
       ...(target.threadRef ? { message_thread_id: Number(target.threadRef) } : {}),
       action: 'typing',
-    }).catch(() => {})
+    })).catch(() => {})
   }
 }
 

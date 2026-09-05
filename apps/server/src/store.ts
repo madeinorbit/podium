@@ -44,7 +44,7 @@ import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
@@ -64,7 +64,6 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { createBunStoreExecutor, type QueryClient, type RootStoreExecutor } from './store/executor'
-import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
@@ -123,7 +122,7 @@ export class SessionStore {
    */
   private readonly executor: RootStoreExecutor<QueryClient>
   /** The synchronous query capability, handed to converted repositories. */
-  private readonly queries: NonNullable<RootStoreExecutor<QueryClient>['syncQueries']>
+  private readonly queries: RootStoreExecutor<QueryClient>['queries']
   /**
    * The store's per-table write announcement (POD-3247).
    *
@@ -230,13 +229,28 @@ export class SessionStore {
    * ask this rather than re-resolving the flag, so they can never disagree with
    * what the constructor actually built.
    */
-  readonly searchIndexEnabled: boolean
+  private searchIndexEnabledValue = false
 
-  constructor(
-    private readonly path: string = defaultDbPath(),
+  get searchIndexEnabled(): boolean {
+    return this.searchIndexEnabledValue
+  }
+
+  static async open(
+    path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
-    /** Verifier seam (POD-3068) — injected so a test never spawns a real child. */
     snapshotVerifierDeps: SnapshotVerifierDeps = {},
+  ): Promise<SessionStore> {
+    const database = await openStoreDatabase(path)
+    const store = new SessionStore(path, hostMachineId, snapshotVerifierDeps, database)
+    await store.initialize()
+    return store
+  }
+
+  private constructor(
+    private readonly path: string,
+    hostMachineId: MachineId,
+    snapshotVerifierDeps: SnapshotVerifierDeps,
+    database: SqlDatabase,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
@@ -248,7 +262,7 @@ export class SessionStore {
     // that installed the pre-migrated fixture (see store-database.ts). The migration
     // chain below still runs either way — on a pre-migrated database it simply finds
     // nothing pending, which is exactly what a second boot of a real install does.
-    this.db = openStoreDatabase(path)
+    this.db = database
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
     // The driver enables foreign keys on a fresh connection. Migrations use
@@ -295,14 +309,7 @@ export class SessionStore {
      * Absent only on a non-bun handle. Every path that builds a SessionStore is
      * bun-backed; the restore path builds its own executor and does not come here.
      */
-    const sync = this.executor.syncQueries
-    if (!sync) {
-      throw new Error(
-        'SessionStore: the synchronous query capability is absent — the handle is not ' +
-          'bun-backed, so converted repositories cannot be constructed (POD-3221 rule 27b).',
-      )
-    }
-    this.queries = sync
+    this.queries = this.executor.queries
 
     // Compose the per-aggregate repositories. The three cross-aggregate edges are
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions
@@ -358,6 +365,9 @@ export class SessionStore {
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
 
+  }
+
+  private async initialize(): Promise<void> {
     // Per-boot runtime steps (environment-conditional FTS objects, the identity
     // refusals and the remaining data heals) — never schema DDL.
     //
@@ -368,19 +378,14 @@ export class SessionStore {
     // constructor, before the composition root can call `ensureHostMachine`. A
     // check that ran there would let live Session objects be built on rows the
     // process is about to declare unservable.
-    this.refuseLegacyIdentities()
     // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
     // also decides whether this boot carries a full-text index at all. Read ONCE,
     // here — flipping the toggle takes effect at the next boot, so nothing has to
     // rebuild an index underneath a running process. `settings` is constructed
     // above, so a config-forced value is honoured on the very first boot.
-    this.searchIndexEnabled = isFeatureEnabled('command-palette', this.settings.getSettings())
-    this.conversations.ensureFts(this.searchIndexEnabled)
-    this.superagent.seedGlobalThread()
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
-    this.issues.renumberCollidingIssueSeqs()
     // POD-1926: references left behind by a hard purge of an empty draft. Neither
     // `sessions.issue_id` nor `issue_ref_letters.issue_id` declares a foreign key,
     // so before the purge learned to scrub them a deleted draft left a session row
@@ -388,14 +393,19 @@ export class SessionStore {
     // the facade constructor, for the same reason the identity refusals do:
     // ahead of every reader, so no in-memory `Session` can be holding the stale
     // pointer when it is cleared.
-    this.healDanglingIssueReferences()
+    await this.refuseLegacyIdentities()
+    this.searchIndexEnabledValue = isFeatureEnabled('command-palette', await this.settings.getSettings())
+    await this.conversations.ensureFts(this.searchIndexEnabledValue)
+    await this.superagent.seedGlobalThread()
+    await this.issues.renumberCollidingIssueSeqs()
+    await this.healDanglingIssueReferences()
   }
 
   /** Per-boot heal (idempotent): clear session pointers and letter counters whose
    *  issue was hard-purged. Reports only when it actually found something. */
-  private healDanglingIssueReferences(): void {
-    const sessions = this.sessions.detachDanglingIssueReferences()
-    const letters = this.issues.pruneOrphanRefLetters()
+  private async healDanglingIssueReferences(): Promise<void> {
+    const sessions = await this.sessions.detachDanglingIssueReferences()
+    const letters = await this.issues.pruneOrphanRefLetters()
     if (sessions > 0 || letters > 0) {
       console.warn(
         `[podium:store] boot heal detached ${sessions} session(s) and dropped ` +
@@ -424,8 +434,8 @@ export class SessionStore {
    * its human-facing refs until the next `addRepo` repairs it, and refusing to
    * boot over it would trade a cosmetic defect for an outage.
    */
-  private refuseLegacyIdentities(): void {
-    const sentinels = this.machines.legacyMachineSentinelSites()
+  private async refuseLegacyIdentities(): Promise<void> {
+    const sentinels = await this.machines.legacyMachineSentinelSites()
     if (sentinels.length > 0) {
       throw new Error(
         `retired machine sentinels (${RETIRED_MACHINE_SENTINELS.join(', ')}) are still stored ` +
@@ -433,8 +443,8 @@ export class SessionStore {
           'Podium can serve it; restore a backup taken after the upgrade',
       )
     }
-    const { repoIdsMissing, prefixesMissing } = this.repos.legacyRepoResidue()
-    const issuesMissing = this.issues.issuesMissingRepoId()
+    const { repoIdsMissing, prefixesMissing } = await this.repos.legacyRepoResidue()
+    const issuesMissing = await this.issues.issuesMissingRepoId()
     if (repoIdsMissing > 0 || issuesMissing > 0) {
       throw new Error(
         `legacy repo identity is unfilled (repos: ${repoIdsMissing}, issues: ${issuesMissing}) — ` +
@@ -510,7 +520,7 @@ export class SessionStore {
       // A store with no migration identity still gets a quick_check proof; the
       // schema comparison is the part that is skipped, not the verification.
     }
-    return this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
   }
 
   /**
@@ -573,8 +583,8 @@ export class SessionStore {
    *  than after the callback returns. runSynchronousSpan is an instrument: at the
    *  flip the executor's own runner takes the drain over and this wrapper goes,
    *  filed as POD-3327. */
-  transact<T>(fn: () => T): T {
-    return runSynchronousSpan(() => transaction(this.db, fn))
+  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
+    return await this.executor.transact(async () => fn())
   }
 
   close(): void {

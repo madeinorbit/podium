@@ -142,14 +142,14 @@ function harness(
   return { svc, store, published, delivered, typedAtMenu }
 }
 
-const answerAs = (svc: InteractionService, id: string, text: string) =>
-  svc.answer({ id, text, answeredBy: 'human', principal: PRINCIPAL })
+const answerAs = async (svc: InteractionService, id: string, text: string) =>
+  await svc.answer({ id, text, answeredBy: 'human', principal: PRINCIPAL })
 
 describe('InteractionService — synthesis', () => {
   it('a permission prompt produces one durable, enumerable row', async () => {
     const { svc, published } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    const open = svc.listOpen()
+    const open = await svc.listOpen()
     expect(open).toHaveLength(1)
     expect(open[0]).toMatchObject({
       kind: 'permission',
@@ -165,7 +165,7 @@ describe('InteractionService — synthesis', () => {
   it('an AskUserQuestion menu carries its options onto the row', async () => {
     const { svc } = harness({ transcript: [ASK_USER_QUESTION] })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const [row] = svc.listOpen()
+    const [row] = await svc.listOpen()
     expect(row).toMatchObject({ kind: 'question', source: 'screen-classifier' })
     expect(row?.kind === 'question' && row.payload.questions[0]?.options).toEqual([
       { label: 'Postgres' },
@@ -187,7 +187,7 @@ describe('InteractionService — synthesis', () => {
     const { svc, published } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: scraped() })
     await svc.onStateChanged({ sessionId: S, prev: scraped(), next: scraped() })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
     // A collapsed duplicate must not ping every surface again.
     expect(published).toHaveLength(1)
   })
@@ -204,10 +204,10 @@ describe('InteractionService — synthesis', () => {
     await svc.onStateChanged({ sessionId: S, prev: first, next: answered })
     const second = { ...permissionState(), since: '2026-08-14T00:05:00.000Z' }
     await svc.onStateChanged({ sessionId: S, prev: answered, next: second })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
     // Two rows overall: the first superseded when the session moved on, the
     // second open — not one row reused.
-    expect(svc.listForSession(S)).toHaveLength(2)
+    expect(await svc.listForSession(S)).toHaveLength(2)
   })
 
   it('a re-observation of the SAME hook transition still collapses', async () => {
@@ -216,7 +216,7 @@ describe('InteractionService — synthesis', () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     await svc.onStateChanged({ sessionId: S, prev: permissionState(), next: permissionState() })
-    expect(svc.listForSession(S)).toHaveLength(1)
+    expect(await svc.listForSession(S)).toHaveLength(1)
   })
 
   it('does not synthesize a classifier copy for a server-family session', async () => {
@@ -243,15 +243,15 @@ describe('InteractionService — synthesis', () => {
         },
       }),
     })
-    expect(svc.listOpen()).toHaveLength(1)
-    expect(svc.listOpen()[0]).toMatchObject({ source: 'protocol', payload: { toolName: 'bash' } })
+    expect(await svc.listOpen()).toHaveLength(1)
+    expect((await svc.listOpen())[0]).toMatchObject({ source: 'protocol', payload: { toolName: 'bash' } })
   })
 
   it('still synthesizes the classifier ask for a terminal-family session', async () => {
     const { svc } = harness({ driverFamily: 'terminal' })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    expect(svc.listOpen()).toHaveLength(1)
-    expect(svc.listOpen()[0]).toMatchObject({
+    expect(await svc.listOpen()).toHaveLength(1)
+    expect((await svc.listOpen())[0]).toMatchObject({
       source: 'screen-classifier',
       answerable: 'keystroke-emulated',
     })
@@ -261,15 +261,15 @@ describe('InteractionService — synthesis', () => {
     // Two open asks on one terminal session would both claim the same menu.
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState('ls') })
-    const first = svc.listOpen()[0]!
+    const first = (await svc.listOpen())[0]!
     await svc.onStateChanged({
       sessionId: S,
       prev: permissionState('ls'),
       next: permissionState('rm -rf /'),
     })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
     // SUPERSEDED, not expired — the session moved on to a different ask.
-    expect(svc.get(first.id)).toMatchObject({ status: 'superseded' })
+    expect(await svc.get(first.id)).toMatchObject({ status: 'superseded' })
   })
 
   it('leaving the asking state closes the open ask — whoever answered it', async () => {
@@ -282,16 +282,16 @@ describe('InteractionService — synthesis', () => {
       prev: permissionState(),
       next: state({ phase: 'working' }),
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('a session exit expires everything it left behind', async () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     await svc.onSessionExited(S)
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
     // EXPIRED here: the process died and took the menu with it.
-    expect(svc.listForSession(S)[0]).toMatchObject({ status: 'expired' })
+    expect((await svc.listForSession(S))[0]).toMatchObject({ status: 'expired' })
   })
 
   it('never throws into the bus when synthesis faults', async () => {
@@ -309,7 +309,7 @@ describe('InteractionService — synthesis', () => {
       policyPrincipal: () => PRINCIPAL,
     })
     await expect(
-      broken.onStateChanged({ sessionId: S, prev: undefined, next: questionState() }),
+      await broken.onStateChanged({ sessionId: S, prev: undefined, next: questionState() }),
     ).resolves.toBeUndefined()
     void svc
   })
@@ -331,7 +331,7 @@ describe('InteractionService — the public ask() ingress', () => {
     expect(inserted).toBe(true)
     expect(row.id).toBe('ask:transition-7')
     // That id is what the driver answers THROUGH later, so it has to survive.
-    expect(svc.listOpen().map((i) => i.id)).toEqual(['ask:transition-7'])
+    expect((await svc.listOpen()).map((i) => i.id)).toEqual(['ask:transition-7'])
   })
 
   it('honours a caller-supplied fingerprint rather than guessing one', async () => {
@@ -367,12 +367,12 @@ describe('InteractionService — answering', () => {
   it('drives the native menu through the existing delivery path', async () => {
     const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION] })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     const outcome = await answerAs(svc, id, 'Postgres')
     expect(outcome).toEqual({ ok: true })
     // 1-based index, which is what the digit path types.
     expect(delivered).toEqual(['1'])
-    expect(svc.get(id)).toMatchObject({
+    expect(await svc.get(id)).toMatchObject({
       status: 'answered',
       answeredBy: 'human',
       deliveredVia: 'menu',
@@ -383,7 +383,7 @@ describe('InteractionService — answering', () => {
   it('answering twice returns the typed error and delivers once', async () => {
     const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION] })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     expect(await answerAs(svc, id, 'Postgres')).toEqual({ ok: true })
     expect(await answerAs(svc, id, 'SQLite')).toEqual({ ok: false, reason: 'already-answered' })
     // The whole point: a second delivery on a keystroke-emulated ask types
@@ -399,14 +399,14 @@ describe('InteractionService — answering', () => {
     // sitting on the prompt.
     const { svc, delivered } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     const outcome = await answerAs(svc, id, 'allow')
     expect(outcome.ok).toBe(false)
     expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
     expect(outcome.detail).toContain('POD-707')
     expect(delivered).toEqual([])
-    expect(svc.listOpen().map((i) => i.id)).toEqual([id])
-    expect(svc.get(id)).toMatchObject({ status: 'asked' })
+    expect((await svc.listOpen()).map((i) => i.id)).toEqual([id])
+    expect(await svc.get(id)).toMatchObject({ status: 'asked' })
   })
 
   it('REFUSES a structured answer — no protocol driver exists yet', async () => {
@@ -434,7 +434,7 @@ describe('InteractionService — answering', () => {
     expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
     expect(delivered).toEqual([])
     // W5/W6 replace this seam; until then the ask stays open.
-    expect(svc.get('ixn_structured')).toMatchObject({ status: 'asked' })
+    expect(await svc.get('ixn_structured')).toMatchObject({ status: 'asked' })
   })
 
   it('answering a SUPERSEDED ask reads as already-answered', async () => {
@@ -443,20 +443,20 @@ describe('InteractionService — answering', () => {
     // says the true thing — somebody got there first.
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     await svc.onStateChanged({
       sessionId: S,
       prev: permissionState(),
       next: state({ phase: 'working' }),
     })
-    expect(svc.get(id)).toMatchObject({ status: 'superseded' })
+    expect(await svc.get(id)).toMatchObject({ status: 'superseded' })
     expect(await answerAs(svc, id, 'allow')).toEqual({ ok: false, reason: 'already-answered' })
   })
 
   it('answering an expired ask returns `expired`, not `already-answered`', async () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     await svc.onSessionExited(S)
     expect(await answerAs(svc, id, 'allow')).toEqual({ ok: false, reason: 'expired' })
   })
@@ -475,18 +475,18 @@ describe('InteractionService — answering', () => {
     // through one would select option 1 and throw the text away.
     const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION_PREVIEW] })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     const outcome = await answerAs(svc, id, 'DuckDB')
     expect(outcome.ok).toBe(false)
     expect(delivered).toEqual([])
     // Still blocked, still enumerable — a refusal must not resolve the row.
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
   })
 
   it('refuses a typed answer whose kind does not match the ask', async () => {
     const { svc } = harness({ transcript: [ASK_USER_QUESTION] })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     const outcome = await svc.answer({
       id,
       answer: { kind: 'recovery', choice: 'full-resume' },
@@ -494,7 +494,7 @@ describe('InteractionService — answering', () => {
       principal: PRINCIPAL,
     })
     expect(outcome.ok).toBe(false)
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
   })
 
   it('a REFUSED delivery reopens the ask and says so', async () => {
@@ -510,13 +510,13 @@ describe('InteractionService — answering', () => {
       transcript: [ASK_USER_QUESTION],
     })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const id = svc.listOpen()[0]!.id
+    const id = (await svc.listOpen())[0]!.id
     const outcome = await answerAs(svc, id, 'Postgres')
     expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
     expect(outcome.detail).toContain('session not running')
     // Still answerable, because nobody has answered it yet.
-    expect(svc.get(id)).toMatchObject({ status: 'asked' })
-    expect(svc.listOpen(S)).toHaveLength(1)
+    expect(await svc.get(id)).toMatchObject({ status: 'asked' })
+    expect(await svc.listOpen(S)).toHaveLength(1)
   })
 })
 
@@ -545,7 +545,7 @@ describe('InteractionService — the default answer table', () => {
       principal: PRINCIPAL,
     })
     expect(outcome).toEqual({ ok: true })
-    expect(svc.get('ixn_recovery')).toMatchObject({
+    expect(await svc.get('ixn_recovery')).toMatchObject({
       status: 'answered',
       answeredBy: 'policy',
       answer: { choice: 'full-resume' },
@@ -555,7 +555,7 @@ describe('InteractionService — the default answer table', () => {
   it('does NOT auto-answer a permission ask', async () => {
     const { svc } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    expect(svc.listOpen()[0]).toMatchObject({ status: 'asked' })
+    expect((await svc.listOpen())[0]).toMatchObject({ status: 'asked' })
   })
 })
 
@@ -569,7 +569,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'billing_error', retryable: false } }),
     })
-    const [row] = svc.listOpen()
+    const [row] = await svc.listOpen()
     expect(row).toMatchObject({ kind: 'recovery', status: 'asked' })
     // Only what the answer path can perform — `abandon` was removed in the
     // review round because its one delivery route woke the session it claimed
@@ -584,7 +584,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'authentication', retryable: false } }),
     })
-    expect(svc.listOpen()[0]).toMatchObject({
+    expect((await svc.listOpen())[0]).toMatchObject({
       kind: 'login',
       payload: { provider: 'authentication', reason: 'auth-expired' },
     })
@@ -597,7 +597,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'overloaded', retryable: true } }),
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('a needs_user phase Podium could NOT classify is still an enumerable ask', async () => {
@@ -610,7 +610,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'needs_user', stateSource: 'poll' }),
     })
-    const [row] = svc.listOpen()
+    const [row] = await svc.listOpen()
     expect(row).toMatchObject({ kind: 'question', status: 'asked' })
     expect(row?.kind === 'question' && row.payload.questions[0]?.options).toEqual([])
     expect(row?.kind === 'question' && row.payload.questions[0]?.question).toContain(
@@ -625,11 +625,11 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'needs_user', stateSource: 'poll' }),
     })
-    const id = svc.listOpen()[0]?.id ?? ''
+    const id = (await svc.listOpen())[0]?.id ?? ''
     const outcome = await answerAs(svc, id, 'yes')
     expect(outcome.ok).toBe(false)
     expect(delivered).toEqual([])
-    expect(svc.get(id)).toMatchObject({ status: 'asked' })
+    expect(await svc.get(id)).toMatchObject({ status: 'asked' })
   })
 
   it('a needs-human TURN FAILURE opens a row, and the next turn closes it', async () => {
@@ -640,7 +640,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       provider: 'claude',
       ev: { ev: 'failed', turnEpoch: 1, reason: 'auth-expired', disposition: 'needs-human' },
     })
-    expect(svc.listOpen()[0]).toMatchObject({ kind: 'login', source: 'protocol' })
+    expect((await svc.listOpen())[0]).toMatchObject({ kind: 'login', source: 'protocol' })
     // A turn STARTING is proof the session is no longer waiting on a credential
     // — whoever refreshed it.
     await svc.onTurnEvent({
@@ -648,13 +648,13 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       at: '2026-08-14T00:01:00.000Z',
       ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('the same failure repeated while open is ONE blocked session, not three', async () => {
     const { svc, published } = harness()
-    const fail = (at: string) =>
-      svc.onTurnEvent({
+    const fail = async (at: string) =>
+      await svc.onTurnEvent({
         sessionId: S,
         at,
         ev: {
@@ -667,7 +667,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
     await fail('2026-08-14T00:00:00.000Z')
     await fail('2026-08-14T00:00:10.000Z')
     await fail('2026-08-14T00:00:20.000Z')
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
     expect(published).toHaveLength(1)
   })
 
@@ -682,7 +682,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       at: '2026-08-14T00:01:00.000Z',
       ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
     })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
   })
 
   it('a terminal state change does NOT supersede a PROTOCOL-sourced ask', async () => {
@@ -705,7 +705,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       prev: undefined,
       next: state({ phase: 'working' }),
     })
-    expect(svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
+    expect(await svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
   })
 
   it('a driver retiring its OWN ask closes the row', async () => {
@@ -730,8 +730,8 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       // must not claim to know what it was.
       ev: { ev: 'answered', id: 'ixn_driver', answeredBy: 'human', at: '2026-08-14T00:01:00.000Z' },
     })
-    expect(svc.get('ixn_driver')).toMatchObject({ status: 'superseded' })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.get('ixn_driver')).toMatchObject({ status: 'superseded' })
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('a resolution for another session’s row is ignored', async () => {
@@ -750,7 +750,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       sessionId: asSessionId('ses_other'),
       ev: { ev: 'expired', id: 'ixn_driver', at: '2026-08-14T00:01:00.000Z' },
     })
-    expect(svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
+    expect(await svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
   })
 
   it('a session exit still closes EVERYTHING, whatever raised it', async () => {
@@ -766,7 +766,7 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
       },
     })
     await svc.onSessionExited(S)
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 })
 
@@ -788,7 +788,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       policyPrincipal: () => PRINCIPAL,
     })
     await service.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
-    const open = service.listOpen()
+    const open = await service.listOpen()
     expect(open).toHaveLength(1)
     expect(open[0]).toMatchObject({ kind: 'question', status: 'asked' })
   })
@@ -817,7 +817,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     expect(outcome.ok).toBe(false)
     expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
     expect(delivered).toEqual([])
-    expect(svc.get('ixn_resume')).toMatchObject({ status: 'asked' })
+    expect(await svc.get('ixn_resume')).toMatchObject({ status: 'asked' })
   })
 
   it('a FAILURE recovery is still answerable — it is not holding a handle open', async () => {
@@ -827,7 +827,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       at: '2026-08-14T00:00:00.000Z',
       ev: { ev: 'failed', turnEpoch: 1, reason: 'context-overflow', disposition: 'needs-human' },
     })
-    const id = svc.listOpen()[0]?.id ?? ''
+    const id = (await svc.listOpen())[0]?.id ?? ''
     const outcome = await svc.answer({
       id,
       answer: { kind: 'recovery', choice: 'full-resume' },
@@ -875,7 +875,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // re-verdict, P0/1): a surface renders a permanent limitation differently
     // from a lost reply, and only one of the two is worth retrying.
     expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
-    expect(service.get('ixn_structured_refused')).toMatchObject({ status: 'asked' })
+    expect(await service.get('ixn_structured_refused')).toMatchObject({ status: 'asked' })
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
   })
 
@@ -906,13 +906,13 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = svc.onStateChanged({
+    const asking = await svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: { phase: 'needs_user', need: { kind: 'question' } } as never,
     })
     // B: the session moves on WHILE that read is outstanding.
-    const working = svc.onStateChanged({
+    const working = await svc.onStateChanged({
       sessionId: S,
       prev: { phase: 'needs_user', need: { kind: 'question' } } as never,
       next: { phase: 'working' } as never,
@@ -922,7 +922,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
 
     // Whatever order the bus handed them over, the session is not left claiming
     // to be blocked: B is applied after A, so it closes what A inserted.
-    expect(svc.listOpen(S)).toEqual([])
+    expect(await svc.listOpen(S)).toEqual([])
   })
 
   it('a session that EXITS during a slow read is not left holding an ask', async () => {
@@ -951,18 +951,18 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = svc.onStateChanged({
+    const asking = await svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: { phase: 'needs_user', need: { kind: 'question' } } as never,
     })
     // B: the process dies WHILE that read is outstanding.
-    const exited = svc.onSessionExited(S)
+    const exited = await svc.onSessionExited(S)
     releaseRead()
     await Promise.all([asking, exited])
 
     // The ask A inserted is expired by B behind it, rather than surviving it.
-    expect(svc.listOpen(S)).toEqual([])
+    expect(await svc.listOpen(S)).toEqual([])
   })
 
   it('a TURN FAILURE cannot overtake a slow question synthesis', async () => {
@@ -995,11 +995,11 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    const asking = await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     await readStarted
 
     // B: a causal failure arrives WHILE A read is outstanding.
-    const failed = svc.onTurnEvent({
+    const failed = await svc.onTurnEvent({
       sessionId: S,
       at: '2026-08-14T00:00:30.000Z',
       provider: 'claude',
@@ -1054,8 +1054,8 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
         answerable: 'structured',
       },
     })
-    expect(service.get('ixn_overtaken')).toMatchObject({ status: 'answered' })
-    expect(service.listOpen()).toHaveLength(0)
+    expect(await service.get('ixn_overtaken')).toMatchObject({ status: 'answered' })
+    expect(await service.listOpen()).toHaveLength(0)
   })
 
   it('a session with a CAUSAL stream does not mint from the errored shadow', async () => {
@@ -1072,14 +1072,14 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       at: '2026-08-14T00:00:00.000Z',
       ev: { ev: 'failed', turnEpoch: 1, reason: 'provider-error', disposition: 'fatal' },
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
     // THE SHADOW ARRIVES SECOND — the ordering the old bit needed.
     await svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'provider_refusal', retryable: false } }),
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('suppression does not depend on the causal event arriving FIRST', async () => {
@@ -1092,7 +1092,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'provider_refusal', retryable: false } }),
     })
-    expect(svc.listOpen()).toHaveLength(0)
+    expect(await svc.listOpen()).toHaveLength(0)
   })
 
   it('a session with NO causal stream still mints from the errored state', async () => {
@@ -1104,7 +1104,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
       prev: undefined,
       next: state({ phase: 'errored', error: { class: 'billing_error', retryable: false } }),
     })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(await svc.listOpen()).toHaveLength(1)
   })
 })
 
@@ -1151,7 +1151,7 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
       },
     })
     expect(structured).toEqual([{ kind: 'recovery', choice: 'full-resume' }])
-    expect(service.listOpen()).toHaveLength(0)
+    expect(await service.listOpen()).toHaveLength(0)
   })
 
   it('an UNDELIVERABLE policy answer reopens the ask instead of swallowing it', async () => {
@@ -1183,11 +1183,11 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
         answerable: 'structured',
       },
     })
-    expect(service.get('ixn_cache-miss')).toMatchObject({
+    expect(await service.get('ixn_cache-miss')).toMatchObject({
       status: 'asked',
       policyVerdict: 'escalated',
     })
-    expect(service.listOpen()).toHaveLength(1)
+    expect(await service.listOpen()).toHaveLength(1)
     // The surfaces saw it open, then answered, then open again — the last word
     // is what a replica keeps.
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
@@ -1216,12 +1216,12 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     // The row keeps its claim, and the CALLER is still told it failed — the
     // half that used to report `ok: true`.
     expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
-    expect(svc.get('ixn_context-overflow')).toMatchObject({
+    expect(await svc.get('ixn_context-overflow')).toMatchObject({
       status: 'answered',
       answeredBy: 'human',
       deliveredVia: 'unverified',
     })
-    expect(svc.listOpen(S)).toEqual([])
+    expect(await svc.listOpen(S)).toEqual([])
   })
 
   it('a FAILURE recovery is never auto-answered — that is the retry loop', async () => {
@@ -1239,8 +1239,8 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
       },
     })
     expect(delivered).toEqual([])
-    expect(svc.listOpen()).toHaveLength(1)
-    expect(svc.listOpen()[0]).toMatchObject({ kind: 'recovery', status: 'asked' })
+    expect(await svc.listOpen()).toHaveLength(1)
+    expect((await svc.listOpen())[0]).toMatchObject({ kind: 'recovery', status: 'asked' })
   })
 })
 
@@ -1271,7 +1271,7 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
     // they sent, with no way to answer it from the app.
     const { svc, delivered, typedAtMenu } = harness({ nativeMenu: () => ({ ok: true }) })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
-    const [row] = svc.listOpen(S)
+    const [row] = await svc.listOpen(S)
     expect(row).toMatchObject({ kind: 'question', source: 'screen-classifier' })
 
     const outcome = await svc.answer({
@@ -1288,8 +1288,8 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
     // a transcript that has nothing to do with this dialog.
     expect(delivered).toEqual([])
     // biome-ignore lint/style/noNonNullAssertion: asserted open above.
-    expect(svc.get(row!.id)).toMatchObject({ status: 'answered', deliveredVia: 'menu' })
-    expect(svc.listOpen(S)).toEqual([])
+    expect(await svc.get(row!.id)).toMatchObject({ status: 'answered', deliveredVia: 'menu' })
+    expect(await svc.listOpen(S)).toEqual([])
   })
 
   it('a REFUSED menu answer reopens the ask — nothing was typed', async () => {
@@ -1297,7 +1297,7 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
       nativeMenu: () => ({ ok: false, reason: 'no menu on screen (phase=working)' }),
     })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
-    const [row] = svc.listOpen(S)
+    const [row] = await svc.listOpen(S)
     const outcome = await svc.answer({
       // biome-ignore lint/style/noNonNullAssertion: asserted open above.
       id: row!.id,
@@ -1307,9 +1307,9 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
     })
     expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
     // The dialog is still on screen, so the card has to come back.
-    expect(svc.listOpen(S)).toHaveLength(1)
+    expect(await svc.listOpen(S)).toHaveLength(1)
     // biome-ignore lint/style/noNonNullAssertion: asserted open above.
-    expect(svc.get(row!.id)).toMatchObject({ status: 'asked' })
+    expect(await svc.get(row!.id)).toMatchObject({ status: 'asked' })
   })
 
   it('a build with NO menu route refuses rather than accepting what it cannot type', async () => {
@@ -1323,7 +1323,7 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
       }),
     })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: dialogState() })
-    const [row] = svc.listOpen(S)
+    const [row] = await svc.listOpen(S)
     const outcome = await svc.answer({
       // biome-ignore lint/style/noNonNullAssertion: asserted open above.
       id: row!.id,
@@ -1332,7 +1332,7 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
       principal: PRINCIPAL,
     })
     expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
-    expect(svc.listOpen(S)).toHaveLength(1)
+    expect(await svc.listOpen(S)).toHaveLength(1)
   })
 
   it('a TRANSCRIPT-backed question still goes the prose route', async () => {
@@ -1347,7 +1347,7 @@ describe('InteractionService — answering a screen-drawn dialog (POD-2414)', ()
       prev: undefined,
       next: state({ phase: 'needs_user', stateSource: 'hook', need: { kind: 'question' } }),
     })
-    const [row] = svc.listOpen(S)
+    const [row] = await svc.listOpen(S)
     // biome-ignore lint/style/noNonNullAssertion: asserted open above.
     await answerAs(svc, row!.id, 'Postgres')
     expect(typedAtMenu).toEqual([])
@@ -1388,11 +1388,11 @@ describe('InteractionService — a policy answer whose delivery THREW (POD-2414)
         answerable: 'structured',
       },
     })
-    expect(service.get('ixn_thrown')).toMatchObject({
+    expect(await service.get('ixn_thrown')).toMatchObject({
       status: 'asked',
       policyVerdict: 'escalated',
     })
-    expect(service.listOpen()).toHaveLength(1)
+    expect(await service.listOpen()).toHaveLength(1)
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
   })
 })

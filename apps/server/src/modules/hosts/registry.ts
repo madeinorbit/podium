@@ -50,7 +50,7 @@ export const HOST_COMMANDS_TRPC = {
     contract: HOST_CONTRACTS.memoryBreakdown,
     handler: (async (state, input) => {
       const machineId = input?.machineId
-      const repoPaths = state.repos.list(machineId)
+      const repoPaths = await state.repos.list(machineId)
       const { repositories } = await state.rpc.scanRepos(
         repoPaths,
         { includeHome: false, maxDepth: 0 },
@@ -76,7 +76,7 @@ export const HOST_COMMANDS_TRPC = {
     handler: (async (state, input) => {
       const machineId = input?.machineId
       const inventory = await state.issues.listReclaimableWorktrees(Date.now(), machineId)
-      const estimate = state.hosts.reclaimDiskEstimate(
+      const estimate = await state.hosts.reclaimDiskEstimate(
         inventory.allWorktreePaths,
         inventory.reclaimableDiskPaths,
         machineId,

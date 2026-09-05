@@ -75,15 +75,15 @@ describe('search index gate', () => {
     // The whole point of dropping the triggers first: `conversations` stays
     // writable. A trigger pointing at a table that is not there fails EVERY
     // insert, update and delete on the row it hangs off.
-    store.conversations.index.upsert([conversation(store)])
-    store.conversations.index.upsert([conversation(store, { title: 'renamed' })])
+    await store.conversations.index.upsert([conversation(store)])
+    await store.conversations.index.upsert([conversation(store, { title: 'renamed' })])
 
     // And search still answers — through the LIKE fallback that has always
     // covered builds without FTS5.
     expect(
-      store.conversations.index.searchCandidates({ query: 'renamed' }).map((r) => r.id),
+      (await store.conversations.index.searchCandidates({ query: 'renamed' })).map((r) => r.id),
     ).toEqual(['native-a'])
-    expect(store.conversations.transcriptIndex.searchCandidates('renamed')).toEqual([])
+    expect(await store.conversations.transcriptIndex.searchCandidates('renamed')).toEqual([])
   })
 
   it('builds the tables, the triggers and the index when the flag is on', async () => {
@@ -99,9 +99,9 @@ describe('search index gate', () => {
       'conversations_au',
     ])
 
-    store.conversations.index.upsert([conversation(store)])
+    await store.conversations.index.upsert([conversation(store)])
     expect(
-      store.conversations.index.searchCandidates({ query: 'capacitor' }).map((r) => r.id),
+      (await store.conversations.index.searchCandidates({ query: 'capacitor' })).map((r) => r.id),
     ).toEqual(['native-a'])
   })
 
@@ -110,7 +110,7 @@ describe('search index gate', () => {
 
     forceFeature('command-palette', true)
     const first = await open(path)
-    first.conversations.index.upsert([conversation(first)])
+    await first.conversations.index.upsert([conversation(first)])
     const machineId = first.hostMachineId
     first.close()
     stores.pop()
@@ -124,7 +124,7 @@ describe('search index gate', () => {
     expect(hasTable(off, 'conversations_fts')).toBe(true)
     expect(hasTable(off, 'transcript_fts')).toBe(true)
     // A row written while search is off is invisible to fts5 — nothing feeds it.
-    off.conversations.index.upsert([
+    await off.conversations.index.upsert([
       conversation(off, { id: 'native-b', title: 'written while search was off', machineId }),
     ])
     off.close()
@@ -136,7 +136,7 @@ describe('search index gate', () => {
     // The row that arrived during the dark boot is searchable anyway: enabling
     // runs a full 'rebuild' from `conversations`, so the index cannot lag it.
     expect(
-      back.conversations.index.searchCandidates({ query: 'written' }).map((r) => r.id),
+      (await back.conversations.index.searchCandidates({ query: 'written' })).map((r) => r.id),
     ).toEqual(['native-b'])
   })
 
@@ -146,13 +146,13 @@ describe('search index gate', () => {
 
     forceFeature('command-palette', true)
     const first = await open(path)
-    first.conversations.transcriptIndex.append(
+    await first.conversations.transcriptIndex.append(
       machineId,
       'native-a',
       [{ content: 'the flux capacitor drifts under load' }],
       512,
     )
-    expect(first.conversations.transcriptIndex.searchCandidates('capacitor')).toHaveLength(1)
+    expect(await first.conversations.transcriptIndex.searchCandidates('capacitor')).toHaveLength(1)
     first.close()
     stores.pop()
 
@@ -160,8 +160,8 @@ describe('search index gate', () => {
     const off = await open(path)
     // Closed for this boot: no hits, no appends, and the durable byte cursor is
     // left exactly where it was so the next enabled boot resumes from it.
-    expect(off.conversations.transcriptIndex.searchCandidates('capacitor')).toEqual([])
-    off.conversations.transcriptIndex.append(
+    expect(await off.conversations.transcriptIndex.searchCandidates('capacitor')).toEqual([])
+    await off.conversations.transcriptIndex.append(
       machineId,
       'native-a',
       [{ content: 'not indexed while off' }],
@@ -172,9 +172,9 @@ describe('search index gate', () => {
 
     forceFeature('command-palette', true)
     const back = await open(path)
-    const hits = back.conversations.transcriptIndex.searchCandidates('capacitor')
+    const hits = await back.conversations.transcriptIndex.searchCandidates('capacitor')
     expect(hits).toHaveLength(1)
     expect(hits[0]?.nativeId).toBe('native-a')
-    expect(back.conversations.transcriptIndex.rows(machineId, 'native-a')).toHaveLength(1)
+    expect(await back.conversations.transcriptIndex.rows(machineId, 'native-a')).toHaveLength(1)
   })
 })

@@ -252,8 +252,8 @@ export class MessageGate {
     correlationId?: string,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    return withReadScope(() =>
-      this.dispatchInScope(
+    return withReadScope(async () =>
+      await this.dispatchInScope(
         capability,
         overrideScope,
         proc,
@@ -265,7 +265,7 @@ export class MessageGate {
     )
   }
 
-  private dispatchInScope(
+  private async dispatchInScope(
     capability: Capability,
     overrideScope: boolean | undefined,
     proc: string,
@@ -302,7 +302,7 @@ export class MessageGate {
     // later. Deferring it was a timing change nobody asked for, and the kind
     // that surfaces as a flake in someone else's suite six weeks on.
     try {
-      return Promise.resolve(dispatchMailCommand(proc as MailProcName, ctx, input))
+      return Promise.resolve(await dispatchMailCommand(proc as MailProcName, ctx, input))
     } catch (error) {
       return Promise.reject(error)
     }

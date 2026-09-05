@@ -155,12 +155,12 @@ function statement(
  * `lastInsertRowid` that arrives over hrana is this connection's last insert or
  * the database's, because those differ the moment a second client writes.
  */
-function insertChunk(
+async function insertChunk(
   db: QueryDb,
   tables: SpikeTables,
   chunk: readonly ChangeWriteRow[],
   eventTime: number,
-): Statement {
+): Promise<Statement> {
   const values = chunk.map((row) => ({
     entity: row.entity,
     entityId: row.entityId,
@@ -168,7 +168,7 @@ function insertChunk(
     payload: row.payload,
     eventTime,
   }))
-  return statement(db.insert(tables.changes).values(values), 'run', 'write')
+  return statement(await db.insert(tables.changes).values(values), 'run', 'write')
 }
 
 /**
@@ -181,12 +181,12 @@ function insertChunk(
  * preserved here even when the statements travel as one batch, because a libsql
  * batch executes its statements in the order given.
  */
-function latestStatements(
+async function latestStatements(
   db: QueryDb,
   tables: SpikeTables,
   chunk: readonly ChangeWriteRow[],
   firstSeq: number,
-): Statement[] {
+): Promise<Statement[]> {
   const out: Statement[] = []
   for (let i = 0; i < chunk.length; i++) {
     const row = chunk[i] as ChangeWriteRow
@@ -195,14 +195,14 @@ function latestStatements(
     // column; keeping the previous state would be worse, since the folded log
     // never showed it once a corrupt row landed on top.
     if (row.op === 'upsert' && row.payload !== null) {
-      const insert = db
+      const insert = (await db
         .insert(tables.changeLatest)
         .values({
           entity: row.entity,
           entityId: row.entityId,
           seq: firstSeq + i,
           payload: row.payload,
-        })
+        }))
         .onConflictDoUpdate({
           target: [tables.changeLatest.entity, tables.changeLatest.entityId],
           set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
@@ -264,11 +264,11 @@ export async function appendChangesLiteral(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const result = await session.execute(insertChunk(db, tables, chunk, eventTime))
+      const result = await session.execute(await insertChunk(db, tables, chunk, eventTime))
       if (!result.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      for (const s of latestStatements(db, tables, chunk, first)) await session.execute(s)
+      for (const s of await latestStatements(db, tables, chunk, first)) await session.execute(s)
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }
@@ -304,11 +304,11 @@ export async function appendChangesBatched(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const [result] = await session.executeBatch([insertChunk(db, tables, chunk, eventTime)])
+      const [result] = await session.executeBatch([await insertChunk(db, tables, chunk, eventTime)])
       if (!result?.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      await session.executeBatch(latestStatements(db, tables, chunk, first))
+      await session.executeBatch(await latestStatements(db, tables, chunk, first))
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }
@@ -359,11 +359,11 @@ export async function appendChangesNested(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const result = await session.execute(insertChunk(db, tables, chunk, eventTime))
+      const result = await session.execute(await insertChunk(db, tables, chunk, eventTime))
       if (!result.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      for (const s of latestStatements(db, tables, chunk, first)) await session.execute(s)
+      for (const s of await latestStatements(db, tables, chunk, first)) await session.execute(s)
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }

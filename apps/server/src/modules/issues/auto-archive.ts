@@ -39,7 +39,7 @@ export class IssueAutoArchive {
   }
 
   /** One read-gated auto-archive pass. Failures are logged, never thrown. */
-  private sweep(): void {
+  private async sweep(): Promise<void> {
     // SINGLE-FLIGHT (POD-3258), the same fence its sibling {@link IssueGitWatch}
     // already carries. `sweepAutoArchive` selects the read+done issues and
     // archives them in one pass; an overlapping pass would select the same rows
@@ -50,7 +50,7 @@ export class IssueAutoArchive {
     if (this.sweeping) return
     this.sweeping = true
     try {
-      const archived = this.issues.sweepAutoArchive(undefined, systemPrincipal('expiry'))
+      const archived = await this.issues.sweepAutoArchive(undefined, systemPrincipal('expiry'))
       if (archived.length > 0) {
         log.info('auto-archived read+done issues', { archived: archived.length })
       }

@@ -42,17 +42,17 @@ async function setup() {
   })
   await store.machines.setMachineInventory('m1', inventory)
   await store.machines.setMachineInventory('m2', inventory)
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
   registry.gateway.attachDaemon('m1', (message) => m1.push(message))
   registry.gateway.attachDaemon('m2', (message) => m2.push(message))
-  const sessionId = registry.modules.sessions.createSession({
+  const sessionId = (await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/repo',
     machineId: asMachineId('m1'),
-  }).sessionId
+  })).sessionId
   m1.length = 0
   m2.length = 0
   return { registry, store, sessionId, m1, m2 }

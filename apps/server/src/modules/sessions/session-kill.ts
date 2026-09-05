@@ -77,7 +77,7 @@ export class SessionKill {
   /** Runtime half of a durable session removal. Issue-owned tombstones can be
    * restored and therefore use generic process kill; standalone deletion is
    * terminal and emits the distinct binding-retirement instruction. */
-  removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): void {
+  async removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
     // while membership/cwd are still resolvable, before this removal.
@@ -88,8 +88,8 @@ export class SessionKill {
       // row still names the machine that ran it, and only a session with neither gets
       // the fleet default. Every arm is a machine some daemon actually answers to.
       session?.machineId ??
-        this.ports.store.sessions.getSession(sessionId)?.machineId ??
-        this.ports.machines.defaultMachine(),
+        (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
+        await this.ports.machines.defaultMachine(),
       terminalRetirement
         ? {
             type: 'sessionBindingRetire',
@@ -125,9 +125,9 @@ export class SessionKill {
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
     this.ports.ledger.commit({
-      write: () => {
-        this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
-        this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
+      write: async () => {
+        await this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
+        await this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
       changes: () => this.sessionRemovalSpecs(input.sessionId),
       // THE LIVE TEARDOWN WAITS FOR THE OUTERMOST COMMIT [POD-3366], which is
@@ -148,14 +148,14 @@ export class SessionKill {
     // divergent projection. `session` was captured before the commit, so the
     // notification can still resolve a session-spawner parent wake (POD-904)
     // after the row is gone.
-    afterCommit(() => {
+    afterCommit(async () => {
       this.ports.broadcastSessions()
       // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
       // kill deletes the row from the map BEFORE the daemon's agentExit
       // arrives, so the agentExit-path emit would be skipped — fire it here.
       // killSession is never the hibernate path (hibernateSession only flips
       // status).
-      this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+      await this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
     }, 'session-kill-broadcast')
   }
 
@@ -172,16 +172,16 @@ export class SessionKill {
    * Hibernate does not land here. Best-effort log write — a store throw must
    * not undo the exit side-effects already applied.
    */
-  emitSessionExited(
+  async emitSessionExited(
     sessionId: SessionId,
     code: number,
     spawnedBy?: string | null,
     sourceSession: Session | undefined = this.ports.sessions.get(sessionId),
-  ): void {
+  ): Promise<void> {
     const session = sourceSession
-    const lease = this.ports.store.observationCheckpoints.get(sessionId)
+    const lease = await this.ports.store.observationCheckpoints.get(sessionId)
     const fence = lease?.checkpoint?.terminalFence
-    const candidate = this.ports.store.observationCheckpoints.getTerminalCandidate(sessionId)
+    const candidate = await this.ports.store.observationCheckpoints.getTerminalCandidate(sessionId)
     // A fence suppresses the fixed steward exit fallback only while it still
     // describes the latest causal input. Historical/mixed-version fences without
     // their matching durable candidate, or a prompt sent after the fence, must let
@@ -196,7 +196,7 @@ export class SessionKill {
     )
     this.ports.bus.emit('session.exited', { sessionId, code })
     try {
-      this.ports.store.events.appendEvent({
+      await this.ports.store.events.appendEvent({
         ts: new Date(this.ports.now()).toISOString(),
         kind: 'session.exited',
         subject: sessionId,

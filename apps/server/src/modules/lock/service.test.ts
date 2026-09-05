@@ -66,19 +66,19 @@ describe('LockService', () => {
       sessionId: asSessionId('system:shipping:order-1:attempt-2:2'),
       label: 'Shipping order-1 attempt 2',
     }
-    expect(svc.acquire(stale, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
+    expect(await svc.acquire(stale, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
       {
         granted: true,
       },
     )
     advance(1_001)
-    expect(svc.acquire(successor, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
+    expect(await svc.acquire(successor, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
       granted: true,
     })
     expect(() => svc.release(stale, { repoPath: REPO, name: 'merge:main' })).toThrow(
       /not by you/,
     )
-    expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
+    expect((await svc.status({ repoPath: REPO, name: 'merge:main' }))[0]?.holder.sessionId).toBe(
       successor.sessionId,
     )
   })
@@ -93,7 +93,7 @@ describe('LockService', () => {
     })
     const first = caller('worker-a')
     const restarted = caller('worker-b')
-    expect(svc.acquire(first, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
+    expect(await svc.acquire(first, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
       { granted: true },
     )
     expect(() => svc.renew(restarted, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
@@ -102,21 +102,21 @@ describe('LockService', () => {
     )
 
     advance(1_001)
-    expect(svc.acquire(restarted, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
+    expect(await svc.acquire(restarted, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
       granted: true,
     })
     expect(() => svc.renew(first, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
     expect(() => svc.release(first, { repoPath: REPO, name: 'merge:main' })).toThrow(
       /not by you/,
     )
-    expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
+    expect((await svc.status({ repoPath: REPO, name: 'merge:main' }))[0]?.holder.sessionId).toBe(
       restarted.sessionId,
     )
   })
 
   it('grants a free lock with the default TTL and holder identity', async () => {
     const { svc } = await harness()
-    const r = svc.acquire(agent(1), { repoPath: REPO, name: 'merge:main' })
+    const r = await svc.acquire(agent(1), { repoPath: REPO, name: 'merge:main' })
     expect(r.granted).toBe(true)
     if (!r.granted) throw new Error('unreachable')
     expect(r.alreadyHeld).toBe(false)
@@ -133,10 +133,10 @@ describe('LockService', () => {
 
   it('same-session re-acquire renews (extends expiry, keeps acquired_at, reports already held)', async () => {
     const { svc, advance } = await harness()
-    const first = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
+    const first = await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
     if (!first.granted) throw new Error('expected grant')
     advance(30_000)
-    const again = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
+    const again = await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
     expect(again.granted).toBe(true)
     if (!again.granted) throw new Error('unreachable')
     expect(again.alreadyHeld).toBe(true)
@@ -146,14 +146,14 @@ describe('LockService', () => {
 
   it('enqueues FIFO with 1-based positions; re-acquire while queued is idempotent', async () => {
     const { svc, advance } = await harness()
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    const q2 = svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    const q2 = await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     expect(q2).toMatchObject({ granted: false, position: 1 })
     advance(1_000)
-    const q3 = svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    const q3 = await svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
     expect(q3).toMatchObject({ granted: false, position: 2 })
     // waiter dedup: same session again → same position, no duplicate row
-    const q2again = svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    const q2again = await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     expect(q2again).toMatchObject({ granted: false, position: 1 })
     if (q2again.granted) throw new Error('unreachable')
     expect(q2again.lock.queue).toHaveLength(2)
@@ -183,15 +183,15 @@ describe('LockService', () => {
   it('retains queued lease metadata and updates it in place on re-acquire', async () => {
     const { svc, store, alive, advance, sendMail } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'test:heavy' })
-    svc.acquire(agent(2), {
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'test:heavy' })
+    await svc.acquire(agent(2), {
       repoPath: REPO,
       name: 'test:heavy',
       ttlSeconds: 1_800,
       note: 'first request',
     })
     advance(1_000)
-    svc.acquire(agent(3), { repoPath: REPO, name: 'test:heavy' })
+    await svc.acquire(agent(3), { repoPath: REPO, name: 'test:heavy' })
 
     const before = await store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
     expect(before[0]).toMatchObject({
@@ -201,7 +201,7 @@ describe('LockService', () => {
       enqueuedAt: '2026-07-13T12:00:00.000Z',
     })
 
-    const again = svc.acquire(agent(2), {
+    const again = await svc.acquire(agent(2), {
       repoPath: REPO,
       name: 'test:heavy',
       ttlSeconds: 2_400,
@@ -219,8 +219,8 @@ describe('LockService', () => {
     })
     expect(after[1]?.sessionId).toBe(asSessionId('sess_3'))
 
-    svc.release(agent(1), { repoPath: REPO, name: 'test:heavy' })
-    const granted = svc.status({ repoPath: REPO, name: 'test:heavy' })[0]!
+    await svc.release(agent(1), { repoPath: REPO, name: 'test:heavy' })
+    const granted = (await svc.status({ repoPath: REPO, name: 'test:heavy' }))[0]!
     expect(granted.holder.sessionId).toBe(asSessionId('sess_2'))
     expect(granted.note).toBe('updated request')
     expect(granted.secondsLeft).toBe(2_400)
@@ -234,10 +234,10 @@ describe('LockService', () => {
   it('status reports per-row liveness from sessionAlive (dead waiters stay visible until advance)', async () => {
     const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_2') // sess_3 dead
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
-    const status = svc.status({ repoPath: REPO, name: 'l' })[0]!
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    const status = (await svc.status({ repoPath: REPO, name: 'l' }))[0]!
     expect(status.holder).toMatchObject({ sessionId: 'sess_1', alive: true })
     expect(status.queue).toEqual([
       expect.objectContaining({ sessionId: 'sess_2', alive: true }),
@@ -256,28 +256,28 @@ describe('LockService', () => {
       workspace: null,
     }
     const otherIssue = agent(2)
-    svc.acquire(a, { repoPath: REPO, name: 'l' })
+    await svc.acquire(a, { repoPath: REPO, name: 'l' })
     // Same issue, different session, holder is sibling → refuse
     expect(() => svc.acquire(sibling, { repoPath: REPO, name: 'l' })).toThrow(
       /sibling sess_1 \(issue:#1\) already holds.*same issue/,
     )
     // Other issue may still queue (different issue + no shared workspace)
-    expect(svc.acquire(otherIssue, { repoPath: REPO, name: 'l' })).toMatchObject({
+    expect(await svc.acquire(otherIssue, { repoPath: REPO, name: 'l' })).toMatchObject({
       granted: false,
       position: 1,
     })
     // Sibling still refuses while another issue is queued
     expect(() => svc.acquire(sibling, { repoPath: REPO, name: 'l' })).toThrow(/already holds/)
     // allowSibling queues behind
-    const allowed = svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
+    const allowed = await svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
     expect(allowed).toMatchObject({ granted: false, position: 2 })
 
     // After holder releases, sibling holds; a third sibling on same issue still
     // refuses when a same-issue waiter exists.
     alive.add('sess_1c')
-    svc.release(a, { repoPath: REPO, name: 'l' }) // advances to otherIssue
+    await svc.release(a, { repoPath: REPO, name: 'l' }) // advances to otherIssue
     // queue was otherIssue then sibling; advance grants otherIssue, sibling remains
-    const mid = svc.status({ repoPath: REPO, name: 'l' })[0]!
+    const mid = (await svc.status({ repoPath: REPO, name: 'l' }))[0]!
     expect(mid.holder.sessionId).toBe('sess_2')
     expect(mid.queue.map((w) => w.sessionId)).toEqual([asSessionId('sess_1b')])
     const third = {
@@ -289,7 +289,7 @@ describe('LockService', () => {
     expect(() => svc.acquire(third, { repoPath: REPO, name: 'l' })).toThrow(
       /sibling sess_1b \(issue:#1\) is already queued/,
     )
-    expect(svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true })).toMatchObject({
+    expect(await svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true })).toMatchObject({
       granted: false,
       position: 2,
     })
@@ -319,17 +319,17 @@ describe('LockService', () => {
       label: 'issue:#527',
       workspace: '/repo/.worktrees/issue-527',
     }
-    svc.acquire(on516, { repoPath: REPO, name: 'test:heavy' })
+    await svc.acquire(on516, { repoPath: REPO, name: 'test:heavy' })
     expect(() => svc.acquire(on539, { repoPath: REPO, name: 'test:heavy' })).toThrow(
       /sharing this worktree/,
     )
     // Different worktree may still queue
-    expect(svc.acquire(on527, { repoPath: REPO, name: 'test:heavy' })).toMatchObject({
+    expect(await svc.acquire(on527, { repoPath: REPO, name: 'test:heavy' })).toMatchObject({
       granted: false,
       position: 1,
     })
     // Status surfaces the live workspace on each row
-    const status = svc.status({ repoPath: REPO, name: 'test:heavy' })[0]!
+    const status = (await svc.status({ repoPath: REPO, name: 'test:heavy' }))[0]!
     expect(status.holder).toMatchObject({ sessionId: 'sess_516', workspace: wt, alive: true })
     expect(status.queue[0]).toMatchObject({
       sessionId: 'sess_527',
@@ -338,40 +338,40 @@ describe('LockService', () => {
     })
     // Override still works for genuine concurrent access
     expect(
-      svc.acquire(on539, { repoPath: REPO, name: 'test:heavy', allowSibling: true }),
+      await svc.acquire(on539, { repoPath: REPO, name: 'test:heavy', allowSibling: true }),
     ).toMatchObject({ granted: false, position: 2 })
   })
 
   it('re-acquire while already queued is still idempotent and skips the sibling refuse', async () => {
     const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_1b')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     const sibling = {
       sessionId: asSessionId('sess_1b'),
       issueId: asIssueId('iss_1'),
       label: 'issue:#1',
       workspace: null,
     }
-    const first = svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
+    const first = await svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
     expect(first).toMatchObject({ granted: false, position: 1 })
     // Same session again — position unchanged, no error
-    const again = svc.acquire(sibling, { repoPath: REPO, name: 'l' })
+    const again = await svc.acquire(sibling, { repoPath: REPO, name: 'l' })
     expect(again).toMatchObject({ granted: false, position: 1 })
   })
 
   it('same-session re-acquire renews (does not queue) — FIFO was never violated by re-hold', async () => {
     // Pin POD-527's measurement so nobody re-diagnoses renewal as queue-jumping.
     const { svc, advance } = await harness()
-    const first = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
+    const first = await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
     if (!first.granted) throw new Error('expected grant')
     const acquiredAt = first.lock.acquiredAt
     advance(30_000)
     // A foreign waiter sits in the queue
-    expect(svc.acquire(agent(2), { repoPath: REPO, name: 'l' })).toMatchObject({
+    expect(await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })).toMatchObject({
       granted: false,
       position: 1,
     })
-    const renewed = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
+    const renewed = await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
     expect(renewed).toMatchObject({ granted: true, alreadyHeld: true })
     if (!renewed.granted) throw new Error('unreachable')
     expect(renewed.lock.acquiredAt).toBe(acquiredAt)
@@ -383,42 +383,42 @@ describe('LockService', () => {
   it('release advances the queue FIFO and mails the new holder; non-holder release errors', async () => {
     const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_2')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     expect(() => svc.release(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not by you/)
-    const r = svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    const r = await svc.release(agent(1), { repoPath: REPO, name: 'l' })
     expect(r.next?.label).toBe('issue:#2')
     expect(sendMail).toHaveBeenCalledWith(
       'iss_2',
       'lock-manager',
       expect.stringContaining("Lock 'l' granted to you"),
     )
-    const status = svc.status({ repoPath: REPO, name: 'l' })
+    const status = await svc.status({ repoPath: REPO, name: 'l' })
     expect(status[0]?.holder.sessionId).toBe('sess_2')
     // releasing the last holder with an empty queue frees the lock
-    svc.release(agent(2), { repoPath: REPO, name: 'l' })
-    expect(svc.status({ repoPath: REPO, name: 'l' })).toEqual([])
+    await svc.release(agent(2), { repoPath: REPO, name: 'l' })
+    expect(await svc.status({ repoPath: REPO, name: 'l' })).toEqual([])
     expect(() => svc.release(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not held/)
   })
 
   it('release prunes waiters whose sessions are gone before granting', async () => {
     const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_3') // sess_2 is dead
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
-    const r = svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    const r = await svc.release(agent(1), { repoPath: REPO, name: 'l' })
     expect(r.next?.label).toBe('issue:#3')
     expect(sendMail).toHaveBeenCalledTimes(1)
-    const status = svc.status({ repoPath: REPO, name: 'l' })
+    const status = await svc.status({ repoPath: REPO, name: 'l' })
     expect(status[0]?.queue).toEqual([])
   })
 
   it('renew extends the lease for the holder only', async () => {
     const { svc, advance } = await harness()
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
     advance(50_000)
-    const wire = svc.renew(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
+    const wire = await svc.renew(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
     expect(wire.secondsLeft).toBe(120)
     expect(() => svc.renew(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not by you/)
     expect(() => svc.renew(agent(1), { repoPath: REPO, name: 'nope' })).toThrow(/not held/)
@@ -427,10 +427,10 @@ describe('LockService', () => {
   it('lazy expiry: an expired lease is swept on the next op, advancing the queue with mail', async () => {
     const { svc, alive, advance, sendMail } = await harness()
     alive.add('sess_1').add('sess_2')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 10 })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 10 })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     advance(11_000)
-    const status = svc.status({ repoPath: REPO, name: 'l' })
+    const status = await svc.status({ repoPath: REPO, name: 'l' })
     expect(status[0]?.holder.label).toBe('issue:#2')
     expect(sendMail).toHaveBeenCalledWith(
       'iss_2',
@@ -438,17 +438,17 @@ describe('LockService', () => {
       expect.stringContaining('granted'),
     )
     // an expired lock with NO waiters just frees
-    svc.release(agent(2), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(1), { repoPath: REPO, name: 'solo', ttlSeconds: 5 })
+    await svc.release(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'solo', ttlSeconds: 5 })
     advance(6_000)
-    expect(svc.status({ repoPath: REPO })).toEqual([])
+    expect(await svc.status({ repoPath: REPO })).toEqual([])
   })
 
   it('steal force-takes, logs an event, and mails the previous holder issue', async () => {
     const { svc, sendMail, appendEvent } = await harness()
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
-    const r = svc.steal(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    const r = await svc.steal(agent(2), { repoPath: REPO, name: 'l' })
     expect(r.previousHolder?.label).toBe('issue:#1')
     expect(r.lock.holder.label).toBe('issue:#2')
     // the stealer's own queue entry is removed; nobody else was queued
@@ -462,42 +462,42 @@ describe('LockService', () => {
       expect.stringContaining('stolen'),
     )
     // steal on a free lock is just an acquire
-    const free = svc.steal(agent(3), { repoPath: REPO, name: 'other' })
+    const free = await svc.steal(agent(3), { repoPath: REPO, name: 'other' })
     expect(free.previousHolder).toBeNull()
   })
 
   it('releaseForSession releases held locks (advancing queues) and prunes queue entries', async () => {
     const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'a' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'a' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'b' })
-    svc.acquire(agent(1), { repoPath: REPO, name: 'b' }) // sess_1 queued on b
-    svc.releaseForSession(asSessionId('sess_1'))
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'a' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'a' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'b' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'b' }) // sess_1 queued on b
+    await svc.releaseForSession(asSessionId('sess_1'))
     // a: advanced to sess_2 (mailed); b: sess_1's queue entry pruned, sess_2 still holds
-    expect(svc.status({ repoPath: REPO, name: 'a' })[0]?.holder.sessionId).toBe('sess_2')
-    expect(svc.status({ repoPath: REPO, name: 'b' })[0]?.queue).toEqual([])
+    expect((await svc.status({ repoPath: REPO, name: 'a' }))[0]?.holder.sessionId).toBe('sess_2')
+    expect((await svc.status({ repoPath: REPO, name: 'b' }))[0]?.queue).toEqual([])
     expect(sendMail).toHaveBeenCalledWith('iss_2', 'lock-manager', expect.stringContaining("'a'"))
   })
 
   it('operator (no session) can hold, renew, and queue via the sentinel', async () => {
     const { svc } = await harness()
-    const r = svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
+    const r = await svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
     expect(r.granted).toBe(true)
-    const again = svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
+    const again = await svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
     expect(again).toMatchObject({ granted: true, alreadyHeld: true })
-    const r2 = svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    const r2 = await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     expect(r2).toMatchObject({ granted: false, position: 1 })
-    const rel = svc.release(OPERATOR, { repoPath: REPO, name: 'l' })
+    const rel = await svc.release(OPERATOR, { repoPath: REPO, name: 'l' })
     // agent 1's session is NOT alive in this harness → pruned; lock freed
     expect(rel.next).toBeNull()
 
     // operator waits behind an agent and is never pruned as "session gone"
     const h2 = await harness({ alive: new Set(['sess_1']) })
-    h2.svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    const qOp = h2.svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
+    await h2.svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    const qOp = await h2.svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
     expect(qOp).toMatchObject({ granted: false, position: 1 })
-    const rel2 = h2.svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    const rel2 = await h2.svc.release(agent(1), { repoPath: REPO, name: 'l' })
     expect(rel2.next?.label).toBe('operator')
     expect(rel2.next?.sessionId).toBeNull()
   })
@@ -505,21 +505,21 @@ describe('LockService', () => {
   it('cancel removes the caller from the wait queue; holder/non-queued cancels error', async () => {
     const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
-    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
-    svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
     expect(() => svc.cancel(agent(1), { repoPath: REPO, name: 'l' })).toThrow(/use `release`/)
-    expect(svc.cancel(agent(2), { repoPath: REPO, name: 'l' })).toEqual({ cancelled: true })
+    expect(await svc.cancel(agent(2), { repoPath: REPO, name: 'l' })).toEqual({ cancelled: true })
     expect(() => svc.cancel(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not queued/)
     // FIFO integrity: sess_3 is now first in line
-    const r = svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    const r = await svc.release(agent(1), { repoPath: REPO, name: 'l' })
     expect(r.next?.label).toBe('issue:#3')
   })
 
   it('locks are scoped by repo_id: the same name in another repo is independent', async () => {
     const { svc } = await harness()
-    svc.acquire(agent(1), { repoPath: '/repo-a', name: 'merge:main' })
-    const other = svc.acquire(agent(2), { repoPath: '/repo-b', name: 'merge:main' })
+    await svc.acquire(agent(1), { repoPath: '/repo-a', name: 'merge:main' })
+    const other = await svc.acquire(agent(2), { repoPath: '/repo-b', name: 'merge:main' })
     expect(other.granted).toBe(true)
   })
 })

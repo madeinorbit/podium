@@ -42,12 +42,12 @@ export class IssueCommandDispatcher {
 
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */
-  run<D extends AnyIssueCommandDef>(
+  async run<D extends AnyIssueCommandDef>(
     caller: IssueCaller,
     name: string,
     def: D,
     input: z.infer<D['input']>,
-  ): ReturnType<D['handler']> {
+  ): Promise<ReturnType<D['handler']>> {
     const execute = () =>
       def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),
@@ -58,7 +58,7 @@ export class IssueCommandDispatcher {
     const envelope = (input ?? {}) as { expectedRevision?: number }
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
     if (ref == null) return execute()
-    const issue = this.deps.issues.reports.get(ref)
+    const issue = await this.deps.issues.reports.get(ref)
     if (!issue) return execute()
 
     return this.deps.arbitration.run(
@@ -105,10 +105,10 @@ export class IssueCommandDispatcher {
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
-    return Promise.resolve().then(() => {
-      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
+    return Promise.resolve().then(async () => {
+      await guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
-      return this.run(effectiveCaller, proc, def, input)
+      return await this.run(effectiveCaller, proc, def, input)
     })
   }
 
@@ -129,8 +129,8 @@ export class IssueCommandDispatcher {
       ...(overrideScope ? { overrideScope } : {}),
     }
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
-      const call = (input?: unknown): Promise<unknown> => {
-        const result = this.dispatch(caller, router, name, input)
+      const call = async (input?: unknown): Promise<unknown> => {
+        const result = await this.dispatch(caller, router, name, input)
         if (result === undefined) throw new Error(`no such issue procedure: ${router}.${name}`)
         return result
       }

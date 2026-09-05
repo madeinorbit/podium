@@ -33,7 +33,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     return new Ledger({
       repo: store.sync,
       now: () => 1_000,
-      transact: (fn) => store.transact(fn),
+      transact: async (fn) => await store.transact(fn),
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
     })
   }
@@ -50,7 +50,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const ledger = makeLedger(store)
     const applied: string[] = []
 
-    ledger.commit({
+    await ledger.commit({
       write: () => 'w',
       changes: () => [upsert('c-inline')],
       apply: (result) => applied.push(`applied:${result}`),
@@ -66,8 +66,8 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const ledger = makeLedger(store)
     const applied: string[] = []
 
-    await store.transact(() => {
-      ledger.commit({
+    await store.transact(async () => {
+      await ledger.commit({
         write: () => {},
         changes: () => [upsert('c-deferred')],
         apply: () => applied.push('applied'),
@@ -86,10 +86,10 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     expect(() =>
-      store.transact(() => {
-        ledger.commit({
-          write: () => {
-            store.conversations.index.upsert([
+      store.transact(async () => {
+        await ledger.commit({
+          write: async () => {
+            await store.conversations.index.upsert([
               { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
             ])
           },
@@ -101,7 +101,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     ).toThrow('enclosing span failed')
 
     // The database forgot the row…
-    expect(store.conversations.index.search({}).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
     // …and the install that would have claimed it never happened.
     expect(applied).toEqual([])
   })
@@ -115,11 +115,11 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
 
-    const first = ledger.commit({ write: () => {}, changes: () => [upsert('c-dedup')] })
+    const first = await ledger.commit({ write: () => {}, changes: () => [upsert('c-dedup')] })
     expect(first.changes.map((c) => c.id)).toEqual(['c-dedup'])
 
     const applied: string[] = []
-    const second = ledger.commit({
+    const second = await ledger.commit({
       write: () => {},
       changes: () => [upsert('c-dedup')],
       apply: () => applied.push('applied'),
@@ -137,14 +137,14 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const foldedIds = () =>
       ledger.authority.snapshot('conversation').map((v) => (v as { id: string }).id)
 
-    ledger.commit({
+    await ledger.commit({
       write: () => {},
       changes: () => [upsert('c-order-outer')],
       apply: () => seen.push(foldedIds().includes('c-order-outer') ? 'after' : 'before'),
     })
 
-    await store.transact(() => {
-      ledger.commit({
+    await store.transact(async () => {
+      await ledger.commit({
         write: () => {},
         changes: () => [upsert('c-order-inner')],
         apply: () => seen.push(foldedIds().includes('c-order-inner') ? 'after' : 'before'),

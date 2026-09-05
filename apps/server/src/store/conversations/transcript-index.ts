@@ -1,7 +1,8 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import { currentTransaction } from '../executor/sync-drizzle'
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -18,7 +19,7 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -33,8 +34,8 @@ export class TranscriptIndexRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -42,9 +43,9 @@ export class TranscriptIndexRepository {
    * `command-palette` flag is on; a build without FTS5 falls into the catch and
    * every read and write below turns into a no-op through `isAvailable`.
    */
-  enableFts(): void {
+  async enableFts(): Promise<void> {
     try {
-      this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+      await this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
         content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`)
       this.available = true
     } catch {
@@ -68,10 +69,10 @@ export class TranscriptIndexRepository {
     return this.available
   }
 
-  segmentsToIndex(
+  async segmentsToIndex(
     machineId: MachineId,
-  ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
-    return this.db
+  ): Promise<{ nativeId: string; mirroredBytes: number; indexedBytes: number }[]> {
+    return await this.db
       .select({
         nativeId: conversationSegments.nativeId,
         mirroredBytes: conversationSegments.mirroredBytes,
@@ -87,8 +88,8 @@ export class TranscriptIndexRepository {
       .all()
   }
 
-  indexedCursor(machineId: MachineId, nativeId: string): number {
-    const row = this.db
+  async indexedCursor(machineId: MachineId, nativeId: string): Promise<number> {
+    const row = await this.db
       .select({ indexedBytes: conversationSegments.indexedBytes })
       .from(conversationSegments)
       .where(this.segment(machineId, nativeId))
@@ -96,23 +97,23 @@ export class TranscriptIndexRepository {
     return row?.indexedBytes ?? 0
   }
 
-  append(
+  async append(
     machineId: MachineId,
     nativeId: string,
     rows: { content: string; itemUuid?: string; ts?: string }[],
     indexedBytes: number,
-  ): void {
+  ): Promise<void> {
     if (!this.available) return
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (const row of rows) {
         // `transcript_fts` is the virtual table this port owns; there is no
         // schema model to build against, so the statement stays whole.
-        this.db.run(
+        await this.db.run(
           sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
               VALUES(${row.content},${machineId},${nativeId},${row.itemUuid ?? null},${row.ts ?? null})`,
         )
       }
-      this.db
+      await this.db
         .update(conversationSegments)
         .set({ indexedBytes })
         .where(this.segment(machineId, nativeId))
@@ -128,14 +129,14 @@ export class TranscriptIndexRepository {
    * newer state wins. `reported_bytes` deliberately survives the reset so the
    * mirror's dirty query schedules a re-pull from byte zero.
    */
-  resetMissingLake(
+  async resetMissingLake(
     machineId: MachineId,
     nativeId: string,
     expected: { mirroredBytes: number; indexedBytes: number },
-  ): boolean {
+  ): Promise<boolean> {
     let reset = false
-    this.createOrJoinTransaction(() => {
-      const result = this.db
+    await this.createOrJoinTransaction(async () => {
+      const result = await this.db
         .update(conversationSegments)
         .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })
         .where(
@@ -148,7 +149,7 @@ export class TranscriptIndexRepository {
         .run()
       reset = Number(result.changes) === 1
       if (reset && this.available) {
-        this.db.run(
+        await this.db.run(
           sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
         )
       }
@@ -156,12 +157,12 @@ export class TranscriptIndexRepository {
     return reset
   }
 
-  rows(
+  async rows(
     machineId: MachineId,
     nativeId: string,
-  ): { content: string; itemUuid?: string; ts?: string }[] {
+  ): Promise<{ content: string; itemUuid?: string; ts?: string }[]> {
     if (!this.available) return []
-    const rows: Record<string, unknown>[] = this.db.all(
+    const rows: Record<string, unknown>[] = await this.db.all(
       sql`SELECT content,item_uuid,ts FROM transcript_fts
       WHERE machine_id=${machineId} AND native_id=${nativeId} ORDER BY rowid`,
     )
@@ -173,7 +174,7 @@ export class TranscriptIndexRepository {
   }
 
   /** Complete candidates: memory filters before snippets participate in ranking or limits. */
-  searchCandidates(query: string): TranscriptSearchCandidate[] {
+  async searchCandidates(query: string): Promise<TranscriptSearchCandidate[]> {
     const trimmed = query.trim()
     if (!trimmed || !this.available) return []
     const fts = trimmed
@@ -181,7 +182,7 @@ export class TranscriptIndexRepository {
       .filter(Boolean)
       .map((token) => `"${token.replace(/"/g, '""')}"*`)
       .join(' ')
-    const rows: Record<string, unknown>[] = this.db.all(
+    const rows: Record<string, unknown>[] = await this.db.all(
       sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
       s.podium_id,c.title,c.name,c.updated_at
@@ -205,13 +206,13 @@ export class TranscriptIndexRepository {
     }))
   }
 
-  drop(machineId: MachineId, nativeId: string): void {
+  async drop(machineId: MachineId, nativeId: string): Promise<void> {
     if (this.available) {
-      this.db.run(
+      await this.db.run(
         sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
       )
     }
-    this.db
+    await this.db
       .update(conversationSegments)
       .set({ indexedBytes: 0 })
       .where(this.segment(machineId, nativeId))

@@ -184,7 +184,7 @@ export async function migrateLegacyReplica(
       expect: 'absent' as const,
     }))
     try {
-      await host.transact((span) => host.outbox.apply({ put: decision.records, expect }, span))
+      await host.transact(async (span) => await host.outbox.apply({ put: decision.records, expect }, span))
     } catch {
       // The commit did not happen. Leave every legacy key in place: the next open
       // reads the same intact input and tries again. Retiring them here would be

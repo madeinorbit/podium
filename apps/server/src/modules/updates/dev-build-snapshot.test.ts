@@ -36,7 +36,7 @@ describe('approved development build snapshot', () => {
   it('keeps live-checkout changes out of the approved build inputs', async () => {
     const { root, sha } = repository()
     await expect(
-      withDevBuildSnapshot(
+      await withDevBuildSnapshot(
         { sourceRoot: root, approvedSha: sha, install: async () => {} },
         async (snapshotRoot) => {
           writeFileSync(join(root, 'src', 'release.ts'), 'export const release = "new HEAD"\n')
@@ -49,7 +49,7 @@ describe('approved development build snapshot', () => {
   it('refuses the build result when tracked source bytes change inside the snapshot', async () => {
     const { root, sha } = repository()
     await expect(
-      withDevBuildSnapshot(
+      await withDevBuildSnapshot(
         { sourceRoot: root, approvedSha: sha, install: async () => {} },
         async (snapshotRoot) => {
           writeFileSync(
@@ -103,7 +103,7 @@ describe('approved development build timing evidence', () => {
     let tick = 0
 
     await expect(
-      withDevBuildSnapshot(
+      await withDevBuildSnapshot(
         {
           sourceRoot: root,
           approvedSha: sha,

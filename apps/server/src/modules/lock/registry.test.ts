@@ -14,14 +14,14 @@ import { lockRegistry } from './registry'
  * status but never write).
  */
 
-const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 afterAll(() => registry.dispose())
 
-const dispatch = (
+const dispatch = async (
   caller: Parameters<SessionRegistry['modules']['lockCommands']['dispatch']>[0],
   proc: string,
   input: unknown,
-) => registry.modules.lockCommands.dispatch(caller, proc, input)
+) => await registry.modules.lockCommands.dispatch(caller, proc, input)
 
 describe('lock registry', () => {
   it('defines exactly the canonical LOCK_COMMAND_NAMES', () => {
@@ -82,7 +82,7 @@ describe('lock registry', () => {
     // must NOT be able to release/renew the operator's lock.
     const ghost = { capability: { role: 'worker' as const, scope: { kind: 'none' as const } } }
     await expect(
-      dispatch(ghost, 'release', { repoPath: '/repo', name: 'op-held' }),
+      await dispatch(ghost, 'release', { repoPath: '/repo', name: 'op-held' }),
     ).rejects.toThrow(/not by you/)
     await expect(dispatch(ghost, 'renew', { repoPath: '/repo', name: 'op-held' })).rejects.toThrow(
       /not by you/,
@@ -99,7 +99,7 @@ describe('lock registry', () => {
     const bad = ['bad\nname', 'bad name', '--flag', 'a'.repeat(201), 'ütf']
     for (const name of bad) {
       await expect(
-        dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
+        await dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
       ).rejects.toThrow()
     }
     // merge:<branch> with a realistic branch name passes
@@ -120,7 +120,7 @@ describe('lock registry', () => {
   it('refuses near-misses of the merge mutex, naming the canonical lock', async () => {
     for (const name of ['merge', 'merge:', 'merge-main', 'MERGE', 'merge:origin/main']) {
       await expect(
-        dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
+        await dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
       ).rejects.toThrow(/merge:main|merge:<branch>|names no branch/)
     }
   })
@@ -166,8 +166,8 @@ describe('lock registry', () => {
     )
   })
 
-  it('unknown procs return undefined (relay "no such procedure" shape)', () => {
-    expect(dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
+  it('unknown procs return undefined (relay "no such procedure" shape)', async () => {
+    expect(await dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
   })
 
   it('invalid input fails zod validation with the shared schema', async () => {

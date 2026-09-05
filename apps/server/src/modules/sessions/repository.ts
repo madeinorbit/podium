@@ -298,7 +298,7 @@ export class SessionRepository {
   }
 
   /** Drain a bounded prefix; budget checks happen only between candidates. */
-  drainVolatileCaptureSlice(budget: VolatileSliceBudget = {}): VolatileSliceResult {
+  async drainVolatileCaptureSlice(budget: VolatileSliceBudget = {}): Promise<VolatileSliceResult> {
     const startedAt = performance.now()
     const clock = budget.now ?? (() => performance.now())
     const budgetStartedAt = clock()
@@ -311,7 +311,7 @@ export class SessionRepository {
         if (pending.length > 0 && clock() - budgetStartedAt >= maxCpuMs) break
         pending.push(entry)
       }
-      const changes = this.captureVolatileEntries(pending)
+      const changes = await this.captureVolatileEntries(pending)
       const remaining = this.pendingVolatileSessions.size
       log.debug('drained volatile session capture slice', {
         candidates: pending.length,
@@ -324,9 +324,9 @@ export class SessionRepository {
     }
   }
 
-  private captureVolatileEntries(
+  private async captureVolatileEntries(
     pending: readonly [SessionId, PendingVolatileState][],
-  ): MetadataChange[] {
+  ): Promise<MetadataChange[]> {
     if (pending.length === 0) return []
     const issueRelevant = pending.some(([, state]) => state.issueRelevant)
     const specs: EntityChangeSpec[] = []
@@ -337,7 +337,7 @@ export class SessionRepository {
         entity: 'session',
         id: sessionId,
         op: 'upsert',
-        value: this.view.wire(session),
+        value: await this.view.wire(session),
       })
     }
     try {
@@ -398,11 +398,11 @@ export class SessionRepository {
   }
 
   /** Synchronous dispose/test barrier: drain the complete pending set. */
-  flushVolatileSessionCaptures(): MetadataChange[] {
+  async flushVolatileSessionCaptures(): Promise<MetadataChange[]> {
     const startedAt = performance.now()
     this.clearVolatileSessionCaptureTimer()
     try {
-      return this.captureVolatileEntries([...this.pendingVolatileSessions])
+      return await this.captureVolatileEntries([...this.pendingVolatileSessions])
     } finally {
       perf.record('phase', 'volatileCapture.barrier', performance.now() - startedAt, DEPLOYMENT)
     }
@@ -512,9 +512,9 @@ export class SessionRepository {
     let changes: MetadataChange[]
     try {
       const committed = this.ports.ledger.commit({
-        write: () => {
+        write: async () => {
           additionalWrite()
-          this.store.sessions.upsertSession(session.toRow(draft))
+          await this.store.sessions.upsertSession(session.toRow(draft))
         },
         changes: () => [
           {
@@ -594,7 +594,7 @@ export class SessionRepository {
   /** Materialize one persisted row without exposing it until the caller installs it.
    *  Restored tombstones always come back as exited: deletion killed their runtime,
    *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
-  sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore'): Session | null {
+  async sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore'): Promise<Session | null> {
     const kind = AgentKind.safeParse(r.agentKind)
     if (!kind.success) {
       log.warn('skipping a persisted session with an invalid agentKind', {
@@ -717,8 +717,8 @@ export class SessionRepository {
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
     const runtimeItems =
-      this.ports.store?.events
-        .listRuntimeTranscriptEvents(session.sessionId)
+      (await this.ports.store?.events
+        .listRuntimeTranscriptEvents(session.sessionId))
         .flatMap((event) => {
           const item = runtimeTranscriptItemFromEvent(event)
           return item ? [item] : []
@@ -727,13 +727,13 @@ export class SessionRepository {
     return session
   }
 
-  installStoredSession(
+  async installStoredSession(
     session: Session,
     offers: Record<
       string,
       { message: string; actions: { label: string; prompt: string }[]; createdAt: string }
     >,
-  ): void {
+  ): Promise<void> {
     this.sessions.set(session.sessionId, session)
     // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
     // offer was posted means the conversation moved past it while we were down —
@@ -743,14 +743,14 @@ export class SessionRepository {
     if (session.sessionId in offers) {
       const offer = offers[session.sessionId]
       if (offer && session.terminal.lastInputAtMs > Date.parse(offer.createdAt)) {
-        this.store.sessions.clearOffer(session.sessionId)
+        await this.store.sessions.clearOffer(session.sessionId)
       } else {
         session.offer = offer
       }
     }
     this.state.installSession(session.sessionId)
     if (session.resume?.value) {
-      session.conversationPodiumId = this.ports.memory.conversationPodiumId(
+      session.conversationPodiumId = await this.ports.memory.conversationPodiumId(
         { kind: 'system', id: 'session-boot-reconcile' },
         session.machineId,
         session.resume.value,
@@ -759,19 +759,19 @@ export class SessionRepository {
     this.commitDurableBaseline(session.sessionId, session.captureDurableState())
   }
 
-  loadFromStore(): void {
-    this.observationLeases.hydrate(this.store.observationCheckpoints.loadAll())
+  async loadFromStore(): Promise<void> {
+    this.observationLeases.hydrate(await this.store.observationCheckpoints.loadAll())
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
     this.state.setDraftSyncEnabled(
-      isFeatureEnabled('draft-sync', this.store.settings.getSettings()),
+      isFeatureEnabled('draft-sync', await this.store.settings.getSettings()),
     )
-    this.state.loadFromStore()
-    const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
-    for (const r of this.store.sessions.loadSessions()) {
-      const session = this.sessionFromStoredRow(r, 'boot')
+    await this.state.loadFromStore()
+    const offers = await this.store.sessions.listOffers() // [spec:SP-c7f1]
+    for (const r of await this.store.sessions.loadSessions()) {
+      const session = await this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
-      this.installStoredSession(session, offers)
+      await this.installStoredSession(session, offers)
       const checkpoint = this.observationLeases.checkpointOf(r.id)
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
@@ -798,18 +798,18 @@ export class SessionRepository {
       // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
       // transaction, so it has to assign into the state `toRow` reads.
       const draft = this.draft(session)
-      const additionalWrite = this.view.prepareRefAllocation(draft)
+      const additionalWrite = await this.view.prepareRefAllocation(draft)
       if (additionalWrite) this.persistDraft(session, draft, additionalWrite)
     }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
-    for (const [sessionId, n] of this.store.sync.queuedMessageCounts()) {
+    for (const [sessionId, n] of await this.store.sync.queuedMessageCounts()) {
       const session = this.sessions.get(sessionId)
       if (session) session.queuedMessageCount = n
-      else this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
+      else await this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
     }
-    this.store.sync.pruneAppliedMutations({
+    await this.store.sync.pruneAppliedMutations({
       maxAgeMs: this.ports.appliedMutationMaxAgeMs,
       now: this.now(),
     })

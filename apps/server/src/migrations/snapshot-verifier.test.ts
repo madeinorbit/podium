@@ -177,7 +177,7 @@ describe('spawnSnapshotVerifierChild', () => {
       correlationId: 'corr',
     }
 
-    const pending = spawnSnapshotVerifierChild(request, 1_000, {
+    const pending = await spawnSnapshotVerifierChild(request, 1_000, {
       spawnProcess: spawnProcess as never,
       execPath: '/usr/bin/podium',
       compiled: true,
@@ -201,7 +201,7 @@ describe('spawnSnapshotVerifierChild', () => {
 
   it('reports a non-zero exit as a child failure, not as a bad snapshot', async () => {
     const spawned = fakeChild()
-    const pending = spawnSnapshotVerifierChild(
+    const pending = await spawnSnapshotVerifierChild(
       {
         path: '/state/a',
         expected: { path: '/state/a', size: 1, mtimeMs: 2, sidecars: '' },
@@ -228,7 +228,7 @@ describe('spawnSnapshotVerifierChild', () => {
         kills.push(signal)
       }
 
-      const pending = spawnSnapshotVerifierChild(
+      const pending = await spawnSnapshotVerifierChild(
         {
           path: '/state/a',
           expected: { path: '/state/a', size: 1, mtimeMs: 2, sidecars: '' },
@@ -267,7 +267,7 @@ describe('spawnSnapshotVerifierChild cancellation', () => {
       }
       const controller = new AbortController()
 
-      const pending = spawnSnapshotVerifierChild(
+      const pending = await spawnSnapshotVerifierChild(
         {
           path: '/state/a',
           expected: { path: '/state/a', size: 1, mtimeMs: 2, sidecars: '' },
@@ -428,7 +428,7 @@ describe('SnapshotVerifier', () => {
       }
     })
 
-    await Promise.all([verifier.verify(first), verifier.verify(second)])
+    await Promise.all([await verifier.verify(first), await verifier.verify(second)])
 
     expect(peak).toBe(1)
   })
@@ -601,7 +601,7 @@ describe('SnapshotVerifier', () => {
         }),
     })
 
-    const verification = verifier.verify(snapshot)
+    const verification = await verifier.verify(snapshot)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(observed?.aborted).toBe(false)
 

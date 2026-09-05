@@ -205,7 +205,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
   it(`${MUST_NOT_CHANGE}: sessions.setIssueId dedupes its replay`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setIssueId({ sessionId, issueId: issue.id, mutationId: 'm-issue' })
@@ -401,7 +401,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
     expect(replay.sessionId).toBe(first.sessionId)
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(1)
-    expect(o.reg.modules.sessions.listSessions()).toHaveLength(1)
+    expect(await o.reg.modules.sessions.listSessions()).toHaveLength(1)
     // Recorded durably, so the replay survives a server restart too.
     expect(
       JSON.parse((await o.store.sync.getAppliedMutation(asMutationId('m-create'))) as string),

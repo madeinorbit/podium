@@ -14,11 +14,11 @@ import { OPERATOR } from './test-support/capabilities'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
-function caller() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function caller() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({
@@ -33,13 +33,13 @@ function caller() {
 
 describe('appRouter', () => {
   it('models.refresh + models.catalog return the injected live catalog', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, {
+    const registry = await SessionRegistry.create(undefined, undefined, {
       instanceId: 'default',
       modelProbe: async (_machineId) => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -54,7 +54,7 @@ describe('appRouter', () => {
   })
 
   it("sessions.create then list reflects it and stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     const list = await call.sessions.list()
     expect(list).toMatchObject([
@@ -63,11 +63,11 @@ describe('appRouter', () => {
   })
 
   it('sessions.create passes initialPrompt to the daemon spawn for argv agents (POD-549)', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: unknown[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -91,7 +91,7 @@ describe('appRouter', () => {
   })
 
   it("sessions.resume stamps spawnedBy 'user' on its fresh-spawn fallback (issue #60)", async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -103,7 +103,7 @@ describe('appRouter', () => {
   })
 
   it('sessions.create honors a client-provided sessionId verbatim (optimistic row reconciliation)', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     // The web client mints a v4 uuid (crypto.randomUUID); the input is uuid-bounded
     // so a malformed id can't reach the durableLabel / systemd-scope layer.
     const clientId = '11111111-1111-4111-8111-111111111111'
@@ -118,7 +118,7 @@ describe('appRouter', () => {
   })
 
   it('sessions.create rejects a non-uuid sessionId (guards the durableLabel/scope path)', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     await expect(
       call.sessions.create({
         agentKind: 'claude-code',
@@ -129,27 +129,27 @@ describe('appRouter', () => {
   })
 
   it('sessions.create mints a random sessionId when omitted (unchanged default behavior)', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('sessions.create with draftIssue.issueId honors the client id for both the draft issue and the session (optimistic reconciliation)', async () => {
-    const { call, registry } = caller()
+    const { call, registry } = await caller()
     const clientIssueId = 'iss_client-picked-draft-id'
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
       draftIssue: { repoPath: '/p', issueId: clientIssueId },
     })
-    expect(registry.issues.get(clientIssueId)?.id).toBe(clientIssueId)
-    expect(registry.issues.get(clientIssueId)?.draft).toBe(true)
+    expect((await registry.issues.get(clientIssueId))?.id).toBe(clientIssueId)
+    expect((await registry.issues.get(clientIssueId))?.draft).toBe(true)
     const list = await call.sessions.list()
     expect(list.find((s) => s.sessionId === sessionId)?.issueId).toBe(clientIssueId)
   })
 
   it('sessions.create with a draftIssue omitting issueId mints an iss_-prefixed id (unchanged default behavior)', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -161,7 +161,7 @@ describe('appRouter', () => {
   })
 
   it('files.read serves artifact-snapshot bytes from the server-local store [spec:SP-0fc9]', async () => {
-    const { call, registry } = caller()
+    const { call, registry } = await caller()
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
     try {
       mkdirSync(join(base, 'iss_1', 'abc123'), { recursive: true })
@@ -194,7 +194,7 @@ describe('appRouter', () => {
   })
 
   it('sessions.kill removes the session', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await call.sessions.kill({ sessionId })
     expect(await call.sessions.list()).toHaveLength(0)
@@ -202,14 +202,14 @@ describe('appRouter', () => {
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
+      superagent: await SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     })
@@ -235,7 +235,7 @@ describe('appRouter', () => {
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
@@ -264,7 +264,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
+      superagent: await SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     })
@@ -293,8 +293,8 @@ describe('appRouter', () => {
   })
 })
 
-function repoCaller() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function repoCaller() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -305,7 +305,7 @@ function repoCaller() {
     call: appRouter.createCaller({
       registry,
       repos,
-      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
+      superagent: await SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     }),
@@ -314,29 +314,29 @@ function repoCaller() {
 
 describe('markRead mutations (#124)', () => {
   it('issues.markRead stamps durable readAt; unread is replica-derived', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const read = await call.issues.markRead({ id: iss.id })
     expect(read.readAt).not.toBeNull()
   })
 
   it('sessions.markRead flips a session to read', async () => {
-    const { call, registry } = repoCaller()
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { call, registry } = await repoCaller()
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     expect(
-      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(true)
     await call.sessions.markRead({ sessionId })
-    const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions()).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
 
   it('issues.markUnread clears durable readAt (#138)', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     await call.issues.markRead({ id: iss.id })
     const un = await call.issues.markUnread({ id: iss.id })
@@ -344,17 +344,17 @@ describe('markRead mutations (#124)', () => {
   })
 
   it('sessions.markUnread flips a read session back to unread (#138)', async () => {
-    const { call, registry } = repoCaller()
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { call, registry } = await repoCaller()
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     await call.sessions.markRead({ sessionId })
     expect(
-      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(false)
     await call.sessions.markUnread({ sessionId })
-    const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions()).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
     expect(s?.readAt).toBeNull()
   })
@@ -362,25 +362,25 @@ describe('markRead mutations (#124)', () => {
 
 describe('repos router', () => {
   it('repos.add then repos.list reflects it', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     await call.repos.add({ path: '/abs/app' })
     expect(await call.repos.list()).toEqual(['/abs/app'])
   })
 
   it('repos.remove drops it', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     await call.repos.add({ path: '/abs/app' })
     await call.repos.remove({ path: '/abs/app' })
     expect(await call.repos.list()).toEqual([])
   })
 
   it('repos.add rejects a non-absolute path', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     await expect(call.repos.add({ path: 'relative/path' })).rejects.toThrow()
   })
 
   it('repos.addMany persists each path and reports failures', async () => {
-    const { call } = repoCaller()
+    const { call } = await repoCaller()
     const res = await call.repos.addMany({ paths: ['/abs/a', '/abs/b', 'relative/bad'] })
     expect(res.repos).toEqual(['/abs/a', '/abs/b'])
     expect(res.failed.map((f) => f.path)).toEqual(['relative/bad'])
@@ -396,7 +396,7 @@ describe('repos router', () => {
   // repoId) even when the daemon scan comes back empty. Skipped, not fixed, so unblocking CI
   // doesn't silently bless the new shape without review.
   it.skip('discovery.refreshRepos enriches registered roots in place (no home walk)', async () => {
-    const { call, repos, registry, daemon } = repoCaller()
+    const { call, repos, registry, daemon } = await repoCaller()
     await repos.add('/abs/app')
     const p = call.discovery.refreshRepos()
     await Promise.resolve()
@@ -422,7 +422,7 @@ describe('repos router', () => {
   })
 
   it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {
-    const { call, registry, daemon } = repoCaller()
+    const { call, registry, daemon } = await repoCaller()
     const p = call.discovery.scanFolder({ path: '/some/dir' })
     // scanFolder has a Zod input, so its handler runs a tick later than the
     // input-less procedures; a macrotask flushes the validation + handler first.
@@ -442,13 +442,13 @@ describe('repos router', () => {
   })
 
   it('superagent.listThreads includes the global thread', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const threads = await call.superagent.listThreads()
     expect(threads.some((t) => t.id === 'global')).toBe(true)
   })
 
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
-    const { registry, call } = caller()
+    const { registry, call } = await caller()
     const store = registry.sessionStore
     await store.superagent.upsertSuperagentThread({
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -463,7 +463,7 @@ describe('repos router', () => {
   })
 
   it('snoozes.set / list / clear round-trip', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
 
     expect(await call.snoozes.list()).toEqual({})
@@ -475,7 +475,7 @@ describe('repos router', () => {
   // #470 [spec:SP-17db]: the minimum interval is one minute, exactly the
   // granularity of five-field cron.
   it('automations.create accepts an every-minute cron', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const created = await call.automations.create({
       name: 'Minute sweep',
       repoPath: '/repos/podium',
@@ -490,7 +490,7 @@ describe('repos router', () => {
   })
 
   it('automations.create rejects an unparseable cron as BAD_REQUEST', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     await expect(
       call.automations.create({
         name: 'Bad',
@@ -502,7 +502,7 @@ describe('repos router', () => {
     expect(await call.automations.list()).toEqual([])
   })
   it('automations.create accepts a future one-off and rejects an incomplete one', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const runAt = '2099-07-17T02:00:00.000Z'
     const created = await call.automations.create({
       name: 'One night wake',
@@ -549,7 +549,7 @@ describe('repos router', () => {
    * router still talk about the same rows.
    */
   it('automations CRUD round-trips through the derived procedures, run history intact', async () => {
-    const { call } = caller()
+    const { call } = await caller()
     const created = await call.automations.create({
       name: 'Nightly sweep',
       repoPath: '/repos/podium',

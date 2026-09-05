@@ -240,7 +240,7 @@ export function instrumentDriver<TClient>(
     },
     ...(reader ? { openReader: async () => observeSession(await reader(), hub) } : {}),
     client: (route, routeBatch) => driver.client(route, routeBatch),
-    close: () => driver.close(),
+    close: async () => await driver.close(),
   }
 }
 
@@ -249,7 +249,7 @@ export function instrumentDriver<TClient>(
 function observeSession(session: DriverSession, hub: StatementProbeHub): DriverSession {
   return {
     async execute(statement) {
-      if (!hub.active) return session.execute(statement)
+      if (!hub.active) return await session.execute(statement)
       // BEFORE the await: see StatementObservation.issueStack.
       const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
@@ -262,7 +262,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       }
     },
     async executeBatch(statements) {
-      if (!hub.active) return session.executeBatch(statements)
+      if (!hub.active) return await session.executeBatch(statements)
       const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
@@ -288,13 +288,13 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
         })
       }
     },
-    begin: (lane) => session.begin(lane),
-    commit: () => session.commit(),
-    rollback: () => session.rollback(),
-    enterSavepoint: (name) => session.enterSavepoint(name),
-    releaseSavepoint: (name) => session.releaseSavepoint(name),
-    rollbackToSavepoint: (name) => session.rollbackToSavepoint(name),
-    close: () => session.close(),
+    begin: async (lane) => await session.begin(lane),
+    commit: async () => await session.commit(),
+    rollback: async () => await session.rollback(),
+    enterSavepoint: async (name) => await session.enterSavepoint(name),
+    releaseSavepoint: async (name) => await session.releaseSavepoint(name),
+    rollbackToSavepoint: async (name) => await session.rollbackToSavepoint(name),
+    close: async () => await session.close(),
   }
 }
 

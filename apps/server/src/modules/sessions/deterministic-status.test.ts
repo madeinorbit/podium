@@ -28,11 +28,11 @@ afterEach(() => {
 it('captures spawn values instead of drifting issue defaults in row, meta, and status', async () => {
   // SessionStore boot applies the bundled migration chain to this fresh database.
   const store = await openTestStore(':memory:')
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
 
-  const spawned = registry.modules.sessions.createSession({
+  const spawned = await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: ISSUE.worktreePath,
     issueId: asIssueId(ISSUE.id),
@@ -69,8 +69,8 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   expect(row?.model).not.toBe(ISSUE.defaultModel)
   expect(row?.effort).not.toBe(ISSUE.defaultEffort)
 
-  const meta = registry.modules.sessions
-    .listSessions()
+  const meta = (await registry.modules.sessions
+    .listSessions())
     .find((candidate) => candidate.sessionId === spawned.sessionId)
   expect(meta).toMatchObject({
     model: 'spawn-selected-model',

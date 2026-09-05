@@ -1456,8 +1456,8 @@ describe('the update operation, driven', () => {
   it('gives two concurrent starts one operation', async () => {
     const h = harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
     const [first, second] = await Promise.all([
-      h.engine.start(UPDATE_OPERATION_KIND, h.context()),
-      h.engine.start(UPDATE_OPERATION_KIND, h.context()),
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
     ])
     const ids = [first, second].map((r) =>
       r.started ? r.operation.id : 'alreadyRunning' in r ? r.alreadyRunning : 'refused',
@@ -2270,7 +2270,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect(h.sent).toHaveLength(1)
 
-    expect(h.engine.cancel('op_1').canceled).toBe(true)
+    expect((await h.engine.cancel('op_1')).canceled).toBe(true)
     await h.engine.whenSettled('op_1')
     h.updates.withdrawAuthorization()
     expect(
@@ -3186,7 +3186,7 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_2')
     const untouched = await h.read('op_2')
     expect(untouched.deferred).toEqual([])
-    expect(h.engine.history(UPDATE_OPERATION_KIND, 1)[0]?.id).toBe('op_2')
+    expect((await h.engine.history(UPDATE_OPERATION_KIND, 1))[0]?.id).toBe('op_2')
 
     const bridge = createUpdateFleetBridge({
       engine: h.engine,
@@ -3326,7 +3326,7 @@ describe('§3.2 the cancel boundary', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(h.engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(await h.engine.cancel('op_1')).toMatchObject({ canceled: true })
   })
 
   it('refuses cancel from the server swap onward', async () => {
@@ -3339,7 +3339,7 @@ describe('§3.2 the cancel boundary', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBe('running')
-    expect(h.engine.cancel('op_1')).toMatchObject({
+    expect(await h.engine.cancel('op_1')).toMatchObject({
       canceled: false,
       refused: 'irreversible',
       step: UPDATE_STEP_SERVER,

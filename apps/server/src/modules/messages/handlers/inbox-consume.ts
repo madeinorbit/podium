@@ -10,10 +10,10 @@ import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
-export function inboxConsumeHandler(
+export async function inboxConsumeHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailInboxConsumeContract>,
-): MessageWire[] {
+): Promise<MessageWire[]> {
   const { caller, deps, access } = ctx
   const svc = deps.messages
   if (input?.issue) {
@@ -38,7 +38,7 @@ export function inboxConsumeHandler(
       own ||
       (scope.kind === 'subtree' &&
         scope.rootId !== undefined &&
-        deps.issues.ancestorIds(id).includes(scope.rootId))
+        (await deps.issues.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
     const rows = svc.readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
     return (inScope ? rows : rows.filter((m) => access.mayView(caller.capability, m))).map((m) =>

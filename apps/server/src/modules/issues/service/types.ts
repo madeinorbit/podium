@@ -40,7 +40,7 @@ import type { PublishSpec } from '../publish'
  * because there is nothing left for the feature to do after it has committed.
  */
 export interface IssueFunnel {
-  run<T>(op: { authorize?: () => void; write: () => T }): T
+  run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T>
 }
 
 /** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an
@@ -49,7 +49,7 @@ export interface IssueFunnel {
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
 export interface IssueLedger {
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
    *  alongside 'issue', reconciled from the same truth in the same pass, never a
    *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
@@ -61,9 +61,9 @@ export interface IssueLedger {
   reconcile(
     entity: 'issue' | 'issueProjection' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],
-  ): MetadataChange[]
+  ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */
-  capture(specs: EntityChangeSpec[]): MetadataChange[]
+  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it

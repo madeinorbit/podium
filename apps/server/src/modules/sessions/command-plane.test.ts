@@ -155,7 +155,7 @@ describe('draft launch compensation', () => {
       ],
     })
 
-    const draft = o.reg.issues.list('/p').find((issue) => issue.draft)
+    const draft = (await o.reg.issues.list('/p')).find((issue) => issue.draft)
     expect(draft?.panel?.artifacts).toEqual([
       expect.objectContaining({
         path: 'attachments/att-1/mock.png',
@@ -171,7 +171,7 @@ describe('draft launch compensation', () => {
 
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
+    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
 
     const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
       agentKind: 'codex',
@@ -180,7 +180,7 @@ describe('draft launch compensation', () => {
       draftIssue: { repoPath: '/p' },
     })
 
-    expect(o.reg.issues.list('/p').filter((candidate) => candidate.draft)).toEqual([])
+    expect((await o.reg.issues.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
     expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(issue.id)
   })
 
@@ -198,15 +198,15 @@ describe('draft launch compensation', () => {
       }),
     ).rejects.toThrow('spawn failed')
 
-    expect(o.reg.issues.list('/p').filter((issue) => issue.draft)).toEqual([])
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect((await o.reg.issues.list('/p')).filter((issue) => issue.draft)).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
   it('refuses compensation once the session has been registered against the draft', async () => {
     const o = await makeOracle()
     const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
-    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce((input) => {
-      createSession(input)
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(async (input) => {
+      await createSession(input)
       throw new Error('late spawn failure')
     })
 
@@ -218,20 +218,20 @@ describe('draft launch compensation', () => {
       }),
     ).rejects.toThrow('late spawn failure')
 
-    const draft = o.reg.issues.list('/p').find((issue) => issue.draft)
+    const draft = (await o.reg.issues.list('/p')).find((issue) => issue.draft)
     expect(draft).toBeDefined()
-    expect(o.reg.modules.sessions.listSessions()).toContainEqual(
+    expect(await o.reg.modules.sessions.listSessions()).toContainEqual(
       expect.objectContaining({ issueId: draft?.id }),
     )
   })
 })
 
 /** A fixture with one paired machine row that HAS an owner to be denied on. */
-function oracleWithPairedMachine(): {
+async function oracleWithPairedMachine(): Promise<{
   o: Oracle
   rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>
-} {
-  const o = makeOracle({
+}> {
+  const o = await makeOracle({
     machineId: asMachineId('box'),
     offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
   })
@@ -289,7 +289,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
       ),
     ).toBe("you do not have access to run agents on machine 'The Box'")
     // Nothing was spawned, and nothing was persisted.
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
   it.each([
@@ -353,8 +353,8 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 })
 
 describe('the spawn surface never OFFERS a machine the principal cannot use', () => {
-  it('drops what the principal cannot see, and marks what it may see but not use', () => {
-    const o = makeOracle({
+  it('drops what the principal cannot see, and marks what it may see but not use', async () => {
+    const o = await makeOracle({
       machineId: asMachineId('mine'),
       offlineMachines: [
         { id: asMachineId('mine'), name: 'Mine' },
@@ -379,7 +379,7 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
       ]),
     )
 
-    const offered = machinesForPrincipal(o.reg.modules, human(FIRST_ADMIN_USER_ID), ownership)
+    const offered = await machinesForPrincipal(o.reg.modules, human(FIRST_ADMIN_USER_ID), ownership)
 
     // `theirs` is absent, not denied: for this principal it does not exist.
     expect(offered.map((m) => m.id).sort()).toEqual(['mine', 'shared'])
@@ -547,7 +547,7 @@ describe('invisible fails exactly like nonexistent', () => {
       dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
     )
     // And the hidden session is still alive: the refusal refused, it did not act.
-    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
   })
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {

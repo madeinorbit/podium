@@ -59,12 +59,12 @@ export class EventLogRetention {
    * coalesce into at most one follow-up pass, so timer/manual races cannot run
    * duplicate plans and deletes concurrently.
    */
-  pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
+  async pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
     if (this.pruneFlight) {
       this.pruneRerunRequested = true
       return this.pruneFlight
     }
-    const flight = this.drainPruneRequests()
+    const flight = await this.drainPruneRequests()
     this.pruneFlight = flight
     const clear = () => {
       if (this.pruneFlight === flight) this.pruneFlight = undefined
@@ -99,15 +99,15 @@ export class EventLogRetention {
     let deleted = 0
     let plan: ReturnType<EventsRepository['planEventPrune']> | undefined
     const metrics = await runTimeBudgetedJob(
-      () => {
+      async () => {
         if (!plan) {
-          plan = this.events.planEventPrune({
+          plan = await this.events.planEventPrune({
             maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
             maxRows: EVENT_RETENTION_MAX_ROWS,
           })
           return 'continue'
         }
-        const batchDeleted = this.events.pruneEventBatch(plan, batchSize)
+        const batchDeleted = await this.events.pruneEventBatch(plan, batchSize)
         deleted += batchDeleted
         return batchDeleted < batchSize ? 'done' : 'continue'
       },
@@ -133,8 +133,8 @@ export class EventLogRetention {
   }
 
   /** Timer failures are logged, never thrown into the process. */
-  private schedulePrune(): void {
-    void this.pruneNow().catch((err) => {
+  private async schedulePrune(): Promise<void> {
+    void (await this.pruneNow()).catch((err) => {
       log.warn('event log prune failed', { err })
     })
   }

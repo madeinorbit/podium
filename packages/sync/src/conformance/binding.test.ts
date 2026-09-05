@@ -80,13 +80,13 @@ describe('the guard fires FIRST: the shipped modules are present and non-trivial
 })
 
 describe('feed identity is produced by the SHIPPED registry (ADR 2 D1)', () => {
-  it('the fixture DELEGATES rather than holding two fields', () => {
+  it('the fixture DELEGATES rather than holding two fields', async () => {
     const authority = new ConformanceAuthority()
     expect(authority.identity).toBeInstanceOf(FeedIdentityRegistry)
     // Identity, not equality: the epoch the fixture publishes must be the very
     // value the shipped registry minted, not a matching string kept alongside it.
-    expect(authority.epoch).toBe(authority.identity.current().epoch)
-    expect(authority.feedId).toBe(authority.identity.current().feedId)
+    expect(authority.epoch).toBe((await authority.identity.current()).epoch)
+    expect(authority.feedId).toBe((await authority.identity.current()).feedId)
   })
 
   it('the fixture cannot publish a counter epoch, because the shipped guard refuses it', () => {
@@ -99,25 +99,25 @@ describe('feed identity is produced by the SHIPPED registry (ADR 2 D1)', () => {
     expect(FIRST_EPOCH).not.toMatch(/^\d+$/)
   })
 
-  it('bumpEpoch MINTS — the caller cannot supply the value', () => {
+  it('bumpEpoch MINTS — the caller cannot supply the value', async () => {
     // Arity, asserted the way the unscoped tests assert theirs. `bumpEpoch(next:
     // string)` is what made the D1 gate vacuous, so the shape of the method is
     // itself the thing to pin: it takes a CAUSE, and what it returns is a fact
     // about the authority rather than an echo of the test's literal.
     const authority = new ConformanceAuthority()
     const before = authority.epoch
-    const after = authority.bumpEpoch('restore')
+    const after = await authority.bumpEpoch('restore')
 
     expect(after).not.toBe(before)
     expect(authority.epoch).toBe(after)
-    expect(authority.feedId).toBe(FEED_ID_OF(authority))
+    expect(authority.feedId).toBe(await FEED_ID_OF(authority))
     expect(() => assertOpaqueEpoch(after)).not.toThrow()
   })
 })
 
 /** The feedId must not move across a bump — same feed, new generation (D1). */
-const FEED_ID_OF = (authority: ConformanceAuthority): string =>
-  authority.identity.current().feedId
+const FEED_ID_OF = async (authority: ConformanceAuthority): Promise<string> =>
+  (await authority.identity.current()).feedId
 
 describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
   it('the fixture DELEGATES to BoundedSendQueue', () => {

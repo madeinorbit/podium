@@ -53,8 +53,8 @@ describe('draft-then-install', () => {
     })
     registry.seed('i1', { id: 'i1', stage: 'review', revision: 1 })
 
-    const first = registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
-    const second = registry.update('i1', (row) => ({ ...row, stage: 'done' }))
+    const first = await registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
+    const second = await registry.update('i1', (row) => ({ ...row, stage: 'done' }))
 
     // Both read revision 1 before either persisted.
     expect(registry.snapshot('i1')).toEqual({ id: 'i1', stage: 'review', revision: 1 })
@@ -82,7 +82,7 @@ describe('draft-then-install', () => {
     })
     const seeded = { id: 'i1', stage: 'review', revision: 1 }
     registry.seed('i1', seeded)
-    const failing = registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
+    const failing = await registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
 
     await parked.reached()
     await settle()
@@ -107,13 +107,13 @@ describe('write-lease-before-read', () => {
     const state = new LeasedState<{ count: number }>(harness.executor, { count: 0 })
     const observed: number[] = []
 
-    const write = state.update(
+    const write = await state.update(
       (value) => ({ count: value.count + 1 }),
       async () => {
         await parked.wait()
       },
     )
-    const read = state.read((value) => {
+    const read = await state.read((value) => {
       observed.push(value.count)
     })
 
@@ -138,7 +138,7 @@ describe('write-lease-before-read', () => {
     const parked = barrier()
     const observed: number[] = []
 
-    const failing = harness.executor.transact(async () => {
+    const failing = await harness.executor.transact(async () => {
       await state.update(
         (value) => ({ count: value.count + 1 }),
         async () => {
@@ -147,7 +147,7 @@ describe('write-lease-before-read', () => {
       )
       throw new Error('enclosing span failed')
     })
-    const read = state.read((value) => observed.push(value.count))
+    const read = await state.read((value) => observed.push(value.count))
 
     await parked.reached()
     await settle()
@@ -166,14 +166,14 @@ describe('write-lease-before-read', () => {
     const parked = barrier()
     const observed: number[] = []
 
-    const failing = state.update(
+    const failing = await state.update(
       (value) => ({ count: value.count + 1 }),
       async () => {
         await parked.wait()
         throw new Error('write failed')
       },
     )
-    const read = state.read((value) => observed.push(value.count))
+    const read = await state.read((value) => observed.push(value.count))
 
     await parked.reached()
     await settle()
@@ -196,13 +196,13 @@ describe('versioned mutex', () => {
     let value = 0
     const order: string[] = []
 
-    const first = mutex.run(async () => {
+    const first = await mutex.run(async () => {
       order.push('first:start')
       await parked.wait()
       value += 1
       order.push('first:end')
     })
-    const second = mutex.run(async () => {
+    const second = await mutex.run(async () => {
       order.push('second:start')
       // Reads the FIRST mutation's result, not the value it was queued with.
       value *= 10
@@ -227,7 +227,7 @@ describe('versioned mutex', () => {
     const mutex = new VersionedMutex()
     const pinned = mutex.version
     await mutex.run(async () => undefined)
-    await expect(mutex.runIfUnchanged(pinned, async () => 'applied')).rejects.toBeInstanceOf(
+    await expect(await mutex.runIfUnchanged(pinned, async () => 'applied')).rejects.toBeInstanceOf(
       StaleVersionError,
     )
     expect(await mutex.runIfUnchanged(mutex.version, async () => 'applied')).toBe('applied')
@@ -238,7 +238,7 @@ describe('versioned mutex', () => {
     // a holder has already failed.
     const mutex = new VersionedMutex()
     await expect(
-      mutex.run(async () => {
+      await mutex.run(async () => {
         throw new Error('holder failed')
       }),
     ).rejects.toThrow('holder failed')

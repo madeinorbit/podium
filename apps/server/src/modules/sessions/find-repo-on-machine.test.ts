@@ -51,7 +51,7 @@ async function rig() {
     tokenHash: 'y',
     ...machine,
   })
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   return { store, sessions: reg.modules.sessions }
 }
 
@@ -61,7 +61,7 @@ describe('SessionWorkspace.findRepoOnMachine', () => {
     await store.repos.addRepo(SOURCE, asMachineId('src'), ORIGIN)
     await store.repos.addRepo(TARGET, asMachineId('tgt'), ORIGIN)
     // The live refusal: SOURCE is not registered on tgt, but the repository is.
-    expect(sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBe(TARGET)
+    expect(await sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBe(TARGET)
   })
 
   it('says NO when the target has a DIFFERENT repository — nothing is created', async () => {
@@ -72,7 +72,7 @@ describe('SessionWorkspace.findRepoOnMachine', () => {
       asMachineId('tgt'),
       'https://example.test/other.git',
     )
-    expect(sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
+    expect(await sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
     // and it did not register anything on the target while looking.
     expect((await store.repos.listRepos(asMachineId('tgt'))).map((r) => r.path)).toEqual([
       '/home/mgw/src/elsewhere',
@@ -82,7 +82,7 @@ describe('SessionWorkspace.findRepoOnMachine', () => {
   it('says NO when the target has no repositories at all', async () => {
     const { store, sessions } = await rig()
     await store.repos.addRepo(SOURCE, asMachineId('src'), ORIGIN)
-    expect(sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
+    expect(await sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
   })
 
   it('does not treat two unidentified checkouts as the same repository', async () => {
@@ -91,17 +91,17 @@ describe('SessionWorkspace.findRepoOnMachine', () => {
     // every unidentified checkout match every other one.
     await store.repos.addRepo(SOURCE, asMachineId('src'))
     await store.repos.addRepo(TARGET, asMachineId('tgt'))
-    expect(sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
+    expect(await sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('tgt'))).toBeNull()
   })
 
   it('returns the source path unchanged when the pin IS the source machine', async () => {
     const { store, sessions } = await rig()
     await store.repos.addRepo(SOURCE, asMachineId('src'), ORIGIN)
-    expect(sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('src'))).toBe(SOURCE)
+    expect(await sessions.workspace.findRepoOnMachine(SOURCE, asMachineId('src'))).toBe(SOURCE)
   })
 
   it('says NO for a path that is not a registered repository', async () => {
     const { sessions } = await rig()
-    expect(sessions.workspace.findRepoOnMachine('/not/a/repo', asMachineId('tgt'))).toBeNull()
+    expect(await sessions.workspace.findRepoOnMachine('/not/a/repo', asMachineId('tgt'))).toBeNull()
   })
 })

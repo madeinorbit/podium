@@ -271,7 +271,7 @@ export async function pumpUntilCaughtUp(
   for (let i = 0; i < rounds; i += 1) {
     if (client.replica.cursor?.seq === authority.head()) return
     const frame: ServerFrame = nextFrame(authority, client)
-    client.replica.receive(frame)
+    await client.replica.receive(frame)
     await client.settle()
   }
   throw new Error(

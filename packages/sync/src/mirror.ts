@@ -170,9 +170,9 @@ export class MirrorService {
    *  costs one daemon eof-check round trip PER SEGMENT (~1,150 reads ≈ 2s wall on
    *  the hot control channel per attach), which is exactly the regression the
    *  dirty set eliminates. */
-  enqueueMachine(machineId: MachineId): void {
+  async enqueueMachine(machineId: MachineId): Promise<void> {
     for (const seg of this.store.segmentsToMirror(machineId)) {
-      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
+      await this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
@@ -180,29 +180,29 @@ export class MirrorService {
    *  cursor, plus never-reported (NULL) rows which stay dirty until one pull
    *  records their observed size (upgrade path — the fleet converges, then a
    *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
-  enqueueDirty(machineId: MachineId): void {
+  async enqueueDirty(machineId: MachineId): Promise<void> {
     for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
-      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
+      await this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
-  enqueue(machineId: MachineId, nativeId: string, path: string): void {
-    this.enqueueSegment(machineId, nativeId, path, false)
+  async enqueue(machineId: MachineId, nativeId: string, path: string): Promise<void> {
+    await this.enqueueSegment(machineId, nativeId, path, false)
   }
 
   /** Sweep triggers carry a fresh source observation. If its segment is already
    *  being read, preserve that observation as one trailing pass; plain direct
    *  enqueues retain their strict duplicate-suppression contract. */
-  private enqueueForSweep(machineId: MachineId, nativeId: string, path: string): void {
-    this.enqueueSegment(machineId, nativeId, path, true)
+  private async enqueueForSweep(machineId: MachineId, nativeId: string, path: string): Promise<void> {
+    await this.enqueueSegment(machineId, nativeId, path, true)
   }
 
-  private enqueueSegment(
+  private async enqueueSegment(
     machineId: MachineId,
     nativeId: string,
     path: string,
     retriggerInFlight: boolean,
-  ): void {
+  ): Promise<void> {
     const key = machineScopedKey(machineId, nativeId)
     if (this.queued.has(key)) {
       if (retriggerInFlight && this.inFlight.has(key)) {
@@ -222,7 +222,7 @@ export class MirrorService {
       this.queues.set(machineId, queue)
     }
     queue.push({ nativeId, path })
-    if (!this.paused) void this.drain(machineId)
+    if (!this.paused) void await this.drain(machineId)
   }
 
   /**
@@ -242,11 +242,11 @@ export class MirrorService {
   }
 
   /** Lift a reversible pause and restart every preserved machine queue. */
-  resume(): void {
+  async resume(): Promise<void> {
     if (this.stopped || !this.paused) return
     this.paused = false
     for (const [machineId, queue] of this.queues) {
-      if (queue.length > 0) void this.drain(machineId)
+      if (queue.length > 0) void await this.drain(machineId)
     }
   }
 
@@ -363,7 +363,7 @@ export class MirrorService {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
-      if (restart) void this.drain(machineId)
+      if (restart) void await this.drain(machineId)
     }
   }
 

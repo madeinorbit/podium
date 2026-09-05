@@ -29,8 +29,8 @@ function harness(defaultMachine = 'm1') {
     toMachine: (machineId, msg) => sent.push({ machineId, msg }),
     defaultMachine: () => asMachineId(defaultMachine),
   })
-  const ask = (machineId?: string) =>
-    broker.request({
+  const ask = async (machineId?: string) =>
+    await broker.request({
       kind: PROBE,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
@@ -55,7 +55,7 @@ afterEach(() => {
 describe('correlation', () => {
   it('sends to the named machine and settles that machine`s answer', async () => {
     const h = harness()
-    const p = h.ask('m2')
+    const p = await h.ask('m2')
 
     expect(h.sent[0]?.machineId).toBe('m2')
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'ok' })).toBe(true)
@@ -73,7 +73,7 @@ describe('correlation', () => {
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
       defaultMachine: () => asMachineId(current),
     })
-    const p = broker.request({
+    const p = await broker.request({
       kind: PROBE,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
@@ -90,23 +90,23 @@ describe('correlation', () => {
     await expect(p).resolves.toEqual({ answer: 'ok' })
   })
 
-  it('mints ids that never collide across request families', () => {
+  it('mints ids that never collide across request families', async () => {
     const h = harness()
-    void h.ask()
-    void h.broker.request({
+    void await h.ask()
+    void await h.broker.request({
       kind: OTHER,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
       build: (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
     })
-    void h.ask()
+    void await h.ask()
 
     expect([h.idOf(0), h.idOf(1), h.idOf(2)]).toEqual(['p0', 'o1', 'p2'])
   })
 
   it('resolves the caller`s fallback on timeout and forgets the request', async () => {
     const h = harness()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
     expect(h.broker.inFlight).toBe(1)
 
     await vi.advanceTimersByTimeAsync(1_000)
@@ -119,7 +119,7 @@ describe('correlation', () => {
 
   it('settles once — a duplicate reply is dropped', async () => {
     const h = harness()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
 
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'first' })).toBe(true)
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'second' })).toBe(false)
@@ -129,7 +129,7 @@ describe('correlation', () => {
 
   it('clears the timeout when it settles, so the fallback never lands after an answer', async () => {
     const h = harness()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
     h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'ok' })
 
     await vi.advanceTimersByTimeAsync(5_000)
@@ -143,7 +143,7 @@ describe('correlation', () => {
     // a different caller's promise just because the id happens to exist.
     const h = harness()
     const logs = captureLogs()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
 
     expect(h.broker.settle(OTHER, h.idOf(0), asMachineId('m1'), { answer: 'wrong family' })).toBe(
       false,
@@ -159,7 +159,7 @@ describe('the answering machine is checked (POD-1175)', () => {
   it('DROPS a reply from a machine other than the one the request was sent to', async () => {
     const h = harness()
     const logs = captureLogs()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
 
     expect(
       h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' }),
@@ -181,7 +181,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     // machine's RPCs by racing them.
     const h = harness()
     captureLogs()
-    const p = h.ask('m1')
+    const p = await h.ask('m1')
 
     h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' })
     expect(h.broker.inFlight).toBe(1)
@@ -196,8 +196,8 @@ describe('the answering machine is checked (POD-1175)', () => {
     // in flight, one per machine. Each must be settled only by its own.
     const h = harness()
     captureLogs()
-    const toM1 = h.ask('m1')
-    const toM2 = h.ask('m2')
+    const toM1 = await h.ask('m1')
+    const toM2 = await h.ask('m2')
 
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'crosstalk' })).toBe(
       false,
@@ -261,7 +261,7 @@ describe('server transfer RPC', () => {
     )
     const data = Buffer.alloc(SERVER_TRANSFER_MAX_CHUNK_BYTES * 2 + 3)
     await expect(
-      rpc.serverTransferChunk(
+      await rpc.serverTransferChunk(
         { transferId: 'transfer-1', path: 'podium.db', offset: 9, data },
         asMachineId('target-machine'),
       ),
@@ -298,7 +298,7 @@ describe('server transfer RPC', () => {
     ])
     expect(chunks.every((chunk) => chunk.manifestDigest === 'a'.repeat(64))).toBe(true)
     await expect(
-      rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), asMachineId('target-machine')),
+      await rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), asMachineId('target-machine')),
     ).resolves.toMatchObject({ ok: true })
     expect(sent.at(-1)?.msg).toMatchObject({
       type: 'serverTransferAcknowledgeRequest',

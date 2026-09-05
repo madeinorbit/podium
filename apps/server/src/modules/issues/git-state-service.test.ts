@@ -73,19 +73,19 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha-bound\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-bound',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false })).id
     sessions.push(member(asSessionId('sess-bound'), id))
 
     const { recordSessionGitActivity, refreshGitState, onSessionRemovedOrArchived } =
       svc.gitWorkflow
-    recordSessionGitActivity(asSessionId('sess-bound'), { commits: ['sha-bound'] })
+    await recordSessionGitActivity(asSessionId('sess-bound'), { commits: ['sha-bound'] })
     await refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-bound'])
+    expect((await svc.get(id))?.gitState?.commits).toEqual(['sha-bound'])
 
-    onSessionRemovedOrArchived(asSessionId('sess-bound'))
+    await onSessionRemovedOrArchived(asSessionId('sess-bound'))
     await refreshGitState(id, '/repo')
     // Archiving drops the ephemeral session ledger, not durable issue markers.
-    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-bound'])
+    expect((await svc.get(id))?.gitState?.commits).toEqual(['sha-bound'])
   })
 
   it('turn end probes a shared checkout and lands attributed gitState on the wire', async () => {
@@ -94,20 +94,20 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // Daemon-captured attribution: one touched file. Registration also fires
     // the repopulation probe in the background, so poll until one settles.
-    svc.recordSessionGitActivity(asSessionId('sess-1'), { touched: ['/repo/apps/a.ts'] })
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), { touched: ['/repo/apps/a.ts'] })
     await svc.refreshGitState(id, '/repo')
     for (let i = 0; i < 50; i++) {
-      const gs = svc.allWire().find((w) => w.id === id)?.gitState
+      const gs = (await svc.allWire()).find((w) => w.id === id)?.gitState
       if (gs && gs.updatedAt !== '' && gs.computing !== true) break
       await new Promise((r) => setTimeout(r, 10))
     }
 
-    const wire = svc.allWire().find((w) => w.id === id)
+    const wire = (await svc.allWire()).find((w) => w.id === id)
     expect(wire?.gitState).toMatchObject({
       shared: true,
       branch: 'main',
@@ -127,16 +127,16 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha9\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha9',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
 
-    svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['sha9'] })
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['sha9'] })
     // The commit-triggered probe is fire-and-forget — poll until it settles
     // (vi.waitFor is unavailable under the bun runner).
     let commits: string[] | undefined
     for (let i = 0; i < 50 && commits === undefined; i++) {
       await new Promise((r) => setTimeout(r, 10))
-      commits = svc.allWire().find((w) => w.id === id)?.gitState?.commits
+      commits = (await svc.allWire()).find((w) => w.id === id)?.gitState?.commits
     }
     expect(commits).toEqual(['sha9'])
   })
@@ -148,17 +148,17 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha-foreign\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-owned',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // Both SHAs crossed this session's shell-call bracket, but only the marker
     // proves which one belongs to this issue on the shared checkout.
-    svc.recordSessionGitActivity(asSessionId('sess-1'), {
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), {
       commits: ['sha-owned', 'sha-foreign'],
     })
     await svc.refreshGitState(id, '/repo')
 
-    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-owned'])
+    expect((await svc.get(id))?.gitState?.commits).toEqual(['sha-owned'])
   })
 
   it('without any attribution the shared probe discloses fallback', async () => {
@@ -166,11 +166,11 @@ describe('POD-98 git-state service wiring', () => {
     const { svc } = await harness(sessions, {
       statusProbe: '## main\n M x.ts',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     await svc.refreshGitState(id, '/repo')
-    const wire = svc.allWire().find((w) => w.id === id)
+    const wire = (await svc.allWire()).find((w) => w.id === id)
     expect(wire?.gitState?.fallback).toBe(true)
     expect(wire?.gitState?.dirtyOwn).toBeUndefined()
   })
@@ -181,15 +181,15 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // The daemon's empty baseline registration (SessionStart) is enough.
-    svc.recordSessionGitActivity(asSessionId('sess-1'), {})
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), {})
     let state: unknown
     for (let i = 0; i < 50 && state === undefined; i++) {
       await new Promise((r) => setTimeout(r, 10))
-      const gs = svc.allWire().find((w) => w.id === id)?.gitState
+      const gs = (await svc.allWire()).find((w) => w.id === id)?.gitState
       state = gs && gs.updatedAt !== '' && gs.computing !== true ? gs : undefined
     }
     expect(state).toMatchObject({ shared: true, branch: 'main' })
@@ -201,14 +201,14 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
     repoOp.mockClear()
     broadcast.mockClear()
 
-    svc.onSessionTurnEnd(asSessionId('sess-1'))
-    svc.onSessionTurnEnd(asSessionId('sess-1'))
-    svc.onSessionTurnEnd(asSessionId('sess-1'))
+    await svc.onSessionTurnEnd(asSessionId('sess-1'))
+    await svc.onSessionTurnEnd(asSessionId('sess-1'))
+    await svc.onSessionTurnEnd(asSessionId('sess-1'))
     expect(repoOp).not.toHaveBeenCalled()
     expect(broadcast).not.toHaveBeenCalled()
 
@@ -226,19 +226,19 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const probed = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    svc.create({ repoPath: '/repo', title: 'two', startNow: false })
-    svc.create({ repoPath: '/repo', title: 'three', startNow: false })
+    const probed = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    await svc.create({ repoPath: '/repo', title: 'two', startNow: false })
+    await svc.create({ repoPath: '/repo', title: 'three', startNow: false })
     sessions.push(member(asSessionId('sess-1'), probed))
 
-    const cursor = ledger.cursor()
+    const cursor = await ledger.cursor()
     await svc.refreshGitState(probed, '/repo')
 
     // broadcastIssue must CAPTURE the one row, not reconcile it as full truth:
     // a full-truth reconcile of a single row journals a remove for every other
     // issue (the boot-adjacent ledger flapping — thousands of remove+upsert
     // pairs per probe wave).
-    const appended = ledger.changesSince(cursor) ?? []
+    const appended = await ledger.changesSince(cursor) ?? []
     expect(appended.filter((c) => c.op === 'remove')).toEqual([])
     expect(appended.map((c) => [c.id, c.op])).toEqual([[probed, 'upsert']])
   })
@@ -246,7 +246,7 @@ describe('POD-98 git-state service wiring', () => {
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {
     const sessions: SessionMeta[] = []
     const { svc, repoOp, broadcast } = await harness(sessions, {})
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id))
     let releaseStatus!: () => void
     const statusGate = new Promise<void>((resolve) => {
@@ -266,18 +266,18 @@ describe('POD-98 git-state service wiring', () => {
     })
     broadcast.mockClear()
 
-    const initial = svc.refreshGitState(id, '/repo')
+    const initial = await svc.refreshGitState(id, '/repo')
     for (let i = 0; i < 50 && statusCalls === 0; i++) {
       await new Promise((resolve) => setTimeout(resolve, 1))
     }
     expect(statusCalls).toBe(1)
-    svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['late-sha'] })
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['late-sha'] })
     releaseStatus()
     await initial
 
     expect(statusCalls).toBe(2)
     expect(repoOp).toHaveBeenCalledTimes(8)
-    expect(svc.get(id)?.gitState?.commits).toEqual(['late-sha'])
+    expect((await svc.get(id))?.gitState?.commits).toEqual(['late-sha'])
     // One published row, carrying the TRAILING probe's result — read off the
     // change log since POD-1203 deleted the `issueUpdated` snapshot.
     expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
@@ -289,31 +289,31 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logIssueCommits: 'sha-1\nsha-2',
     })
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), id), member(asSessionId('sess-2'), id))
-    svc.recordSessionGitActivity(asSessionId('sess-1'), {
+    await svc.recordSessionGitActivity(asSessionId('sess-1'), {
       commits: ['sha-1'],
       touched: ['/repo/apps/a.ts'],
     })
-    svc.recordSessionGitActivity(asSessionId('sess-2'), {
+    await svc.recordSessionGitActivity(asSessionId('sess-2'), {
       commits: ['sha-2'],
       touched: ['/repo/apps/b.ts'],
     })
     await svc.refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState).toMatchObject({
+    expect((await svc.get(id))?.gitState).toMatchObject({
       commits: ['sha-1', 'sha-2'],
       dirtyOwn: 2,
     })
 
-    svc.onSessionRemovedOrArchived(asSessionId('sess-1'))
+    await svc.onSessionRemovedOrArchived(asSessionId('sess-1'))
     await svc.refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState).toMatchObject({ commits: ['sha-1', 'sha-2'], dirtyOwn: 1 })
+    expect((await svc.get(id))?.gitState).toMatchObject({ commits: ['sha-1', 'sha-2'], dirtyOwn: 1 })
 
-    svc.onSessionRemovedOrArchived(asSessionId('sess-2'))
+    await svc.onSessionRemovedOrArchived(asSessionId('sess-2'))
     await svc.refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-1', 'sha-2'])
-    expect(svc.get(id)?.gitState?.fallback).toBeUndefined()
-    expect(svc.get(id)?.gitState?.dirtyOwn).toBeUndefined()
+    expect((await svc.get(id))?.gitState?.commits).toEqual(['sha-1', 'sha-2'])
+    expect((await svc.get(id))?.gitState?.fallback).toBeUndefined()
+    expect((await svc.get(id))?.gitState?.dirtyOwn).toBeUndefined()
   })
 
   it('sessions without an issue are a no-op on turn end', async () => {
@@ -321,7 +321,7 @@ describe('POD-98 git-state service wiring', () => {
       { ...member(asSessionId('sess-x'), 'nope'), issueId: undefined } as unknown as SessionMeta,
     ]
     const { svc, repoOp } = await harness(sessions, {})
-    svc.onSessionTurnEnd(asSessionId('sess-x'))
+    await svc.onSessionTurnEnd(asSessionId('sess-x'))
     expect(repoOp).not.toHaveBeenCalled()
   })
 })
@@ -368,26 +368,26 @@ describe('POD-384 parent-branch movement watch', () => {
   it('records a parent tip on first sight instead of fanning out at boot', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     giveWorktree(svc, id)
 
     await svc.sweepParentBranchMovement()
 
     expect(repoOp.mock.calls.map(([op]) => op)).toEqual(['revParseVerify'])
-    expect(svc.get(id)?.gitState).toBeUndefined()
+    expect((await svc.get(id))?.gitState).toBeUndefined()
   })
 
   it('re-probes a branch merged from another checkout when the parent tip moves', async () => {
     const script = unlandedScript()
     const { svc } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
 
     // The snapshot that strands the row: one unlanded commit, no merged verdict.
     await svc.refreshGitState(id)
-    expect(svc.get(id)?.gitState).toMatchObject({ shared: false, ahead: 1 })
-    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+    expect((await svc.get(id))?.gitState).toMatchObject({ shared: false, ahead: 1 })
+    expect((await svc.get(id))?.gitState?.merged).toBeUndefined()
 
     // Somebody fast-forwards main from a different checkout — no commit in this
     // worktree, no turn edge on this issue's sessions, nothing else to notice it.
@@ -396,14 +396,14 @@ describe('POD-384 parent-branch movement watch', () => {
     markLanded(script)
     await svc.sweepParentBranchMovement()
 
-    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 0, merged: true })
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true })
   })
 
   it('answers a whole repo group with one rev-parse and refreshes all of it', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const a = svc.create({ repoPath: '/repo', title: 'a', startNow: false }).id
-    const b = svc.create({ repoPath: '/repo', title: 'b', startNow: false }).id
+    const a = (await svc.create({ repoPath: '/repo', title: 'a', startNow: false })).id
+    const b = (await svc.create({ repoPath: '/repo', title: 'b', startNow: false })).id
     giveWorktree(svc, a)
     giveWorktree(svc, b)
     await svc.sweepParentBranchMovement()
@@ -414,14 +414,14 @@ describe('POD-384 parent-branch movement watch', () => {
     markLanded(script)
     await svc.sweepParentBranchMovement()
 
-    expect(svc.get(a)?.gitState).toMatchObject({ merged: true })
-    expect(svc.get(b)?.gitState).toMatchObject({ merged: true })
+    expect((await svc.get(a))?.gitState).toMatchObject({ merged: true })
+    expect((await svc.get(b))?.gitState).toMatchObject({ merged: true })
   })
 
   it('costs one rev-parse and nothing else while the parent tip holds still', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
     repoOp.mockClear()
@@ -434,7 +434,7 @@ describe('POD-384 parent-branch movement watch', () => {
   it('keeps the last known tip when the parent branch is unreadable', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
 
@@ -453,8 +453,8 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
     // Shared: no worktree of its own, so no merge axis to keep fresh.
-    svc.create({ repoPath: '/repo', title: 'shared', startNow: false })
-    const branchless = svc.create({ repoPath: '/repo', title: 'branchless', startNow: false }).id
+    await svc.create({ repoPath: '/repo', title: 'shared', startNow: false })
+    const branchless = (await svc.create({ repoPath: '/repo', title: 'branchless', startNow: false })).id
     giveWorktree(svc, branchless)
     ;(svc as unknown as { rows: Map<string, { branch: string | null }> }).rows.get(
       branchless,
@@ -482,13 +482,13 @@ describe('POD-384 parent-branch movement watch', () => {
       branchReflog: 'sha-tip\nsha-created',
     }
     const { svc, repoOp } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
     giveWorktree(svc, id, 'issue/520-parent')
 
     // First sight of both watched refs: record, do not probe.
     await svc.sweepParentBranchMovement()
     expect(repoOp.mock.calls.filter(([op]) => op === 'revParseVerify')).toHaveLength(2)
-    expect(svc.get(id)?.gitState).toBeUndefined()
+    expect((await svc.get(id))?.gitState).toBeUndefined()
 
     // Seed the stranded snapshot: still ahead of the dead parent.
     // Custom isMergedInto: fail for parent, succeed for main only after we flip
@@ -516,14 +516,14 @@ describe('POD-384 parent-branch movement watch', () => {
     })
 
     await svc.refreshGitState(id)
-    expect(svc.get(id)?.gitState).toMatchObject({ shared: false, ahead: 9 })
-    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+    expect((await svc.get(id))?.gitState).toMatchObject({ shared: false, ahead: 9 })
+    expect((await svc.get(id))?.gitState?.merged).toBeUndefined()
 
     // Somebody lands on main from another checkout. Cut parent does not move.
     script['revParseVerify:main'] = 'main-tip-2'
     await svc.sweepParentBranchMovement()
 
-    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 9, merged: true })
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 9, merged: true })
   })
 
   it('retargeting parentBranch re-probes gitState against the new base [POD-576]', async () => {
@@ -532,25 +532,25 @@ describe('POD-384 parent-branch movement watch', () => {
     // Drop main's rev-list so the first probe only has the cut-parent count.
     delete script['revListCount:main..HEAD']
     const { svc } = await harness([], script)
-    const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
     giveWorktree(svc, id, 'issue/520-parent')
 
     await svc.refreshGitState(id)
-    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 9 })
-    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 9 })
+    expect((await svc.get(id))?.gitState?.merged).toBeUndefined()
 
     // Retarget to main; next probe measures against main (0 ahead, merged).
     script['revListCount:main..HEAD'] = '0'
     markLanded(script)
 
-    svc.update(id, { parentBranch: 'main' })
+    await svc.update(id, { parentBranch: 'main' })
     // refreshGitState is fire-and-forget from update — wait for the coalesced probe.
     for (let i = 0; i < 50; i++) {
-      const gs = svc.get(id)?.gitState
+      const gs = (await svc.get(id))?.gitState
       if (gs?.ahead === 0 && gs.merged === true) break
       await new Promise((r) => setTimeout(r, 10))
     }
 
-    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 0, merged: true })
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true })
   })
 })

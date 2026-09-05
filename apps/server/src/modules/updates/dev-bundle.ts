@@ -432,8 +432,8 @@ export async function defaultReadIgnoredSourceInputs(root: string): Promise<stri
   return files.join('\0')
 }
 
-function defaultReadSourceStatus(root: string): Promise<string> {
-  return git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+async function defaultReadSourceStatus(root: string): Promise<string> {
+  return await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
 }
 
 /**
@@ -1385,7 +1385,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   let renewalError: unknown
   const renewTimer = setInterval(() => {
     renewal = renewal
-      .then(() => lock.renew())
+      .then(async () => await lock.renew())
       .catch((error) => {
         renewalError ??= error
       })
@@ -2111,7 +2111,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   /** Probe only — publication goes through {@link requireDefinedMigrations}. */
   const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
     const read =
-      deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
+      deps.migrationsAt ?? (async (at: string) => await migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
     try {
       return await read(sha)
     } catch {
@@ -2187,8 +2187,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           ...(approved?.version ? { version: approved.version } : {}),
           sourceSha: headSha,
         },
-        () =>
-          assertSourceMatchesHead(
+        async () =>
+          await assertSourceMatchesHead(
             deps.root ?? SOURCE_ROOT,
             headSha,
             deps.readSourceStatus,
@@ -2216,8 +2216,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // five commits it was not running. The release build touches the live dist not
         // at all, so a poll has nothing to refuse. The Update panel's explicit "rebuild
         // the website" still owns live-dist rebuilds, through `createDevWebBuilder`.
-        const build = () =>
-          buildDevBundle({
+        const build = async () =>
+          await buildDevBundle({
             ...deps,
             root: buildRoot,
             headSha,
@@ -2225,8 +2225,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             ...(approved ? { releaseVersion: approved.version } : {}),
           })
         return current === null
-          ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
-              if (!existing || (approved && existing.version !== approved.version)) return build()
+          ? (await readExistingDevBundle({ ...deps, fs, headSha, platforms })).then(async (existing) => {
+              if (!existing || (approved && existing.version !== approved.version)) return await build()
               const statePath = deps.publisherStateDir ?? stateDir()
               // Restoring still counts as publishing that build. Seed from the record
               // when state was lost, so the counter cannot rewind under a fleet that
@@ -2253,12 +2253,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
               })
               return existing
             })
-          : build()
+          : await build()
       }
       const snapshotBuild =
         deps.snapshotBuild ??
-        (<T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
-          withDevBuildSnapshot(
+        (async <T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
+          await withDevBuildSnapshot(
             {
               sourceRoot: liveRoot,
               approvedSha,
@@ -2278,7 +2278,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                   ...(approved?.version ? { version: approved.version } : {}),
                   sourceSha: approvedSha,
                 },
-                () => assertSourceMatchesHead(snapshotRoot, approvedSha),
+                async () => await assertSourceMatchesHead(snapshotRoot, approvedSha),
                 deps.timing,
               )
               return result
@@ -2319,7 +2319,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           }
           throw error
         })
-      const requested = (approved ? buildApproved() : buildFrom(liveRoot)).then(
+      const requested = (approved ? buildApproved() : await buildFrom(liveRoot)).then(
         (built) => {
           current = built
           builtSha = headSha
@@ -2598,7 +2598,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
   return {
     requestBuild(explicit = false, approved) {
-      const admitted = admissions.then(() => admit(explicit, approved))
+      const admitted = admissions.then(async () => await admit(explicit, approved))
       admissions = admitted.catch(() => undefined)
       return admitted.then((admission) =>
         'error' in admission ? Promise.reject(admission.error) : admission.result,

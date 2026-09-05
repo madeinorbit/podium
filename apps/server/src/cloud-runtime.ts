@@ -182,17 +182,17 @@ export function createHostedCloudRuntimeProvider({
     return (await response.json()) as T
   }
 
-  function post<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>(path, {
+  async function post<T>(path: string, body?: unknown): Promise<T> {
+    return await request<T>(path, {
       method: 'POST',
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   }
 
   return {
-    capabilities: () => request<CloudProviderCapabilities>('/v1/capabilities'),
-    createCloudMachine: (body) => post<CloudRuntime>('/v1/cloud-machines', body),
-    createCloudAgent: (body) => post<CloudRuntime>('/v1/cloud-agents', body),
+    capabilities: async () => await request<CloudProviderCapabilities>('/v1/capabilities'),
+    createCloudMachine: async (body) => await post<CloudRuntime>('/v1/cloud-machines', body),
+    createCloudAgent: async (body) => await post<CloudRuntime>('/v1/cloud-agents', body),
     async getRuntime(id) {
       try {
         return await request<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}`)
@@ -201,8 +201,8 @@ export function createHostedCloudRuntimeProvider({
         throw error
       }
     },
-    stopRuntime: (id) => post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/stop`),
-    wakeRuntime: (id) => post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/wake`),
+    stopRuntime: async (id) => await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/stop`),
+    wakeRuntime: async (id) => await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/wake`),
   }
 }
 

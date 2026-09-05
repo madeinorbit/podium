@@ -22,7 +22,7 @@ it('resolves a managed api-key account into env', async () => {
     scope: 'role',
     createdAt: 1,
   })
-  expect(resolveAccountEnv(repo, asAccountId('managed:anthropic'))).toEqual({
+  expect(await resolveAccountEnv(repo, asAccountId('managed:anthropic'))).toEqual({
     env: { ANTHROPIC_API_KEY: 'sk-ant-1' },
   })
 })
@@ -37,15 +37,15 @@ it('resolves a managed oauth account into CLAUDE_CODE_OAUTH_TOKEN', async () => 
     scope: 'role',
     createdAt: 1,
   })
-  expect(resolveAccountEnv(repo, asAccountId('managed:claude-oauth'))).toEqual({
+  expect(await resolveAccountEnv(repo, asAccountId('managed:claude-oauth'))).toEqual({
     env: { CLAUDE_CODE_OAUTH_TOKEN: 'oat-1' },
   })
 })
 
 it('yields NO env key for a native account — the frame stays as it is today', async () => {
-  expect(resolveAccountEnv(await repoWith(), asAccountId('native:claude-code'))).toEqual({})
+  expect(await resolveAccountEnv(await repoWith(), asAccountId('native:claude-code'))).toEqual({})
 })
 
 it('yields no env key when the account id has no stored credential', async () => {
-  expect(resolveAccountEnv(await repoWith(), asAccountId('managed:anthropic'))).toEqual({})
+  expect(await resolveAccountEnv(await repoWith(), asAccountId('managed:anthropic'))).toEqual({})
 })

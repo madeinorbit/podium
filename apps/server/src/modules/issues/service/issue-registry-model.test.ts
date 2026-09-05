@@ -103,7 +103,7 @@ describe('draft-then-install: two updates to the same issue', () => {
     // told they succeeded.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
 
     // The second update runs INSIDE the first one's write span, so it reads the
     // row at the revision the first update was cut from and commits first.
@@ -114,7 +114,7 @@ describe('draft-then-install: two updates to the same issue', () => {
 
     // The winner's row survives intact: the loser never touched it, and its
     // title is not half-applied over the winner's.
-    expect(svc.get(id)?.title).toBe('from the inner write')
+    expect((await svc.get(id))?.title).toBe('from the inner write')
   })
 
   it('leaves the map row untouched while a write is open, and after it fails', async () => {
@@ -124,8 +124,8 @@ describe('draft-then-install: two updates to the same issue', () => {
     // correct if you only look at the end state.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'settled', startNow: false }).id
-    const before = svc.get(id)
+    const id = (await svc.create({ repoPath: '/repo', title: 'settled', startNow: false })).id
+    const before = await svc.get(id)
 
     let observedDuringWrite: string | undefined
     harness.duringNextWrite(() => {
@@ -135,8 +135,8 @@ describe('draft-then-install: two updates to the same issue', () => {
     expect(() => svc.update(id, { title: 'never committed' })).toThrow('commit failed')
 
     expect(observedDuringWrite, 'no reader sees the uncommitted title').toBe('settled')
-    expect(svc.get(id)?.title).toBe('settled')
-    expect(svc.get(id)?.revision).toBe(before?.revision)
+    expect((await svc.get(id))?.title).toBe('settled')
+    expect((await svc.get(id))?.revision).toBe(before?.revision)
   })
 
   it('refuses the map-owned row outright rather than persisting it', async () => {
@@ -145,7 +145,7 @@ describe('draft-then-install: two updates to the same issue', () => {
     // working by accident for as long as the store stays synchronous.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'shared', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'shared', startNow: false })).id
     // The facade forwards `rows` and `persistRow` to the registry itself.
     const mapOwned = svc.rows.get(id)
     expect(mapOwned).toBeDefined()
@@ -161,14 +161,14 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     // to put the pre-write field set back over the winner's committed row.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'base', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'base', startNow: false })).id
 
     harness.duringNextWrite(() => {
       svc.update(id, { title: 'winner' })
     })
     expect(() => svc.update(id, { title: 'loser' })).toThrow(StaleIssueRevisionError)
 
-    expect(svc.get(id)?.title).toBe('winner')
+    expect((await svc.get(id))?.title).toBe('winner')
   })
 })
 
@@ -176,16 +176,16 @@ describe('draft-then-install: an in-memory read while a write is open', () => {
   it('serves the committed row, never the draft', async () => {
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'committed', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'committed', startNow: false })).id
 
     const observed: (string | undefined)[] = []
     harness.duringNextWrite(() => {
       observed.push(svc.get(id)?.title)
       observed.push(svc.list().find((issue) => issue.id === id)?.title)
     }, 'after')
-    svc.update(id, { title: 'in flight' })
+    await svc.update(id, { title: 'in flight' })
 
     expect(observed, 'both read paths see the committed value').toEqual(['committed', 'committed'])
-    expect(svc.get(id)?.title).toBe('in flight')
+    expect((await svc.get(id))?.title).toBe('in flight')
   })
 })

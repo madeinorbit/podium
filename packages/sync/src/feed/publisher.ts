@@ -105,7 +105,7 @@ export interface FeedConnection {
   /** WHO this connection stands for (ADR 3 D7 — authenticated transport only). */
   readonly principal: Principal
   /** Frames ready to go out, oldest first. Empties the queue. */
-  drain(): readonly ServerFrame[]
+  drain(): Promise<readonly ServerFrame[]>
   /** ADR 2 D9 — demoted by backpressure and awaiting a re-bootstrap. */
   isDemoted(): boolean
   /** Bytes held for this connection. D9 bounds the authority by this, times N. */
@@ -218,13 +218,13 @@ export class FeedPublisher {
     return {
       id,
       principal,
-      drain: () => {
+      drain: async () => {
         const control = state.pending.splice(0, state.pending.length)
         const queued = state.queue.drain()
         // The pending watermark leaves LAST and only now: it always certifies the
         // newest range, and holding it until the transport asks is what lets a run
         // of them collapse to one frame (D13.2).
-        return [...control, ...queued, ...this.takeWatermark(state)]
+        return [...control, ...queued, ...(await this.takeWatermark(state))]
       },
       isDemoted: () => state.queue.isDemoted(),
       queuedBytes: () => state.queue.queuedBytes(),
@@ -264,8 +264,8 @@ export class FeedPublisher {
    * `publisher.scoped.test.ts` asserts its absence, because a caller-supplied
    * rescope is an oracle for what that caller cannot see.
    */
-  publish(principal: Principal, delivery: ScopedDelivery): void {
-    this.publishTo([...this.connections.keys()], principal, delivery)
+  async publish(principal: Principal, delivery: ScopedDelivery): Promise<void> {
+    await this.publishTo([...this.connections.keys()], principal, delivery)
   }
 
   /**
@@ -274,11 +274,11 @@ export class FeedPublisher {
    * fail-closed assertion against a widened or stale target set; it is not an
    * audience selector.
    */
-  publishTo(
+  async publishTo(
     connectionIds: readonly string[],
     principal: Principal,
     delivery: ScopedDelivery,
-  ): void {
+  ): Promise<void> {
     const audience = principalRoutingId(principal)
     this.published = Math.max(this.published, delivery.throughSeq)
     for (const id of connectionIds) {
@@ -286,18 +286,18 @@ export class FeedPublisher {
       if (!state) continue
       if (principalRoutingId(state.principal) !== audience) continue
       if (delivery.kind === 'rescope') {
-        rescopeTo(state, this.identity(), delivery.reason)
+        rescopeTo(state, await this.identity(), delivery.reason)
         continue
       }
-      this.emitTo(state, delivery.changes, delivery.throughSeq)
+      await this.emitTo(state, delivery.changes, delivery.throughSeq)
     }
   }
 
-  private emitTo(
+  private async emitTo(
     state: ConnectionState,
     changes: readonly ScopedChange[],
     throughSeq: number,
-  ): void {
+  ): Promise<void> {
     // Nothing to certify: this connection is already at or past the range. Not an
     // error — a connection that attached at the head legitimately sees this.
     if (throughSeq <= state.fromSeq) return
@@ -319,7 +319,7 @@ export class FeedPublisher {
       return
     }
 
-    const frame = this.frame(state.fromSeq, throughSeq, rows)
+    const frame = await this.frame(state.fromSeq, throughSeq, rows)
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
@@ -343,18 +343,18 @@ export class FeedPublisher {
    * and D13.4's "a suppressed firehose cannot demote anyone" in the same two
    * lines: the slot holds a number, not a queue, so there is nothing to overflow.
    */
-  private takeWatermark(state: ConnectionState): readonly ServerFrame[] {
+  private async takeWatermark(state: ConnectionState): Promise<readonly ServerFrame[]> {
     const through = state.watermarkThrough
     if (through === null || state.queue.isDemoted() || through <= state.fromSeq) return []
-    const frame = this.frame(state.fromSeq, through, [])
+    const frame = await this.frame(state.fromSeq, through, [])
     state.watermarkThrough = null
     state.fromSeq = through
     return [frame]
   }
 
   /** THE one frame constructor. A second one would be invisible to every golden fixture. */
-  private frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): DeltaFrame {
-    const identity = this.identity()
+  private async frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): Promise<DeltaFrame> {
+    const identity = await this.identity()
     return {
       kind: 'delta',
       feedId: identity.feedId,
@@ -379,8 +379,8 @@ export class FeedPublisher {
     return this.deps.retention.minAvailableSeq() ?? 0
   }
 
-  private identity() {
-    return this.deps.identity.current()
+  private async identity() {
+    return await this.deps.identity.current()
   }
 
   /**
@@ -391,8 +391,8 @@ export class FeedPublisher {
    * anyway — via a path that discards the frame. Saying it directly is the same
    * outcome with the reason preserved in telemetry.
    */
-  bumpEpoch(cause: Parameters<FeedIdentityRegistry['bump']>[0]): void {
-    const next = this.deps.identity.bump(cause)
+  async bumpEpoch(cause: Parameters<FeedIdentityRegistry['bump']>[0]): Promise<void> {
+    const next = await this.deps.identity.bump(cause)
     for (const state of this.connections.values()) {
       const frame: ResyncRequiredFrame | null = state.queue.demoteNow(
         next.feedId,

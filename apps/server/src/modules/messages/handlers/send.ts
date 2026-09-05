@@ -71,7 +71,7 @@ export async function sendHandler(
   }
   const r =
     ctx.deliveryMode === 'immediate'
-      ? svc.send(from, payload)
+      ? await svc.send(from, payload)
       : await svc.sendAndConfirm(from, payload, {
           ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
           ...(sleep ? { sleep } : {}),

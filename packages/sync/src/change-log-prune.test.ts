@@ -5,8 +5,8 @@ describe('pruneChangeLog [spec:SP-c29e]', () => {
   it('runs bounded delete units until the repository reports a short batch', async () => {
     const batches = [CHANGE_PRUNE_BATCH_ROWS, CHANGE_PRUNE_BATCH_ROWS, 17]
     const plan = { thresholdSeq: 217 }
-    const planChangePrune = vi.fn(() => plan)
-    const pruneChangeBatch = vi.fn(() => batches.shift() ?? 0)
+    const planChangePrune = vi.fn(async () => plan)
+    const pruneChangeBatch = vi.fn(async () => batches.shift() ?? 0)
     const onMetrics = vi.fn()
 
     const result = await pruneChangeLog(
@@ -29,11 +29,11 @@ describe('pruneChangeLog [spec:SP-c29e]', () => {
 
   it('keeps the threshold snapshot fixed when rows append between delete units', async () => {
     const plan = { thresholdSeq: 200 }
-    const planChangePrune = vi.fn(() => plan)
+    const planChangePrune = vi.fn(async () => plan)
     const pruneChangeBatch = vi
       .fn()
-      .mockImplementationOnce(() => CHANGE_PRUNE_BATCH_ROWS)
-      .mockImplementationOnce((seenPlan) => {
+      .mockImplementationOnce(async () => CHANGE_PRUNE_BATCH_ROWS)
+      .mockImplementationOnce(async (seenPlan) => {
         expect(seenPlan).toBe(plan)
         return 0
       })

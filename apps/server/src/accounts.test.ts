@@ -93,10 +93,10 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 describe('accountViews', () => {
-  it('trusts an explicit logged-in report even when an older daemon omits identity metadata', () => {
-    const claude = accountViews(settings(), accounts, [
+  it('trusts an explicit logged-in report even when an older daemon omits identity metadata', async () => {
+    const claude = (await accountViews(settings(), accounts, [
       machineWithLogin('in', 'mike@example.com'),
-    ]).find((view) => view.id === 'native:claude-code')!
+    ])).find((view) => view.id === 'native:claude-code')!
 
     expect(claude).toMatchObject({
       status: 'connected',
@@ -105,11 +105,11 @@ describe('accountViews', () => {
     })
   })
 
-  it('distinguishes an unavailable native status from an explicit logout', () => {
-    const unknown = accountViews(settings(), accounts, [machineWithLogin('unknown')]).find(
+  it('distinguishes an unavailable native status from an explicit logout', async () => {
+    const unknown = (await accountViews(settings(), accounts, [machineWithLogin('unknown')])).find(
       (view) => view.id === 'native:claude-code',
     )!
-    const loggedOut = accountViews(settings(), accounts, [machineWithLogin('out')]).find(
+    const loggedOut = (await accountViews(settings(), accounts, [machineWithLogin('out')])).find(
       (view) => view.id === 'native:claude-code',
     )!
 
@@ -117,31 +117,31 @@ describe('accountViews', () => {
     expect(loggedOut.status).toBe('not-configured')
   })
 
-  it('does not claim a fleet logout while another machine has an unknown status', () => {
-    const claude = accountViews(settings(), accounts, [
+  it('does not claim a fleet logout while another machine has an unknown status', async () => {
+    const claude = (await accountViews(settings(), accounts, [
       machineWithLogin('out', undefined, 'logged-out'),
       machineWithLogin('unknown', undefined, 'unreported'),
-    ]).find((view) => view.id === 'native:claude-code')!
+    ])).find((view) => view.id === 'native:claude-code')!
 
     expect(claude.status).toBe('unknown')
   })
 
-  it('reports native logins as not-configured when nothing is present', () => {
-    const views = accountViews(settings(), accounts, home)
+  it('reports native logins as not-configured when nothing is present', async () => {
+    const views = await accountViews(settings(), accounts, home)
     const claude = views.find((v) => v.id === 'native:claude-code')!
     expect(claude.status).toBe('not-configured')
     expect(views.find((v) => v.id === 'native:codex')!.status).toBe('not-configured')
     expect(views.find((v) => v.id === 'native:grok')!.status).toBe('not-configured')
   })
 
-  it('detects a Claude login and surfaces the email as identity', () => {
+  it('detects a Claude login and surfaces the email as identity', async () => {
     mkdirSync(join(home, '.claude'))
     writeFileSync(join(home, '.claude', '.credentials.json'), JSON.stringify({ oauth: 'token' }))
     writeFileSync(
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'mike@example.com' } }),
     )
-    const claude = accountViews(settings(), accounts, home).find(
+    const claude = (await accountViews(settings(), accounts, home)).find(
       (v) => v.id === 'native:claude-code',
     )!
     expect(claude.status).toBe('connected')
@@ -149,7 +149,7 @@ describe('accountViews', () => {
     expect(claude.source).toBe('native')
   })
 
-  it('surfaces the Codex ID-token profile instead of its account id', () => {
+  it('surfaces the Codex ID-token profile instead of its account id', async () => {
     writeFileSync(
       join(codexHome, 'auth.json'),
       JSON.stringify({
@@ -161,14 +161,14 @@ describe('accountViews', () => {
         },
       }),
     )
-    const codex = accountViews(settings(), accounts, home).find(
+    const codex = (await accountViews(settings(), accounts, home)).find(
       (view) => view.id === 'native:codex',
     )!
     expect(codex.identity).toBe('Mike Example · mike@example.com')
     expect(codex.identity).not.toContain('account-id')
   })
 
-  it('surfaces the Grok profile from its local auth record', () => {
+  it('surfaces the Grok profile from its local auth record', async () => {
     mkdirSync(join(home, '.grok'))
     writeFileSync(
       join(home, '.grok', 'auth.json'),
@@ -181,13 +181,13 @@ describe('accountViews', () => {
         },
       }),
     )
-    const grok = accountViews(settings(), accounts, home).find((view) => view.id === 'native:grok')!
+    const grok = (await accountViews(settings(), accounts, home)).find((view) => view.id === 'native:grok')!
     expect(grok.status).toBe('connected')
     expect(grok.identity).toBe('Grace Hopper · grace@example.com')
   })
 
-  it('surfaces set API keys as connected managed accounts with a masked identity', () => {
-    const views = accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), accounts, home)
+  it('surfaces set API keys as connected managed accounts with a masked identity', async () => {
+    const views = await accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), accounts, home)
     const anthropic = views.find((v) => v.id === 'managed:anthropic')!
     expect(anthropic.source).toBe('managed')
     expect(anthropic.kind).toBe('api-key')
@@ -203,11 +203,11 @@ describe('accountViews', () => {
    *  (the button reported ok:true, deleted nothing, and the row stayed connected —
    *  an unbreakable loop for anyone with a pre-hub API key). */
   it('marks a legacy settings key as legacy, and a stored credential as stored', async () => {
-    const legacy = accountViews(
+    const legacy = (await accountViews(
       settings({ anthropic: 'sk-ant-abcdefgh1234' }),
       accounts,
       home,
-    ).find((v) => v.id === 'managed:anthropic')!
+    )).find((v) => v.id === 'managed:anthropic')!
     expect(legacy.status).toBe('connected')
     expect(legacy.credentialSource).toBe('legacy')
 
@@ -220,18 +220,18 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const stored = accountViews(
+    const stored = (await accountViews(
       settings({ anthropic: 'sk-ant-abcdefgh1234' }),
       accounts,
       home,
-    ).find((v) => v.id === 'managed:anthropic')!
+    )).find((v) => v.id === 'managed:anthropic')!
     // The stored row wins over the legacy key, and IS disconnectable.
     expect(stored.credentialSource).toBe('stored')
     expect(stored.identity).toBe('sk-a…ored')
   })
 
-  it('leaves an unconfigured managed row with no credential source', () => {
-    const view = accountViews(settings(), accounts, home).find((v) => v.id === 'managed:openai')!
+  it('leaves an unconfigured managed row with no credential source', async () => {
+    const view = (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:openai')!
     expect(view.status).toBe('not-configured')
     expect(view.credentialSource).toBeUndefined()
   })
@@ -248,7 +248,7 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const view = accountViews(settings(), accounts, home).find((v) => v.id === 'managed:openai')!
+    const view = (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:openai')!
     expect(view.status).toBe('connected')
     expect(view.credentialSource).toBe('stored')
     expect(JSON.stringify(view)).not.toContain('sk-live-key')
@@ -265,7 +265,7 @@ describe('accountViews', () => {
       createdAt: 1,
     })
 
-    const views = accountViews(settings(), accounts, home)
+    const views = await accountViews(settings(), accounts, home)
     const view = views.find((v) => v.id === 'managed:anthropic')
 
     expect(view?.status).toBe('connected')
@@ -276,7 +276,7 @@ describe('accountViews', () => {
 
   it('shows a stored Claude setup-token as its own connected oauth account', async () => {
     expect(
-      accountViews(settings(), accounts, home).find((v) => v.id === 'managed:claude-oauth')!.status,
+      (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:claude-oauth')!.status,
     ).toBe('not-configured')
 
     await accounts.upsert({
@@ -289,7 +289,7 @@ describe('accountViews', () => {
       createdAt: 2,
     })
 
-    const views = accountViews(settings(), accounts, home)
+    const views = await accountViews(settings(), accounts, home)
     const oauth = views.find((v) => v.id === 'managed:claude-oauth')!
     expect(oauth.status).toBe('connected')
     expect(oauth.kind).toBe('oauth')
@@ -307,7 +307,7 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 3,
     })
-    const views = accountViews(settings({ openai: 'sk-legacy-abcd1234' }), accounts, home)
+    const views = await accountViews(settings({ openai: 'sk-legacy-abcd1234' }), accounts, home)
     const openai = views.find((v) => v.id === 'managed:openai')!
     expect(openai.identity).toBe('sk-s…9999')
     expect(JSON.stringify(views)).not.toContain('sk-stored-9999')
@@ -349,11 +349,11 @@ describe('accountViews catalog', () => {
     }
   }
 
-  it('projects OpenCode inventory login state into a native account row', () => {
-    const connected = accountViews(settings(), accounts, [opencodeMachine('in')]).find(
+  it('projects OpenCode inventory login state into a native account row', async () => {
+    const connected = (await accountViews(settings(), accounts, [opencodeMachine('in')])).find(
       (view) => view.id === 'native:opencode',
     )
-    const loggedOut = accountViews(settings(), accounts, [opencodeMachine('out')]).find(
+    const loggedOut = (await accountViews(settings(), accounts, [opencodeMachine('out')])).find(
       (view) => view.id === 'native:opencode',
     )
 
@@ -405,8 +405,8 @@ describe('accountViews catalog', () => {
     }
   }
 
-  it('keys native accounts by identity and lists every holding machine', () => {
-    const views = accountViews(settings(), accounts, [
+  it('keys native accounts by identity and lists every holding machine', async () => {
+    const views = await accountViews(settings(), accounts, [
       catalogMachine('m1', 'macbook', 'fp-a', 'a@example.com'),
       catalogMachine('m2', 'vmi', 'fp-a', 'a@example.com'),
       catalogMachine('m3', 'linux-box', 'fp-b', 'b@example.com'),

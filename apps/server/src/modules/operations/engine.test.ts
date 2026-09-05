@@ -127,7 +127,7 @@ const run = async (
 }
 
 /** Start a plan whose first runner never returns; there is nothing to settle. */
-const startOnly = (engine: OperationEngine) => engine.start('test')
+const startOnly = async (engine: OperationEngine) => await engine.start('test')
 
 /**
  * Let the engine's own continuations run, with no clock involved.
@@ -257,7 +257,7 @@ describe('single-flight (P6)', () => {
       }),
     )
 
-    const [a, b] = await Promise.all([engine.start('test'), engine.start('test')])
+    const [a, b] = await Promise.all([await engine.start('test'), await engine.start('test')])
     const outcomes = [a, b]
     expect(outcomes.filter((r) => r.started)).toHaveLength(1)
     expect(outcomes.find((r) => !r.started)).toMatchObject({ alreadyRunning: 'op_1' })
@@ -620,7 +620,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect((await store.get('op_1'))?.state).toBe('canceled')
     expect((await store.get('op_1'))?.finishedAt).not.toBeNull()
   })
@@ -630,7 +630,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toEqual({
+    expect(await engine.cancel('op_1')).toEqual({
       canceled: false,
       refused: 'irreversible',
       step: 'first',
@@ -645,22 +645,22 @@ describe('cancel is gated on reversibility (§3.2)', () => {
       testKind({ runners: { first: runner(blocks, undefined), second: runner(done) } }),
     )
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
+    expect(await engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
   })
 
   it('refuses an operation that never existed, or already ended', async () => {
     const { registry, engine } = harness()
     registry.register(testKind())
-    expect(engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
+    expect(await engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
+    expect(await engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
   })
 
   it('frees the group once canceled', async () => {
     const { registry, engine } = harness()
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
-    engine.cancel('op_1')
+    await engine.cancel('op_1')
     expect(await run(engine, 'test')).toMatchObject({ started: true })
   })
 })
@@ -1090,7 +1090,7 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
 
     // The sweep is inside the guarantee too: `startServer` awaits this before
     // it binds, so the one thing that must not happen is a rejection.
-    await expect(boot(store, registry).adoptOnBoot(() => ({}))).resolves.toEqual([])
+    await expect(await boot(store, registry).adoptOnBoot(() => ({}))).resolves.toEqual([])
   })
 
   it('does not throw when retention sweeps the adopted row away', async () => {
@@ -1481,7 +1481,7 @@ describe('restating a deferred promise (POD-3040)', () => {
       { id: 'laptop', reason: 'target-unavailable' },
     ])
 
-    expect(h.engine.active('lifecycle')).toBeUndefined()
+    expect(await h.engine.active('lifecycle')).toBeUndefined()
     // …and the group is genuinely free: a second operation may still start.
     const next = await run(h.engine, 'test')
     expect(next.started).toBe(true)
@@ -1489,7 +1489,7 @@ describe('restating a deferred promise (POD-3040)', () => {
 
   it('is silent about an operation that is not there', async () => {
     const h = harness()
-    await expect(h.engine.recordDeferred('op_missing', [])).resolves.toBeUndefined()
+    await expect(await h.engine.recordDeferred('op_missing', [])).resolves.toBeUndefined()
   })
 })
 

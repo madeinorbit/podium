@@ -292,7 +292,7 @@ export function wireDevBundlePublisher(deps: {
     ? createDevWebBuilder({
         root: sourceRoot,
         instanceId,
-        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
+        headSha: async () => await headSha?.read() ?? readHeadSha(sourceRoot),
       })
     : undefined
   const publisher = sourceRoot
@@ -301,7 +301,7 @@ export function wireDevBundlePublisher(deps: {
         root: sourceRoot,
         instanceId,
         publisherStateDir: publisherStateDirectory,
-        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
+        headSha: async () => await headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         ...(releaseTiming ? { timing: releaseTiming } : {}),
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
@@ -541,7 +541,7 @@ export function wireDevBundlePublisher(deps: {
   }
 
   const approval = createReleaseApprovalFlow({
-    proposal: async () => publisher?.proposal(),
+    proposal: async () => await publisher?.proposal(),
     release: async (approved) => {
       // One id for this attempt, minted before the first line is emitted. Two approvals
       // of the same version are two runs and must not share a staging file.
@@ -630,9 +630,9 @@ export function wireDevBundlePublisher(deps: {
           'This server does not publish development releases.',
         )
       }
-      return approval.approve(approvedBy, expected)
+      return await approval.approve(approvedBy, expected)
     },
-    requestBuild: () => {
+    requestBuild: async () => {
       if (!publisher) return Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
       // pack for thirty-five seconds and leave the step waiting (POD-2227).
@@ -654,7 +654,7 @@ export function wireDevBundlePublisher(deps: {
       // itself: its lines are still ONE attempt and must not merge with another's.
       const runId = mintReleaseTimingRunId()
       currentTimingRunId = runId
-      return publisher.requestBuild(true).then(
+      return (await publisher.requestBuild(true)).then(
         async (built) => {
           try {
             await observeBundleReadiness()
@@ -716,7 +716,7 @@ export function wireDevBundlePublisher(deps: {
     registerRoute: (app) => {
       if (!publisher) return
       registerDevFeedRoutes(app, {
-        publishedArtifact: (version, platform) => publisher.publishedArtifact(version, platform),
+        publishedArtifact: async (version, platform) => await publisher.publishedArtifact(version, platform),
         probeArtifact: (version, platform) => {
           const candidate = publisher.current()
           if (!candidate || candidate.version !== version) return null

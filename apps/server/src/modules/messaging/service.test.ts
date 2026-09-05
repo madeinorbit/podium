@@ -1067,7 +1067,7 @@ describe('MessagingService', () => {
 
   it('sendNotice routes through the adapter with formatted text', async () => {
     const h = makeHarness()
-    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+    await h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
     })
@@ -1106,7 +1106,7 @@ describe('MessagingService', () => {
       updatedAt: '2026-07-16T00:00:00.000Z',
     })
     h.inbound('in another topic', { threadRef: '77' })
-    h.service.sendNotice(
+    await h.service.sendNotice(
       'keyboard needs you\n\nSQLite or Postgres?',
       {
         botToken: 'tok',
@@ -1129,7 +1129,7 @@ describe('MessagingService', () => {
       sessionIssueId: () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
-    h.service.sendNotice(
+    await h.service.sendNotice(
       'keyboard needs you\n\nSQLite or Postgres?',
       {
         botToken: 'tok',
@@ -1193,7 +1193,7 @@ describe('MessagingService', () => {
       source: { channel: 'telegram', chatId: '42', threadRef: '77' },
       text: 'in topic',
     })
-    service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+    await service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
     })
@@ -1215,7 +1215,7 @@ describe('MessagingService', () => {
     })
     vi.stubGlobal('fetch', fetch)
     const h = makeHarness()
-    h.service.sendNotice('t\n\nb', { botToken: 'other', chatId: '42' })
+    await h.service.sendNotice('t\n\nb', { botToken: 'other', chatId: '42' })
     await flush()
     expect(h.sent).toEqual([])
     expect(fetch).toHaveBeenCalledOnce()
@@ -1231,7 +1231,7 @@ describe('MessagingService', () => {
     vi.stubGlobal('fetch', fetch)
     const h = makeHarness()
     h.service.stop()
-    h.service.sendNotice('t\n\nb', { botToken: 'tok', chatId: '42' })
+    await h.service.sendNotice('t\n\nb', { botToken: 'tok', chatId: '42' })
     await flush()
     expect(h.sent).toEqual([])
     expect(fetch).toHaveBeenCalledOnce()

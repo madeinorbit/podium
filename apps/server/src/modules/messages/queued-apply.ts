@@ -17,8 +17,8 @@ export class QueuedMessageApply {
     },
   ) {}
 
-  authorize(messageId: string): { ok: true } | { ok: false; reason: string } {
-    const message = this.deps.messages.getMessage(messageId)
+  async authorize(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     if (message.status !== 'queued') return { ok: false, reason: `message is ${message.status}` }
     return this.deps.authorize(message)
@@ -34,13 +34,13 @@ export class QueuedMessageApply {
     this.deps.injected(messageId, sessionId)
   }
 
-  reject(messageId: string, reason: string): void {
-    const message = this.deps.messages.getMessage(messageId)
+  async reject(messageId: string, reason: string): Promise<void> {
+    const message = await this.deps.messages.getMessage(messageId)
     if (!message || message.status !== 'queued') return
     const at = this.deps.now()
-    if (!this.deps.messages.markDeadLetter(message.id, at)) return
+    if (!await this.deps.messages.markDeadLetter(message.id, at)) return
     try {
-      this.deps.events.appendEvent({
+      await this.deps.events.appendEvent({
         ts: at,
         kind: 'message.dead_letter',
         subject: message.id,

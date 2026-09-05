@@ -220,7 +220,7 @@ describe('forwarded client logs', () => {
     })
     await drain()
     expect(ingest.forward(batch()).accepted).toBe(2)
-    await expect(ingest.close()).resolves.toBeUndefined()
+    await expect(await ingest.close()).resolves.toBeUndefined()
   })
 
   /**

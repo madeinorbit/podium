@@ -77,7 +77,7 @@ export class LockCommandCtx {
    * calling session id + its bound issue for a relayed agent; the operator
    * (direct-HTTP, no actor session) holds as `operator`.
    */
-  callerIdentity(): LockCallerIdentity {
+  async callerIdentity(): Promise<LockCallerIdentity> {
     const cap = this.caller.capability
     // Only the unconstrained operator (scope 'all', no actor session) maps to
     // the null holder; a constrained caller with no known session gets the
@@ -87,7 +87,7 @@ export class LockCommandCtx {
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {
-      const me = this.deps.issues.getMeta(issueId)
+      const me = await this.deps.issues.getMeta(issueId)
       label = me ? `issue:#${me.seq}` : `session:${sessionId ?? '?'}`
     } else if (sessionId) {
       label = `session:${sessionId}`
@@ -142,42 +142,42 @@ const defs = {
     }),
     action: 'write',
     cli: { positional: ['name'], summary: 'Acquire (or renew) a named lease lock.' },
-    handler: (ctx, input) => ctx.locks.acquire(ctx.callerIdentity(), input),
+    handler: async (ctx, input) => await ctx.locks.acquire(await ctx.callerIdentity(), input),
   }),
   cancel: def({
     kind: 'mutation',
     input: lockRef,
     action: 'write',
     cli: { positional: ['name'], summary: "Leave a lock's wait queue." },
-    handler: (ctx, input) => ctx.locks.cancel(ctx.callerIdentity(), input),
+    handler: async (ctx, input) => await ctx.locks.cancel(await ctx.callerIdentity(), input),
   }),
   release: def({
     kind: 'mutation',
     input: lockRef,
     action: 'write',
     cli: { positional: ['name'], summary: 'Release a lock you hold.' },
-    handler: (ctx, input) => ctx.locks.release(ctx.callerIdentity(), input),
+    handler: async (ctx, input) => await ctx.locks.release(await ctx.callerIdentity(), input),
   }),
   renew: def({
     kind: 'mutation',
     input: lockRef.extend(ttlField),
     action: 'write',
     cli: { positional: ['name'], summary: 'Extend the lease on a lock you hold.' },
-    handler: (ctx, input) => ctx.locks.renew(ctx.callerIdentity(), input),
+    handler: async (ctx, input) => await ctx.locks.renew(await ctx.callerIdentity(), input),
   }),
   status: def({
     kind: 'query',
     input: z.object({ repoPath: z.string(), name: lockName.optional() }),
     action: 'read',
     cli: { positional: ['name'], summary: 'Show lock state (one lock or the whole repo).' },
-    handler: (ctx, input) => ctx.locks.status(input),
+    handler: async (ctx, input) => await ctx.locks.status(input),
   }),
   steal: def({
     kind: 'mutation',
     input: lockRef.extend({ ...ttlField, note: z.string().max(500).optional() }),
     action: 'write',
     cli: { positional: ['name'], summary: 'Force-take a lock regardless of holder.' },
-    handler: (ctx, input) => ctx.locks.steal(ctx.callerIdentity(), input),
+    handler: async (ctx, input) => await ctx.locks.steal(await ctx.callerIdentity(), input),
   }),
 } satisfies Record<LockCommandName, AnyLockCommandDef>
 

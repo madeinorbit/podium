@@ -51,7 +51,7 @@ describe('deriveVersionState', () => {
       machinesForPrincipal: () => [],
     })
 
-    expect(service.listMachines()[0]).toMatchObject({
+    expect((await service.listMachines())[0]).toMatchObject({
       appVersion: '0.4.2',
       wireSchemaDigest: 'abc',
       installKind: 'installed',
@@ -60,19 +60,19 @@ describe('deriveVersionState', () => {
     })
 
     target = '0.4.3'
-    expect(service.listMachines()[0]?.versionState).toBe('behind')
+    expect((await service.listMachines())[0]?.versionState).toBe('behind')
   })
 
   it('composes the server target into the machine read model', async () => {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, {
+    const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',
     })
     const machine = (await store.machines.listMachines())[0]
     if (!machine) throw new Error('expected the registry host machine')
 
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       machine.id,
       { appVersion: '0.4.2' },
       [],
@@ -84,7 +84,7 @@ describe('deriveVersionState', () => {
       artifacts: {},
     } as never)
 
-    expect(registry.modules.machines.listMachines()[0]?.versionState).toBe('current')
+    expect((await registry.modules.machines.listMachines())[0]?.versionState).toBe('current')
     registry.dispose()
   })
 })

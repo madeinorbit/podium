@@ -144,7 +144,7 @@ describe('IssueToolProvider', () => {
 
   it('throws a clear error when no client is set', async () => {
     const p = new IssueToolProvider()
-    await expect(p.callMcpTool('issue_ready', {})).rejects.toThrow(
+    await expect(await p.callMcpTool('issue_ready', {})).rejects.toThrow(
       /owned superagent thread|not ready|no client/i,
     )
   })
@@ -171,6 +171,6 @@ describe('CompositeMcpProvider', () => {
   })
   it('throws on an unknown tool name', async () => {
     const c = new CompositeMcpProvider([a])
-    await expect(c.callMcpTool('nope', {})).rejects.toThrow(/unknown/i)
+    await expect(await c.callMcpTool('nope', {})).rejects.toThrow(/unknown/i)
   })
 })

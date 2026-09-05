@@ -18,12 +18,12 @@ import { SuperagentService } from './index'
 describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
   const REAP_MS = 1_000
 
-  it('skips a reap that lands on a reap already running', () => {
+  it('skips a reap that lands on a reap already running', async () => {
     vi.useFakeTimers()
     try {
-      const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const repos = new RepoRegistry(registry, registry.sessionStore)
-      const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, {
+      const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, {
         reapIntervalMs: REAP_MS,
       })
 
@@ -52,12 +52,12 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
     }
   })
 
-  it('a later, non-overlapping reap runs normally', () => {
+  it('a later, non-overlapping reap runs normally', async () => {
     vi.useFakeTimers()
     try {
-      const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const repos = new RepoRegistry(registry, registry.sessionStore)
-      const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, {
+      const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, {
         reapIntervalMs: REAP_MS,
       })
 

@@ -765,7 +765,7 @@ describe('finalizeTimingIntoRecord', () => {
 describe('buildDevBundle', () => {
   it('refuses the retired caller-supplied digest seam', async () => {
     await expect(
-      buildDevBundle({
+      await buildDevBundle({
         clientRootDigest: 'a'.repeat(64),
       } as unknown as Parameters<typeof buildDevBundle>[0]),
     ).rejects.toThrow(/caller-supplied clientRootDigest is forbidden/)
@@ -1245,8 +1245,8 @@ describe('buildDevBundle', () => {
   it('names the step that refused, so a failed attempt is still evidence', async () => {
     const seams = publisherSeams()
     const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
-    const attempt = (spawnBuild: Parameters<typeof buildDevBundle>[0]['spawnBuild']) =>
-      buildDevBundle({
+    const attempt = async (spawnBuild: Parameters<typeof buildDevBundle>[0]['spawnBuild']) =>
+      await buildDevBundle({
         ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1258,7 +1258,7 @@ describe('buildDevBundle', () => {
 
     // The child died before it could say the clients passed.
     await expect(
-      attempt(async () => {
+      await attempt(async () => {
         throw new Error('client verification failed')
       }),
     ).rejects.toThrow('client verification failed')
@@ -1270,7 +1270,7 @@ describe('buildDevBundle', () => {
     const seams = publisherSeams()
     const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
     await expect(
-      buildDevBundle({
+      await buildDevBundle({
         ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1295,7 +1295,7 @@ describe('buildDevBundle', () => {
     const seams = publisherSeams()
     const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
     await expect(
-      buildDevBundle({
+      await buildDevBundle({
         ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1319,7 +1319,7 @@ describe('buildDevBundle', () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
     await expect(
-      buildDevBundle({
+      await buildDevBundle({
         ...publisherSeams(),
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1457,7 +1457,7 @@ describe('buildDevBundle', () => {
   it('releases the lease and keeps a failed build unpublished', async () => {
     const events: string[] = []
     await expect(
-      buildDevBundle({
+      await buildDevBundle({
         ...publisherSeams(),
         headSha: '123456789abcdef',
         fs: stubFs(),
@@ -1610,7 +1610,7 @@ describe('buildDevBundle', () => {
     await publisher.requestBuild(true)
     expect((await publisher.target())?.version).toBe('0.1.0-dev.1+aaaaaaa')
     head = 'bbbbbbb'
-    await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
+    await expect(await publisher.requestBuild(true)).rejects.toThrow('second compile failed')
     // The signed bytes for the old commit survive — a later request at that sha
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
@@ -1648,7 +1648,7 @@ describe('buildDevBundle', () => {
         ...store.fs,
         digest: async (path) => {
           reads++
-          return store.fs.digest(path)
+          return await store.fs.digest(path)
         },
       },
       lock: lockFixture([]),
@@ -1658,7 +1658,7 @@ describe('buildDevBundle', () => {
       },
     })
 
-    await expect(publisher.requestBuild(true)).rejects.toThrow(
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(
       /does not match HEAD \(aaaaaaa\).*apps\/server\/src\/server\.ts/s,
     )
     // Neither compiled, nor republished an artifact left over from that sha.
@@ -1688,7 +1688,7 @@ describe('buildDevBundle', () => {
       },
     })
 
-    await expect(publisher.requestBuild(true)).rejects.toThrow(
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(
       /could not verify the source checkout.*not a git repository/s,
     )
   })
@@ -1708,7 +1708,7 @@ describe('buildDevBundle', () => {
         artifacts.map(({ platform }) => ({ platform, path: '/stage/' + version, signature })),
     })
 
-    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
     porcelain = ''
     await publisher.requestBuild(true)
 
@@ -1757,8 +1757,8 @@ describe('buildDevBundle', () => {
       },
     })
 
-    const first = publisher.requestBuild(true)
-    const second = publisher.requestBuild(true)
+    const first = await publisher.requestBuild(true)
+    const second = await publisher.requestBuild(true)
     await buildStarted
     expect(builds).toBe(1)
     resolveBuild()
@@ -1847,7 +1847,7 @@ describe('development bundle readiness', () => {
     await publisher.requestBuild(true)
     moveHead('bbbbbbb')
     failNextBuild('compile blew up')
-    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+    await expect(await publisher.requestBuild(true)).rejects.toThrow('compile blew up')
 
     const readiness = await publisher.readiness()
     expect(readiness.state).toBe('failed')
@@ -1867,7 +1867,7 @@ describe('development bundle readiness', () => {
     const { publisher } = readinessFixture({
       porcelain: () => nul(' M apps/server/src/server.ts', '?? apps/web/scratch.ts'),
     })
-    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
 
     const readiness = await publisher.readiness()
     expect(readiness).toMatchObject({
@@ -1906,7 +1906,7 @@ describe('development bundle readiness', () => {
   it('does not carry an old HEAD failure into a new one', async () => {
     const { publisher, moveHead, failNextBuild } = readinessFixture()
     failNextBuild('compile blew up')
-    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+    await expect(await publisher.requestBuild(true)).rejects.toThrow('compile blew up')
     expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
@@ -1947,7 +1947,7 @@ describe('development bundle readiness', () => {
       },
     })
 
-    const built = publisher.requestBuild(true)
+    const built = await publisher.requestBuild(true)
     // `onAdmitted`, not the call returning: admission reads HEAD and walks the
     // tree off the loop, so a request is not yet in flight when `requestBuild`
     // hands back its promise. This is the moment the read model is told to stop
@@ -1982,7 +1982,7 @@ describe('ignored source inputs gate the build', () => {
       },
     })
 
-    await expect(publisher.requestBuild(true)).rejects.toThrow(
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(
       /ignored source files.*apps\/server\/src\/local-override\.ts/s,
     )
     expect(builds).toBe(0)
@@ -2029,7 +2029,7 @@ describe('ignored source inputs gate the build', () => {
       },
     })
 
-    await expect(publisher.requestBuild(true)).rejects.toThrow(
+    await expect(await publisher.requestBuild(true)).rejects.toThrow(
       /could not enumerate ignored source inputs.*git exploded/s,
     )
   })
@@ -2354,7 +2354,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const writeText = store.fs.writeText
     store.fs.writeText = async (path, contents) => {
       if (path === publisher.feedManifestPath()) throw new Error('feed write failed')
-      return writeText(path, contents)
+      return await writeText(path, contents)
     }
 
     expect(await publisher.publishFeed()).toBe(false)
@@ -2389,7 +2389,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const publisher = publisherFor(store, () => 'bbbbbbb')
 
     await expect(
-      publisher.requestBuild(true, {
+      await publisher.requestBuild(true, {
         headSha: 'aaaaaaa',
         version: '0.1.0-dev.1+aaaaaaa',
       }),
@@ -2428,8 +2428,8 @@ describe('the dev feed manifest the publisher writes', () => {
         commits: [{ sha, summary: 'Approved' }],
         addedMigrations: [],
       }),
-      snapshotBuild: (approvedSha, build) =>
-        withDevBuildSnapshot({ sourceRoot: root, approvedSha, install: async () => {} }, build),
+      snapshotBuild: async (approvedSha, build) =>
+        await withDevBuildSnapshot({ sourceRoot: root, approvedSha, install: async () => {} }, build),
       signingKey,
       fs: store.fs,
       lock: lockFixture([]),
@@ -2448,7 +2448,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const approved = await publisher.proposal()
     expect(approved).toBeDefined()
 
-    await expect(publisher.requestBuild(true, approved)).rejects.toThrow(
+    await expect(await publisher.requestBuild(true, approved)).rejects.toThrow(
       /snapshot .* changed while building; refusing to publish/i,
     )
     expect(await publisher.publishFeed()).toBe(false)
@@ -2613,7 +2613,7 @@ describe('the dev feed manifest the publisher writes', () => {
     )
     const app = new Hono()
     registerDevFeedRoutes(app, {
-      publishedArtifact: (version, platform) => restarted.publishedArtifact(version, platform),
+      publishedArtifact: async (version, platform) => await restarted.publishedArtifact(version, platform),
       manifestPath: () => restarted.feedManifestPath(),
       authenticate: () => true,
     })
@@ -2672,7 +2672,7 @@ describe('the dev feed manifest the publisher writes', () => {
     )
     const approved = await publisher.proposal()
     expect(approved).toBeDefined()
-    const building = publisher.requestBuild(true, approved)
+    const building = await publisher.requestBuild(true, approved)
     await preparing
 
     // A commit lands and receives its own reserved version while the approved

@@ -175,7 +175,7 @@ describe('oracle: resume', () => {
     })
 
     expect(second.sessionId).toBe(first.sessionId)
-    expect(o.reg.modules.sessions.listSessions()).toHaveLength(1)
+    expect(await o.reg.modules.sessions.listSessions()).toHaveLength(1)
   })
 })
 
@@ -402,7 +402,7 @@ describe('oracle: kill', () => {
 
     await o.call.sessions.kill({ sessionId })
 
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
     expect(await o.store.sessions.loadSessions()).toEqual([])
     const tombstone = (await o.store.sessions.loadDeletedSessions()).find((r) => r.id === sessionId)
     expect(tombstone?.deletionSource).toBe('standalone')
@@ -456,8 +456,8 @@ describe('oracle: kill', () => {
         }),
     )
 
-    const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const first = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const second = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
 
     release({ ok: true, cwd: '/p' })
@@ -1125,6 +1125,6 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsAfterFirst)
     // The row survives — stop keeps the branch, the transcript and the session.
-    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
   })
 })

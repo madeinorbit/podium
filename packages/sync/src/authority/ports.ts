@@ -53,15 +53,15 @@ export interface ChangeStorePort {
    * because every row in one Authority append shares one eventTime — that is an
    * adapter convenience, not a second row shape.
    */
-  appendChanges(rows: readonly StoredChangeRow[]): number[]
+  appendChanges(rows: readonly StoredChangeRow[]): Promise<number[]>
   /** Highest seq ever assigned — survives head-pruning. 0 before any change. */
-  maxChangeSeq(): number
+  maxChangeSeq(): Promise<number>
   /** Lowest RETAINED seq, or null when the log is empty (ADR 2 D5's
    *  `minAvailableSeq`: below it a heal is refused and the ladder goes to rung 2). */
-  minChangeSeq(): number | null
+  minChangeSeq(): Promise<number | null>
   /** Plain range read: rows with seq > cursor, in seq order. The CALLER decides
    *  whether the cursor is still inside the retained range. */
-  changesSince(cursor: number): readonly SequencedChange[]
+  changesSince(cursor: number): Promise<readonly SequencedChange[]>
   /**
    * THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
    * for the dedup baseline, and the ONLY honest source for a bootstrap
@@ -88,7 +88,7 @@ export interface ChangeStorePort {
    * Shape is {@link ChangeLogReadRow} — the composed store-read form, not a
    * hand-restated field list.
    */
-  latestChangeStates(): readonly ChangeLogReadRow[]
+  latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
 }
 
 /** Re-export so adapters and tests name the composed write/read forms once. */
@@ -103,7 +103,7 @@ export type { ChangeLogReadRow, ChangeLogWriteRow }
  * `(fn) => fn()`. What the kernel guarantees is the ORDERING and the shape; what
  * the adapter guarantees is that the span is real.
  */
-export type TransactPort = <T>(fn: () => T) => T
+export type TransactPort = <T>(fn: () => Promise<T>) => Promise<T>
 
 /**
  * Runs an EXTERNAL EFFECT once the outermost unit of work has committed
@@ -213,14 +213,14 @@ export interface AuthorityPort {
    * in that order and nowhere else. See `authority.ts` for why the order is not
    * negotiable at any step.
    */
-  commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T>
+  commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>>
 
   /**
    * An explicitly owned mutation with no durable entity-row write to bind to
    * (volatile session view state, an upstream mirror). The caller supplies the
    * exact upserts and removes; this never diffs a list.
    */
-  capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[]
+  capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]>
 
   /**
    * BOOT-ONLY reconciliation: `rows` is the FULL truth for one entity kind.
@@ -231,7 +231,7 @@ export interface AuthorityPort {
   reconcile(
     entity: MetadataEntityKind,
     rows: readonly { readonly id: string; readonly value: unknown }[],
-  ): readonly SequencedChange[]
+  ): Promise<readonly SequencedChange[]>
 
   /**
    * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —
@@ -243,10 +243,10 @@ export interface AuthorityPort {
    * An optional parameter would make the unscoped read the default, and the
    * default is the one every new call site takes.
    */
-  changesSince(cursor: number | null, principal: Principal): ScopedDelivery | null
+  changesSince(cursor: number | null, principal: Principal): Promise<ScopedDelivery | null>
 
   /** The highest seq ever assigned. 0 before any change. */
-  cursor(): number
+  cursor(): Promise<number>
 
   /**
    * What kind of answer this Authority's visibility policy gives (POD-376).
@@ -267,7 +267,7 @@ export interface AuthorityPort {
    * answers that cannot disagree. A composition that read the world from
    * somewhere else would be the second read path the cutover deleted.
    */
-  bootstrap(principal: Principal): ScopedBootstrap
+  bootstrap(principal: Principal): Promise<ScopedBootstrap>
 
   /**
    * Subscribe to the ORDERED delta pipe, AS ONE PRINCIPAL. Returns an
@@ -297,7 +297,7 @@ export interface AuthorityCommit<T> {
    * asked before anything was written. A forbidden op must never write, and the
    * only way to guarantee that is for the write to be unreachable past a throw.
    */
-  authorize?: () => void
+  authorize?: () => Promise<void>
   /**
    * ARBITRATION — which write wins, per the row's declared conflict rule. Absent
    * means the caller declares this write has no concurrent-write question (a
@@ -312,14 +312,10 @@ export interface AuthorityCommit<T> {
      */
     readonly attempt: Omit<ArbitrationAttempt, 'eventTime'>
     /** Read CURRENT state inside the transaction that performs the write. */
-    readonly current?: () => ArbitrationRequest['current']
+    readonly current?: () => Promise<ArbitrationRequest['current']>
   }
-  /**
-   * The entity write. MUST be synchronous — an async write would commit its
-   * change row now and its entity row later, OUTSIDE the transaction, which is
-   * the torn state the span exists to prevent.
-   */
-  write: () => T
+  /** The entity write, awaited inside the same transaction as the change append. */
+  write: () => Promise<T>
   /** What the write touched, declared by the writer. Never diffed from a list. */
   changes: (result: T) => readonly StagedChangeSpec[]
 }

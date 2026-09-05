@@ -28,9 +28,9 @@ export const CLOUD_QUERIES = {
   /** What this deployment's provider supports. Answers honestly (with everything
    *  false) when no provider is configured, rather than failing — which is what
    *  lets the UI hide the cloud surface instead of erroring in it. */
-  capabilities: query(noInput, (service) => service.capabilities()),
-  runtime: query(z.object({ id: z.string().min(1) }), (service, input) =>
-    service.getRuntime(input.id),
+  capabilities: query(noInput, async (service) => await service.capabilities()),
+  runtime: query(z.object({ id: z.string().min(1) }), async (service, input) =>
+    await service.getRuntime(input.id),
   ),
 } as const
 

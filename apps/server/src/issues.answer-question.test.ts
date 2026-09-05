@@ -58,7 +58,7 @@ async function harness(
     },
     arbitration: { run: (_input, operation) => operation() },
     deleteIssue: () => undefined,
-    attachSession: (_caller, input) => svc.attachSession(input),
+    attachSession: async (_caller, input) => await svc.attachSession(input),
     restoreIssue: () => undefined,
     // A ledger with no durable store: never dedupes, so every call runs — the
     // pass-through this file's cases assume. Idempotency itself is characterized
@@ -78,8 +78,8 @@ async function harness(
       ...(opts.actorSessionId ? { actorSessionId: opts.actorSessionId } : {}),
     },
   }
-  const call = (proc: string, input: unknown, asCaller = caller) => {
-    const p = dispatcher.dispatch(asCaller, 'issues', proc, input)
+  const call = async (proc: string, input: unknown, asCaller = caller) => {
+    const p = await dispatcher.dispatch(asCaller, 'issues', proc, input)
     if (!p) throw new Error(`no such proc ${proc}`)
     return p
   }
@@ -90,7 +90,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('delivers to the asking session, then clears needsHuman', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
     const { svc, call } = await harness(deliver)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', {
       id: a.id,
       question: 'merge?',
@@ -115,12 +115,12 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('keeps the pending question when delivery fails', async () => {
     const deliver = vi.fn(async () => ({ ok: false as const, message: 'unknown session' }))
     const { svc, call } = await harness(deliver)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_gone' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
       /answer not delivered: unknown session/,
     )
-    const after = svc.get(a.id)!
+    const after = (await svc.get(a.id))!
     expect(after.needsHuman).toBe(true)
     expect(after.humanQuestion).toBe('merge?')
   })
@@ -128,7 +128,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   it('refuses when no question is pending, and when the question is unattributed', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
     const { svc, call } = await harness(deliver)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
       /no pending question/,
     )
@@ -138,32 +138,32 @@ describe('issues.answerQuestion (issue #53)', () => {
       /no asking session/,
     )
     expect(deliver).not.toHaveBeenCalled()
-    expect(svc.get(a.id)!.needsHuman).toBe(true)
+    expect((await svc.get(a.id))!.needsHuman).toBe(true)
   })
 
   it('refuses cleanly when delivery is not wired (test/legacy deps)', async () => {
     const { svc, call } = await harness(undefined)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_asker' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(/not wired/)
-    expect(svc.get(a.id)!.needsHuman).toBe(true)
+    expect((await svc.get(a.id))!.needsHuman).toBe(true)
   })
 
   it('setNeedsHuman defaults askedBy to the calling session', async () => {
     const { svc, call } = await harness(undefined, { actorSessionId: asSessionId('sess_self') })
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
-    expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_self')
+    expect((await svc.get(a.id))!.humanQuestionAskedBy).toBe('sess_self')
     // The OPERATOR may attribute explicitly (superagent-on-behalf, hub-side
     // execution of node-forwarded mutations) — see the deputy gate below for
     // why constrained agents may not.
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_other' })
-    expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_other')
+    expect((await svc.get(a.id))!.humanQuestionAskedBy).toBe('sess_other')
   })
 
   it('rejects a spoofed askedBy from a constrained agent (issue #53 review)', async () => {
     const { svc, call } = await harness(undefined)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const worker = {
       capability: {
         role: 'worker' as const,
@@ -176,16 +176,16 @@ describe('issues.answerQuestion (issue #53)', () => {
     // alone would allow it) is refused: answerQuestion would later deliver the
     // human's answer INTO that session.
     await expect(
-      call(
+      await call(
         'setNeedsHuman',
         { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
         worker,
       ),
     ).rejects.toThrow(/askedBy is server-authoritative/)
-    expect(svc.get(a.id)!.needsHuman).toBe(false) // nothing was flagged
+    expect((await svc.get(a.id))!.needsHuman).toBe(false) // nothing was flagged
     // Own session passes, explicitly or by default.
     await call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_me' }, worker)
-    expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_me')
+    expect((await svc.get(a.id))!.humanQuestionAskedBy).toBe('sess_me')
     // A session-less constrained caller cannot smuggle an attribution either.
     const sessionless = {
       capability: {
@@ -196,7 +196,7 @@ describe('issues.answerQuestion (issue #53)', () => {
       },
     }
     await expect(
-      call(
+      await call(
         'setNeedsHuman',
         { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
         sessionless,

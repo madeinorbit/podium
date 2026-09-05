@@ -194,7 +194,7 @@ export class OperationEngine {
       return { started: false, refused: 'unknown-kind' }
     }
 
-    const held = this.deps.store.activeByGroup(def.exclusionGroup)
+    const held = await this.deps.store.activeByGroup(def.exclusionGroup)
     if (held) {
       // SINGLE-FLIGHT ANSWERED, not a failure. A second surface pressing the
       // button lands here, and telling that apart from a start that did nothing
@@ -210,7 +210,7 @@ export class OperationEngine {
 
     const plan = await (def.plan as (c: unknown) => OperationPlan | Promise<OperationPlan>)(context)
 
-    const contended = this.deps.store.activeByGroup(def.exclusionGroup)
+    const contended = await this.deps.store.activeByGroup(def.exclusionGroup)
     if (contended) {
       log.info('another operation took this group while the plan was being made', {
         kind,
@@ -237,7 +237,7 @@ export class OperationEngine {
       deferred: plan.deferred ?? [],
       error: null,
     }
-    this.deps.store.insert(operation)
+    await this.deps.store.insert(operation)
     this.contexts.set(operation.id, context)
     /**
      * THE PLAN, IN FULL, AT THE MOMENT IT WAS MADE.
@@ -266,7 +266,7 @@ export class OperationEngine {
         (place) => `${place.id}:${place.reason ?? 'unstated'}`,
       ),
     })
-    this.announce(operation.id)
+    await this.announce(operation.id)
 
     // START CREATES THE OPERATION; IT DOES NOT RUN IT TO COMPLETION. The caller
     // is a button press, and what it needs back is an identity to render — the
@@ -278,7 +278,7 @@ export class OperationEngine {
     //
     // NOT AWAITING IT MEANS NOBODY IS WATCHING IT, so the throw has to be
     // caught here — see `containDriveFailure` (POD-2151).
-    void this.drive(operation.id).catch((err) => this.containDriveFailure(operation.id, err))
+    void (await this.drive(operation.id)).catch(async (err) => await this.containDriveFailure(operation.id, err))
     return { started: true, operation }
   }
 
@@ -297,7 +297,7 @@ export class OperationEngine {
     patch: StepProgressPatch,
   ): Promise<void> {
     await this.enqueue(operationId, async () => {
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = (operation.steps ?? []).find((s) => s.id === stepId)
       if (!step || isStepFinished(step.state)) return
@@ -310,7 +310,7 @@ export class OperationEngine {
         at,
         (s) => ({ ...s, startedAt: s.startedAt ?? at }),
       )
-      this.persist(next, at)
+      await this.persist(next, at)
 
       const reported = next.steps?.find((s) => s.id === stepId)?.state ?? 'running'
       // `debug`: a machine wave reports per machine per tick, and this is the
@@ -329,14 +329,14 @@ export class OperationEngine {
         // the report: `isStepFinished` counts a failed step as finished, so the
         // plan would step over it and the operation could reach `done` with a
         // failed step in its own step list.
-        this.fail(next, stepId, patch.error ?? { code: 'step-failed' })
+        await this.fail(next, stepId, patch.error ?? { code: 'step-failed' })
         return
       }
       if (isStepFinished(reported)) {
         await this.driveLocked(operationId)
         return
       }
-      this.armDeadline(operationId)
+      await this.armDeadline(operationId)
     })
   }
 
@@ -345,12 +345,12 @@ export class OperationEngine {
    * external boundary. The update server step uses this synchronously between
    * publishing its database snapshot and requesting the process restart.
    */
-  recordDetails(operationId: string, patch: Record<string, unknown>): Operation | undefined {
-    const operation = this.deps.store.get(operationId)?.operation
+  async recordDetails(operationId: string, patch: Record<string, unknown>): Promise<Operation | undefined> {
+    const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const details =
       operation.details && typeof operation.details === 'object' ? operation.details : {}
-    return this.persist(
+    return await this.persist(
       {
         ...operation,
         details: { ...details, ...patch },
@@ -399,7 +399,7 @@ export class OperationEngine {
     patch: StepProgressPatch,
   ): Promise<void> {
     await this.enqueue(operationId, async () => {
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = (operation.steps ?? []).find((s) => s.id === stepId)
       if (!step || isStepFinished(step.state)) return
@@ -415,7 +415,7 @@ export class OperationEngine {
         { ...patch, state: 'running' },
         at,
       )
-      this.persist(next, at)
+      await this.persist(next, at)
       await this.driveLocked(operationId)
     })
   }
@@ -454,9 +454,9 @@ export class OperationEngine {
     deferred: readonly { id: string; name?: string; reason?: string }[],
   ): Promise<void> {
     await this.enqueue(operationId, async () => {
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation) return
-      this.persist({ ...operation, deferred: [...deferred] } as PersistedOperation, this.now())
+      await this.persist({ ...operation, deferred: [...deferred] } as PersistedOperation, this.now())
     })
   }
 
@@ -484,13 +484,13 @@ export class OperationEngine {
    */
   async reensure(operationId: string, stepId: string, patch?: StepProgressPatch): Promise<void> {
     await this.enqueue(operationId, async () => {
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = inFlightStep(operation)
       if (!step || step.id !== stepId || step.state !== 'running') return
       if (patch) {
         const at = this.now()
-        this.persist(this.applyPatch(operation, stepId, { ...patch, state: 'running' }, at), at)
+        await this.persist(this.applyPatch(operation, stepId, { ...patch, state: 'running' }, at), at)
       }
       await this.driveLocked(operationId)
     })
@@ -502,7 +502,7 @@ export class OperationEngine {
    * because "this can't be canceled now, it will finish or fail" is a sentence
    * the panel has to be able to say.
    */
-  cancel(operationId: string): CancelResult {
+  async cancel(operationId: string): Promise<CancelResult> {
     const refuse = (refused: CancelResult & { canceled: false }): CancelResult => {
       // A REFUSAL IS AN ANSWER, and the panel renders a sentence from it, so an
       // operator reading the log has to be able to see the same answer the user
@@ -514,7 +514,7 @@ export class OperationEngine {
       })
       return refused
     }
-    const row = this.deps.store.get(operationId)
+    const row = await this.deps.store.get(operationId)
     if (!row) return refuse({ canceled: false, refused: 'not-found' })
     if (isTerminalOperationState(row.state)) {
       return refuse({ canceled: false, refused: 'already-finished' })
@@ -534,7 +534,7 @@ export class OperationEngine {
       ...(inFlight ? { step: inFlight.id } : {}),
     })
 
-    const canceled = this.finish(this.persistable(operation), 'canceled', this.now())
+    const canceled = await this.finish(this.persistable(operation), 'canceled', this.now())
     return { canceled: true, operation: canceled }
   }
 
@@ -564,7 +564,7 @@ export class OperationEngine {
     const adopted: Operation[] = []
     let live: OperationRow[]
     try {
-      live = this.deps.store.active()
+      live = await this.deps.store.active()
     } catch {
       // Even the SWEEP is inside the guarantee. If the store cannot list its
       // live rows there is nothing to adopt and nothing that could be recorded
@@ -573,8 +573,8 @@ export class OperationEngine {
       return adopted
     }
     for (const row of live) {
-      const outcome = await this.adoptRow(row, realityFor, contextFor).catch((err) =>
-        this.abandonSafely(row, {
+      const outcome = await (await this.adoptRow(row, realityFor, contextFor)).catch(async (err) =>
+        await this.abandonSafely(row, {
           code: ADOPTION_FAILED_ERROR_CODE,
           message: `This server could not resume a '${row.kind}' operation.`,
           detail: err instanceof Error ? err.message : String(err),
@@ -592,7 +592,7 @@ export class OperationEngine {
     contextFor: (row: OperationRow) => unknown,
   ): Promise<Operation> {
     const def = this.deps.registry.get(row.kind)
-    if (!def || !row.operation) return this.abandon(row)
+    if (!def || !row.operation) return await this.abandon(row)
 
     this.contexts.set(row.id, contextFor(row))
     const reality = await realityFor(row)
@@ -626,7 +626,7 @@ export class OperationEngine {
       resumedStalled: (reconciled.steps ?? []).some((step) => step.state === 'stalled'),
     })
 
-    const adoptedOperation = this.persist(
+    const adoptedOperation = await this.persist(
       this.persistable(this.resumeStalled(reconciled), def),
       this.now(),
     )
@@ -635,7 +635,7 @@ export class OperationEngine {
     // kind's retention, and an operation older than the newest twenty finished
     // ones is deleted by its own completion — so requiring it here turned a
     // successful adoption into a thrown boot (POD-2147).
-    return this.deps.store.get(row.id)?.operation ?? adoptedOperation
+    return (await this.deps.store.get(row.id))?.operation ?? adoptedOperation
   }
 
   /**
@@ -673,9 +673,9 @@ export class OperationEngine {
    */
   async settleAsk(operationId: string, askId: string): Promise<void> {
     await this.enqueue(operationId, async () => {
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
-      this.persist(
+      await this.persist(
         this.persistable({
           ...operation,
           awaiting: (operation.awaiting ?? []).filter((ask) => ask.id !== askId),
@@ -686,9 +686,9 @@ export class OperationEngine {
     })
   }
 
-  active(group?: string): OperationRow | undefined {
-    if (group !== undefined) return this.deps.store.activeByGroup(group)
-    return this.deps.store.active()[0]
+  async active(group?: string): Promise<OperationRow | undefined> {
+    if (group !== undefined) return await this.deps.store.activeByGroup(group)
+    return (await this.deps.store.active())[0]
   }
 
   /**
@@ -707,14 +707,14 @@ export class OperationEngine {
    * read, not a lock: a watcher may still be mid-tick when this turns false, and
    * the report it sends is dropped exactly as before.
    */
-  watching(operationId: string, stepId: string): boolean {
-    const operation = this.deps.store.get(operationId)?.operation
+  async watching(operationId: string, stepId: string): Promise<boolean> {
+    const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation || isTerminalOperationState(operation.state)) return false
     return inFlightStep(operation)?.id === stepId
   }
 
-  history(kind?: string, limit?: number): OperationRow[] {
-    return this.deps.store.history(kind, limit)
+  async history(kind?: string, limit?: number): Promise<OperationRow[]> {
+    return await this.deps.store.history(kind, limit)
   }
 
   /**
@@ -771,8 +771,8 @@ export class OperationEngine {
     return next
   }
 
-  private drive(operationId: string): Promise<void> {
-    return this.enqueue(operationId, () => this.driveLocked(operationId))
+  private async drive(operationId: string): Promise<void> {
+    return await this.enqueue(operationId, async () => await this.driveLocked(operationId))
   }
 
   /**
@@ -785,7 +785,7 @@ export class OperationEngine {
   private async driveLocked(operationId: string): Promise<void> {
     for (;;) {
       if (this.stopped) return
-      const operation = this.deps.store.get(operationId)?.operation
+      const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
 
       const def = this.deps.registry.get(operation.kind)
@@ -793,7 +793,7 @@ export class OperationEngine {
 
       const step = nextStep(operation)
       if (!step) {
-        this.settle(operation, def)
+        await this.settle(operation, def)
         return
       }
       // A stalled step is waiting on its own retry or its deadline, not on us.
@@ -801,14 +801,14 @@ export class OperationEngine {
 
       const runner = def.runners[step.id]
       if (!runner) {
-        this.fail(operation, step.id, {
+        await this.fail(operation, step.id, {
           code: 'no-runner',
           message: `The '${operation.kind}' operation has no runner for step '${step.id}'.`,
         })
         return
       }
 
-      const started = this.beginStep(operation, step.id)
+      const started = await this.beginStep(operation, step.id)
       const outcome = await this.invokeWithin(runner, started, step.id, def.deadlines?.[step.id])
       // The runner may have answered on the far side of a shutdown (POD-2148).
       if (this.stopped) return
@@ -817,18 +817,18 @@ export class OperationEngine {
         return
       }
 
-      const current = this.deps.store.get(operationId)?.operation
+      const current = (await this.deps.store.get(operationId))?.operation
       if (!current || isTerminalOperationState(current.state)) return
       const at = this.now()
       const next = this.applyPatch(current, step.id, outcome, at)
-      this.persist(next, at)
+      await this.persist(next, at)
 
       if (outcome.state === 'running') {
-        this.armDeadline(operationId)
+        await this.armDeadline(operationId)
         return
       }
       if (outcome.state === 'failed') {
-        this.fail(next, step.id, outcome.error ?? { code: 'step-failed' })
+        await this.fail(next, step.id, outcome.error ?? { code: 'step-failed' })
         return
       }
     }
@@ -862,7 +862,7 @@ export class OperationEngine {
     stepId: string,
     budget: StepDeadlines | undefined,
   ): Promise<StepOutcome | typeof OVERDUE> {
-    const ensure = this.invoke(runner, operation, stepId)
+    const ensure = await this.invoke(runner, operation, stepId)
     const step = (operation.steps ?? []).find((s) => s.id === stepId)
     const due = step ? deadlineDue(step, budget, this.now()) : undefined
     if (due === undefined) return ensure
@@ -922,7 +922,7 @@ export class OperationEngine {
   }
 
   /** Mark a step running and count the attempt, before anything is attempted. */
-  private beginStep(operation: Operation, stepId: string): Operation {
+  private async beginStep(operation: Operation, stepId: string): Promise<Operation> {
     const at = this.now()
     // Read BEFORE the patch: `extra` is handed the step with `running` already
     // written onto it, so asking there whether this is an entry or a re-entry
@@ -960,7 +960,7 @@ export class OperationEngine {
         ? { places: restartPlaceClocks(step.places, at) ?? step.places }
         : {}),
     }))
-    this.persist(next, at)
+    await this.persist(next, at)
     return next
   }
 
@@ -971,7 +971,7 @@ export class OperationEngine {
    * surface can do is still outstanding and gates correctness (§3.5). Voluntary
    * asks do not hold it open; stragglers self-serve on their next load.
    */
-  private settle(operation: Operation, def: AnyOperationKindDefinition): void {
+  private async settle(operation: Operation, def: AnyOperationKindDefinition): Promise<void> {
     const blocking = (operation.awaiting ?? []).filter((ask) => ask.required === true)
     const at = this.now()
     if (blocking.length > 0) {
@@ -980,11 +980,11 @@ export class OperationEngine {
         blocking: blocking.map((ask) => `${ask.id}@${ask.surface ?? '-'}`),
         graceMs: def.waitingGraceMs ?? DEFAULT_WAITING_GRACE_MS,
       })
-      this.persist(this.persistable(operation, def), at, 'waiting')
+      await this.persist(this.persistable(operation, def), at, 'waiting')
       this.armWaitingGrace(operation.id, def)
       return
     }
-    this.finish(this.persistable(operation, def), 'done', at)
+    await this.finish(this.persistable(operation, def), 'done', at)
   }
 
   /**
@@ -1008,8 +1008,8 @@ export class OperationEngine {
       this.deps.clock.setTimeout(
         () => {
           void this.enqueue(operationId, async () => {
-            this.expireWaiting(operationId, def)
-          }).catch((err) => this.containDriveFailure(operationId, err))
+            await this.expireWaiting(operationId, def)
+          }).catch(async (err) => await this.containDriveFailure(operationId, err))
         },
         Math.max(0, grace),
       ),
@@ -1030,8 +1030,8 @@ export class OperationEngine {
    * fails with. The grace itself is unconditional either way: ending the wait is
    * what POD-2149 was for, and a wedge is not fixed by a wrong outcome.
    */
-  private expireWaiting(operationId: string, def?: AnyOperationKindDefinition): void {
-    const operation = this.deps.store.get(operationId)?.operation
+  private async expireWaiting(operationId: string, def?: AnyOperationKindDefinition): Promise<void> {
+    const operation = (await this.deps.store.get(operationId))?.operation
     if (operation?.state !== 'waiting') return
     const error = def?.describeWaitingExpiry?.({ operation })
     log.warn('the waiting grace ran out', {
@@ -1041,13 +1041,13 @@ export class OperationEngine {
       ...(error?.code ? { code: error.code } : {}),
     })
     if (error) {
-      this.finish(this.persistable(operation, def), 'failed', this.now(), error)
+      await this.finish(this.persistable(operation, def), 'failed', this.now(), error)
       return
     }
-    this.finish(this.persistable(operation, def), 'done', this.now())
+    await this.finish(this.persistable(operation, def), 'done', this.now())
   }
 
-  private fail(operation: Operation, stepId: string, error: OperationError): void {
+  private async fail(operation: Operation, stepId: string, error: OperationError): Promise<void> {
     log.warn('operation step failed', {
       ...operationFields(operation),
       step: stepId,
@@ -1057,15 +1057,15 @@ export class OperationEngine {
     })
     const at = this.now()
     const marked = this.applyPatch(operation, stepId, { state: 'failed', error }, at)
-    this.finish(marked, 'failed', at, error)
+    await this.finish(marked, 'failed', at, error)
   }
 
-  private finish(
+  private async finish(
     operation: PersistedOperation,
     state: 'done' | 'failed' | 'canceled',
     at: number,
     error?: OperationError,
-  ): Operation {
+  ): Promise<Operation> {
     const finished: PersistedOperation = {
       ...operation,
       state,
@@ -1107,11 +1107,11 @@ export class OperationEngine {
           }
         : {}),
     })
-    this.deps.store.update(finished)
+    await this.deps.store.update(finished)
     this.disarm(finished.id)
     this.contexts.delete(finished.id)
-    this.deps.store.sweepRetention(finished.kind)
-    this.announce(finished.id)
+    await this.deps.store.sweepRetention(finished.kind)
+    await this.announce(finished.id)
     return finished
   }
 
@@ -1124,7 +1124,7 @@ export class OperationEngine {
    * continue. The policy is identical in every case, which is the point: it was
    * already the right one and was simply unreachable from a throw.
    */
-  private abandon(row: OperationRow, error?: OperationError): Operation {
+  private async abandon(row: OperationRow, error?: OperationError): Promise<Operation> {
     const at = this.now()
     const outcome = error ?? {
       code: UNKNOWN_KIND_ERROR_CODE,
@@ -1143,11 +1143,11 @@ export class OperationEngine {
       readable: row.operation !== undefined,
     })
     if (row.operation) {
-      return this.finish(this.persistable(row.operation), 'failed', at, outcome)
+      return await this.finish(this.persistable(row.operation), 'failed', at, outcome)
     }
-    this.deps.store.markTerminal(row.id, 'failed', at)
+    await this.deps.store.markTerminal(row.id, 'failed', at)
     this.disarm(row.id)
-    this.announce(row.id)
+    await this.announce(row.id)
     return { id: row.id, kind: row.kind, state: 'failed', exclusionGroup: row.exclusionGroup }
   }
 
@@ -1156,9 +1156,9 @@ export class OperationEngine {
    * that the store is the broken thing, and a second throw out of the recovery
    * path is exactly how a contained failure becomes an uncontained one.
    */
-  private abandonSafely(row: OperationRow, error: OperationError): Operation | undefined {
+  private async abandonSafely(row: OperationRow, error: OperationError): Promise<Operation | undefined> {
     try {
-      return this.abandon(row, error)
+      return await this.abandon(row, error)
     } catch {
       return undefined
     }
@@ -1179,13 +1179,13 @@ export class OperationEngine {
    * land, an invariant that did not hold. Failing the operation with that on
    * the record is both the honest answer and the one that frees the group.
    */
-  private containDriveFailure(operationId: string, err: unknown): void {
+  private async containDriveFailure(operationId: string, err: unknown): Promise<void> {
     // Mid-shutdown, a write is the hazard rather than the repair.
     if (this.stopped) return
     try {
-      const row = this.deps.store.get(operationId)
+      const row = await this.deps.store.get(operationId)
       if (!row || isTerminalOperationState(row.state)) return
-      this.abandonSafely(row, {
+      await this.abandonSafely(row, {
         code: DRIVE_FAILED_ERROR_CODE,
         message: 'Podium could not continue this operation.',
         detail: err instanceof Error ? err.message : String(err),
@@ -1196,14 +1196,14 @@ export class OperationEngine {
     }
   }
 
-  private persist(
+  private async persist(
     operation: PersistedOperation,
     at: number,
     state?: Operation['state'],
-  ): Operation {
+  ): Promise<Operation> {
     const next: PersistedOperation = { ...operation, updatedAt: at, ...(state ? { state } : {}) }
-    this.deps.store.update(next)
-    this.announce(next.id)
+    await this.deps.store.update(next)
+    await this.announce(next.id)
     return next
   }
 
@@ -1225,17 +1225,17 @@ export class OperationEngine {
    * expires first. Re-armed on every accepted progress report, which is what
    * makes silence — rather than slowness — the thing that fires.
    */
-  private armDeadline(operationId: string): void {
+  private async armDeadline(operationId: string): Promise<void> {
     this.disarm(operationId)
-    const due = this.nextDue(operationId)
+    const due = await this.nextDue(operationId)
     if (due === undefined) return
     this.timers.set(
       operationId,
       this.deps.clock.setTimeout(
         () => {
           // A deadline is the other drive site nobody awaits (POD-2151).
-          void this.enqueue(operationId, () => this.onDeadline(operationId)).catch((err) =>
-            this.containDriveFailure(operationId, err),
+          void this.enqueue(operationId, async () => await this.onDeadline(operationId)).catch(async (err) =>
+            await this.containDriveFailure(operationId, err),
           )
         },
         Math.max(0, due - this.now()),
@@ -1244,8 +1244,8 @@ export class OperationEngine {
   }
 
   /** When this operation's running step next owes an answer, if it owes one at all. */
-  private nextDue(operationId: string): number | undefined {
-    const watched = this.watched(operationId)
+  private async nextDue(operationId: string): Promise<number | undefined> {
+    const watched = await this.watched(operationId)
     if (!watched) return undefined
     return deadlineDue(watched.step, watched.budget, this.now())
   }
@@ -1254,15 +1254,15 @@ export class OperationEngine {
    * The step a timer is about, with the budget it is judged against — the four
    * refusals every deadline path shares, resolved once.
    */
-  private watched(operationId: string):
-    | {
+  private async watched(operationId: string):
+    Promise<| {
         operation: Operation
         def: AnyOperationKindDefinition
         step: OperationStep
         budget: StepDeadlines
       }
-    | undefined {
-    const operation = this.deps.store.get(operationId)?.operation
+    | undefined> {
+    const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const def = this.deps.registry.get(operation.kind)
     const step = inFlightStep(operation)
@@ -1285,7 +1285,7 @@ export class OperationEngine {
    * not going to be rescued by starting it again.
    */
   private async onDeadline(operationId: string): Promise<void> {
-    const watched = this.watched(operationId)
+    const watched = await this.watched(operationId)
     if (!watched) return
     const { operation, def, step, budget } = watched
 
@@ -1293,7 +1293,7 @@ export class OperationEngine {
     const breach = deadlineBreach(step, budget, now)
     if (breach.kind === 'none') {
       // Progress arrived while the timer was in flight — nothing is owed yet.
-      this.armDeadline(operationId)
+      await this.armDeadline(operationId)
       return
     }
 
@@ -1302,7 +1302,7 @@ export class OperationEngine {
       // The kind's chance to say WHO stopped, before the framework falls back to
       // what it alone can know: how long, and nothing else (POD-2167).
       const named = def.describeStall?.({ operation, step, breach })
-      this.fail(
+      await this.fail(
         operation,
         step.id,
         named ?? {
@@ -1327,7 +1327,7 @@ export class OperationEngine {
     // Stalled, and VISIBLY so, before anything is retried: the panel renders
     // "no progress for N s" from this state rather than from a guess, and the
     // heartbeat is deliberately not refreshed by our noticing.
-    this.persist(
+    await this.persist(
       this.applyPatch(operation, step.id, { state: 'stalled' }, now, (s) => ({
         ...s,
         stalls: stalls + 1,
@@ -1341,7 +1341,7 @@ export class OperationEngine {
       // The answer `driveLocked` gives in the identical situation (POD-2145).
       // Returning here left the step stalled with no timer and no retry — the
       // same wedge as the adoption case, reached by a second route.
-      this.fail(this.require(operationId), step.id, {
+      await this.fail(await this.require(operationId), step.id, {
         code: 'no-runner',
         message: `The '${operation.kind}' operation has no runner for step '${step.id}'.`,
       })
@@ -1349,7 +1349,7 @@ export class OperationEngine {
     }
     const retryAt = this.now()
     const retrying = this.applyPatch(
-      this.require(operationId),
+      await this.require(operationId),
       step.id,
       { state: 'running' },
       retryAt,
@@ -1364,7 +1364,7 @@ export class OperationEngine {
         ...(s.places ? { places: restartPlaceClocks(s.places, retryAt) ?? s.places } : {}),
       }),
     )
-    this.persist(retrying, retryAt)
+    await this.persist(retrying, retryAt)
 
     // Bounded exactly as the first attempt was: a retry that hangs is the same
     // hang, and this one has already used the step's one stall.
@@ -1374,18 +1374,18 @@ export class OperationEngine {
       await this.onDeadline(operationId)
       return
     }
-    const after = this.deps.store.get(operationId)?.operation
+    const after = (await this.deps.store.get(operationId))?.operation
     if (!after || isTerminalOperationState(after.state)) return
     const at = this.now()
     const next = this.applyPatch(after, step.id, outcome, at)
-    this.persist(next, at)
+    await this.persist(next, at)
 
     if (outcome.state === 'failed') {
-      this.fail(next, step.id, outcome.error ?? { code: 'step-failed' })
+      await this.fail(next, step.id, outcome.error ?? { code: 'step-failed' })
       return
     }
     if (outcome.state === 'running') {
-      this.armDeadline(operationId)
+      await this.armDeadline(operationId)
       return
     }
     await this.driveLocked(operationId)
@@ -1403,14 +1403,14 @@ export class OperationEngine {
     return withPersistenceFacts(operation, group, at ?? this.now())
   }
 
-  private require(operationId: string): Operation {
-    const operation = this.deps.store.get(operationId)?.operation
+  private async require(operationId: string): Promise<Operation> {
+    const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation) throw new Error(`operation ${operationId} vanished mid-flight`)
     return operation
   }
 
-  private announce(operationId: string): void {
-    const row = this.deps.store.get(operationId)
+  private async announce(operationId: string): Promise<void> {
+    const row = await this.deps.store.get(operationId)
     if (row) this.deps.onChanged?.(row)
   }
 

@@ -292,12 +292,12 @@ export class SessionLifecycle {
    * `ReceiptSender` itself calls them when a session has no driver behind it.
    * They are the flag-off implementation, not dead weight awaiting deletion.
    */
-  readonly receiptSend = (
+  readonly receiptSend = async (
     via: ReceiptSendVia,
     input: ReceiptSendInput,
     onReceipt?: (receipt: TurnReceipt) => void,
-  ): { ok: boolean; queued?: boolean; position?: number; reason?: string } =>
-    this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
+  ): Promise<{ ok: boolean; queued?: boolean; position?: number; reason?: string }> =>
+    await this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
   /**
    * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
    * interactions aggregate exists.
@@ -405,8 +405,8 @@ export class SessionLifecycle {
   flushActivity(): void {
     this.repository.flushActivity()
   }
-  loadFromStore(): void {
-    this.repository.loadFromStore()
+  async loadFromStore(): Promise<void> {
+    await this.repository.loadFromStore()
   }
   sessionsChangedForMachine(...args: any[]): void {
     ;(this.sessionClientPlane as any).sessionsChangedForMachine(...args)
@@ -426,47 +426,47 @@ export class SessionLifecycle {
   private pushPriorities(): void {
     this.state.pushPriorities()
   }
-  listSessions(
+  async listSessions(
     forPrincipal?: SessionWirePrincipal,
     caller: SessionListCaller = 'unlabeled',
-  ): SessionMeta[] {
-    return this.view.list(forPrincipal, caller)
+  ): Promise<SessionMeta[]> {
+    return await this.view.list(forPrincipal, caller)
   }
-  agentConcurrencyHistory(): AgentConcurrencyHistoryResult {
-    return this.concurrencyHistory.history()
+  async agentConcurrencyHistory(): Promise<AgentConcurrencyHistoryResult> {
+    return await this.concurrencyHistory.history()
   }
-  sessionActivityHistory(sessionIds: readonly SessionId[]): SessionActivityHistoryResult {
-    return this.activityHistory.history(sessionIds)
+  async sessionActivityHistory(sessionIds: readonly SessionId[]): Promise<SessionActivityHistoryResult> {
+    return await this.activityHistory.history(sessionIds)
   }
   /** The member sessions of ONE issue, without wiring the rest [POD-1639].
    *  Same set and same fields as `sessionsForIssue(path, listSessions(), id)`;
    *  see {@link SessionView.listForIssue}. */
-  listSessionsForIssue(
+  async listSessionsForIssue(
     worktreePath: string | null,
     issueId: IssueId | undefined,
     forPrincipal?: SessionWirePrincipal,
-  ): SessionMeta[] {
-    return this.view.listForIssue(worktreePath, issueId, forPrincipal)
+  ): Promise<SessionMeta[]> {
+    return await this.view.listForIssue(worktreePath, issueId, forPrincipal)
   }
   /** ONE session by id, without wiring the rest [POD-1646]. Same value as
    *  `listSessions(p).find((s) => s.sessionId === id)`; see
    *  {@link SessionView.byId}. */
-  sessionById(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): SessionMeta | undefined {
-    return this.view.byId(sessionId, forPrincipal)
+  async sessionById(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): Promise<SessionMeta | undefined> {
+    return await this.view.byId(sessionId, forPrincipal)
   }
   /** A known set of sessions, without wiring the rest [POD-2322]. Same rows
    *  and source order as `listSessions(p).filter((s) => ids.has(s.sessionId))`;
    *  see {@link SessionView.byIds}. */
-  sessionsById(
+  async sessionsById(
     sessionIds: Iterable<SessionId>,
     forPrincipal?: SessionWirePrincipal,
-  ): SessionMeta[] {
-    return this.view.byIds(sessionIds, forPrincipal)
+  ): Promise<SessionMeta[]> {
+    return await this.view.byIds(sessionIds, forPrincipal)
   }
   /** One session's `spawnedBy`, skipping the wire entirely [POD-1646];
    *  see {@link SessionView.spawnedByOf}. */
-  sessionSpawnedBy(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): string | undefined {
-    return this.view.spawnedByOf(sessionId, forPrincipal)
+  async sessionSpawnedBy(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): Promise<string | undefined> {
+    return await this.view.spawnedByOf(sessionId, forPrincipal)
   }
   /**
    * Trusted internal routing facts for every live session [POD-2322].
@@ -522,8 +522,8 @@ export class SessionLifecycle {
   dismissOffer(sessionId: SessionId, offerCreatedAt: string): boolean {
     return (this.sessionMetaOps as any).dismissOffer(sessionId, offerCreatedAt)
   }
-  createSession(input: Parameters<SessionStart['create']>[0]): SessionSpawnResult {
-    return this.sessionStart.create(input)
+  async createSession(input: Parameters<SessionStart['create']>[0]): Promise<SessionSpawnResult> {
+    return await this.sessionStart.create(input)
   }
   capabilityForSession(...args: any[]): any {
     return (this.sessionAuthz as any).capabilityForSession(...args)
@@ -551,7 +551,7 @@ export class SessionLifecycle {
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
-    return this.sessionRevival.resumeSession(input, issues)
+    return await this.sessionRevival.resumeSession(input, issues)
   }
   private findLiveByResume(resume: ResumeRef): Session | undefined {
     return this.sessionRevival.findLiveByResume(resume)
@@ -600,8 +600,8 @@ export class SessionLifecycle {
   markSessionUnread(...args: any[]): void {
     ;(this.sessionMetaOps as any).markSessionUnread(...args)
   }
-  private rearmUnread(sessionId: SessionId): void {
-    this.state.rearmUnreadForAll(sessionId)
+  private async rearmUnread(sessionId: SessionId): Promise<void> {
+    await this.state.rearmUnreadForAll(sessionId)
   }
   setSessionIssueId(...args: any[]): void {
     ;(this.sessionMetaOps as any).setSessionIssueId(...args)
@@ -631,7 +631,7 @@ export class SessionLifecycle {
     worktreeFreed?: boolean
     deferredKill?: boolean
   }> {
-    return this.sessionTeardown.stopSession(input, issues)
+    return await this.sessionTeardown.stopSession(input, issues)
   }
   finalizeDeferredStopKill(sessionId: SessionId): void {
     this.sessionTeardown.finalizeDeferredStopKill(sessionId)
@@ -652,28 +652,28 @@ export class SessionLifecycle {
     worktreeFreed: boolean
     deferredKill?: boolean
   }> {
-    return this.sessionTeardown.stopIssue(input, issues)
+    return await this.sessionTeardown.stopIssue(input, issues)
   }
-  hasValidTerminalProof(sessionId: SessionId): boolean {
-    return this.terminalProof.hasValidProof(sessionId)
+  async hasValidTerminalProof(sessionId: SessionId): Promise<boolean> {
+    return await this.terminalProof.hasValidProof(sessionId)
   }
-  terminalProofMissing(sessionId: SessionId): boolean {
-    return this.terminalProof.proofMissing(sessionId)
+  async terminalProofMissing(sessionId: SessionId): Promise<boolean> {
+    return await this.terminalProof.proofMissing(sessionId)
   }
   /** WHY this session is not currently reapable — one reason, for diagnostics. */
-  terminalProofStatus(sessionId: SessionId): TerminalProofStatus {
-    return this.terminalProof.proofStatus(sessionId)
+  async terminalProofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
+    return await this.terminalProof.proofStatus(sessionId)
   }
   /** Age-backstop park for a session quiet past its deadline [POD-1884]. */
   parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
     return this.sessionTeardown.parkStaleSession(input)
   }
   /** Park a live session: kill process, keep row/transcript/resume ref. */
-  hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
+  async hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): Promise<{
     ok: boolean
     reason?: string
-  } {
-    return this.sessionTeardown.hibernateSession(input)
+  }> {
+    return await this.sessionTeardown.hibernateSession(input)
   }
 
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
@@ -681,12 +681,12 @@ export class SessionLifecycle {
     return this.sessionTeardown.parkShellSession(input.sessionId)
   }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
-  handoffSession(
+  async handoffSession(
     input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.sessionRevival.handoffSession(input, caller, issues)
+    return await this.sessionRevival.handoffSession(input, caller, issues)
   }
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
   machineUseGate: (caller: HandoffCaller) => AssertMachineUse = (caller) =>
@@ -706,14 +706,14 @@ export class SessionLifecycle {
       ownership: ownershipFromMachines(this.machines),
     })
   /** Wake a hibernated/exited session under the same id [spec:SP-9904]. */
-  resurrectSession(
+  async resurrectSession(
     input: {
       sessionId: SessionId
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<{ ok: boolean; reason?: string }> {
-    return this.sessionRevival.resurrectSession(input, issues)
+  ): Promise<Promise<{ ok: boolean; reason?: string }>> {
+    return await this.sessionRevival.resurrectSession(input, issues)
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)
@@ -724,25 +724,25 @@ export class SessionLifecycle {
   prepareIssueSessionRestore(...args: any[]): any {
     return (this.sessionMetaOps as any).prepareIssueSessionRestore(...args)
   }
-  private removeSessionRuntime(
+  private async removeSessionRuntime(
     sessionId: SessionId,
     terminalRetirement?: { retiredAt: string },
-  ): void {
-    this.sessionKill.removeSessionRuntime(sessionId, terminalRetirement)
+  ): Promise<void> {
+    await this.sessionKill.removeSessionRuntime(sessionId, terminalRetirement)
   }
   killSession(input: { sessionId: SessionId }): void {
     this.sessionKill.killSession(input)
   }
-  private emitSessionExited(
+  private async emitSessionExited(
     sessionId: SessionId,
     code: number,
     spawnedBy?: string | null,
     sourceSession?: Session,
-  ): void {
-    this.sessionKill.emitSessionExited(sessionId, code, spawnedBy, sourceSession)
+  ): Promise<void> {
+    await this.sessionKill.emitSessionExited(sessionId, code, spawnedBy, sourceSession)
   }
-  private spawn(input: Parameters<SessionStart['spawn']>[0]): SessionSpawnResult {
-    return this.sessionStart.spawn(input)
+  private async spawn(input: Parameters<SessionStart['spawn']>[0]): Promise<SessionSpawnResult> {
+    return await this.sessionStart.spawn(input)
   }
   settingsViewer(...args: any[]): any {
     return (this.sessionAuthz as any).settingsViewer(...args)
@@ -768,8 +768,8 @@ export class SessionLifecycle {
   onSessionClientInput(...args: any[]): void {
     ;(this.sessionClientPlane as any).onSessionClientInput(...args)
   }
-  onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
-    this.daemonLifecycle.handle(principal, msg)
+  async onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
+    await this.daemonLifecycle.handle(principal, msg)
   }
   onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     this.daemonLifecycle.handleOutput(principal, batch)
@@ -786,17 +786,17 @@ export class SessionLifecycle {
   flushBroadcasts(): void {
     this.broadcasts.flush()
   }
-  syncChangesSince(
+  async syncChangesSince(
     cursor: number | null,
     principal: Principal = DEVICE_GRADE_PRINCIPAL,
-  ): SyncChangesSinceResult {
-    const sourceCursor = this.funnel.cursor()
+  ): Promise<SyncChangesSinceResult> {
+    const sourceCursor = await this.funnel.cursor()
     const { feedId, epoch } = this.funnel.feedIdentity()
     const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
-    const changes = this.funnel.changesSince(cursor, principal)
+    const changes = await this.funnel.changesSince(cursor, principal)
     if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
 
-    const snapshot = this.funnel.snapshot(principal)
+    const snapshot = await this.funnel.snapshot(principal)
     const values = <T>(entity: MetadataChange['entity']): T[] =>
       snapshot
         .filter((change) => change.entity === entity && change.op === 'upsert')

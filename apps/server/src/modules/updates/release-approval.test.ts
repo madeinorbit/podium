@@ -30,14 +30,14 @@ describe('release approval flow', () => {
       now: () => 123,
     })
 
-    const first = flow.approve('user:admin', TARGET)
+    const first = await flow.approve('user:admin', TARGET)
     await vi.waitFor(async () => {
       expect(await flow.read()).toMatchObject({
         state: 'building',
         approval: { approvedBy: 'user:admin', approvedAt: 123 },
       })
     })
-    await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
+    await expect(await flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
     expect(release).toHaveBeenCalledOnce()
     expect(release).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'aaaaaaa' }))
 
@@ -56,7 +56,7 @@ describe('release approval flow', () => {
       now: () => 456,
     })
 
-    await expect(flow.approve('user:admin', TARGET)).resolves.toMatchObject({
+    await expect(await flow.approve('user:admin', TARGET)).resolves.toMatchObject({
       state: 'failed',
       approval: { approvedBy: 'user:admin', approvedAt: 456 },
       failure: {
@@ -78,11 +78,11 @@ describe('release approval flow', () => {
       failureLogs: String,
     })
 
-    const first = flow.approve('user:admin', TARGET)
-    await vi.waitFor(() => expect(flow.read()).resolves.toMatchObject({ state: 'building' }))
+    const first = await flow.approve('user:admin', TARGET)
+    await vi.waitFor(async () => expect(await flow.read()).resolves.toMatchObject({ state: 'building' }))
     current = { ...BASE, headSha: 'bbbbbbb', version: '0.1.2-dev.2+bbbbbbb' }
     expect(await flow.read()).toMatchObject({ headSha: 'bbbbbbb', state: 'pending' })
-    await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
+    await expect(await flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
     finish()
     await first
   })
@@ -96,7 +96,7 @@ describe('release approval flow', () => {
       failureLogs: String,
     })
 
-    await expect(flow.approve('user:admin', TARGET)).rejects.toThrow(
+    await expect(await flow.approve('user:admin', TARGET)).rejects.toThrow(
       /proposal moved.*review and approve the new proposal/i,
     )
     expect(release).not.toHaveBeenCalled()

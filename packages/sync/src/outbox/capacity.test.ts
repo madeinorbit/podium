@@ -209,7 +209,7 @@ describe('collapse never reaches work that is not redundant', () => {
     })
 
     const inFlight = await slow.enqueue(receipt('POD-1'))
-    const draining = slow.drain()
+    const draining = await slow.drain()
     await inTransport
     expect(slow.find(inFlight.mutationId)?.state).toBe('sending')
 

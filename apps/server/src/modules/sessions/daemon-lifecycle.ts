@@ -217,11 +217,11 @@ export class SessionDaemonLifecycle {
    * stream. The latter is the lossless copy: `agentExit` is an ordinary daemon
    * frame and may be dropped while the daemon/server link is reconnecting.
    */
-  private handleAgentExit(msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>): void {
+  private async handleAgentExit(msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>): Promise<void> {
     const before = this.sessions.get(msg.sessionId)
     const lease =
       this.observationLeases.get(msg.sessionId) ??
-      this.store.observationCheckpoints.get(msg.sessionId)
+      await this.store.observationCheckpoints.get(msg.sessionId)
     // A replacement reuses the Podium session id but owns a newer runtime
     // generation. Reject any exit not authored by the currently fenced
     // process, including one repeated after the replacement has bound live.
@@ -324,7 +324,7 @@ export class SessionDaemonLifecycle {
     if (!session || session.machineId !== principal.machine) return
     session.terminal.acceptOutput(batch.bytes, batch.sourceFrames)
   }
-  handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
+  async handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
     const machineId = principal.machine
     switch (msg.type) {
       case 'sessionOpenUrl': {
@@ -450,7 +450,7 @@ export class SessionDaemonLifecycle {
         // The daemon's composer engine scraped the native composer (POD-859).
         // Sequence it as an origin='native' versioned edit and broadcast. Skip a
         // message the server is currently typing OUT (reviewer fix 5).
-        this.state.handleNativeDraft(msg.sessionId, msg.text)
+        await this.state.handleNativeDraft(msg.sessionId, msg.text)
         break
       }
       case 'agentFrame':
@@ -474,7 +474,7 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'agentExit': {
-        this.handleAgentExit(msg)
+        await this.handleAgentExit(msg)
         break
       }
       case 'spawnError': {
@@ -537,7 +537,7 @@ export class SessionDaemonLifecycle {
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         const lease =
           this.observationLeases.get(msg.sessionId) ??
-          this.store.observationCheckpoints.get(msg.sessionId)
+          await this.store.observationCheckpoints.get(msg.sessionId)
         const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
           session.resume === undefined ||
@@ -671,7 +671,7 @@ export class SessionDaemonLifecycle {
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         // Durable state is authoritative: a foreign daemon or reattach may
         // have advanced the lease since this process cached it.
-        const lease = this.store.observationCheckpoints.get(observation.podiumSessionId)
+        const lease = await this.store.observationCheckpoints.get(observation.podiumSessionId)
         if (lease) this.observationLeases.record(observation.podiumSessionId, lease)
         const outcome =
           observation.podiumSessionId !== session.sessionId || !lease
@@ -699,7 +699,7 @@ export class SessionDaemonLifecycle {
             if (checkpoint) {
               const facts = this.terminalCandidateFacts(session, lease, checkpoint)
               if (facts) {
-                this.store.observationCheckpoints.renewTerminalCandidate(
+                await this.store.observationCheckpoints.renewTerminalCandidate(
                   facts,
                   new Date(this.now()).toISOString(),
                 )
@@ -808,7 +808,7 @@ export class SessionDaemonLifecycle {
           observation,
         })
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
-          this.state.clearAllSnoozes(session.sessionId)
+          await this.state.clearAllSnoozes(session.sessionId)
         }
         if (
           !this.ports.runtimeEvents?.ready(session.sessionId) &&
@@ -838,7 +838,7 @@ export class SessionDaemonLifecycle {
         const session = this.sessions.get(msg.sessionId)
         if (!session || session.machineId !== machineId) break
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
-        const lease = this.store.observationCheckpoints.get(msg.sessionId)
+        const lease = await this.store.observationCheckpoints.get(msg.sessionId)
         const checkpoint = lease?.checkpoint
         if (
           !lease ||
@@ -853,7 +853,7 @@ export class SessionDaemonLifecycle {
           break
         const facts = this.terminalCandidateFacts(session, lease, checkpoint)
         if (!facts) break
-        this.store.observationCheckpoints.confirmTerminalCandidate(
+        await this.store.observationCheckpoints.confirmTerminalCandidate(
           facts,
           msg.livePollSequence,
           msg.confirmedAt,
@@ -912,7 +912,7 @@ export class SessionDaemonLifecycle {
         // as the old direct notifyAttention call.
         this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
-          this.state.clearAllSnoozes(msg.sessionId)
+          await this.state.clearAllSnoozes(msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
@@ -1009,7 +1009,7 @@ export class SessionDaemonLifecycle {
             msg.event.t === 'process' &&
             msg.event.ev.ev === 'exited'
           ) {
-            this.handleAgentExit({
+            await this.handleAgentExit({
               type: 'agentExit',
               sessionId: msg.sessionId,
               code: msg.event.ev.code ?? 0,
@@ -1025,7 +1025,7 @@ export class SessionDaemonLifecycle {
         break
       }
       default:
-        this.daemonProjection.handle(machineId, msg)
+        await this.daemonProjection.handle(machineId, msg)
         break
     }
   }

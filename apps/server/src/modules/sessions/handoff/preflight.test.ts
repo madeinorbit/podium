@@ -127,7 +127,7 @@ describe('handoff pre-flight bundle-base negotiation', () => {
     }
 
     await expect(
-      new HandoffPreflight(ports).prepare(
+      await new HandoffPreflight(ports).prepare(
         placement(),
         { sessionId: SESSION, machineId: TARGET_MACHINE },
         vi.fn(),

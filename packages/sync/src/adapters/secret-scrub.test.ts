@@ -323,7 +323,7 @@ afterEach(() => {
 })
 
 describe('mobile SQLite: a replica written by an earlier build is scrubbed at open', () => {
-  it('removes material from every region and every outbox state, durably', () => {
+  it('removes material from every region and every outbox state, durably', async () => {
     const { file, cleanup } = freshDatabaseFile()
     cleanupFile = cleanup
 
@@ -373,7 +373,7 @@ describe('mobile SQLite: a replica written by an earlier build is scrubbed at op
     seed.close?.()
 
     const reports: SecretScrubReport[] = []
-    SqliteSyncStore.open({
+    await SqliteSyncStore.open({
       openDatabase: () => sqliteEngine.open(file),
       deleteDatabase: () => {},
       onDegraded: () => {},
@@ -409,11 +409,11 @@ describe('mobile SQLite: a replica written by an earlier build is scrubbed at op
     }
   })
 
-  it('is a no-op on a clean store, and still reports that it looked', () => {
+  it('is a no-op on a clean store, and still reports that it looked', async () => {
     const { file, cleanup } = freshDatabaseFile()
     cleanupFile = cleanup
     const reports: SecretScrubReport[] = []
-    SqliteSyncStore.open({
+    await SqliteSyncStore.open({
       openDatabase: () => sqliteEngine.open(file),
       deleteDatabase: () => {},
       onDegraded: () => {},

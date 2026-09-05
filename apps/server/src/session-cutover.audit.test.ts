@@ -162,13 +162,13 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
-    stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    stageAttachment: async (input) => await modules.sessions.runtimeGateway.stageAttachment(input),
     runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition
     // root, exactly as `sessionCommandCtx` does it.
-    mailSend: (input) =>
-      modules.messageGate.dispatch(
+    mailSend: async (input) =>
+      (await modules.messageGate.dispatch(
         principal.kind === 'system' ? OPERATOR : principal.capability,
         undefined,
         'send',
@@ -176,7 +176,7 @@ function ctxFor(
         'trpc',
         'immediate',
         input.correlationId,
-      )!,
+      ))!,
     rpc: () => modules.rpc,
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
@@ -300,7 +300,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect(o.meta(sessionId).name).toBe('typed later')
 
     // COMMAND PLANE. Two identical creates under one id produce ONE session.
-    const before = o.reg.modules.sessions.listSessions().length
+    const before = (await o.reg.modules.sessions.listSessions()).length
     const first = await o.call.sessions.create({
       agentKind: 'shell',
       cwd: '/dup',
@@ -312,7 +312,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       mutationId: 'dup-2',
     })
     expect(replay.sessionId).toBe(first.sessionId)
-    expect(o.reg.modules.sessions.listSessions().length).toBe(before + 1)
+    expect((await o.reg.modules.sessions.listSessions()).length).toBe(before + 1)
 
     // The receipt is durable, under the command's dotted name, for both.
     expect(await o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
@@ -658,7 +658,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
 
     // And the value that IS written comes from the principal: an agent's create
     // stamps that agent, a human's stamps `user`.
-    const agentSession = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const agentSession = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const asAgent = ctxFor(o, agentFor(agentSession.sessionId, FIRST_ADMIN_USER_ID))
     const created = await dispatchSessionCommand(asAgent, 'create', {
       agentKind: 'shell',
@@ -679,8 +679,8 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // `wirePlacement: 'not-on-the-wire'` — so the assertion has to be against the
     // durable event, which is where it decided to put it.
     const o = await makeOracle({ machineId: asMachineId('local') })
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/h',
@@ -750,7 +750,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       machineId: asMachineId('box'),
       offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
-    const target = o.reg.modules.sessions.createSession({
+    const target = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/p',
       machineId: asMachineId('box'),
@@ -802,7 +802,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     const o = await makeOracle()
     // A session on the host this server runs on, exactly as a single-machine
     // install produces it (no explicit placement).
-    const target = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const target = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     expect(o.meta(target.sessionId).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
@@ -864,7 +864,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     TARGETED.map((row) => [row.key, row] as const),
   )('%s answers an INVISIBLE session exactly as it answers a nonexistent one', async (_key, row) => {
     const o = await makeOracle()
-    const live = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
     // Nonexistent: an id nothing ever created.
     const ghostCtx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
@@ -885,7 +885,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // Without this, every case above would pass if `dispatchSessionCommand` threw
     // the same thing for all inputs, or if `settle` swallowed everything.
     const o = await makeOracle()
-    const live = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const visible = await settle(() =>
       dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'hibernate', {
         sessionId: live.sessionId,
@@ -943,7 +943,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // the substrate ever rewords its dead letter, this goes red instead of the two
     // silently diverging.
     const o = await makeOracle()
-    const direct = o.reg.modules.messages.send(
+    const direct = await o.reg.modules.messages.send(
       { kind: 'operator' },
       {
         to: { kind: 'session', id: GHOST },

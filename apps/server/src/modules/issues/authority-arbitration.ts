@@ -65,13 +65,13 @@ export class IssueAuthorityArbitration {
   // wrapper's type boundary [POD-3366]. The spread below always carried it at
   // runtime; only the type refused it, which is the quietest way for a
   // post-commit install to go missing.
-  private commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> {
+  private async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
     const active = this.scope.getStore()
-    if (active === undefined || active.commitClaimed) return this.source.commit(op)
+    if (active === undefined || active.commitClaimed) return await this.source.commit(op)
     active.commitClaimed = true
 
     try {
-      return this.source.commit({
+      return await this.source.commit({
         ...op,
         arbitrate: {
           rowId: ROW.issueCore,

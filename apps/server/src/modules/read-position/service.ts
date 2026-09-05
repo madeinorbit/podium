@@ -31,8 +31,8 @@ export interface ReadPositionServiceDeps {
 export class ReadPositionService {
   constructor(private readonly deps: ReadPositionServiceDeps) {}
 
-  getSnapshot(userId: UserId): ReadPositionSnapshot {
-    return this.deps.cursors.getSnapshot(userId)
+  async getSnapshot(userId: UserId): Promise<ReadPositionSnapshot> {
+    return await this.deps.cursors.getSnapshot(userId)
   }
 
   /**
@@ -41,20 +41,20 @@ export class ReadPositionService {
    * reconciles from one authoritative object rather than patching a delta it
    * would have to merge itself.
    */
-  advance(
+  async advance(
     userId: UserId,
     streamId: string,
     proposed: StoredReadPosition,
     now: string,
-  ): ReadPositionSnapshot {
-    const moved = this.deps.cursors.advance(userId, streamId, proposed, now)
+  ): Promise<ReadPositionSnapshot> {
+    const moved = await this.deps.cursors.advance(userId, streamId, proposed, now)
     if (moved !== null) {
-      this.publish(userId, streamId, moved)
+      await this.publish(userId, streamId, moved)
     }
-    return this.deps.cursors.getSnapshot(userId)
+    return await this.deps.cursors.getSnapshot(userId)
   }
 
-  private publish(userId: UserId, streamId: string, cursor: StoredReadPosition): void {
+  private async publish(userId: UserId, streamId: string, cursor: StoredReadPosition): Promise<void> {
     const ledger = this.deps.ledger
     if (!ledger) return
     const value: ReadPositionWire = {
@@ -69,6 +69,6 @@ export class ReadPositionService {
       op: 'upsert',
       value,
     }
-    ledger.capture([spec])
+    await ledger.capture([spec])
   }
 }

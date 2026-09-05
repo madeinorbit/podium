@@ -91,12 +91,12 @@ describe('a daemon reattach storm', () => {
     handle.registry.gateway.attachDaemon(machineId, () => {})
     sessionIds = Array.from(
       { length: SESSIONS },
-      (_, i) =>
-        handle.registry.modules.sessions.createSession({
+      async (_, i) =>
+        (await handle.registry.modules.sessions.createSession({
           agentKind: 'shell',
           cwd: `/repo/w${i}`,
           machineId,
-        }).sessionId,
+        })).sessionId,
     )
     handle.registry.modules.sessions.flushBroadcasts()
   })

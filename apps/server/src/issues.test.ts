@@ -149,20 +149,20 @@ describe('IssueService repo_id scoping (#140)', () => {
     await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin)
     await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin) // same origin ⇒ same repo_id
     const svc = IssueService.create(deps)
-    const a = svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
-    const b = svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
+    const a = await svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
+    const b = await svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
     expect(a.seq).toBe(1)
     expect(b.seq).toBe(2) // shared sequence — NOT two colliding #1s
     // list from either checkout returns the unified set
     expect(
-      svc
-        .list('/home/alice/app')
+      (await svc
+        .list('/home/alice/app'))
         .map((i) => i.id)
         .sort(),
     ).toEqual([a.id, b.id].sort())
     expect(
-      svc
-        .list('/home/bob/app')
+      (await svc
+        .list('/home/bob/app'))
         .map((i) => i.id)
         .sort(),
     ).toEqual([a.id, b.id].sort())
@@ -173,12 +173,12 @@ describe('IssueService repo_id scoping (#140)', () => {
     await store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git')
     await store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git') // distinct origins
     const svc = IssueService.create(deps)
-    const a = svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
-    const b = svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
+    const a = await svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
+    const b = await svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
     expect(a.seq).toBe(1)
     expect(b.seq).toBe(1) // different repos, each starts at #1
-    expect(svc.resolveRef('#1', '/repoA')).toBe(a.id) // scoped to caller's repo
-    expect(svc.resolveRef('#1', '/repoB')).toBe(b.id)
+    expect(await svc.resolveRef('#1', '/repoA')).toBe(a.id) // scoped to caller's repo
+    expect(await svc.resolveRef('#1', '/repoB')).toBe(b.id)
     expect(() => svc.resolveRef('#1')).toThrow(/ambiguous issue ref #1/) // cross-repo, no scope
   })
 })
@@ -186,12 +186,12 @@ describe('IssueService repo_id scoping (#140)', () => {
 describe('IssueService CRUD', () => {
   it('creates a backlog issue (startNow=false), assigns seq, broadcasts', async () => {
     const { svc, deps } = await harness()
-    const wire = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const wire = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     expect(wire.seq).toBe(1)
     expect(wire.stage).toBe('backlog')
     expect(wire.worktreePath).toBeNull()
     expect(deps.broadcast).toHaveBeenCalled()
-    expect(svc.list('/r').length).toBe(1)
+    expect((await svc.list('/r')).length).toBe(1)
   })
 
   it('does NOT embed members or a summary on the wire — the POD-797 residue', async () => {
@@ -202,8 +202,8 @@ describe('IssueService CRUD', () => {
     // answer, so a session's `lastActiveAt` cannot dirty it.
     const sessions = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')]
     const { svc, store, deps } = await harness(sessions)
-    const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
+    const wire = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const updated = await svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
     expect(updated.machineId).toBe(store.hostMachineId)
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
     expect(updated).not.toHaveProperty('sessions')
@@ -214,21 +214,21 @@ describe('IssueService CRUD', () => {
 
   it('does not place a historical NULL worktree during an unrelated update', async () => {
     const { svc, deps, store } = await harness()
-    const wire = svc.create({ repoPath: '/r', title: 'Legacy', startNow: false })
-    svc.update(wire.id, { worktreePath: '/r/wt' })
-    svc.update(wire.id, { machineId: null })
+    const wire = await svc.create({ repoPath: '/r', title: 'Legacy', startNow: false })
+    await svc.update(wire.id, { worktreePath: '/r/wt' })
+    await svc.update(wire.id, { machineId: null })
     ;(deps.resolveMachine as ReturnType<typeof vi.fn>).mockClear()
 
-    expect(svc.update(wire.id, { stage: 'planning' }).machineId).toBeUndefined()
+    expect((await svc.update(wire.id, { stage: 'planning' })).machineId).toBeUndefined()
     expect((await store.issues.getIssue(wire.id))?.machineId).toBeNull()
     expect(deps.resolveMachine).not.toHaveBeenCalled()
   })
 
   it('update patches fields; archive sets the flag', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    expect(svc.update(w.id, { stage: 'in_progress' }).stage).toBe('in_progress')
-    expect(svc.archive(w.id).archived).toBe(true)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    expect((await svc.update(w.id, { stage: 'in_progress' })).stage).toBe('in_progress')
+    expect((await svc.archive(w.id)).archived).toBe(true)
   })
 
   it('resets omitted model and effort when the default agent changes', async () => {
@@ -243,13 +243,13 @@ describe('IssueService CRUD', () => {
           },
         },
       })
-    const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const issue = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
 
-    const switched = svc.update(issue.id, { defaultAgent: 'codex' })
+    const switched = await svc.update(issue.id, { defaultAgent: 'codex' })
     expect(switched.defaultModel).toBe('auto')
     expect(switched.defaultEffort).toBe('auto')
 
-    const explicit = svc.update(issue.id, {
+    const explicit = await svc.update(issue.id, {
       defaultAgent: 'claude-code',
       defaultModel: 'sonnet',
       defaultEffort: 'low',
@@ -260,24 +260,24 @@ describe('IssueService CRUD', () => {
 
   it('create honors a client-provided id verbatim (optimistic draft reconciliation)', async () => {
     const { svc } = await harness()
-    const wire = svc.create({
+    const wire = await svc.create({
       repoPath: '/r',
       title: 'X',
       startNow: false,
       id: asIssueId('iss_client-supplied'),
     })
     expect(wire.id).toBe('iss_client-supplied')
-    expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
+    expect((await svc.get('iss_client-supplied'))?.id).toBe('iss_client-supplied')
   })
 
   it('refuses a client-provided id collision without changing or starting the issue', async () => {
     const { svc, deps } = await harness()
     const id = asIssueId('iss_client-supplied')
-    svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
-    const before = svc.get(id)
+    await svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
+    const before = await svc.get(id)
 
     await expect(
-      svc.createAndMaybeStart({
+      await svc.createAndMaybeStart({
         repoPath: '/r',
         title: 'Replacement',
         description: 'Overwrite attempt',
@@ -286,13 +286,13 @@ describe('IssueService CRUD', () => {
       }),
     ).rejects.toThrow(`refusing to reuse an existing issue id: ${id}`)
 
-    expect(svc.get(id)).toEqual(before)
+    expect(await svc.get(id)).toEqual(before)
     expect(deps.spawnSession).not.toHaveBeenCalled()
   })
 
   it('create mints an iss_-prefixed uuid when no id is given (unchanged default behavior)', async () => {
     const { svc } = await harness()
-    const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const wire = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 
@@ -309,12 +309,12 @@ describe('IssueService CRUD', () => {
         },
       })
 
-    const configured = svc.create({ repoPath: '/r', title: 'Claude', startNow: false })
+    const configured = await svc.create({ repoPath: '/r', title: 'Claude', startNow: false })
     expect(configured.defaultAgent).toBe('claude-code')
     expect(configured.defaultModel).toBe('opus')
     expect(configured.defaultEffort).toBe('high')
 
-    const alternate = svc.create({
+    const alternate = await svc.create({
       repoPath: '/r',
       title: 'Codex',
       startNow: false,
@@ -326,14 +326,14 @@ describe('IssueService CRUD', () => {
 
   it('createDraftFor threads a client-provided id through to create()', async () => {
     const { svc } = await harness()
-    const wire = svc.createDraftFor('/r', 'claude-code', asIssueId('iss_draft-client-id'))
+    const wire = await svc.createDraftFor('/r', 'claude-code', asIssueId('iss_draft-client-id'))
     expect(wire.id).toBe('iss_draft-client-id')
     expect(wire.draft).toBe(true)
   })
 
   it('createDraftFor mints an id when omitted (unchanged default behavior)', async () => {
     const { svc } = await harness()
-    const wire = svc.createDraftFor('/r')
+    const wire = await svc.createDraftFor('/r')
     expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 })
@@ -358,11 +358,11 @@ describe('IssueService single-issue publish (#22)', () => {
 
   it('a self-contained update serializes ONE wire and publishes ONE row', async () => {
     const { svc, deps } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
     const wires = vi.spyOn(svc, 'toWire')
-    svc.update(a.id, { notes: 'note' })
+    await svc.update(a.id, { notes: 'note' })
     // No full-list serialization: exactly one toWire (the mutated row).
     expect(wires).toHaveBeenCalledTimes(1)
     const published = rows(deps)
@@ -380,11 +380,11 @@ describe('IssueService single-issue publish (#22)', () => {
     // path exists. Closing the blocker flips the dependent's `blocked`/`ready`
     // with no write touching it, and here that appears as its own row.
     const { svc, deps } = await harness()
-    const blocker = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const dependent = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.addDep(dependent.id, blocker.id)
+    const blocker = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const dependent = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.addDep(dependent.id, blocker.id)
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    svc.close(blocker.id)
+    await svc.close(blocker.id)
     const published = rows(deps)
     expect(published.map((row) => row.id)).toContain(blocker.id)
     expect(published.map((row) => row.id)).toContain(dependent.id)
@@ -396,10 +396,10 @@ describe('IssueService single-issue publish (#22)', () => {
 describe('IssueService unread (#124)', () => {
   it('a never-read issue with activity is unread; markIssueRead clears it', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(svc.unreadFor(w.id)).toBe(true)
     expect(w.readAt).toBeNull()
-    const read = svc.markIssueRead(w.id)
+    const read = await svc.markIssueRead(w.id)
     expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
     expect(svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
@@ -408,10 +408,10 @@ describe('IssueService unread (#124)', () => {
 
   it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.markIssueRead(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.markIssueRead(w.id)
     expect(svc.unreadFor(w.id)).toBe(false)
-    const un = svc.markIssueUnread(w.id)
+    const un = await svc.markIssueUnread(w.id)
     expect(un.readAt).toBeNull()
     expect(svc.unreadFor(w.id)).toBe(true)
     // Freshly-derived wire agrees, and the transition event mirrors issue.read.
@@ -422,8 +422,8 @@ describe('IssueService unread (#124)', () => {
   it('derives unread from the latest of updatedAt / member-session lastActiveAt vs readAt', async () => {
     const activeSess = { ...sess('/r/wt'), lastActiveAt: '2026-06-05T00:00:00.000Z' }
     const { svc, store } = await harness([activeSess])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     const row = (await store.issues.getIssue(w.id))!
     // `readAt` is PER-USER (POD-1076), so it is no longer a field the caller can
     // spread onto the row: it is written to the viewer's `(userId, issueId)` row
@@ -436,7 +436,7 @@ describe('IssueService unread (#124)', () => {
     const withReadAt = async (readAt: string, updatedAt: string) => {
       await store.issues.upsertIssue({ ...row, updatedAt })
       await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, w.id, { readAt })
-      svc.reload()
+      await svc.reload()
       return svc.unreadFor(w.id)
     }
     // readAt AFTER all activity → read.
@@ -452,30 +452,30 @@ describe('IssueService unread (#124)', () => {
   // patches must not advance updatedAt past readAt.
   it('pin / unpin / sortKey-only update leave a read issue read', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.markIssueRead(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.markIssueRead(w.id)
     expect(svc.unreadFor(w.id)).toBe(false)
     const readAt = (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
-    const pinned = svc.update(w.id, { pinned: true })
+    const pinned = await svc.update(w.id, { pinned: true })
     expect(pinned.pinned).toBe(true)
     expect(svc.unreadFor(w.id)).toBe(false)
     expect(pinned.readAt).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
-    const unpinned = svc.update(w.id, { pinned: false })
+    const unpinned = await svc.update(w.id, { pinned: false })
     expect(unpinned.pinned).toBe(false)
     expect(svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
 
-    const reordered = svc.update(w.id, { sortKey: 'x2c' })
+    const reordered = await svc.update(w.id, { sortKey: 'x2c' })
     expect(reordered.sortKey).toBe('x2c')
     expect(svc.unreadFor(w.id)).toBe(false)
     expect(reordered.updatedAt).toBe(updatedAt)
 
     // Combined organizational patch (pin + reorder) also stays read.
-    const both = svc.update(w.id, { pinned: true, sortKey: 'x2d' })
+    const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' })
     expect(both.pinned).toBe(true)
     expect(both.sortKey).toBe('x2d')
     expect(svc.unreadFor(w.id)).toBe(false)
@@ -511,18 +511,18 @@ describe('IssueService unread (#124)', () => {
       now: () => clock,
     }
     const svc = IssueService.create(deps)
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.markIssueRead(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.markIssueRead(w.id)
     expect(svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:01.000Z'
-    const renamed = svc.update(w.id, { title: 'Y' })
+    const renamed = await svc.update(w.id, { title: 'Y' })
     expect(renamed.title).toBe('Y')
     expect(svc.unreadFor(w.id)).toBe(true)
     // Same clock step: pin alone must still leave a re-read issue read.
-    svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id)
     expect(svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
-    const pinned = svc.update(w.id, { pinned: true })
+    const pinned = await svc.update(w.id, { pinned: true })
     expect(svc.unreadFor(w.id)).toBe(false)
     expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
@@ -535,35 +535,35 @@ describe('IssueService unread (#124)', () => {
 // like any other issue field.
 describe('IssueService tuck-away (POD-333)', () => {
   /** A closed issue is the only thing that can be tucked. */
-  const closedIssue = (svc: IssueService) => {
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.close(w.id)
+  const closedIssue = async (svc: IssueService) => {
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.close(w.id)
     return w
   }
 
   it('stamps tuckedAt on the wire and PERSISTS it — a fresh client hydrates the fold', async () => {
     const { svc, deps, store } = await harness()
-    const w = closedIssue(svc)
-    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+    const w = await closedIssue(svc)
+    expect((await svc.get(w.id))!.tuckedAt).toBeNull()
 
-    const tucked = svc.setIssueTucked(w.id, true)
+    const tucked = await svc.setIssueTucked(w.id, true)
     expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
-    expect(svc.get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     // Durable, not in-memory: it is in the DB column…
     expect((await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.tuckedAt).toBe(
       '2026-06-30T00:00:00.000Z',
     )
     // …so a cold service over the same store — the "different browser / after a
     // restart" case — serves the same fold instead of an un-tucked live row.
-    expect(IssueService.create(deps).get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await IssueService.create(deps).get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
 
   it('broadcasts the change so every OTHER connected client folds the same row', async () => {
     const { svc, deps } = await harness()
-    const w = closedIssue(svc)
+    const w = await closedIssue(svc)
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
 
-    svc.setIssueTucked(w.id, true)
+    await svc.setIssueTucked(w.id, true)
 
     // The single-issue publish path — the same delivery every issue field uses,
     // which is precisely what the ui-state key could never reach.
@@ -613,42 +613,42 @@ describe('IssueService tuck-away (POD-333)', () => {
       now: () => clock,
     }
     const svc = IssueService.create(deps)
-    const w = closedIssue(svc)
-    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    const w = await closedIssue(svc)
+    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
     clock = '2026-06-30T00:01:00.000Z'
     // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
     // same control) must not move the stamp.
-    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
-    expect(svc.setIssueTucked(w.id, false).tuckedAt).toBeNull()
-    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+    expect((await svc.setIssueTucked(w.id, false)).tuckedAt).toBeNull()
+    expect((await svc.get(w.id))!.tuckedAt).toBeNull()
     // A fresh tuck after an untuck takes the NEW clock.
-    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
   })
 
   it('refuses to tuck work that is not finished', async () => {
     const { svc } = await harness()
-    const open = svc.create({ repoPath: '/r', title: 'open', startNow: false })
+    const open = await svc.create({ repoPath: '/r', title: 'open', startNow: false })
     expect(() => svc.setIssueTucked(open.id, true)).toThrow(/not finished/)
-    expect(svc.get(open.id)!.tuckedAt).toBeNull()
+    expect((await svc.get(open.id))!.tuckedAt).toBeNull()
     // Untuck stays legal on anything — it only clears.
-    expect(svc.setIssueTucked(open.id, false).tuckedAt).toBeNull()
+    expect((await svc.setIssueTucked(open.id, false)).tuckedAt).toBeNull()
   })
 
   it('reopening clears the tuck, so the next close offers Tuck away again', async () => {
     const { svc } = await harness()
-    const w = closedIssue(svc)
-    svc.setIssueTucked(w.id, true)
-    expect(svc.get(w.id)!.tuckedAt).not.toBeNull()
+    const w = await closedIssue(svc)
+    await svc.setIssueTucked(w.id, true)
+    expect((await svc.get(w.id))!.tuckedAt).not.toBeNull()
 
-    const reopened = svc.update(w.id, { stage: 'in_progress' })
+    const reopened = await svc.update(w.id, { stage: 'in_progress' })
     expect(reopened.closedReason).toBeUndefined()
     expect(reopened.tuckedAt).toBeNull()
 
     // Closing again leaves it untucked — the row comes back as a live "done" row
     // carrying the control, rather than auto-folding on a stale dismissal.
-    expect(svc.close(w.id).tuckedAt).toBeNull()
+    expect((await svc.close(w.id)).tuckedAt).toBeNull()
   })
 
   it('reopening by STARTING a closed issue clears the tuck too (#24 reopen path)', async () => {
@@ -656,23 +656,23 @@ describe('IssueService tuck-away (POD-333)', () => {
     // dismissal has to be cleared there as well or agents picking work back up
     // would leave it silently pre-folded.
     const { svc } = await harness()
-    const w = closedIssue(svc)
-    svc.setIssueTucked(w.id, true)
+    const w = await closedIssue(svc)
+    await svc.setIssueTucked(w.id, true)
 
     await svc.start(w.id)
 
-    expect(svc.get(w.id)!.closedReason).toBeUndefined()
-    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+    expect((await svc.get(w.id))!.closedReason).toBeUndefined()
+    expect((await svc.get(w.id))!.tuckedAt).toBeNull()
   })
 
   it('is curation, not activity: it does not touch updatedAt or re-raise unread', async () => {
     const { svc, store } = await harness()
-    const w = closedIssue(svc)
-    svc.markIssueRead(w.id)
+    const w = await closedIssue(svc)
+    await svc.markIssueRead(w.id)
     const before = (await store.issues.getIssue(w.id))!
     const beforeReadAt = (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.readAt
 
-    const tucked = svc.setIssueTucked(w.id, true)
+    const tucked = await svc.setIssueTucked(w.id, true)
 
     expect(tucked.updatedAt).toBe(before.updatedAt)
     // The tuck patch must not disturb the read marker — the two share a row now
@@ -688,18 +688,18 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
   const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
   const doneAndRead = async () => {
     const h = await harness()
-    const w = h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
-    h.svc.close(w.id) // stage=done, closedReason=done, updatedAt=harness now
-    h.svc.markIssueRead(w.id) // readAt=harness now, unread→false
+    const w = await h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
+    await h.svc.close(w.id) // stage=done, closedReason=done, updatedAt=harness now
+    await h.svc.markIssueRead(w.id) // readAt=harness now, unread→false
     return { ...h, id: w.id }
   }
 
   it('archives a top-level done issue read > 7d ago; emits issue.auto_archived (not issue.archived)', async () => {
     const { svc, store, deps, id } = await doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + 8 * DAY_MS) // eight days later
+    const archived = await svc.sweepAutoArchive(readAtMs + 8 * DAY_MS) // eight days later
     expect(archived.map((w) => w.id)).toEqual([id])
     expect(archived[0]!.archived).toBe(true)
-    expect(svc.get(id)!.archived).toBe(true)
+    expect((await svc.get(id))!.archived).toBe(true)
     // The distinct auto-archive event is logged; the manual archive event is NOT.
     expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(1)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.archived'] })).length).toBe(0)
@@ -708,90 +708,90 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
 
   it('leaves a done+read issue read < 7d ago alone', async () => {
     const { svc, store, id } = await doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + 6 * DAY_MS) // only six days later
+    const archived = await svc.sweepAutoArchive(readAtMs + 6 * DAY_MS) // only six days later
     expect(archived).toEqual([])
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(0)
   })
 
   it('leaves a done-but-unread issue alone even long after it was closed', async () => {
     const h = await harness()
-    const w = h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
-    h.svc.close(w.id) // done, but never read → unread
+    const w = await h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
+    await h.svc.close(w.id) // done, but never read → unread
     expect(h.svc.unreadFor(w.id)).toBe(true)
-    const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
+    const archived = await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
-    expect(h.svc.get(w.id)!.archived).toBe(false)
+    expect((await h.svc.get(w.id))!.archived).toBe(false)
   })
 
   it('leaves a not-done issue alone even when read long ago', async () => {
     const h = await harness()
-    const w = h.svc.create({ repoPath: '/r', title: 'Still open', startNow: false })
-    h.svc.markIssueRead(w.id) // read, but stage is backlog (open)
-    const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
+    const w = await h.svc.create({ repoPath: '/r', title: 'Still open', startNow: false })
+    await h.svc.markIssueRead(w.id) // read, but stage is backlog (open)
+    const archived = await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
-    expect(h.svc.get(w.id)!.archived).toBe(false)
+    expect((await h.svc.get(w.id))!.archived).toBe(false)
   })
 
   it('does not re-archive: skips already-archived rows (idempotent, no duplicate event)', async () => {
     const { svc, store, id } = await doneAndRead()
-    expect(svc.sweepAutoArchive(readAtMs + 8 * DAY_MS).map((w) => w.id)).toEqual([id])
+    expect((await svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)).map((w) => w.id)).toEqual([id])
     // A second sweep touches nothing and emits no further event.
-    expect(svc.sweepAutoArchive(readAtMs + 9 * DAY_MS)).toEqual([])
+    expect(await svc.sweepAutoArchive(readAtMs + 9 * DAY_MS)).toEqual([])
     expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(1)
   })
 
   it('treats a closed-by-reason top-level issue (not stage done) as archivable when read > 7d ago', async () => {
     const h = await harness()
-    const canonical = h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
-    const dup = h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
-    h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
-    h.svc.markIssueRead(dup.id)
-    const archived = h.svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)
+    const canonical = await h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
+    const dup = await h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
+    await h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
+    await h.svc.markIssueRead(dup.id)
+    const archived = await h.svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)
     expect(archived.map((w) => w.id)).toContain(dup.id)
-    expect(h.svc.get(canonical.id)!.archived).toBe(false) // still open → untouched
+    expect((await h.svc.get(canonical.id))!.archived).toBe(false) // still open → untouched
   })
   it('keeps done children until their parent closes, then archives the subtree', async () => {
     const h = await harness()
-    const parent = h.svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
-    const child = h.svc.create({
+    const parent = await h.svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = await h.svc.create({
       repoPath: '/r',
       title: 'Child',
       parentId: parent.id,
       startNow: false,
     })
-    h.svc.close(child.id)
-    h.svc.markIssueRead(child.id)
-    expect(h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)).toEqual([])
-    expect(h.svc.get(child.id)?.archived).toBe(false)
+    await h.svc.close(child.id)
+    await h.svc.markIssueRead(child.id)
+    expect(await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)).toEqual([])
+    expect((await h.svc.get(child.id))?.archived).toBe(false)
 
-    h.svc.close(parent.id)
-    expect(h.svc.get(child.id)?.archived).toBe(true)
+    await h.svc.close(parent.id)
+    expect((await h.svc.get(child.id))?.archived).toBe(true)
   })
 
   it('parent-close cascade archives ONLY closed+read children — open, unread, and live-session children survive (B4)', async () => {
     const sessions: SessionMeta[] = []
     const h = await harness(sessions)
-    const parent = h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const mk = (title: string) =>
-      h.svc.create({ repoPath: '/r', title, parentId: parent.id, startNow: false })
-    const open = mk('still in progress')
-    h.svc.update(open.id, { stage: 'in_progress' })
-    const unread = mk('done but unread')
-    h.svc.close(unread.id)
-    const withLive = mk('done, read, agent still running')
-    h.svc.close(withLive.id)
-    h.svc.markIssueRead(withLive.id)
+    const parent = await h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const mk = async (title: string) =>
+      await h.svc.create({ repoPath: '/r', title, parentId: parent.id, startNow: false })
+    const open = await mk('still in progress')
+    await h.svc.update(open.id, { stage: 'in_progress' })
+    const unread = await mk('done but unread')
+    await h.svc.close(unread.id)
+    const withLive = await mk('done, read, agent still running')
+    await h.svc.close(withLive.id)
+    await h.svc.markIssueRead(withLive.id)
     sessions.push({ ...sess('/r/wt-live'), issueId: withLive.id } as unknown as SessionMeta)
-    const done = mk('done and read')
-    h.svc.close(done.id)
-    h.svc.markIssueRead(done.id)
+    const done = await mk('done and read')
+    await h.svc.close(done.id)
+    await h.svc.markIssueRead(done.id)
 
-    h.svc.close(parent.id)
-    expect(h.svc.get(open.id)?.archived).toBe(false)
-    expect(h.svc.get(unread.id)?.archived).toBe(false)
-    expect(h.svc.get(withLive.id)?.archived).toBe(false)
-    expect(h.svc.get(done.id)?.archived).toBe(true)
+    await h.svc.close(parent.id)
+    expect((await h.svc.get(open.id))?.archived).toBe(false)
+    expect((await h.svc.get(unread.id))?.archived).toBe(false)
+    expect((await h.svc.get(withLive.id))?.archived).toBe(false)
+    expect((await h.svc.get(done.id))?.archived).toBe(true)
     // The open child's agent keeps its session — the cascade never touched it.
     expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
   })
@@ -818,9 +818,9 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
 
   const doneAndRead = async () => {
     const h = await harness()
-    const w = h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
-    h.svc.close(w.id)
-    h.svc.markIssueRead(w.id)
+    const w = await h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
+    await h.svc.close(w.id)
+    await h.svc.markIssueRead(w.id)
     return { ...h, id: w.id }
   }
   const observation = (id: IssueId, readerUserId: UserId) => ({
@@ -836,8 +836,8 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // Says YES first. Every refusal below is measured against this exact
     // fixture, so none of them can pass by failing for an unrelated reason.
     const { svc, id } = await doneAndRead()
-    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe('applied')
-    expect(svc.get(id)!.archived).toBe(true)
+    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe('applied')
+    expect((await svc.get(id))!.archived).toBe(true)
   })
 
   it('REFUSES an observation naming a different reader — one person cannot archive for all', async () => {
@@ -847,10 +847,10 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // sweeping some other user's read state would have archived work off
     // everyone's board with nothing able to detect it.
     const { svc, id } = await doneAndRead()
-    expect(svc.tryAutoArchiveObserved(observation(id, asUserId('user:other')), DUE)).toBe(
+    expect(await svc.tryAutoArchiveObserved(observation(id, asUserId('user:other')), DUE)).toBe(
       'precondition',
     )
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
   })
 
   it('REFUSES an observation with no reader at all', async () => {
@@ -859,10 +859,10 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // operator by default (readiness §3.1.6 S4 — an unidentified principal fails
     // CLOSED).
     const { svc, id } = await doneAndRead()
-    expect(svc.tryAutoArchiveObserved(observation(id, '' as unknown as UserId), DUE)).toBe(
+    expect(await svc.tryAutoArchiveObserved(observation(id, '' as unknown as UserId), DUE)).toBe(
       'precondition',
     )
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
   })
 
   it('answers not-due when the viewer RE-READ it — what the removed CAS used to catch', async () => {
@@ -871,31 +871,31 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // freshness check already covers it: re-reading moves readAt to `now`, which
     // is inside the seven-day window.
     const { svc, id } = await doneAndRead()
-    svc.markIssueRead(id) // re-read at the harness clock, long after the observation
-    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), readAtMs + 1000)).toBe(
+    await svc.markIssueRead(id) // re-read at the harness clock, long after the observation
+    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), readAtMs + 1000)).toBe(
       'not-due',
     )
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
   })
 
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { svc, id } = await doneAndRead()
-    svc.markIssueUnread(id) // deletes the marker; absent row == never read
-    expect(svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe(
+    await svc.markIssueUnread(id) // deletes the marker; absent row == never read
+    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe(
       'precondition',
     )
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
   })
 
   it('still refuses the shared preconditions it always did (stage, archived, deleted)', async () => {
     const { svc, id } = await doneAndRead()
     expect(
-      svc.tryAutoArchiveObserved(
+      await svc.tryAutoArchiveObserved(
         { ...observation(id, FIRST_ADMIN_USER_ID), stage: 'in_progress' },
         DUE,
       ),
     ).toBe('precondition')
-    expect(svc.get(id)!.archived).toBe(false)
+    expect((await svc.get(id))!.archived).toBe(false)
   })
 })
 
@@ -916,11 +916,11 @@ describe('IssueService close retires session offers (POD-290)', () => {
     const coordinator = offered('/r/wt/coord')
     const outsider = offered('/elsewhere')
     const { svc, clearSessionOffer } = await harness([delegate, coordinator, outsider])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     clearSessionOffer.mockClear()
 
-    svc.close(w.id)
+    await svc.close(w.id)
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(2)
     expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/delegate')
@@ -931,11 +931,11 @@ describe('IssueService close retires session offers (POD-290)', () => {
   it('board drag / CLI update({ stage: done }) retires offers the same way', async () => {
     const member = offered('/r/wt')
     const { svc, clearSessionOffer } = await harness([member])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     clearSessionOffer.mockClear()
 
-    svc.update(w.id, { stage: 'done' })
+    await svc.update(w.id, { stage: 'done' })
 
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
     expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt')
@@ -945,16 +945,16 @@ describe('IssueService close retires session offers (POD-290)', () => {
     const withOffer = offered('/r/wt/offer')
     const bare = sess('/r/wt/bare', 'idle')
     const { svc, clearSessionOffer } = await harness([withOffer, bare])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     clearSessionOffer.mockClear()
 
-    svc.close(w.id)
+    await svc.close(w.id)
     expect(clearSessionOffer).toHaveBeenCalledTimes(1)
     expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/offer')
 
     clearSessionOffer.mockClear()
-    svc.close(w.id)
+    await svc.close(w.id)
     expect(clearSessionOffer).not.toHaveBeenCalled()
   })
 
@@ -966,12 +966,12 @@ describe('IssueService close retires session offers (POD-290)', () => {
     // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
     const sessions: SessionMeta[] = []
     const { svc, clearSessionOffer } = await harness(sessions)
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     sessions.push({ ...attached, issueId: w.id } as SessionMeta)
     clearSessionOffer.mockClear()
 
-    svc.close(w.id)
+    await svc.close(w.id)
 
     expect(clearSessionOffer).toHaveBeenCalledWith('attached')
   })
@@ -984,10 +984,10 @@ describe('IssueService archive cascade to sessions (#133)', () => {
       sess('/r/wt/pkg'),
       sess('/elsewhere'),
     ])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
-    svc.archive(w.id)
+    await svc.archive(w.id)
     // Both member sessions (cwd inside the worktree) are archived; the outsider is not.
     expect(setSessionArchived).toHaveBeenCalledTimes(2)
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
@@ -997,56 +997,56 @@ describe('IssueService archive cascade to sessions (#133)', () => {
 
   it('a context-menu / CLI update({ archived: true }) cascades the same way', async () => {
     const { svc, setSessionArchived } = await harness([sess('/r/wt')])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
-    svc.update(w.id, { archived: true })
+    await svc.update(w.id, { archived: true })
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
   })
 
   it('the S5 auto-archive sweep also archives member sessions so the worktree row disappears', async () => {
     const member = { ...sess('/r/wt'), lastActiveAt: '2026-06-20T00:00:00.000Z' }
     const { svc, setSessionArchived } = await harness([member])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
-    svc.close(w.id) // done
-    svc.markIssueRead(w.id) // read at harness now
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
+    await svc.close(w.id) // done
+    await svc.markIssueRead(w.id) // read at harness now
     setSessionArchived.mockClear()
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
-    const archived = svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
+    const archived = await svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((a) => a.id)).toEqual([w.id])
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
   })
 
   it('un-archiving an issue does NOT cascade (sessions stay archived unless restored explicitly)', async () => {
     const { svc, setSessionArchived } = await harness([sess('/r/wt')])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
-    svc.archive(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
+    await svc.archive(w.id)
     setSessionArchived.mockClear()
-    svc.update(w.id, { archived: false })
+    await svc.update(w.id, { archived: false })
     expect(setSessionArchived).not.toHaveBeenCalled()
   })
 
   it('explicit archive of a parent archives every living descendant', async () => {
     const sessions: SessionMeta[] = []
     const { svc, setSessionArchived } = await harness(sessions)
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const open = svc.create({
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const open = await svc.create({
       repoPath: '/r',
       title: 'still in progress',
       parentId: epic.id,
       startNow: false,
     })
-    svc.update(open.id, { stage: 'in_progress' })
-    const unread = svc.create({
+    await svc.update(open.id, { stage: 'in_progress' })
+    const unread = await svc.create({
       repoPath: '/r',
       title: 'done but unread',
       parentId: epic.id,
       startNow: false,
     })
-    svc.close(unread.id)
-    const grandchild = svc.create({
+    await svc.close(unread.id)
+    const grandchild = await svc.create({
       repoPath: '/r',
       title: 'grandchild',
       parentId: open.id,
@@ -1055,69 +1055,69 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     sessions.push({ ...sess('/r/wt-live'), issueId: open.id } as unknown as SessionMeta)
     setSessionArchived.mockClear()
 
-    svc.archive(epic.id)
+    await svc.archive(epic.id)
 
-    expect(svc.get(epic.id)?.archived).toBe(true)
-    expect(svc.get(open.id)?.archived).toBe(true)
-    expect(svc.get(unread.id)?.archived).toBe(true)
-    expect(svc.get(grandchild.id)?.archived).toBe(true)
+    expect((await svc.get(epic.id))?.archived).toBe(true)
+    expect((await svc.get(open.id))?.archived).toBe(true)
+    expect((await svc.get(unread.id))?.archived).toBe(true)
+    expect((await svc.get(grandchild.id))?.archived).toBe(true)
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt-live', true)
   })
 
   it('context-menu update({ archived: true }) takes the same descendant walk', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = svc.create({
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = await svc.create({
       repoPath: '/r',
       title: 'Child',
       parentId: epic.id,
       startNow: false,
     })
-    svc.update(epic.id, { archived: true })
-    expect(svc.get(child.id)?.archived).toBe(true)
+    await svc.update(epic.id, { archived: true })
+    expect((await svc.get(child.id))?.archived).toBe(true)
   })
 
   it('un-archiving a parent does not restore its children', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = svc.create({
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = await svc.create({
       repoPath: '/r',
       title: 'Child',
       parentId: epic.id,
       startNow: false,
     })
-    svc.archive(epic.id)
-    svc.update(epic.id, { archived: false })
-    expect(svc.get(epic.id)?.archived).toBe(false)
-    expect(svc.get(child.id)?.archived).toBe(true)
+    await svc.archive(epic.id)
+    await svc.update(epic.id, { archived: false })
+    expect((await svc.get(epic.id))?.archived).toBe(false)
+    expect((await svc.get(child.id))?.archived).toBe(true)
   })
 
   it('auto-archive of a closed top-level issue does not take its leftover children', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const leftover = svc.create({
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const leftover = await svc.create({
       repoPath: '/r',
       title: 'still open',
       parentId: epic.id,
       startNow: false,
     })
-    svc.update(leftover.id, { stage: 'in_progress' })
-    svc.close(epic.id)
-    svc.markIssueRead(epic.id)
+    await svc.update(leftover.id, { stage: 'in_progress' })
+    await svc.close(epic.id)
+    await svc.markIssueRead(epic.id)
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
-    const archived = svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
+    const archived = await svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((row) => row.id)).toEqual([epic.id])
-    expect(svc.get(leftover.id)?.archived).toBe(false)
+    expect((await svc.get(leftover.id))?.archived).toBe(false)
   })
 
   it('skips already-archived member sessions (no redundant archive call)', async () => {
     const live = sess('/r/wt/live')
     const already = { ...sess('/r/wt/gone'), archived: true }
     const { svc, setSessionArchived } = await harness([live, already])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
-    svc.archive(w.id)
+    await svc.archive(w.id)
     expect(setSessionArchived).toHaveBeenCalledTimes(1)
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/live', true)
     expect(setSessionArchived).not.toHaveBeenCalledWith('/r/wt/gone', true)
@@ -1139,22 +1139,22 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
    *  — a macrotask lets its repoOp round trips settle before asserting. */
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-  const startedIssue = (h: Awaited<ReturnType<typeof harness>>, title = 'Shipped') => {
-    const w = h.svc.create({ repoPath: '/r', title, startNow: false })
-    h.svc.update(w.id, { worktreePath: '/r/.worktrees/issue-x', branch: 'issue/x' })
+  const startedIssue = async (h: Awaited<ReturnType<typeof harness>>, title = 'Shipped') => {
+    const w = await h.svc.create({ repoPath: '/r', title, startNow: false })
+    await h.svc.update(w.id, { worktreePath: '/r/.worktrees/issue-x', branch: 'issue/x' })
     return w.id
   }
 
   it('frees the checkout on a manual archive, keeps the branch, and never forces', async () => {
     const h = await harness()
     const ops = recordOps(h)
-    const id = startedIssue(h)
+    const id = await startedIssue(h)
 
-    h.svc.archive(id)
+    await h.svc.archive(id)
     await settle()
 
-    expect(h.svc.get(id)!.worktreePath).toBeNull()
-    expect(h.svc.get(id)!.branch).toBe('issue/x')
+    expect((await h.svc.get(id))!.worktreePath).toBeNull()
+    expect((await h.svc.get(id))!.branch).toBe('issue/x')
     const remove = ops.find((o) => o.op === 'worktreeRemove')
     expect(remove?.cwd).toBe('/r') // the repo, with the worktree path as an arg
     expect(remove?.args).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
@@ -1169,9 +1169,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // against work that had already landed. The job has to name itself.
     const h = await harness()
     recordOps(h)
-    const id = startedIssue(h, 'Archived, not stopped')
+    const id = await startedIssue(h, 'Archived, not stopped')
 
-    h.svc.archive(id)
+    await h.svc.archive(id)
     await settle()
 
     const audit = (await h.store.issues
@@ -1185,16 +1185,16 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
   it('frees on the read-gated 7-day sweep too, not only on the operator’s own archive', async () => {
     const h = await harness()
     recordOps(h)
-    const id = startedIssue(h, 'Aged out')
-    h.svc.close(id)
-    h.svc.markIssueRead(id)
+    const id = await startedIssue(h, 'Aged out')
+    await h.svc.close(id)
+    await h.svc.markIssueRead(id)
 
     const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
-    expect(h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000).map((w) => w.id)).toEqual([id])
+    expect((await h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000)).map((w) => w.id)).toEqual([id])
     await settle()
 
-    expect(h.svc.get(id)!.worktreePath).toBeNull()
-    expect(h.svc.get(id)!.branch).toBe('issue/x')
+    expect((await h.svc.get(id))!.worktreePath).toBeNull()
+    expect((await h.svc.get(id))!.branch).toBe('issue/x')
   })
 
   it('an unmerged branch is NOT a refusal — that is the merge-pending case', async () => {
@@ -1202,24 +1202,24 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // right here: the commits live on the branch, and resume rebuilds the checkout.
     const h = await harness()
     recordOps(h, '## issue/x...origin/main [ahead 3]')
-    const id = startedIssue(h, 'Waiting on merge')
+    const id = await startedIssue(h, 'Waiting on merge')
 
-    h.svc.archive(id)
+    await h.svc.archive(id)
     await settle()
 
-    expect(h.svc.get(id)!.worktreePath).toBeNull()
-    expect(h.svc.get(id)!.branch).toBe('issue/x')
+    expect((await h.svc.get(id))!.worktreePath).toBeNull()
+    expect((await h.svc.get(id))!.branch).toBe('issue/x')
   })
 
   it('refuses on a dirty tree: the checkout stays, and the refusal is recorded', async () => {
     const h = await harness()
     const ops = recordOps(h, '## issue/x\n M src/unsaved.ts')
-    const id = startedIssue(h, 'Half-finished')
+    const id = await startedIssue(h, 'Half-finished')
 
-    h.svc.archive(id)
+    await h.svc.archive(id)
     await settle()
 
-    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect((await h.svc.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     const refused = await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })
     expect(refused.length).toBe(1)
@@ -1233,19 +1233,19 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     const sessions: SessionMeta[] = []
     const h = await harness(sessions)
     const ops = recordOps(h)
-    const id = startedIssue(h, 'Shared checkout')
-    const other = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
+    const id = await startedIssue(h, 'Shared checkout')
+    const other = await h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
     sessions.push({
       ...sess('/r/.worktrees/issue-x'),
       issueId: other.id,
     } as unknown as SessionMeta)
 
-    h.svc.archive(id)
+    await h.svc.archive(id)
     await settle()
 
     // Not even inspected: the guard runs before any git op on the path.
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
-    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect((await h.svc.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/.worktrees/issue-x', true)
     expect(
       (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })).length,
@@ -1255,25 +1255,25 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
   it('does not free on close — only archive, because `done` is an agent-writable claim', async () => {
     const h = await harness()
     const ops = recordOps(h)
-    const id = startedIssue(h, 'Done, awaiting review')
+    const id = await startedIssue(h, 'Done, awaiting review')
 
-    h.svc.close(id)
+    await h.svc.close(id)
     await settle()
 
-    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect((await h.svc.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
   })
 
   it('un-archiving does not free anything (and re-archiving a freed issue is a no-op)', async () => {
     const h = await harness()
     recordOps(h)
-    const id = startedIssue(h)
-    h.svc.archive(id)
+    const id = await startedIssue(h)
+    await h.svc.archive(id)
     await settle()
-    h.svc.update(id, { archived: false })
+    await h.svc.update(id, { archived: false })
     const afterUnarchive = recordOps(h) // a fresh recorder — starts empty
 
-    h.svc.update(id, { archived: true })
+    await h.svc.update(id, { archived: true })
     await settle()
 
     // Nothing left to free: no git op, no refusal event.
@@ -1291,15 +1291,15 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
  */
 describe('new agent after worktree free (POD-580)', () => {
   /** Branch kept, checkout gone — the post-free row shape. */
-  const freedWithBranch = (svc: IssueService, title = 'Shipped') => {
-    const w = svc.create({ repoPath: '/r', title, startNow: false })
-    svc.update(w.id, { worktreePath: null, branch: 'issue/x', stage: 'in_progress' })
+  const freedWithBranch = async (svc: IssueService, title = 'Shipped') => {
+    const w = await svc.create({ repoPath: '/r', title, startNow: false })
+    await svc.update(w.id, { worktreePath: null, branch: 'issue/x', stage: 'in_progress' })
     return w
   }
 
   it('addSession rebuilds via worktreeAddExisting then spawns into it', async () => {
     const { svc, deps, store } = await harness()
-    const w = freedWithBranch(svc)
+    const w = await freedWithBranch(svc)
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
         ? { ok: true, output: 'Preparing worktree' }
@@ -1314,7 +1314,7 @@ describe('new agent after worktree free (POD-580)', () => {
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
       store.hostMachineId,
     )
-    expect(svc.get(w.id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect((await svc.get(w.id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(deps.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/r/.worktrees/issue-x',
@@ -1331,13 +1331,13 @@ describe('new agent after worktree free (POD-580)', () => {
 
   it('addSession still refuses when neither worktree nor branch is recorded', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'Never started', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'Never started', startNow: false })
     expect(() => svc.addSession(w.id)).toThrow(/issue not started/)
   })
 
   it('start attaches the preserved branch (worktreeAddExisting) and spawns a new agent', async () => {
     const { svc, deps, store } = await harness()
-    const w = freedWithBranch(svc, 'Restart me')
+    const w = await freedWithBranch(svc, 'Restart me')
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
         ? { ok: true, output: 'Preparing worktree' }
@@ -1369,7 +1369,7 @@ describe('new agent after worktree free (POD-580)', () => {
 
   it('start still creates a fresh branch with worktreeAdd when none is recorded', async () => {
     const { svc, deps, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'Brand new', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'Brand new', startNow: false })
     await svc.start(w.id)
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
@@ -1389,27 +1389,27 @@ describe('IssueService next-message defer (#430)', () => {
   it('defers until next message and clears when a member session enters attention', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.defer(w.id, 'next-message')
-    expect(svc.get(w.id)!.deferred).toBe(true)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.defer(w.id, 'next-message')
+    expect((await svc.get(w.id))!.deferred).toBe(true)
     // A session explicitly attached to the issue enters attention → defer clears.
     sessions.push({ ...sess('/elsewhere', 'awaiting_input'), issueId: w.id } as SessionMeta)
-    svc.onSessionAttention(asSessionId('/elsewhere'))
-    expect(svc.get(w.id)!.deferred).toBe(false)
-    expect(svc.get(w.id)!.deferUntil == null).toBe(true)
+    await svc.onSessionAttention(asSessionId('/elsewhere'))
+    expect((await svc.get(w.id))!.deferred).toBe(false)
+    expect((await svc.get(w.id))!.deferUntil == null).toBe(true)
   })
 
   it("does not clear another issue's defer or timed defers", async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.defer(a.id, 'next-message')
-    svc.defer(b.id, '2099-01-01')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.defer(a.id, 'next-message')
+    await svc.defer(b.id, '2099-01-01')
     sessions.push({ ...sess('/x', 'awaiting_input'), issueId: b.id } as SessionMeta)
-    svc.onSessionAttention(asSessionId('/x'))
-    expect(svc.get(a.id)!.deferred).toBe(true) // session belongs to b, not a
-    expect(svc.get(b.id)!.deferred).toBe(true) // timed defer untouched
+    await svc.onSessionAttention(asSessionId('/x'))
+    expect((await svc.get(a.id))!.deferred).toBe(true) // session belongs to b, not a
+    expect((await svc.get(b.id))!.deferred).toBe(true) // timed defer untouched
   })
 })
 
@@ -1417,10 +1417,10 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
   const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
   it('drops a snooze into the returned-from-defer state (past deferUntil, not null) + emits issue.unsnoozed', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.defer(w.id, '2026-07-15') // snooze into the future → deferred
-    expect(svc.get(w.id)!.deferred).toBe(true)
-    const un = svc.undefer(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.defer(w.id, '2026-07-15') // snooze into the future → deferred
+    expect((await svc.get(w.id))!.deferred).toBe(true)
+    const un = await svc.undefer(w.id)
     // NOT cleared to null — set to a PAST instant so the client reads it as
     // returned-from-defer (top-of-WORK + "Unsnoozed" tag), which a null cannot do.
     expect(un.deferUntil).not.toBeNull()
@@ -1437,8 +1437,8 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
 
   it('is a no-op when the issue is not deferred (no event, deferUntil stays null)', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    const un = svc.undefer(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const un = await svc.undefer(w.id)
     expect(un.deferUntil == null).toBe(true)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })).length).toBe(0)
   })
@@ -1448,31 +1448,31 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
   // (undefer left it in the past) so `issueReturnedFromDefer` goes false again.
   it('defer(id, null) clears the backdated deferUntil an undefer leaves behind', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.defer(w.id, '2026-07-15')
-    const un = svc.undefer(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.defer(w.id, '2026-07-15')
+    const un = await svc.undefer(w.id)
     expect(un.deferUntil).not.toBeNull() // backdated to the past (returned-from-defer)
-    const cleared = svc.defer(w.id, null)
+    const cleared = await svc.defer(w.id, null)
     expect(cleared.deferUntil == null).toBe(true) // tag source is gone
-    expect(svc.get(w.id)!.deferUntil == null).toBe(true)
+    expect((await svc.get(w.id))!.deferUntil == null).toBe(true)
   })
 })
 
 describe('IssueService toWire needs_human (P4)', () => {
   it('surfaces needsHuman + humanQuestion set on the row', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const row = (await store.issues.getIssue(a.id))!
-    const wired = svc.toWire({ ...row, needsHuman: true, humanQuestion: 'which key?' })
+    const wired = await svc.toWire({ ...row, needsHuman: true, humanQuestion: 'which key?' })
     expect(wired.needsHuman).toBe(true)
     expect(wired.humanQuestion).toBe('which key?')
   })
 
   it('reports needsHuman=false and omits humanQuestion when unset', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     const row = (await store.issues.getIssue(a.id))!
-    const wired = svc.toWire({ ...row, needsHuman: false, humanQuestion: null })
+    const wired = await svc.toWire({ ...row, needsHuman: false, humanQuestion: null })
     expect(wired.needsHuman).toBe(false)
     expect(wired.humanQuestion).toBeUndefined()
   })
@@ -1481,7 +1481,7 @@ describe('IssueService toWire needs_human (P4)', () => {
 describe('IssueService.start', () => {
   it('starts on the host with an explicit machine id and routes work there', async () => {
     const { svc, deps, store } = await harness()
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Fix login',
       description: 'do the thing',
@@ -1516,7 +1516,7 @@ describe('IssueService.start', () => {
     const { svc, deps } = await harness()
     const selected = asMachineId('repo-affine-remote')
     deps.resolveMachine = vi.fn(() => selected)
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/remote/repo',
       title: 'Repo affine',
       startNow: false,
@@ -1537,7 +1537,7 @@ describe('IssueService.start', () => {
 
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
     const { svc, onWorktreesChanged, store } = await harness()
-    const created = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const created = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     await svc.start(created.id)
     expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachineId)
   })
@@ -1545,8 +1545,8 @@ describe('IssueService.start', () => {
   it('does NOT fire onWorktreesChanged when worktreeAdd fails (POD-665)', async () => {
     const { svc, deps, onWorktreesChanged } = await harness()
     deps.repoOp = vi.fn(async () => ({ ok: false, output: 'boom' }))
-    const created = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
-    await expect(svc.start(created.id)).rejects.toThrow(/worktree add failed/)
+    const created = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    await expect(await svc.start(created.id)).rejects.toThrow(/worktree add failed/)
     expect(onWorktreesChanged).not.toHaveBeenCalled()
   })
 
@@ -1558,17 +1558,17 @@ describe('IssueService.start', () => {
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
     })
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Typo model',
       startNow: false,
       defaultModel: 'claude-opus-4.8', // dot, not dash
     })
-    await expect(svc.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
+    await expect(await svc.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
     // No worktree add, no spawn, and the issue stays in backlog (start state untouched).
     expect(deps.repoOp).not.toHaveBeenCalled()
     expect(deps.spawnSession).not.toHaveBeenCalled()
-    expect(svc.get(created.id)?.stage).toBe('backlog')
+    expect((await svc.get(created.id))?.stage).toBe('backlog')
   })
 
   it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
@@ -1579,7 +1579,7 @@ describe('IssueService.start', () => {
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
     })
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Forced model',
       startNow: false,
@@ -1593,7 +1593,7 @@ describe('IssueService.start', () => {
 
   it('routes worktree creation and the spawn to the issue machine when pinned', async () => {
     const { svc, deps } = await harness()
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1609,7 +1609,7 @@ describe('IssueService.start', () => {
       'mach-b',
     )
     expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
-    svc.addSession(created.id)
+    await svc.addSession(created.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ machineId: 'mach-b' }),
     )
@@ -1648,7 +1648,7 @@ describe('IssueService.start', () => {
       order.push(`repoOp:${op}`)
       return { ok: true, output: '' }
     }) as typeof deps.repoOp
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1691,7 +1691,7 @@ describe('IssueService.start', () => {
     )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1724,7 +1724,7 @@ describe('IssueService.start', () => {
       repoPath: '/home/till/src/podium',
       startPoint: sha,
     }))
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1746,14 +1746,14 @@ describe('IssueService.start', () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
       machineId: asMachineId('mach-b'),
       parentBranch: 'main',
     })
-    await expect(svc.start(created.id)).rejects.toThrow(/not the same repository/)
+    await expect(await svc.start(created.id)).rejects.toThrow(/not the same repository/)
     // Nothing may be built before the refusal.
     expect(deps.repoOp).not.toHaveBeenCalled()
   })
@@ -1761,8 +1761,8 @@ describe('IssueService.start', () => {
   it('leaves an unpinned start completely untouched — no cross-machine work at all', async () => {
     const { svc, deps } = await harness()
     deps.prepareMachineStart = vi.fn()
-    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
-    return svc.start(created.id).then(() => {
+    const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    return (await svc.start(created.id)).then(() => {
       expect(deps.prepareMachineStart).not.toHaveBeenCalled()
     })
   })
@@ -1774,13 +1774,13 @@ describe('IssueService.start', () => {
         "machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin",
       )
     })
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
       machineId: asMachineId('mach-b'),
     })
-    await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
+    await expect(await svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/r')
     expect(deps.repoOp).not.toHaveBeenCalled()
     expect(deps.spawnSession).not.toHaveBeenCalled()
@@ -1806,7 +1806,7 @@ describe('IssueService.start', () => {
     deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
       repoPath === '/r' && machineId === 'mach-b' ? '/home/till/src/podium' : null,
     )
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1814,7 +1814,7 @@ describe('IssueService.start', () => {
     })
     await svc.start(created.id)
     ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockClear()
-    svc.addSession(created.id)
+    await svc.addSession(created.id)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
     expect(deps.spawnSession).toHaveBeenCalled()
   })
@@ -1826,7 +1826,7 @@ describe('IssueService.start', () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
     deps.findRepoOnMachine = vi.fn(() => null)
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1850,7 +1850,7 @@ describe('IssueService.start', () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
     deps.findRepoOnMachine = vi.fn(() => '/home/till/src/podium')
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
@@ -1881,13 +1881,13 @@ describe('IssueService.start', () => {
         ? '/home/bob/src/podium'
         : null,
     )
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/home/alice/src/podium',
       title: 'Moved session',
       startNow: false,
       machineId: asMachineId('mach-a'),
     })
-    svc.update(created.id, {
+    await svc.update(created.id, {
       branch: 'issue/1-moved-session',
       worktreePath: '/home/alice/src/podium/.worktrees/issue-1-moved-session',
     })
@@ -1911,7 +1911,7 @@ describe('IssueService.start', () => {
       'mach-b',
     )
     expect(result.worktreePath).toBe('/home/bob/src/podium/.worktrees/issue-1-moved-session')
-    expect(svc.get(created.id)).toMatchObject({
+    expect(await svc.get(created.id)).toMatchObject({
       machineId: 'mach-b',
       repoPath: '/home/bob/src/podium',
       worktreePath: '/home/bob/src/podium/.worktrees/issue-1-moved-session',
@@ -1932,13 +1932,13 @@ describe('IssueService.start', () => {
         ? '/home/mgw/src/other/podium'
         : null,
     )
-    const created = svc.create({
+    const created = await svc.create({
       repoPath: '/home/mgw/src/podium',
       title: 'Homed here',
       startNow: false,
       machineId: asMachineId('mach-b'),
     })
-    svc.update(created.id, {
+    await svc.update(created.id, {
       branch: 'issue/1-homed-here',
       worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
     })
@@ -1964,8 +1964,8 @@ describe('IssueService.start', () => {
 
   it('recreate adopts a directory git refuses as already existing when it is our branch', async () => {
     const { svc, deps, store } = await harness()
-    const created = svc.create({ repoPath: '/r', title: 'Present', startNow: false })
-    svc.update(created.id, { branch: 'issue/1-present' })
+    const created = await svc.create({ repoPath: '/r', title: 'Present', startNow: false })
+    await svc.update(created.id, { branch: 'issue/1-present' })
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
         ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-present' already exists" }
@@ -1976,7 +1976,7 @@ describe('IssueService.start', () => {
 
     expect(result).toMatchObject({ ok: true, worktreePath: '/r/.worktrees/issue-1-present' })
     expect(result.output).toMatch(/already present/)
-    expect(svc.get(created.id)).toMatchObject({
+    expect(await svc.get(created.id)).toMatchObject({
       worktreePath: '/r/.worktrees/issue-1-present',
       machineId: store.hostMachineId,
     })
@@ -1984,8 +1984,8 @@ describe('IssueService.start', () => {
 
   it('recreate still fails when the existing path holds some OTHER branch', async () => {
     const { svc, deps } = await harness()
-    const created = svc.create({ repoPath: '/r', title: 'Occupied', startNow: false })
-    svc.update(created.id, { branch: 'issue/1-occupied' })
+    const created = await svc.create({ repoPath: '/r', title: 'Occupied', startNow: false })
+    await svc.update(created.id, { branch: 'issue/1-occupied' })
     deps.repoOp = vi.fn(async (op: string) =>
       op === 'worktreeAddExisting'
         ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-occupied' already exists" }
@@ -2001,9 +2001,9 @@ describe('IssueService.start', () => {
   it('an unpinned issue never consults the cross-machine resolver', async () => {
     const { svc, deps } = await harness()
     deps.findRepoOnMachine = vi.fn(() => null)
-    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
     await svc.start(created.id)
-    svc.addSession(created.id)
+    await svc.addSession(created.id)
     expect(deps.findRepoOnMachine).not.toHaveBeenCalled()
   })
 
@@ -2012,34 +2012,34 @@ describe('IssueService.start', () => {
     deps.requireMachineForRepo = vi.fn(() => {
       throw new Error('should not be called')
     })
-    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
     await svc.start(created.id)
     expect(deps.requireMachineForRepo).not.toHaveBeenCalled()
   })
 
   it('starting a closed issue reopens it explicitly: closed markers clear + issue.reopened (#24)', async () => {
     const { svc, store } = await harness()
-    const created = svc.create({ repoPath: '/r', title: 'Closed then started', startNow: false })
-    svc.close(created.id, 'wontfix')
+    const created = await svc.create({ repoPath: '/r', title: 'Closed then started', startNow: false })
+    await svc.close(created.id, 'wontfix')
     const started = await svc.start(created.id)
     expect(started.stage).toBe('in_progress')
     expect(started.closedReason).toBeUndefined()
     expect(started.ready).toBe(true)
-    expect(svc.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([created.id])
+    expect((await svc.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([created.id])
     const reopened = (await store.events.listEventsSince(0)).filter((e) => e.kind === 'issue.reopened')
     expect(reopened).toHaveLength(1)
   })
 
   it('machineId persists through the store and clears via update(null)', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({
+    const w = await svc.create({
       repoPath: '/r',
       title: 'X',
       startNow: false,
       machineId: asMachineId('mach-b'),
     })
     expect((await store.issues.getIssue(w.id))?.machineId).toBe('mach-b')
-    expect(svc.update(w.id, { machineId: null }).machineId).toBeUndefined()
+    expect((await svc.update(w.id, { machineId: null })).machineId).toBeUndefined()
     expect((await store.issues.getIssue(w.id))?.machineId).toBeNull()
   })
 
@@ -2078,13 +2078,13 @@ describe('IssueService.start', () => {
       ok: false,
       output: 'fatal: branch exists',
     })
-    const created = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
+    const created = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await expect(await svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
 
   it('start auto-claims the issue (assignee = agent, stage = in_progress)', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.start(a.id)
     expect(started.assignee).toBe('agent:claude-code')
     expect(started.stage).toBe('in_progress')
@@ -2102,7 +2102,7 @@ describe('IssueService.start', () => {
           },
         },
       })
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.start(a.id, 'codex')
     expect(started.defaultAgent).toBe('codex')
     expect(started.assignee).toBe('agent:codex')
@@ -2130,7 +2130,7 @@ describe('IssueService.start', () => {
           },
         },
       })
-    const issue = svc.create({
+    const issue = await svc.create({
       repoPath: '/r',
       title: 'Legacy Codex',
       startNow: false,
@@ -2151,7 +2151,7 @@ describe('IssueService.start', () => {
 
   it('captures a chosen model + effort on the issue and spawns with them', async () => {
     const { svc, deps, store } = await harness()
-    const a = svc.create({
+    const a = await svc.create({
       repoPath: '/r',
       title: 'A',
       startNow: false,
@@ -2183,7 +2183,7 @@ describe('IssueService.start', () => {
   describe('start --model/--effort overrides [POD-1545]', () => {
     it('an explicit flag beats the value stored on the issue', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
@@ -2198,7 +2198,7 @@ describe('IssueService.start', () => {
 
     it('one flag overrides only its own dimension; the other keeps the stored value', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
@@ -2213,7 +2213,7 @@ describe('IssueService.start', () => {
 
     it('no flag leaves the stored value alone — a default never clobbers it', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
@@ -2224,12 +2224,12 @@ describe('IssueService.start', () => {
       expect(deps.spawnSession).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'sonnet', effort: 'low' }),
       )
-      expect(svc.get(a.id)?.defaultEffort).toBe('low')
+      expect((await svc.get(a.id))?.defaultEffort).toBe('low')
     })
 
     it('neither flag nor stored value falls back to auto', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
       await svc.start(a.id)
       expect(deps.spawnSession).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'auto', effort: 'auto' }),
@@ -2238,7 +2238,7 @@ describe('IssueService.start', () => {
 
     it('the flag PERSISTS onto the issue, so later spawns run what was chosen', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
@@ -2248,8 +2248,8 @@ describe('IssueService.start', () => {
       const started = await svc.start(a.id, undefined, { model: 'opus', effort: 'high' })
       expect(started.defaultModel).toBe('opus')
       expect(started.defaultEffort).toBe('high')
-      expect(svc.get(a.id)?.defaultModel).toBe('opus')
-      svc.addSession(a.id)
+      expect((await svc.get(a.id))?.defaultModel).toBe('opus')
+      await svc.addSession(a.id)
       expect(deps.spawnSession).toHaveBeenLastCalledWith(
         expect.objectContaining({ model: 'opus', effort: 'high' }),
       )
@@ -2267,7 +2267,7 @@ describe('IssueService.start', () => {
         normalizeSettings({
           roles: { coding: { accountId: 'native:claude-code', model: 'opus', effort: 'high' } },
         })
-      const issue = svc.create({
+      const issue = await svc.create({
         repoPath: '/r',
         title: 'Legacy Codex',
         startNow: false,
@@ -2283,7 +2283,7 @@ describe('IssueService.start', () => {
 
     it('an explicit flag survives an --agent switch that resets the stored profile', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
@@ -2308,15 +2308,15 @@ describe('IssueService.start', () => {
           ],
         },
       })
-      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-      await expect(svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
+      const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await expect(await svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
         /unknown effort "banana".*"low", "medium", "high"/s,
       )
       expect(deps.repoOp).not.toHaveBeenCalled()
       expect(deps.spawnSession).not.toHaveBeenCalled()
-      expect(svc.get(a.id)?.stage).toBe('backlog')
+      expect((await svc.get(a.id))?.stage).toBe('backlog')
       // …and the rejected value is NOT left on the issue.
-      expect(svc.get(a.id)?.defaultEffort).toBe('auto')
+      expect((await svc.get(a.id))?.defaultEffort).toBe('auto')
     })
 
     it('refuses a nonsense model and leaves the stored profile untouched', async () => {
@@ -2327,16 +2327,16 @@ describe('IssueService.start', () => {
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
       })
-      const a = svc.create({
+      const a = await svc.create({
         repoPath: '/r',
         title: 'A',
         startNow: false,
         defaultModel: 'claude-opus-5',
       })
-      await expect(svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
+      await expect(await svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
         /unknown model "claude-opus-9"/,
       )
-      expect(svc.get(a.id)?.defaultModel).toBe('claude-opus-5')
+      expect((await svc.get(a.id))?.defaultModel).toBe('claude-opus-5')
       expect(deps.spawnSession).not.toHaveBeenCalled()
     })
 
@@ -2344,13 +2344,13 @@ describe('IssueService.start', () => {
      *  was accepted and dropped and the CLI still printed `started #n`. */
     it('refuses --model/--effort on an already-started issue instead of ignoring them', async () => {
       const { svc, deps } = await harness()
-      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
       await svc.start(a.id)
       ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
-      await expect(svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
+      await expect(await svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
         /already started.*add-session/s,
       )
-      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
+      await expect(await svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
         /already started/,
       )
       expect(deps.spawnSession).not.toHaveBeenCalled()
@@ -2367,7 +2367,7 @@ describe('IssueService.start', () => {
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
       })
-      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
       await svc.start(a.id, undefined, { model: 'claude-opus-6-preview', forceUnknownModel: true })
       expect(deps.spawnSession).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'claude-opus-6-preview', forceUnknownModel: true }),
@@ -2387,9 +2387,9 @@ describe('IssueService.start', () => {
           },
         },
       })
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.start(a.id)
-    svc.addSession(a.id, 'codex')
+    await svc.addSession(a.id, 'codex')
     expect(deps.spawnSession).toHaveBeenLastCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
       issueId: a.id,
@@ -2400,7 +2400,7 @@ describe('IssueService.start', () => {
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
-    svc.addShell(a.id)
+    await svc.addShell(a.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ agentKind: 'shell', spawnedBy: `issue:${a.id}` }),
     )
@@ -2408,16 +2408,16 @@ describe('IssueService.start', () => {
 
   it('preserves explicit initiating-session provenance across workflow spawns', async () => {
     const { svc, deps } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.start(a.id, undefined, { spawnedBy: 'session:starter' })
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ spawnedBy: 'session:starter' }),
     )
-    svc.addSession(a.id, 'codex', { spawnedBy: 'session:adder' })
+    await svc.addSession(a.id, 'codex', { spawnedBy: 'session:adder' })
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ spawnedBy: 'session:adder' }),
     )
-    svc.addShell(a.id, { spawnedBy: 'session:shell-adder' })
+    await svc.addShell(a.id, { spawnedBy: 'session:shell-adder' })
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ spawnedBy: 'session:shell-adder' }),
     )
@@ -2427,7 +2427,7 @@ describe('IssueService.start', () => {
 describe('IssueService.action', () => {
   async function started() {
     const { svc, deps } = await harness()
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.start(c.id)
     return { svc, deps, id: c.id }
   }
@@ -2488,7 +2488,7 @@ describe('IssueService.action', () => {
     }))
     await svc.action(id, 'merge')
     await svc.refreshGitState(id)
-    expect(svc.get(id)?.gitState?.merged).toBe(true)
+    expect((await svc.get(id))?.gitState?.merged).toBe(true)
   })
 
   it('POD-1085: a REFUSED merge stamps nothing and stays unmerged', async () => {
@@ -2500,7 +2500,7 @@ describe('IssueService.action', () => {
     await svc.action(id, 'merge')
     await svc.refreshGitState(id)
     // The stamp must record a landing that HAPPENED, never one that was refused.
-    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+    expect((await svc.get(id))?.gitState?.merged).toBeUndefined()
   })
 
   it('merge auto-closes the issue on success', async () => {
@@ -2575,7 +2575,7 @@ describe('IssueService.parseCurrentBranch', () => {
   // proceeds to mergeFfOnly when the parsed branch === parentBranch ('main').
   async function startedSvc() {
     const { svc, deps } = await harness()
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.start(c.id)
     return { svc, deps, id: c.id }
   }
@@ -2619,7 +2619,7 @@ describe('IssueService.linearSearch', () => {
 describe('IssueService derived status (P1)', () => {
   it('new issue is ready (open, no blockers) with defaults', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(w.priority).toBe(2)
     expect(w.type).toBe('task')
     expect(w.pinned).toBe(false)
@@ -2632,10 +2632,10 @@ describe('IssueService derived status (P1)', () => {
 
   it('a blocks-dependency on an open issue makes the dependent blocked (not ready)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     await store.issues.addIssueDep(a.id, b.id, 'blocks')
-    const reloaded = svc.get(a.id)!
+    const reloaded = (await svc.get(a.id))!
     expect(reloaded.blocked).toBe(true)
     expect(reloaded.ready).toBe(false)
     expect(reloaded.deps).toEqual([{ id: b.id, type: 'blocks' }])
@@ -2643,29 +2643,29 @@ describe('IssueService derived status (P1)', () => {
 
   it('closing the blocker (stage=done) unblocks the dependent', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     await store.issues.addIssueDep(a.id, b.id, 'blocks')
-    svc.update(b.id, { stage: 'done' })
-    expect(svc.get(a.id)!.ready).toBe(true)
+    await svc.update(b.id, { stage: 'done' })
+    expect((await svc.get(a.id))!.ready).toBe(true)
   })
 
   it('a future defer_until marks the issue deferred and not ready', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const deferred = svc.update(a.id, { deferUntil: '2999-01-01' })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const deferred = await svc.update(a.id, { deferUntil: '2999-01-01' })
     expect(deferred.deferred).toBe(true)
     expect(deferred.ready).toBe(false)
   })
 
   it('epic counts reflect children by parentId', async () => {
     const { svc, store } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const c1 = svc.create({ repoPath: '/r', title: 'c1', startNow: false })
-    const c2 = svc.create({ repoPath: '/r', title: 'c2', startNow: false })
-    svc.update(c1.id, { parentId: epic.id })
-    svc.update(c2.id, { parentId: epic.id, stage: 'done' })
-    const e = svc.get(epic.id)!
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const c1 = await svc.create({ repoPath: '/r', title: 'c1', startNow: false })
+    const c2 = await svc.create({ repoPath: '/r', title: 'c2', startNow: false })
+    await svc.update(c1.id, { parentId: epic.id })
+    await svc.update(c2.id, { parentId: epic.id, stage: 'done' })
+    const e = (await svc.get(epic.id))!
     expect(e.childCount).toBe(2)
     expect(e.childDoneCount).toBe(1)
   })
@@ -2700,7 +2700,7 @@ describe('IssueService assistant', () => {
     const { svc } = await harnessWithLlm(
       '{"activityNotes":"making progress","suggestedStage":"in_progress","suggestedReason":"plan done","blockedBy":[],"dependencyNote":""}',
     )
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     const wire = await svc.refreshAssistant(c.id)
     expect(wire.activityNotes).toBe('making progress')
@@ -2711,10 +2711,10 @@ describe('IssueService assistant', () => {
     const { svc } = await harnessWithLlm(
       '{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}',
     )
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     await svc.refreshAssistant(c.id)
-    const moved = svc.applySuggestion(c.id)
+    const moved = await svc.applySuggestion(c.id)
     expect(moved.stage).toBe('in_progress')
     expect(moved.suggestedStage).toBeUndefined()
   })
@@ -2743,11 +2743,11 @@ describe('IssueService assistant', () => {
         '"blockedBy":["issue/9-refactor-the-store","the daemon rollout"],' +
         '"dependencyNote":"needs the store split first"}',
     )
-    const blocker = svc.create({ repoPath: '/r', title: 'Blocker', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const blocker = await svc.create({ repoPath: '/r', title: 'Blocker', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     // A REAL dependency edge on the same issue — the thing this field is not.
-    svc.addDep(c.id, blocker.id, 'blocks')
+    await svc.addDep(c.id, blocker.id, 'blocks')
 
     const wire = await svc.refreshAssistant(c.id)
 
@@ -2763,7 +2763,7 @@ describe('IssueService assistant', () => {
     expect(wire.blocked).toBe(true)
 
     // Re-reading the persisted row must not "helpfully" repair it either.
-    expect(svc.get(c.id)?.blockedByNotes).toEqual([
+    expect((await svc.get(c.id))?.blockedByNotes).toEqual([
       'issue/9-refactor-the-store',
       'the daemon rollout',
     ])
@@ -2773,10 +2773,10 @@ describe('IssueService assistant', () => {
     const { svc } = await harnessWithLlm(
       '{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}',
     )
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     await svc.refreshAssistant(c.id)
-    const d = svc.dismissSuggestion(c.id)
+    const d = await svc.dismissSuggestion(c.id)
     expect(d.stage).toBe('planning')
     expect(d.suggestedStage).toBeUndefined()
   })
@@ -2785,19 +2785,19 @@ describe('IssueService assistant', () => {
 describe('IssueService field mutations (P1)', () => {
   it('setLabels persists and surfaces on the wire', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.setLabels(a.id, ['ui', 'p1']).labels).toEqual(['p1', 'ui'])
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect((await svc.setLabels(a.id, ['ui', 'p1'])).labels).toEqual(['p1', 'ui'])
   })
 
   // #175: comment bodies left IssueWire — the wire carries only commentCount;
   // the thread itself is served by IssueService.comments (issues.comments proc).
   it('addComment appends a comment; wire carries the count, comments() the bodies', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const w = svc.addComment(a.id, 'mike', 'looks good', AS_OPERATOR)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.addComment(a.id, 'mike', 'looks good', AS_OPERATOR)
     expect(w.commentCount).toBe(1)
     expect(w.comments).toBeUndefined()
-    const thread = svc.comments(a.id)
+    const thread = await svc.comments(a.id)
     expect(thread.map((c) => c.body)).toEqual(['looks good'])
     expect(thread[0]!.author).toBe('mike')
   })
@@ -2806,15 +2806,15 @@ describe('IssueService field mutations (P1)', () => {
   // query (no per-issue comment queries) and the wire carries no comment bodies.
   it('list() batches comment counts and puts no comment bodies on the wire', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.addComment(a.id, 'mike', 'secret-body-marker', AS_OPERATOR)
-    svc.addComment(a.id, 'mike', 'second note', AS_OPERATOR)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.addComment(a.id, 'mike', 'secret-body-marker', AS_OPERATOR)
+    await svc.addComment(a.id, 'mike', 'second note', AS_OPERATOR)
     const perIssueList = vi.spyOn(store.issues, 'listIssueComments')
     const perIssueCount = vi.spyOn(store.issues, 'countIssueComments')
     const batched = vi.spyOn(store.issues, 'countIssueCommentsByIssue')
-    const wires = svc.list('/r')
+    const wires = await svc.list('/r')
     expect(perIssueList).not.toHaveBeenCalled()
     expect(perIssueCount).not.toHaveBeenCalled()
     expect(batched).toHaveBeenCalledTimes(1)
@@ -2825,20 +2825,20 @@ describe('IssueService field mutations (P1)', () => {
 
   it('addDep blocks ready; rejects self-dep and cycles', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    expect(svc.addDep(a.id, b.id).blocked).toBe(true)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect((await svc.addDep(a.id, b.id)).blocked).toBe(true)
     expect(() => svc.addDep(a.id, a.id)).toThrow(/self/)
     expect(() => svc.addDep(b.id, a.id)).toThrow(/cycle/) // a->b already; b->a closes the loop
   })
 
   it('claim sets assignee + in_progress; close sets done + reason', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const claimed = svc.claim(a.id, asUserId('agent:claude'))
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const claimed = await svc.claim(a.id, asUserId('agent:claude'))
     expect(claimed.assignee).toBe('agent:claude')
     expect(claimed.stage).toBe('in_progress')
-    const closed = svc.close(a.id, 'cancelled')
+    const closed = await svc.close(a.id, 'cancelled')
     expect(closed.stage).toBe('done')
     expect(closed.closedReason).toBe('cancelled')
   })
@@ -2848,30 +2848,30 @@ describe('IssueService field mutations (P1)', () => {
   // old word stores the new one so the vocabulary stops growing legacy rows.
   it('canonicalizes a legacy close reason on write, and keeps an unknown one verbatim', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.close(a.id, 'wontfix').closedReason).toBe('cancelled')
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    expect(svc.close(b.id, 'shipped').closedReason).toBe('shipped')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect((await svc.close(a.id, 'wontfix')).closedReason).toBe('cancelled')
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect((await svc.close(b.id, 'shipped')).closedReason).toBe('shipped')
   })
 
   it('setCoordinator claims/sets/clears coordinatorSessionId on the wire (bare session id)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(a.coordinatorSessionId).toBeUndefined()
-    const set = svc.setCoordinator(a.id, asSessionId('sess_coord'))
+    const set = await svc.setCoordinator(a.id, asSessionId('sess_coord'))
     expect(set.coordinatorSessionId).toBe('sess_coord')
     expect((await store.issues.getIssue(a.id))?.coordinatorSessionId).toBe('sess_coord')
-    const cleared = svc.setCoordinator(a.id, null)
+    const cleared = await svc.setCoordinator(a.id, null)
     expect(cleared.coordinatorSessionId).toBeUndefined()
     expect((await store.issues.getIssue(a.id))?.coordinatorSessionId).toBeNull()
   })
 
   it('startedBySession is stamped on agent creates and null for operator creates', async () => {
     const { svc, store } = await harness()
-    const operator = svc.create({ repoPath: '/r', title: 'Op', startNow: false })
+    const operator = await svc.create({ repoPath: '/r', title: 'Op', startNow: false })
     expect(operator.startedBySession).toBeUndefined()
     expect((await store.issues.getIssue(operator.id))?.startedBySession).toBeNull()
-    const agent = svc.create({
+    const agent = await svc.create({
       repoPath: '/r',
       title: 'Ag',
       startNow: false,
@@ -2884,19 +2884,19 @@ describe('IssueService field mutations (P1)', () => {
 
   it('setNeedsHuman/clearNeedsHuman toggle the flag + question', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const flagged = svc.setNeedsHuman(a.id, 'which key?')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const flagged = await svc.setNeedsHuman(a.id, 'which key?')
     expect(flagged.needsHuman).toBe(true)
     expect(flagged.humanQuestion).toBe('which key?')
-    const cleared = svc.clearNeedsHuman(a.id)
+    const cleared = await svc.clearNeedsHuman(a.id)
     expect(cleared.needsHuman).toBe(false)
     expect(cleared.humanQuestion).toBeUndefined()
   })
 
   it('setNeedsHuman carries options/askedBy and stamps askedAt; clear resets all (issue #53)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const flagged = svc.setNeedsHuman(a.id, 'merge?', {
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const flagged = await svc.setNeedsHuman(a.id, 'merge?', {
       options: [' Yes, merge ', 'No', '  '],
       askedBy: asSessionId('sess_asker'),
     })
@@ -2909,10 +2909,10 @@ describe('IssueService field mutations (P1)', () => {
     expect(row.humanQuestionAskedBy).toBe('sess_asker')
     expect(row.humanQuestionAskedAt).toBe('2026-06-30T00:00:00.000Z')
     // A re-flag REPLACES the whole pending question, metadata included.
-    const reflagged = svc.setNeedsHuman(a.id, 'other question?')
+    const reflagged = await svc.setNeedsHuman(a.id, 'other question?')
     expect(reflagged.humanQuestionOptions).toBeUndefined()
     expect(reflagged.humanQuestionAskedBy).toBeUndefined()
-    const cleared = svc.clearNeedsHuman(a.id)
+    const cleared = await svc.clearNeedsHuman(a.id)
     expect(cleared.humanQuestionOptions).toBeUndefined()
     expect(cleared.humanQuestionAskedBy).toBeUndefined()
     expect(cleared.humanQuestionAskedAt).toBeUndefined()
@@ -2921,24 +2921,24 @@ describe('IssueService field mutations (P1)', () => {
 
   it('ancestorIds walks the parent chain nearest-first', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'epic', startNow: false })
-    const mid = svc.create({ repoPath: '/r', title: 'mid', startNow: false, parentId: epic.id })
-    const leaf = svc.create({ repoPath: '/r', title: 'leaf', startNow: false, parentId: mid.id })
-    expect(svc.ancestorIds(leaf.id)).toEqual([mid.id, epic.id])
-    expect(svc.ancestorIds(epic.id)).toEqual([])
+    const epic = await svc.create({ repoPath: '/r', title: 'epic', startNow: false })
+    const mid = await svc.create({ repoPath: '/r', title: 'mid', startNow: false, parentId: epic.id })
+    const leaf = await svc.create({ repoPath: '/r', title: 'leaf', startNow: false, parentId: mid.id })
+    expect(await svc.ancestorIds(leaf.id)).toEqual([mid.id, epic.id])
+    expect(await svc.ancestorIds(epic.id)).toEqual([])
   })
 
   it('reparent stores the parent ONLY in parent_id; the wire synthesizes the edge (#164)', async () => {
     const { svc, store } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const child = svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.reparent(child.id, epic.id)
+    const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.reparent(child.id, epic.id)
     expect(await store.issues.listIssueDeps(child.id)).toEqual([]) // no mirrored dep row
-    expect(svc.get(child.id)!.parentId).toBe(epic.id)
-    expect(svc.get(child.id)!.deps).toEqual([{ id: epic.id, type: 'parent-child' }]) // synthesized
-    svc.reparent(child.id, null)
-    expect(svc.get(child.id)!.parentId).toBeUndefined()
-    expect(svc.get(child.id)!.deps).toEqual([])
+    expect((await svc.get(child.id))!.parentId).toBe(epic.id)
+    expect((await svc.get(child.id))!.deps).toEqual([{ id: epic.id, type: 'parent-child' }]) // synthesized
+    await svc.reparent(child.id, null)
+    expect((await svc.get(child.id))!.parentId).toBeUndefined()
+    expect((await svc.get(child.id))!.deps).toEqual([])
   })
 })
 
@@ -2954,9 +2954,9 @@ describe('IssueService field mutations (P1)', () => {
 describe('issue colour belongs to top-level tasks (POD-697)', () => {
   it('drops a colour on a sub-task create and refuses one on an existing sub-task', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false, color: 'violet' })
+    const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false, color: 'violet' })
     expect(epic.color).toBe('violet')
-    const child = svc.create({
+    const child = await svc.create({
       repoPath: '/r',
       title: 'C',
       startNow: false,
@@ -2968,89 +2968,89 @@ describe('issue colour belongs to top-level tasks (POD-697)', () => {
     // the field does not apply here, not appear to have written it.
     expect(() => svc.update(child.id, { color: 'teal' })).toThrow(/top-level/)
     // Clearing stays legal at any depth — that is how a legacy slot goes away.
-    expect(svc.update(child.id, { color: null }).color).toBeUndefined()
+    expect((await svc.update(child.id, { color: null })).color).toBeUndefined()
   })
 
   it('gives up the colour when a top-level task becomes a sub-task', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const viaReparent = svc.create({ repoPath: '/r', title: 'R', startNow: false, color: 'lime' })
-    expect(svc.reparent(viaReparent.id, epic.id).color).toBeUndefined()
-    const viaUpdate = svc.create({ repoPath: '/r', title: 'U', startNow: false, color: 'cyan' })
-    expect(svc.update(viaUpdate.id, { parentId: epic.id }).color).toBeUndefined()
+    const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const viaReparent = await svc.create({ repoPath: '/r', title: 'R', startNow: false, color: 'lime' })
+    expect((await svc.reparent(viaReparent.id, epic.id)).color).toBeUndefined()
+    const viaUpdate = await svc.create({ repoPath: '/r', title: 'U', startNow: false, color: 'cyan' })
+    expect((await svc.update(viaUpdate.id, { parentId: epic.id })).color).toBeUndefined()
     // Promotion back to top level is a fresh choice, not a restore.
-    expect(svc.reparent(viaReparent.id, null).color).toBeUndefined()
-    expect(svc.update(viaReparent.id, { color: 'lime' }).color).toBe('lime')
+    expect((await svc.reparent(viaReparent.id, null)).color).toBeUndefined()
+    expect((await svc.update(viaReparent.id, { color: 'lime' })).color).toBe('lime')
   })
 })
 
 describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
   it('create({parentId}) sets parent_id; wire deps/dependents synthesize the edge (#164)', async () => {
     const { svc, store } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const child = svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = await svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
     expect(await store.issues.listIssueDeps(child.id)).toEqual([]) // single storage: no dep row
-    expect(svc.get(child.id)!.deps).toEqual([{ id: epic.id, type: 'parent-child' }])
-    expect(svc.get(epic.id)!.dependents).toEqual([{ id: child.id, type: 'parent-child' }])
-    expect(svc.get(epic.id)!.childCount).toBe(1)
+    expect((await svc.get(child.id))!.deps).toEqual([{ id: epic.id, type: 'parent-child' }])
+    expect((await svc.get(epic.id))!.dependents).toEqual([{ id: child.id, type: 'parent-child' }])
+    expect((await svc.get(epic.id))!.childCount).toBe(1)
   })
 
   it('update({parentId}) moves the synthesized edge with the column', async () => {
     const { svc } = await harness()
-    const e1 = svc.create({ repoPath: '/r', title: 'E1', startNow: false })
-    const e2 = svc.create({ repoPath: '/r', title: 'E2', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.update(c.id, { parentId: e1.id })
-    expect(svc.get(c.id)!.deps).toEqual([{ id: e1.id, type: 'parent-child' }])
-    svc.update(c.id, { parentId: e2.id })
-    expect(svc.get(c.id)!.deps).toEqual([{ id: e2.id, type: 'parent-child' }])
-    expect(svc.get(e1.id)!.dependents).toEqual([])
-    svc.update(c.id, { parentId: null })
-    expect(svc.get(c.id)!.deps).toEqual([])
+    const e1 = await svc.create({ repoPath: '/r', title: 'E1', startNow: false })
+    const e2 = await svc.create({ repoPath: '/r', title: 'E2', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.update(c.id, { parentId: e1.id })
+    expect((await svc.get(c.id))!.deps).toEqual([{ id: e1.id, type: 'parent-child' }])
+    await svc.update(c.id, { parentId: e2.id })
+    expect((await svc.get(c.id))!.deps).toEqual([{ id: e2.id, type: 'parent-child' }])
+    expect((await svc.get(e1.id))!.dependents).toEqual([])
+    await svc.update(c.id, { parentId: null })
+    expect((await svc.get(c.id))!.deps).toEqual([])
   })
 
   it('a parentId change that forms a cycle is rejected via create or update', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', parentId: a.id, startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', parentId: a.id, startNow: false })
     expect(() => svc.update(a.id, { parentId: b.id })).toThrow(/cycle/)
   })
 
   it('a cycle-throw on reparent leaves the old parent intact', async () => {
     const { svc } = await harness()
-    const old = svc.create({ repoPath: '/r', title: 'OLD', startNow: false })
-    const x = svc.create({ repoPath: '/r', title: 'X', parentId: old.id, startNow: false })
-    const nw = svc.create({ repoPath: '/r', title: 'NEW', parentId: x.id, startNow: false })
+    const old = await svc.create({ repoPath: '/r', title: 'OLD', startNow: false })
+    const x = await svc.create({ repoPath: '/r', title: 'X', parentId: old.id, startNow: false })
+    const nw = await svc.create({ repoPath: '/r', title: 'NEW', parentId: x.id, startNow: false })
     // OLD <- X <- NEW. Reparenting X under its descendant NEW must throw AND change nothing.
     expect(() => svc.update(x.id, { parentId: nw.id })).toThrow(/cycle/)
-    expect(svc.get(x.id)!.parentId).toBe(old.id)
-    expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
+    expect((await svc.get(x.id))!.parentId).toBe(old.id)
+    expect((await svc.get(old.id))!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
   })
 
   it('dependency cycles ignore parent-child containment edges (#413)', async () => {
     const { svc } = await harness()
-    const root = svc.create({ repoPath: '/r', title: 'Root', startNow: false })
-    const parent = svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
-    const child = svc.create({
+    const root = await svc.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const parent = await svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = await svc.create({
       repoPath: '/r',
       title: 'Child',
       parentId: parent.id,
       startNow: false,
     })
-    svc.addDep(parent.id, root.id, 'blocks')
+    await svc.addDep(parent.id, root.id, 'blocks')
 
     expect(() => svc.addDep(root.id, child.id, 'blocks')).not.toThrow()
-    expect(svc.get(root.id)!.deps).toContainEqual({ id: child.id, type: 'blocks' })
-    expect(svc.doctor('/r').cycles).toEqual([])
+    expect((await svc.get(root.id))!.deps).toContainEqual({ id: child.id, type: 'blocks' })
+    expect((await svc.doctor('/r')).cycles).toEqual([])
   })
 
   it('dependency-cycle errors name the offending dependency path (#413)', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.addDep(a.id, b.id)
-    svc.addDep(b.id, c.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.addDep(a.id, b.id)
+    await svc.addDep(b.id, c.id)
 
     expect(() => svc.addDep(c.id, a.id)).toThrow(
       `dependency ${c.id} -> ${a.id} would create a dependency cycle: ${c.id} -> ${a.id} -> ${b.id} -> ${c.id}`,
@@ -3059,60 +3059,60 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
 
   it('addDep rejects parent-child (reparent owns the hierarchy edge)', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     expect(() => svc.addDep(a.id, b.id, 'parent-child')).toThrow(/parent-child/)
   })
 
   it('removeDep rejects explicit parent-child and leaves the hierarchy intact', async () => {
     const { svc } = await harness()
-    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    const e = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
     expect(() => svc.removeDep(c.id, e.id, 'parent-child')).toThrow(/parent-child/)
-    expect(svc.get(c.id)!.parentId).toBe(e.id)
+    expect((await svc.get(c.id))!.parentId).toBe(e.id)
   })
 
   it('removeDep with no type removes real dep rows but never the hierarchy', async () => {
     const { svc, store } = await harness()
-    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    const e = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
     await store.issues.addIssueDep(c.id, e.id, 'related') // a real edge on the same pair
-    svc.removeDep(c.id, e.id) // no type → bulk
+    await svc.removeDep(c.id, e.id) // no type → bulk
     expect(await store.issues.listIssueDeps(c.id)).toEqual([])
-    expect(svc.get(c.id)!.parentId).toBe(e.id) // hierarchy untouched (parent_id)
-    expect(svc.get(c.id)!.deps).toEqual([{ id: e.id, type: 'parent-child' }])
+    expect((await svc.get(c.id))!.parentId).toBe(e.id) // hierarchy untouched (parent_id)
+    expect((await svc.get(c.id))!.deps).toEqual([{ id: e.id, type: 'parent-child' }])
   })
 })
 
 describe('IssueService ready/blocked lists (P2a)', () => {
   it('readyList returns only ready issues, priority then seq ordered', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', priority: 3, startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', priority: 0, startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', priority: 3, startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', priority: 0, startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
     await store.issues.addIssueDep(a.id, c.id, 'blocks') // a blocked by open c
-    svc.update(c.id, {}) // no-op to ensure persisted
-    const ready = svc.readyList('/r').map((w) => w.title)
+    await svc.update(c.id, {}) // no-op to ensure persisted
+    const ready = (await svc.readyList('/r')).map((w) => w.title)
     expect(ready).toEqual(['B', 'C']) // A is blocked; B(p0) before C(p2)
   })
 
   it('blockedList returns only blocked issues', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     await store.issues.addIssueDep(a.id, b.id, 'blocks')
-    expect(svc.blockedList('/r').map((w) => w.title)).toEqual(['A'])
+    expect((await svc.blockedList('/r')).map((w) => w.title)).toEqual(['A'])
   })
 })
 
 describe('IssueService graph (P2a)', () => {
   it('returns nodes for repo issues and edges from issue_deps', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.create({ repoPath: '/other', title: 'X', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.create({ repoPath: '/other', title: 'X', startNow: false })
     await store.issues.addIssueDep(a.id, b.id, 'blocks')
-    const g = svc.graph('/r')
+    const g = await svc.graph('/r')
     expect(g.nodes.map((n) => n.title).sort()).toEqual(['A', 'B'])
     expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocks' }])
     expect(g.nodes.find((n) => n.title === 'A')!.blocked).toBe(true)
@@ -3122,44 +3122,44 @@ describe('IssueService graph (P2a)', () => {
 describe('IssueService epic status (P2a)', () => {
   it('epicStatus reports child completion; closeEligibleEpics lists fully-done epics', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
-    const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
-    const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
-    expect(svc.epicStatus(epic.id)).toEqual({
+    const epic = await svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c1 = await svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
+    const c2 = await svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
+    expect(await svc.epicStatus(epic.id)).toEqual({
       id: epic.id,
       childCount: 2,
       childDoneCount: 0,
       complete: false,
     })
-    expect(svc.closeEligibleEpics('/r')).toEqual([])
-    svc.close(c1.id)
-    svc.close(c2.id)
-    expect(svc.epicStatus(epic.id)).toEqual({
+    expect(await svc.closeEligibleEpics('/r')).toEqual([])
+    await svc.close(c1.id)
+    await svc.close(c2.id)
+    expect(await svc.epicStatus(epic.id)).toEqual({
       id: epic.id,
       childCount: 2,
       childDoneCount: 2,
       complete: true,
     })
-    expect(svc.closeEligibleEpics('/r').map((w) => w.id)).toEqual([epic.id])
+    expect((await svc.closeEligibleEpics('/r')).map((w) => w.id)).toEqual([epic.id])
   })
 })
 
 describe('IssueService.tree (issue #82)', () => {
   it('returns the whole subtree in one payload with blocks-deps as seqs', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
-    const c1 = svc.create({
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    const c1 = await svc.create({
       repoPath: '/r',
       title: 'C1',
       parentId: epic.id,
       startNow: false,
       description: 'do  the\nthing',
     })
-    const c2 = svc.create({ repoPath: '/r', title: 'C2', parentId: epic.id, startNow: false })
-    const g1 = svc.create({ repoPath: '/r', title: 'G1', parentId: c1.id, startNow: false })
-    svc.addDep(c1.id, c2.id, 'blocks')
-    svc.close(c2.id)
-    const t = svc.tree(String(epic.seq)) // resolves display seq refs too
+    const c2 = await svc.create({ repoPath: '/r', title: 'C2', parentId: epic.id, startNow: false })
+    const g1 = await svc.create({ repoPath: '/r', title: 'G1', parentId: c1.id, startNow: false })
+    await svc.addDep(c1.id, c2.id, 'blocks')
+    await svc.close(c2.id)
+    const t = await svc.tree(String(epic.seq)) // resolves display seq refs too
     expect(t.totalNodes).toBe(4)
     expect(t.omitted).toBe(0)
     expect(t.root.seq).toBe(epic.seq)
@@ -3174,22 +3174,22 @@ describe('IssueService.tree (issue #82)', () => {
 
   it('caps depth and total nodes, counting omissions per parent and in total', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
-    const g = svc.create({ repoPath: '/r', title: 'G', parentId: c.id, startNow: false })
-    const gg = svc.create({ repoPath: '/r', title: 'GG', parentId: g.id, startNow: false })
-    svc.create({ repoPath: '/r', title: 'GGG', parentId: gg.id, startNow: false }) // depth 4 → omitted
-    const t = svc.tree(epic.id)
+    const epic = await svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    const g = await svc.create({ repoPath: '/r', title: 'G', parentId: c.id, startNow: false })
+    const gg = await svc.create({ repoPath: '/r', title: 'GG', parentId: g.id, startNow: false })
+    await svc.create({ repoPath: '/r', title: 'GGG', parentId: gg.id, startNow: false }) // depth 4 → omitted
+    const t = await svc.tree(epic.id)
     expect(t.totalNodes).toBe(4)
     expect(t.omitted).toBe(1)
     const deepest = t.root.children[0]!.children[0]!.children[0]!
     expect(deepest.title).toBe('GG')
     expect(deepest.omittedChildren).toBe(1)
 
-    const wide = svc.create({ repoPath: '/r', title: 'W', type: 'epic', startNow: false })
+    const wide = await svc.create({ repoPath: '/r', title: 'W', type: 'epic', startNow: false })
     for (let i = 0; i < 5; i++)
-      svc.create({ repoPath: '/r', title: `k${i}`, parentId: wide.id, startNow: false })
-    const capped = svc.tree(wide.id, { maxNodes: 3 })
+      await svc.create({ repoPath: '/r', title: `k${i}`, parentId: wide.id, startNow: false })
+    const capped = await svc.tree(wide.id, { maxNodes: 3 })
     expect(capped.totalNodes).toBe(3)
     expect(capped.root.children.length).toBe(2)
     expect(capped.root.omittedChildren).toBe(3)
@@ -3203,13 +3203,13 @@ describe('IssueService.tree (issue #82)', () => {
 
   it('truncates descriptions to 300 chars and throws on an unknown ref', async () => {
     const { svc } = await harness()
-    const e = svc.create({
+    const e = await svc.create({
       repoPath: '/r',
       title: 'E',
       startNow: false,
       description: 'x'.repeat(500),
     })
-    expect(svc.tree(e.id).root.description.length).toBe(300)
+    expect((await svc.tree(e.id)).root.description.length).toBe(300)
     expect(() => svc.tree('iss_nope')).toThrow()
   })
 
@@ -3217,9 +3217,9 @@ describe('IssueService.tree (issue #82)', () => {
   it('lists all sessions on each issue including siblings, with coordinator', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
     // Membership is via explicit issueId (issue-as-workspace), not cwd.
-    const child = svc.create({
+    const child = await svc.create({
       repoPath: '/r',
       title: 'Child',
       parentId: epic.id,
@@ -3259,9 +3259,9 @@ describe('IssueService.tree (issue #82)', () => {
       sessionId: asSessionId('sess-other'),
       issueId: 'iss_other',
     } as SessionMeta)
-    svc.setCoordinator(epic.id, asSessionId('sess-impl'))
+    await svc.setCoordinator(epic.id, asSessionId('sess-impl'))
 
-    const t = svc.tree(epic.id)
+    const t = await svc.tree(epic.id)
     expect(t.root.sessions).toHaveLength(2)
     expect(t.root.sessions.map((s) => s.sessionId).sort()).toEqual(['sess-impl', 'sess-rev'])
     const impl = t.root.sessions.find((s) => s.sessionId === 'sess-impl')!
@@ -3291,9 +3291,9 @@ describe('IssueService.tree (issue #82)', () => {
 describe('IssueService supersede/duplicate (P2b)', () => {
   it('supersede closes old with reason + supersededBy + supersedes dep', async () => {
     const { svc, store } = await harness()
-    const oldI = svc.create({ repoPath: '/r', title: 'old', startNow: false })
-    const newI = svc.create({ repoPath: '/r', title: 'new', startNow: false })
-    const w = svc.supersede(oldI.id, newI.id)
+    const oldI = await svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    const newI = await svc.create({ repoPath: '/r', title: 'new', startNow: false })
+    const w = await svc.supersede(oldI.id, newI.id)
     expect(w.stage).toBe('done')
     expect(w.closedReason).toBe('superseded')
     expect(w.supersededBy).toBe(newI.id)
@@ -3302,9 +3302,9 @@ describe('IssueService supersede/duplicate (P2b)', () => {
 
   it('duplicate closes id with reason + duplicateOf + related dep', async () => {
     const { svc, store } = await harness()
-    const dup = svc.create({ repoPath: '/r', title: 'dup', startNow: false })
-    const canon = svc.create({ repoPath: '/r', title: 'canon', startNow: false })
-    const w = svc.duplicate(dup.id, canon.id)
+    const dup = await svc.create({ repoPath: '/r', title: 'dup', startNow: false })
+    const canon = await svc.create({ repoPath: '/r', title: 'canon', startNow: false })
+    const w = await svc.duplicate(dup.id, canon.id)
     expect(w.closedReason).toBe('duplicate')
     expect(w.duplicateOf).toBe(canon.id)
     expect(await store.issues.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'related' }])
@@ -3312,7 +3312,7 @@ describe('IssueService supersede/duplicate (P2b)', () => {
 
   it('supersede throws on unknown id', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'a', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'a', startNow: false })
     expect(() => svc.supersede(a.id, 'iss_missing')).toThrow()
   })
 })
@@ -3320,25 +3320,25 @@ describe('IssueService supersede/duplicate (P2b)', () => {
 describe('IssueService findDuplicates (P2b)', () => {
   it('flags near-identical open issues above threshold', async () => {
     const { svc } = await harness()
-    svc.create({
+    await svc.create({
       repoPath: '/r',
       title: 'Fix login bug',
       description: 'cannot sign in',
       startNow: false,
     })
-    svc.create({
+    await svc.create({
       repoPath: '/r',
       title: 'Fix login bug',
       description: 'cannot sign in',
       startNow: false,
     })
-    svc.create({
+    await svc.create({
       repoPath: '/r',
       title: 'Add dark mode',
       description: 'theme toggle',
       startNow: false,
     })
-    const dups = svc.findDuplicates('/r', 0.6)
+    const dups = await svc.findDuplicates('/r', 0.6)
     expect(dups.length).toBe(1)
     expect(dups[0]!.score).toBe(1)
   })
@@ -3347,20 +3347,20 @@ describe('IssueService findDuplicates (P2b)', () => {
 describe('IssueService stale/lint (P2b)', () => {
   it('staleList returns issues older than the cutoff (open only)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'old', startNow: false })
     // backdate updatedAt directly in the store, then refresh the in-memory row
     const row = (await store.issues.getIssue(a.id))!
     row.updatedAt = '2000-01-01T00:00:00.000Z'
     await store.issues.upsertIssue(row)
-    svc.reload() // re-hydrate this.rows from the store (see Step 3)
-    const stale = svc.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
+    await svc.reload() // re-hydrate this.rows from the store (see Step 3)
+    const stale = await svc.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
     expect(stale.map((w) => w.title)).toEqual(['old'])
   })
 
   it('lint flags a feature with no acceptance', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'F', description: 'd', type: 'feature', startNow: false })
-    const findings = svc.lint('/r')
+    await svc.create({ repoPath: '/r', title: 'F', description: 'd', type: 'feature', startNow: false })
+    const findings = await svc.lint('/r')
     expect(findings.length).toBe(1)
     expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
   })
@@ -3369,30 +3369,30 @@ describe('IssueService stale/lint (P2b)', () => {
 describe('IssueService search/count/stats (P2b)', () => {
   it('search filters by text + priority + status', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'Login fails', priority: 0, startNow: false })
-    svc.create({ repoPath: '/r', title: 'Dark mode', priority: 2, startNow: false })
-    const done = svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
-    svc.close(done.id)
+    await svc.create({ repoPath: '/r', title: 'Login fails', priority: 0, startNow: false })
+    await svc.create({ repoPath: '/r', title: 'Dark mode', priority: 2, startNow: false })
+    const done = await svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
+    await svc.close(done.id)
     expect(
-      svc
-        .search({ repoPath: '/r', text: 'login' })
+      (await svc
+        .search({ repoPath: '/r', text: 'login' }))
         .map((w) => w.title)
         .sort(),
     ).toEqual(['Login done', 'Login fails'])
     expect(
-      svc.search({ repoPath: '/r', text: 'login', status: 'open' }).map((w) => w.title),
+      (await svc.search({ repoPath: '/r', text: 'login', status: 'open' })).map((w) => w.title),
     ).toEqual(['Login fails'])
-    expect(svc.search({ repoPath: '/r', priority: 0 }).map((w) => w.title)).toEqual(['Login fails'])
+    expect((await svc.search({ repoPath: '/r', priority: 0 })).map((w) => w.title)).toEqual(['Login fails'])
   })
 
   it('count groups and stats totals', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'A', priority: 0, type: 'bug', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.close(b.id)
-    expect(svc.count('/r').byPriority['0']).toBe(1)
-    expect(svc.count('/r').byType['bug']).toBe(1)
-    const s = svc.stats('/r')
+    await svc.create({ repoPath: '/r', title: 'A', priority: 0, type: 'bug', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.close(b.id)
+    expect((await svc.count('/r')).byPriority['0']).toBe(1)
+    expect((await svc.count('/r')).byType['bug']).toBe(1)
+    const s = await svc.stats('/r')
     expect(s.total).toBe(2)
     expect(s.closed).toBe(1)
     expect(s.open).toBe(1)
@@ -3402,7 +3402,7 @@ describe('IssueService search/count/stats (P2b)', () => {
 describe('IssueService doctor/preflight (P2b)', () => {
   it('doctor reports dangling deps and clean preflight when none', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     // A dangling edge can no longer be written through the store (FKs since
     // migration 006) — inject it with enforcement off, simulating corruption
     // by an external writer. doctor stays as read-side defense in depth.
@@ -3412,23 +3412,23 @@ describe('IssueService doctor/preflight (P2b)', () => {
       `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocks')`,
     )
     raw.exec('PRAGMA foreign_keys = ON')
-    const d = svc.doctor('/r')
+    const d = await svc.doctor('/r')
     expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
-    expect(svc.preflight('/r').ok).toBe(false)
+    expect((await svc.preflight('/r')).ok).toBe(false)
   })
 
   it('preflight ok when no cycles or dangling deps', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.preflight('/r').ok).toBe(true)
+    await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect((await svc.preflight('/r')).ok).toBe(true)
   })
 })
 
 describe('IssueService orphans (P2b)', () => {
   it('flags open issues referenced in commit messages', async () => {
     const { svc, deps } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'Add login', startNow: false }) // seq 1
-    svc.create({ repoPath: '/r', title: 'Other', startNow: false }) // seq 2, not referenced
+    const a = await svc.create({ repoPath: '/r', title: 'Add login', startNow: false }) // seq 1
+    await svc.create({ repoPath: '/r', title: 'Other', startNow: false }) // seq 2, not referenced
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       output: 'abc123 feat: implement login (#1)\ndef456 chore: tidy',
@@ -3440,7 +3440,7 @@ describe('IssueService orphans (P2b)', () => {
 
   it('returns [] when repoOp(log) fails', async () => {
     const { svc, deps } = await harness()
-    svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: '' })
     expect(await svc.orphans('/r')).toEqual([])
   })
@@ -3449,9 +3449,9 @@ describe('IssueService orphans (P2b)', () => {
 describe('IssueService.prime (P1a)', () => {
   it('prime renders a bound issue with its children and blockers', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = svc.create({ repoPath: '/r', title: 'Child', startNow: false, parentId: epic.id })
-    const out = svc.prime({ repoPath: '/r', boundIssueId: epic.id })
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = await svc.create({ repoPath: '/r', title: 'Child', startNow: false, parentId: epic.id })
+    const out = await svc.prime({ repoPath: '/r', boundIssueId: epic.id })
     // Structural: the bound issue and its child both surface. Instructional
     // copy-string pins (reparent / --outside-scope / operator-only prose) dropped
     // as brittle bitrot, POD-619 [spec:SP-0be7].
@@ -3461,15 +3461,15 @@ describe('IssueService.prime (P1a)', () => {
 
   it('prime tells the agent to report worktree moves via `podium worktree`', async () => {
     const { svc } = await harness()
-    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
-    expect(svc.prime({ repoPath: '/r', boundIssueId: issue.id })).toContain('podium worktree')
-    expect(svc.prime({ repoPath: '/r', boundIssueId: null })).toContain('podium worktree')
+    const issue = await svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    expect(await svc.prime({ repoPath: '/r', boundIssueId: issue.id })).toContain('podium worktree')
+    expect(await svc.prime({ repoPath: '/r', boundIssueId: null })).toContain('podium worktree')
   })
 
   it('prime renders a lobby when unbound', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'Ready one', startNow: false })
-    const out = svc.prime({ repoPath: '/r', boundIssueId: null })
+    await svc.create({ repoPath: '/r', title: 'Ready one', startNow: false })
+    const out = await svc.prime({ repoPath: '/r', boundIssueId: null })
     expect(out).toMatch(/No issue bound|Ready work/i)
     expect(out).toContain('Ready one')
   })
@@ -3480,10 +3480,10 @@ describe('IssueService.prime (P1a)', () => {
   // was the actual gap. Prose is free to change; these identifiers are the contract.
   it('prime surfaces the generic `podium lock`, not merge-lock alone', async () => {
     const { svc } = await harness()
-    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    const issue = await svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
     for (const out of [
-      svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
-      svc.prime({ repoPath: '/r', boundIssueId: null }),
+      await svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
+      await svc.prime({ repoPath: '/r', boundIssueId: null }),
     ]) {
       expect(out).toContain('podium lock acquire')
       expect(out).toContain('podium merge-lock')
@@ -3492,10 +3492,10 @@ describe('IssueService.prime (P1a)', () => {
 
   it('leaves landing and publication policy to the repository', async () => {
     const { svc } = await harness()
-    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    const issue = await svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
     for (const out of [
-      svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
-      svc.prime({ repoPath: '/r', boundIssueId: null }),
+      await svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
+      await svc.prime({ repoPath: '/r', boundIssueId: null }),
     ]) {
       expect(out).not.toContain('HARD procedure')
       expect(out).not.toContain('git fetch')
@@ -3506,8 +3506,8 @@ describe('IssueService.prime (P1a)', () => {
 
   it('prime tells a delegating agent to name its delegate and points at the guide', async () => {
     const { svc } = await harness()
-    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
-    const out = svc.prime({ repoPath: '/r', boundIssueId: issue.id })
+    const issue = await svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    const out = await svc.prime({ repoPath: '/r', boundIssueId: issue.id })
     expect(out).toContain('podium agent spawn')
     expect(out).toContain('podium session title')
     expect(out).toContain('docs/agents/delegating.md')
@@ -3515,7 +3515,7 @@ describe('IssueService.prime (P1a)', () => {
 
   it('prime does not restate always-on system-pointer policy (POD-789)', async () => {
     const { svc } = await harness()
-    const out = svc.prime({ repoPath: '/r', boundIssueId: null })
+    const out = await svc.prime({ repoPath: '/r', boundIssueId: null })
     const policy = out.slice(out.lastIndexOf('\n\n') + 2)
     // Stages, general title doctrine, offers, artifacts, and the discovered-from
     // essay already ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the
@@ -3528,16 +3528,16 @@ describe('IssueService.prime (P1a)', () => {
 
   it('prime renders structural blockers and parent as ref (title) (open only)', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const dep = svc.create({ repoPath: '/r', title: 'Dep', startNow: false })
-    const closedDep = svc.create({ repoPath: '/r', title: 'ClosedDep', startNow: false })
-    const me = svc.create({ repoPath: '/r', title: 'Me', startNow: false, parentId: epic.id })
-    svc.addDep(me.id, dep.id, 'blocks')
-    svc.addDep(me.id, closedDep.id, 'blocks')
+    const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const dep = await svc.create({ repoPath: '/r', title: 'Dep', startNow: false })
+    const closedDep = await svc.create({ repoPath: '/r', title: 'ClosedDep', startNow: false })
+    const me = await svc.create({ repoPath: '/r', title: 'Me', startNow: false, parentId: epic.id })
+    await svc.addDep(me.id, dep.id, 'blocks')
+    await svc.addDep(me.id, closedDep.id, 'blocks')
     // A resolved (closed) blocker no longer blocks — computeBlocked ignores closed
     // targets, so prime's "Blocked by:" line must match and drop it too.
-    svc.close(closedDep.id)
-    const out = svc.prime({ repoPath: '/r', boundIssueId: me.id })
+    await svc.close(closedDep.id)
+    const out = await svc.prime({ repoPath: '/r', boundIssueId: me.id })
     // No repo prefix in the harness → niceRef falls back to `#seq`; the title
     // must ride along so agents can use the canonical `REF (Title)` form.
     expect(out).toContain(`Parent epic: #${epic.seq} (Epic)`)
@@ -3550,12 +3550,12 @@ describe('IssueService.prime (P1a)', () => {
 describe('IssueService.purgeEmptyDraft (internal hard-delete seam)', () => {
   it('removes the issue from the list and broadcasts', async () => {
     const { svc, store, deps } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'gone', startNow: false })
-    svc.create({ repoPath: '/r', title: 'stays', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'gone', startNow: false })
+    await svc.create({ repoPath: '/r', title: 'stays', startNow: false })
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    svc.purgeEmptyDraft(a.id)
-    expect(svc.get(a.id)).toBeNull()
-    expect(svc.list('/r').map((w) => w.title)).toEqual(['stays'])
+    await svc.purgeEmptyDraft(a.id)
+    expect(await svc.get(a.id)).toBeNull()
+    expect((await svc.list('/r')).map((w) => w.title)).toEqual(['stays'])
     expect(await store.issues.getIssue(a.id)).toBeNull()
     expect(deps.broadcast).toHaveBeenCalled()
   })
@@ -3565,10 +3565,10 @@ describe('IssueService.purgeEmptyDraft (internal hard-delete seam)', () => {
   })
   it('deleting an issue clears scalar back-references on other issues', async () => {
     const { svc, store } = await harness()
-    const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
-    const child = svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
-    svc.purgeEmptyDraft(parent.id)
-    expect(svc.get(child.id)!.parentId).toBeUndefined() // wire omits null parentId
+    const parent = await svc.create({ repoPath: '/r', title: 'P', startNow: false })
+    const child = await svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
+    await svc.purgeEmptyDraft(parent.id)
+    expect((await svc.get(child.id))!.parentId).toBeUndefined() // wire omits null parentId
     expect((await store.issues.getIssue(child.id))!.parentId).toBeNull()
   })
 })
@@ -3576,9 +3576,9 @@ describe('IssueService.purgeEmptyDraft (internal hard-delete seam)', () => {
 describe('IssueService.issueForCwd (P1b)', () => {
   it('issueForCwd resolves a cwd inside an issue worktree', async () => {
     const { svc } = await harness()
-    const i = svc.create({ repoPath: '/r', title: 'W', startNow: false })
+    const i = await svc.create({ repoPath: '/r', title: 'W', startNow: false })
     await svc.start(i.id) // sets worktreePath
-    const wt = svc.get(i.id)!.worktreePath as string
+    const wt = (await svc.get(i.id))!.worktreePath as string
     expect(svc.issueForCwd(wt)).toBe(i.id)
     expect(svc.issueForCwd(`${wt}/sub/dir`)).toBe(i.id)
     expect(svc.issueForCwd('/somewhere/else')).toBeNull()
@@ -3586,14 +3586,14 @@ describe('IssueService.issueForCwd (P1b)', () => {
 
   it('picks the most specific worktree when one contains another (POD-529)', async () => {
     const { svc } = await harness()
-    const broad = svc.create({ repoPath: '/r', title: 'Broad', startNow: false })
-    const narrow = svc.create({ repoPath: '/r', title: 'Narrow', startNow: false })
+    const broad = await svc.create({ repoPath: '/r', title: 'Broad', startNow: false })
+    const narrow = await svc.create({ repoPath: '/r', title: 'Narrow', startNow: false })
     await svc.start(broad.id)
     await svc.start(narrow.id)
-    const broadWt = svc.get(broad.id)!.worktreePath as string
+    const broadWt = (await svc.get(broad.id))!.worktreePath as string
     // Simulate a narrow worktree nested under the broad one (row-level, no git).
     const nested = `${broadWt}/nested/issue-narrow`
-    svc.get(narrow.id) // ensure row exists
+    await svc.get(narrow.id) // ensure row exists
     ;(svc as never as { rows: Map<string, { worktreePath: string | null }> }).rows.get(
       narrow.id,
     )!.worktreePath = nested
@@ -3603,9 +3603,9 @@ describe('IssueService.issueForCwd (P1b)', () => {
 
   it('addSession passes the explicit issueId to spawn (POD-529)', async () => {
     const { svc, deps } = await harness()
-    const i = svc.create({ repoPath: '/r', title: 'W', startNow: false })
+    const i = await svc.create({ repoPath: '/r', title: 'W', startNow: false })
     await svc.start(i.id)
-    svc.addSession(i.id)
+    await svc.addSession(i.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ issueId: i.id }))
   })
 })
@@ -3613,111 +3613,111 @@ describe('IssueService.issueForCwd (P1b)', () => {
 describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('passes internal ids and unknown refs through unchanged', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.resolveRef(w.id)).toBe(w.id)
-    expect(svc.resolveRef('garbage')).toBe('garbage')
-    expect(svc.resolveRef('999')).toBe('999')
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(await svc.resolveRef(w.id)).toBe(w.id)
+    expect(await svc.resolveRef('garbage')).toBe('garbage')
+    expect(await svc.resolveRef('999')).toBe('999')
   })
 
   it('resolves bare and #-prefixed seqs to the internal id', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.resolveRef(String(w.seq))).toBe(w.id)
-    expect(svc.resolveRef(`#${w.seq}`)).toBe(w.id)
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(await svc.resolveRef(String(w.seq))).toBe(w.id)
+    expect(await svc.resolveRef(`#${w.seq}`)).toBe(w.id)
   })
 
   it('resolves a human-facing nice id PREFIX-seq (#474)', async () => {
     const { svc, store } = await harness()
     await store.repos.addRepo('/home/u/podium', asMachineId('__local__'), 'git@github.com:o/podium.git')
     const prefix = (await store.repos.prefixForPath('/home/u/podium'))!
-    const w = svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
+    const w = await svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
     expect(w.displayRef).toBe(`${prefix}-${w.seq}`)
-    expect(svc.resolveRef(`${prefix}-${w.seq}`)).toBe(w.id)
+    expect(await svc.resolveRef(`${prefix}-${w.seq}`)).toBe(w.id)
     // An unknown prefix falls through unchanged (caller's unknown-issue error fires).
-    expect(svc.resolveRef('ZZZ-1')).toBe('ZZZ-1')
+    expect(await svc.resolveRef('ZZZ-1')).toBe('ZZZ-1')
   })
 
   it('throws on a seq that exists in several repos (per-repo counters collide)', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r1', title: 'A', startNow: false })
-    svc.create({ repoPath: '/r2', title: 'B', startNow: false })
+    await svc.create({ repoPath: '/r1', title: 'A', startNow: false })
+    await svc.create({ repoPath: '/r2', title: 'B', startNow: false })
     expect(() => svc.resolveRef('1')).toThrow(/ambiguous issue ref #1/)
   })
 
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     // full repoPath#seq (copy-pasted from the ambiguity error) resolves
-    expect(svc.resolveRef(`/home/u/r1#${a.seq}`)).toBe(a.id)
-    expect(svc.resolveRef(`/home/u/r2#${b.seq}`)).toBe(b.id)
+    expect(await svc.resolveRef(`/home/u/r1#${a.seq}`)).toBe(a.id)
+    expect(await svc.resolveRef(`/home/u/r2#${b.seq}`)).toBe(b.id)
     // trailing path segment works when unique
-    expect(svc.resolveRef(`r1#${a.seq}`)).toBe(a.id)
+    expect(await svc.resolveRef(`r1#${a.seq}`)).toBe(a.id)
     // unknown repo-qualified refs fall through unchanged (caller's unknown-issue error fires)
-    expect(svc.resolveRef('/nope#1')).toBe('/nope#1')
+    expect(await svc.resolveRef('/nope#1')).toBe('/nope#1')
   })
 
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
-    svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
+    await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     let message = ''
     try {
-      svc.resolveRef('1')
+      await svc.resolveRef('1')
     } catch (e) {
       message = (e as Error).message
     }
     const printed = message.match(/\S+#\d+/g) ?? []
     expect(printed.length).toBeGreaterThanOrEqual(2)
     // every ref the error tells the user about must itself resolve
-    expect(svc.resolveRef(printed[0]!)).toBe(a.id)
+    expect(await svc.resolveRef(printed[0]!)).toBe(a.id)
   })
 
   it('a suffix ref matching several repos throws instead of guessing', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/a/podium', title: 'A', startNow: false })
-    svc.create({ repoPath: '/b/podium', title: 'B', startNow: false })
+    await svc.create({ repoPath: '/a/podium', title: 'A', startNow: false })
+    await svc.create({ repoPath: '/b/podium', title: 'B', startNow: false })
     expect(() => svc.resolveRef('podium#1')).toThrow(/ambiguous issue ref podium#1/)
   })
 
   it('every id-taking mutation accepts a display seq and persists the INTERNAL id', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
 
     // comment: stored against iss_… not the raw seq string
-    svc.addComment(String(a.seq), 'agent', 'hello', AS_OPERATOR)
+    await svc.addComment(String(a.seq), 'agent', 'hello', AS_OPERATOR)
     expect((await store.issues.listIssueComments(a.id)).map((c) => c.body)).toContain('hello')
 
     // deps: edge rows carry internal ids so blocked/ready derive correctly
-    svc.addDep(String(b.seq), `#${a.seq}`, 'blocks')
-    expect(svc.get(b.id)?.blocked).toBe(true)
-    svc.close(String(a.seq))
-    expect(svc.get(b.id)?.ready).toBe(true)
+    await svc.addDep(String(b.seq), `#${a.seq}`, 'blocks')
+    expect((await svc.get(b.id))?.blocked).toBe(true)
+    await svc.close(String(a.seq))
+    expect((await svc.get(b.id))?.ready).toBe(true)
 
     // labels + update + claim + needs-human by seq
-    svc.setLabels(String(b.seq), ['x'])
-    expect(svc.get(String(b.seq))?.labels).toContain('x')
-    svc.claim(`#${b.seq}`, asUserId('agent:test'))
-    expect(svc.get(b.id)?.assignee).toBe('agent:test')
-    svc.setNeedsHuman(String(b.seq), 'q?')
-    expect(svc.get(b.id)?.needsHuman).toBe(true)
+    await svc.setLabels(String(b.seq), ['x'])
+    expect((await svc.get(String(b.seq)))?.labels).toContain('x')
+    await svc.claim(`#${b.seq}`, asUserId('agent:test'))
+    expect((await svc.get(b.id))?.assignee).toBe('agent:test')
+    await svc.setNeedsHuman(String(b.seq), 'q?')
+    expect((await svc.get(b.id))?.needsHuman).toBe(true)
   })
 
   it('reparent + supersede + duplicate resolve BOTH sides (no raw refs in columns)', async () => {
     const { svc, store } = await harness()
-    const parent = svc.create({ repoPath: '/r', title: 'P', type: 'epic', startNow: false })
-    const kid = svc.create({ repoPath: '/r', title: 'K', startNow: false })
-    const repl = svc.create({ repoPath: '/r', title: 'R', startNow: false })
+    const parent = await svc.create({ repoPath: '/r', title: 'P', type: 'epic', startNow: false })
+    const kid = await svc.create({ repoPath: '/r', title: 'K', startNow: false })
+    const repl = await svc.create({ repoPath: '/r', title: 'R', startNow: false })
 
-    svc.reparent(String(kid.seq), `#${parent.seq}`)
+    await svc.reparent(String(kid.seq), `#${parent.seq}`)
     expect((await store.issues.getIssue(kid.id))?.parentId).toBe(parent.id)
 
-    svc.supersede(String(kid.seq), String(repl.seq))
+    await svc.supersede(String(kid.seq), String(repl.seq))
     expect((await store.issues.getIssue(kid.id))?.supersededBy).toBe(repl.id)
 
-    const dup = svc.create({ repoPath: '/r', title: 'D', startNow: false })
-    svc.duplicate(String(dup.seq), `#${repl.seq}`)
+    const dup = await svc.create({ repoPath: '/r', title: 'D', startNow: false })
+    await svc.duplicate(String(dup.seq), `#${repl.seq}`)
     expect((await store.issues.getIssue(dup.id))?.duplicateOf).toBe(repl.id)
   })
 })
@@ -3726,15 +3726,15 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
   const WT = '/r/.worktrees/issue-1-x'
   const BR = 'issue/1-x'
 
-  const prepared = (h: Awaited<ReturnType<typeof harness>>) => {
-    const issue = h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    h.svc.update(issue.id, { worktreePath: WT, branch: null })
+  const prepared = async (h: Awaited<ReturnType<typeof harness>>) => {
+    const issue = await h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await h.svc.update(issue.id, { worktreePath: WT, branch: null })
     return issue
   }
 
   it('clears an absent worktree path even when no branch was recorded', async () => {
     const h = await harness()
-    const issue = prepared(h)
+    const issue = await prepared(h)
     h.deps.repoOp = vi.fn(async (op) =>
       op === 'status'
         ? { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` }
@@ -3744,14 +3744,14 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
 
     expect(result).toMatchObject({ ok: true, worktreeFreed: true })
-    expect(h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: null })
-    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', h.svc.get(issue.id)?.machineId)
+    expect(await h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: null })
+    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', (await h.svc.get(issue.id))?.machineId)
     expect(h.deps.repoOp).toHaveBeenCalledTimes(1)
   })
 
   it('heals a missing branch from git before freeing the existing worktree', async () => {
     const h = await harness()
-    const issue = prepared(h)
+    const issue = await prepared(h)
     const calls: string[] = []
     h.deps.repoOp = vi.fn(async (op) => {
       calls.push(op)
@@ -3772,14 +3772,14 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
     expect(result).toMatchObject({ ok: true, worktreeFreed: true })
     expect(calls).toEqual(['status', 'worktreeList', 'worktreeRemove'])
-    expect(h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: BR })
+    expect(await h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: BR })
   })
 
   it("routes branch discovery and removal to the row's remote machine", async () => {
     const h = await harness()
-    const issue = prepared(h)
+    const issue = await prepared(h)
     const remote = asMachineId('flatblock')
-    h.svc.update(issue.id, { machineId: remote })
+    await h.svc.update(issue.id, { machineId: remote })
     const calls: Array<{ op: string; machineId: string | undefined }> = []
     h.deps.repoOp = vi.fn(async (op, _cwd, _args, machineId) => {
       calls.push({ op, machineId })
@@ -3806,7 +3806,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
   it('refuses a detached HEAD whose commits are reachable from no other ref', async () => {
     const h = await harness()
-    const issue = prepared(h)
+    const issue = await prepared(h)
     const calls: string[] = []
     h.deps.repoOp = vi.fn(async (op) => {
       calls.push(op)
@@ -3830,13 +3830,13 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     expect(result.output).toMatch(/detached HEAD carries 2 commits reachable from no other ref/)
     expect(calls).toEqual(['status', 'worktreeList', 'revListUnreachableCount'])
     expect(calls).not.toContain('worktreeRemove')
-    expect(h.svc.get(issue.id)?.worktreePath).toBe(WT)
+    expect((await h.svc.get(issue.id))?.worktreePath).toBe(WT)
   })
 
   it('rejects repository roots at the write seam and before any removal probe', async () => {
     const h = await harness()
     await h.store.repos.addRepo('/r', h.store.hostMachineId)
-    const issue = prepared(h)
+    const issue = await prepared(h)
     expect(() => h.svc.update(issue.id, { worktreePath: '/r' })).toThrow(/repository root/)
 
     const row = (
@@ -3867,7 +3867,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
   it("uses git's primary working tree guard even without a repos-table match", async () => {
     const h = await harness()
-    const issue = prepared(h)
+    const issue = await prepared(h)
     const row = (
       h.svc as never as {
         rows: Map<string, { worktreePath: string | null; branch: string | null }>
@@ -3899,10 +3899,10 @@ describe('IssueService.cleanup (issue #71)', () => {
   const CLEAN_STATUS = '## issue/1-x'
 
   /** Create a started issue (worktree+branch recorded) and optionally close it. */
-  function prepared(h: Awaited<ReturnType<typeof harness>>, opts: { closed?: boolean } = { closed: true }) {
-    const w = h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
-    h.svc.update(w.id, { worktreePath: WT, branch: BR })
-    if (opts.closed !== false) h.svc.close(w.id)
+  async function prepared(h: Awaited<ReturnType<typeof harness>>, opts: { closed?: boolean } = { closed: true }) {
+    const w = await h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
+    await h.svc.update(w.id, { worktreePath: WT, branch: BR })
+    if (opts.closed !== false) await h.svc.close(w.id)
     return w
   }
 
@@ -3932,7 +3932,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('refuses an OPEN issue with no side effects (no repoOp at all)', async () => {
     const h = await harness()
-    const w = prepared(h, { closed: false })
+    const w = await prepared(h, { closed: false })
     const calls = scriptRepoOp(h.deps, {})
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -3944,8 +3944,8 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('refuses when no worktree/branch is recorded', async () => {
     const h = await harness()
-    const w = h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    h.svc.close(w.id)
+    const w = await h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await h.svc.close(w.id)
     const calls = scriptRepoOp(h.deps, {})
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -3955,7 +3955,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('missing worktree on disk: clears the columns, comments, reports already gone', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` },
     })
@@ -3977,8 +3977,8 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('cleans an absent worktree whose branch column is empty', async () => {
     const h = await harness()
-    const w = prepared(h)
-    h.svc.update(w.id, { branch: null })
+    const w = await prepared(h)
+    await h.svc.update(w.id, { branch: null })
     const calls = scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` },
     })
@@ -3988,13 +3988,13 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(result.ok).toBe(true)
     expect(result.output).toMatch(/already gone/)
     expect(calls.map((call) => call.op)).toEqual(['status'])
-    expect(h.svc.get(w.id)).toMatchObject({ worktreePath: null, branch: null })
-    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', h.svc.get(w.id)?.machineId)
+    expect(await h.svc.get(w.id)).toMatchObject({ worktreePath: null, branch: null })
+    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', (await h.svc.get(w.id))?.machineId)
   })
 
   it('refuses an UNMERGED branch (is-ancestor false) before any destructive op', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
       isMergedInto: { ok: false, output: '' },
@@ -4015,7 +4015,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('refuses a DIRTY worktree before any destructive op', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: true, output: `${CLEAN_STATUS}\n M src/a.ts\n?? junk.txt` },
     })
@@ -4029,7 +4029,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('happy path: exact op sequence, columns cleared, audit comment, event', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, { status: { ok: true, output: CLEAN_STATUS } })
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
@@ -4058,7 +4058,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('attributes cleanup to the named human who asked, not to system:cleanup (POD-1344)', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     scriptRepoOp(h.deps, { status: { ok: true, output: CLEAN_STATUS } })
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
@@ -4074,7 +4074,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('partial failure: worktree removed but branch delete refused → precise report, branch kept', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
@@ -4100,7 +4100,7 @@ describe('IssueService.cleanup (issue #71)', () => {
 
   it('worktree remove refused by git: surfaces the message, nothing cleared', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
       worktreeRemove: {
@@ -4121,10 +4121,10 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
   const BR = 'issue/1-x'
   const CLEAN_STATUS = '## issue/1-x'
 
-  function prepared(h: Awaited<ReturnType<typeof harness>>) {
-    const w = h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
-    h.svc.update(w.id, { worktreePath: WT, branch: BR })
-    h.svc.close(w.id)
+  async function prepared(h: Awaited<ReturnType<typeof harness>>) {
+    const w = await h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
+    await h.svc.update(w.id, { worktreePath: WT, branch: BR })
+    await h.svc.close(w.id)
     return w
   }
   function scriptRepoOp(deps: IssueDeps, impl: Record<string, { ok: boolean; output: string }>) {
@@ -4149,7 +4149,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 
   it('retry after partial failure deletes the branch via the worktree-less path', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
@@ -4178,7 +4178,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 
   it('stacked retry still refused by -d gives the precise stacked message, not "nothing to clean up"', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
       branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
@@ -4194,8 +4194,8 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 
   it('retry path still refuses an unmerged branch', async () => {
     const h = await harness()
-    const w = prepared(h)
-    h.svc.update(w.id, { worktreePath: null }) // simulate branch-only state directly
+    const w = await prepared(h)
+    await h.svc.update(w.id, { worktreePath: null }) // simulate branch-only state directly
     const calls = scriptRepoOp(h.deps, { isMergedInto: { ok: false, output: '' } })
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -4206,7 +4206,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 
   it('permission-denied status error REFUSES and keeps the columns (no false already-gone)', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: cannot change to '${WT}': Permission denied` },
     })
@@ -4220,7 +4220,7 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 
   it('"not a working tree" REFUSES with a files-still-on-disk hint', async () => {
     const h = await harness()
-    const w = prepared(h)
+    const w = await prepared(h)
     scriptRepoOp(h.deps, {
       status: { ok: false, output: `fatal: not a working tree: '${WT}'` },
     })
@@ -4268,11 +4268,11 @@ describe('IssueService.integrate (issue #70)', () => {
   }
 
   /** Epic (seq 1, title 'E') + closed children with recorded branches. */
-  function epicWith(
+  async function epicWith(
     h: Awaited<ReturnType<typeof harness>>,
     kids: Array<{ branch?: string | null; closed?: boolean }>,
   ) {
-    const epic = h.svc.create({
+    const epic = await h.svc.create({
       repoPath: '/r',
       title: 'E',
       type: 'epic',
@@ -4290,7 +4290,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('refuses a target with no children (no repoOp at all)', async () => {
     const h = await harness()
-    const epic = h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const epic = await h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
     const calls = scriptOps(h.deps, () => undefined)
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -4300,7 +4300,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('refuses when no closed child has a recorded branch', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{ closed: false }, { branch: null, closed: true }])
+    const { epic } = await epicWith(h, [{ closed: false }, { branch: null, closed: true }])
     const calls = scriptOps(h.deps, () => undefined)
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
@@ -4310,7 +4310,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('fresh run: rebuild-reset op order (worktreeAddReset from root, ff merges in worktree), comment + event', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}, {}])
+    const { epic, children } = await epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
@@ -4365,7 +4365,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('persists the typed receipt before integration comment/event side effects', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{}])
+    const { epic } = await epicWith(h, [{}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const visibleAtEvent: unknown[] = []
     await h.store.events.onAppend((_id, event) => {
@@ -4391,17 +4391,17 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('flattens nested tips only from an exact immutable child integration receipt', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
-    const grandchild = h.svc.create({
+    const grandchild = await h.svc.create({
       repoPath: '/r',
       title: 'Nested',
       parentId: child.id,
       startNow: false,
     })
     const grandchildBranch = `issue/${grandchild.seq}-nested`
-    h.svc.update(grandchild.id, { branch: grandchildBranch })
-    h.svc.close(grandchild.id)
+    await h.svc.update(grandchild.id, { branch: grandchildBranch })
+    await h.svc.close(grandchild.id)
     const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
     const childSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     const grandchildSha = 'dddddddddddddddddddddddddddddddddddddddd'
@@ -4435,17 +4435,17 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('uses one frozen source snapshot when direct and nested refs advance during rebuild', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
-    const grandchild = h.svc.create({
+    const grandchild = await h.svc.create({
       repoPath: '/r',
       title: 'Nested',
       parentId: child.id,
       startNow: false,
     })
     const grandchildBranch = `issue/${grandchild.seq}-nested`
-    h.svc.update(grandchild.id, { branch: grandchildBranch })
-    h.svc.close(grandchild.id)
+    await h.svc.update(grandchild.id, { branch: grandchildBranch })
+    await h.svc.close(grandchild.id)
     const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
     const frozenChildSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     const laterChildSha = 'cccccccccccccccccccccccccccccccccccccccc'
@@ -4511,17 +4511,17 @@ describe('IssueService.integrate (issue #70)', () => {
     'stale',
   ] as const)('refuses nested integration when the child receipt is %s', async (proof) => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
-    const grandchild = h.svc.create({
+    const grandchild = await h.svc.create({
       repoPath: '/r',
       title: 'Nested',
       parentId: child.id,
       startNow: false,
     })
     const grandchildBranch = `issue/${grandchild.seq}-nested`
-    h.svc.update(grandchild.id, { branch: grandchildBranch })
-    h.svc.close(grandchild.id)
+    await h.svc.update(grandchild.id, { branch: grandchildBranch })
+    await h.svc.close(grandchild.id)
     const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
     const childSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     const currentGrandchildSha = 'dddddddddddddddddddddddddddddddddddddddd'
@@ -4563,7 +4563,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('does not publish success side effects when receipt persistence fails', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{}])
+    const { epic } = await epicWith(h, [{}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     vi.spyOn(h.store.shipping, 'recordRootIntegrationReceipt').mockImplementationOnce(() => {
       throw new Error('receipt store unavailable')
@@ -4583,7 +4583,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('attributes integrate to the named human who asked, not to system:integrate (POD-1344)', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{}, {}])
+    const { epic } = await epicWith(h, [{}, {}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
@@ -4599,7 +4599,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('existing worktree: resets the integration branch to the parent tip (checkoutReset), no worktreeAdd', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
     const calls = scriptOps(h.deps, () => undefined) // status ok → worktree exists
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
@@ -4618,11 +4618,11 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('in-flight guard: a concurrent second integrate() refuses cleanly; exactly one op sequence runs', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{}, {}])
+    const { epic } = await epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, () => undefined)
     const [r1, r2] = await Promise.all([
-      h.svc.integrate(epic.id, AS_OPERATOR),
-      h.svc.integrate(epic.id, AS_OPERATOR),
+      await h.svc.integrate(epic.id, AS_OPERATOR),
+      await h.svc.integrate(epic.id, AS_OPERATOR),
     ])
     const refused = [r1, r2].filter((r) => /integration already running for #1/.test(r.output))
     const ran = [r1, r2].filter((r) => r.ok)
@@ -4636,7 +4636,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('self-healing: a wedged worktree (failed conflict recovery) is un-wedged by the next run', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
     // Run 1: non-ff, rebase conflicts, and the recovery rebaseAbort ITSELF fails →
     // worktree left mid-rebase.
@@ -4665,9 +4665,9 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('topological order: A blocks B ⇒ A integrates first (beats seq order)', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}, {}]) // B=children[0] (seq 2), A=children[1] (seq 3)
+    const { epic, children } = await epicWith(h, [{}, {}]) // B=children[0] (seq 2), A=children[1] (seq 3)
     const [b, a] = children
-    h.svc.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
+    await h.svc.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
     const aSha = 'dddddddddddddddddddddddddddddddddddddddd'
     const bSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
     const calls = scriptOps(h.deps, (op, args) => {
@@ -4685,7 +4685,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('non-ff child: rebases a TEMP ref (never the child branch) then ff-merges it', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}])
+    const { epic, children } = await epicWith(h, [{}])
     const child = children[0]!
     const temp = `integrate-tmp/${child.seq}`
     const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -4743,7 +4743,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('conflict: aborts cleanly, restores the last good head, sets needs_human, stops — later children untouched', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}, {}, {}])
+    const { epic, children } = await epicWith(h, [{}, {}, {}])
     const [ok1, bad, never] = children
     const temp = `integrate-tmp/${bad!.seq}`
     const okSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -4800,7 +4800,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('re-run idempotence: unchanged outcome posts NO duplicate comment (events still record each run)', async () => {
     const h = await harness()
-    const { epic } = epicWith(h, [{}, {}])
+    const { epic } = await epicWith(h, [{}, {}])
     let rootReads = 0
     scriptOps(h.deps, (op, args) => {
       if (op !== 'revParseVerify' || args?.ref !== INT_BR) return undefined
@@ -4825,9 +4825,9 @@ describe('IssueService.integrate (issue #70)', () => {
     const ev = await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(2)
     // a CHANGED outcome (new child closes) does comment again
-    const extra = h.svc.create({ repoPath: '/r', title: 'K2', parentId: epic.id, startNow: false })
-    h.svc.update(extra.id, { branch: 'issue/4-k2' })
-    h.svc.close(extra.id)
+    const extra = await h.svc.create({ repoPath: '/r', title: 'K2', parentId: epic.id, startNow: false })
+    await h.svc.update(extra.id, { branch: 'issue/4-k2' })
+    await h.svc.close(extra.id)
     await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(
       (await h.store.issues.listIssueComments(epic.id)).filter((c) => c.author === 'system:integrate')
@@ -4837,7 +4837,7 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('closed-but-branchless siblings are skipped, not fatal', async () => {
     const h = await harness()
-    const { epic, children } = epicWith(h, [{}, { branch: null }])
+    const { epic, children } = await epicWith(h, [{}, { branch: null }])
     const calls = scriptOps(h.deps, () => undefined)
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
@@ -4850,28 +4850,28 @@ describe('IssueService.integrate (issue #70)', () => {
 describe('IssueService children + depReport (epic ergonomics)', () => {
   it('children lists direct subissues sorted by seq; recursive walks the subtree', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
-    const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
-    const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
-    const grand = svc.create({ repoPath: '/r', title: 'g', parentId: c1.id, startNow: false })
-    svc.create({ repoPath: '/r', title: 'unrelated', startNow: false })
-    expect(svc.children(epic.id).map((w) => w.title)).toEqual(['c2', 'c1'])
-    expect(svc.children(epic.id, true).map((w) => w.id)).toEqual([c2.id, c1.id, grand.id])
+    const epic = await svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c2 = await svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
+    const c1 = await svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
+    const grand = await svc.create({ repoPath: '/r', title: 'g', parentId: c1.id, startNow: false })
+    await svc.create({ repoPath: '/r', title: 'unrelated', startNow: false })
+    expect((await svc.children(epic.id)).map((w) => w.title)).toEqual(['c2', 'c1'])
+    expect((await svc.children(epic.id, true)).map((w) => w.id)).toEqual([c2.id, c1.id, grand.id])
     // seq refs resolve like everywhere else
-    expect(svc.children(`#${epic.seq}`).length).toBe(2)
+    expect((await svc.children(`#${epic.seq}`)).length).toBe(2)
     expect(() => svc.children('iss_nope')).toThrow(/unknown issue/)
   })
 
   it('depReport over an epic subtree marks ready/blocked and resolves edges', async () => {
     const { svc } = await harness()
-    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
-    const a = svc.create({ repoPath: '/r', title: 'a', parentId: epic.id, startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'b', parentId: epic.id, startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'c', parentId: epic.id, startNow: false })
-    svc.addDep(b.id, a.id) // b waits on a
-    svc.addDep(c.id, b.id, 'related')
-    svc.close(c.id)
-    const report = svc.depReport({ id: epic.id })
+    const epic = await svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'a', parentId: epic.id, startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'b', parentId: epic.id, startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'c', parentId: epic.id, startNow: false })
+    await svc.addDep(b.id, a.id) // b waits on a
+    await svc.addDep(c.id, b.id, 'related')
+    await svc.close(c.id)
+    const report = await svc.depReport({ id: epic.id })
     expect(report.map((e) => e.seq)).toEqual([epic.seq, a.seq, b.seq, c.seq])
     const byTitle = Object.fromEntries(report.map((e) => [e.title, e]))
     expect(byTitle.a!.ready).toBe(true)
@@ -4883,58 +4883,58 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
     expect(byTitle.c!.closed).toBe(true)
     expect(byTitle.c!.ready).toBe(false)
     // a closed blocker unblocks: close a, b becomes ready
-    svc.close(a.id)
-    const after = svc.depReport({ id: epic.id })
+    await svc.close(a.id)
+    const after = await svc.depReport({ id: epic.id })
     expect(after.find((e) => e.title === 'b')!.ready).toBe(true)
   })
 
   it('depReport without id covers the repo', async () => {
     const { svc } = await harness()
-    svc.create({ repoPath: '/r', title: 'x', startNow: false })
-    svc.create({ repoPath: '/other', title: 'y', startNow: false })
-    expect(svc.depReport({ repoPath: '/r' }).map((e) => e.title)).toEqual(['x'])
-    expect(svc.depReport({}).length).toBe(2)
+    await svc.create({ repoPath: '/r', title: 'x', startNow: false })
+    await svc.create({ repoPath: '/other', title: 'y', startNow: false })
+    expect((await svc.depReport({ repoPath: '/r' })).map((e) => e.title)).toEqual(['x'])
+    expect((await svc.depReport({})).length).toBe(2)
   })
 })
 
 describe('IssueService panelApply (agent-published human panel)', () => {
   it('todo ops: add, done, undone, remove, clear — 1-based, bad index throws', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.panelApply(w.id, { op: 'todo-add', text: 'first' })
-    const after = svc.panelApply(w.id, { op: 'todo-add', text: 'second' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.panelApply(w.id, { op: 'todo-add', text: 'first' })
+    const after = await svc.panelApply(w.id, { op: 'todo-add', text: 'second' })
     expect(after.panel?.todos).toEqual([
       { text: 'first', done: false },
       { text: 'second', done: false },
     ])
-    expect(svc.panelApply(w.id, { op: 'todo-done', index: 2 }).panel?.todos[1]?.done).toBe(true)
-    expect(svc.panelApply(w.id, { op: 'todo-undone', index: 2 }).panel?.todos[1]?.done).toBe(false)
-    expect(svc.panelApply(w.id, { op: 'todo-remove', index: 1 }).panel?.todos).toEqual([
+    expect((await svc.panelApply(w.id, { op: 'todo-done', index: 2 })).panel?.todos[1]?.done).toBe(true)
+    expect((await svc.panelApply(w.id, { op: 'todo-undone', index: 2 })).panel?.todos[1]?.done).toBe(false)
+    expect((await svc.panelApply(w.id, { op: 'todo-remove', index: 1 })).panel?.todos).toEqual([
       { text: 'second', done: false },
     ])
     expect(() => svc.panelApply(w.id, { op: 'todo-done', index: 9 })).toThrow(/no item 9/)
-    expect(svc.panelApply(w.id, { op: 'todo-clear' }).panel?.todos).toEqual([])
+    expect((await svc.panelApply(w.id, { op: 'todo-clear' })).panel?.todos).toEqual([])
   })
 
   it('artifact add replaces same-path entries; deferred add/remove; persists across reload', async () => {
     const { svc, store, deps } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v1' })
-    const re = svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v2' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v1' })
+    const re = await svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v2' })
     expect(re.panel?.artifacts).toHaveLength(1)
     expect(re.panel?.artifacts[0]?.title).toBe('v2')
-    svc.panelApply(w.id, { op: 'deferred-add', text: 'dark mode later' })
-    const wire = svc.panelApply(w.id, { op: 'deferred-remove', index: 1 })
+    await svc.panelApply(w.id, { op: 'deferred-add', text: 'dark mode later' })
+    const wire = await svc.panelApply(w.id, { op: 'deferred-remove', index: 1 })
     expect(wire.panel?.deferred).toEqual([])
     // reload from the same store: panel round-trips through the DB
     const svc2 = IssueService.create(deps)
-    expect(svc2.get(w.id)?.panel?.artifacts[0]?.title).toBe('v2')
+    expect((await svc2.get(w.id))?.panel?.artifacts[0]?.title).toBe('v2')
     expect((await store.issues.getIssue(w.id))?.panel).toContain('a.png')
   })
 
   it('no panel published → wire has no panel field', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(w.panel).toBeUndefined()
   })
 })
@@ -4980,8 +4980,8 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
     const { svc, snapshot, store } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     const wire = await svc.panelArtifactAdd(w.id, { path: 'shots/a.png', title: 'Shot' })
     expect(snapshot).toHaveBeenCalledWith({
       issueId: w.id,
@@ -5001,8 +5001,8 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('re-add replaces in place under a NEW artifactId and deletes the old dir after commit', async () => {
     const { svc, remove } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     await svc.panelArtifactAdd(w.id, { path: 'a.png' })
     await svc.panelArtifactAdd(w.id, { path: 'b.png' })
     const wire = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'v2' })
@@ -5013,8 +5013,8 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('re-add without --title keeps the existing title; a new title wins', async () => {
     const { svc } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v1' })
     const kept = await svc.panelArtifactAdd(w.id, { path: 'a.png' })
     expect(kept.panel?.artifacts[0]?.title).toBe('Mock v1')
@@ -5025,29 +5025,29 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
   it('a failed pull errors the op with nothing half-registered', async () => {
     const { svc, snapshot } = await artifactHarness()
     snapshot.mockRejectedValueOnce(new Error('cannot read /wt/gone.png: not found'))
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
-    expect(svc.get(w.id)?.panel?.artifacts ?? []).toEqual([])
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await expect(await svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
+    expect((await svc.get(w.id))?.panel?.artifacts ?? []).toEqual([])
   })
 
   it('refuses evidence when the owning issue has no worktree', async () => {
     const { svc, snapshot } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await expect(
-      svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
+      await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
     ).rejects.toThrow(/no owning worktree/)
     expect(snapshot).not.toHaveBeenCalled()
   })
 
   it('refuses absolute and traversal paths outside the owning issue worktree', async () => {
     const { svc, snapshot } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await expect(await svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
-    await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
+    await expect(await svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
     expect(snapshot).not.toHaveBeenCalled()
@@ -5055,10 +5055,10 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('accepts an acknowledged raster screenshot from the attached session checkout', async () => {
     const { svc, snapshot, sessions } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     sessions[0]!.issueId = w.id
     sessions[0]!.machineId = asMachineId('machine-under-test')
-    svc.update(w.id, {
+    await svc.update(w.id, {
       worktreePath: '/wt/issue-1',
       machineId: asMachineId('machine-under-test'),
     })
@@ -5085,15 +5085,15 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
     // The review checkout may be gone by the time the issue reaches review;
     // the permanent snapshot remains the durable proof.
-    expect(svc.update(w.id, { worktreePath: null, stage: 'review' }).stage).toBe('review')
+    expect((await svc.update(w.id, { worktreePath: null, stage: 'review' })).stage).toBe('review')
   })
 
   it('refuses terminal text and scrollback, with a sanctioned next step', async () => {
     const { svc, snapshot, sessions } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     sessions[0]!.issueId = w.id
     await expect(
-      svc.panelArtifactAdd(
+      await svc.panelArtifactAdd(
         w.id,
         { path: 'artifacts/stty-size.txt', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5106,7 +5106,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('rejects non-image members discovered inside a terminal-evidence bundle', async () => {
     const { svc, snapshot, remove, sessions } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     sessions[0]!.issueId = w.id
     snapshot.mockResolvedValueOnce({
       artifactId: asArtifactId('art-dir'),
@@ -5115,23 +5115,23 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       sourcePaths: ['screenshots.png/stty-size.txt'],
     })
     await expect(
-      svc.panelArtifactAdd(
+      await svc.panelArtifactAdd(
         w.id,
         { path: 'screenshots.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
       ),
     ).rejects.toThrow(/raster image files only.*raw terminal text and scrollback/)
     expect(remove).toHaveBeenCalledWith(w.id, 'art-dir')
-    expect(svc.get(w.id)?.panel?.artifacts ?? []).toEqual([])
+    expect((await svc.get(w.id))?.panel?.artifacts ?? []).toEqual([])
   })
 
   it('requires the invoking session to belong to the issue and its machine when pinned', async () => {
     const { svc, snapshot, sessions } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1', machineId: asMachineId('issue-machine') })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1', machineId: asMachineId('issue-machine') })
     sessions[0]!.machineId = asMachineId('other-machine')
     await expect(
-      svc.panelArtifactAdd(
+      await svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5140,7 +5140,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
     sessions[0]!.issueId = w.id
     await expect(
-      svc.panelArtifactAdd(
+      await svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5151,39 +5151,39 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
   it('lets uncommitted evidence through review — the store holds the bytes (POD-1284)', async () => {
     const { svc, repoOp } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     const added = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
     expect(added.panel?.artifacts[0]).toMatchObject({ path: 'evidence/review.md' })
     expect(added.panel?.artifacts[0]?.tracking).toBeUndefined()
     // No lsFiles probe: whether the source file is committed is not our business.
     expect(repoOp.mock.calls.every((c) => c[0] !== 'lsFiles')).toBe(true)
-    expect(svc.update(w.id, { stage: 'review' }).stage).toBe('review')
+    expect((await svc.update(w.id, { stage: 'review' })).stage).toBe('review')
   })
 
   it('blocks legacy outside-worktree artifacts before review', async () => {
     const { svc } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    svc.panelApply(w.id, { op: 'artifact-add', path: '/tmp/review.png' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await svc.panelApply(w.id, { op: 'artifact-add', path: '/tmp/review.png' })
     expect(() => svc.update(w.id, { stage: 'review' })).toThrow(/outside the owning issue worktree/)
   })
 
   it('remove deletes the panel entry AND its store directory', async () => {
     const { svc, remove } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     await svc.panelArtifactAdd(w.id, { path: 'a.png' })
-    const wire = svc.panelArtifactRemove(w.id, 1)
+    const wire = await svc.panelArtifactRemove(w.id, 1)
     expect(wire.panel?.artifacts).toEqual([])
     expect(remove).toHaveBeenCalledWith(w.id, 'art1')
   })
 
   it('legacy path-only entries stay untouched by remove (no store delete call)', async () => {
     const { svc, remove } = await artifactHarness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.panelApply(w.id, { op: 'artifact-add', path: 'old.png' }) // legacy, no artifactId
-    svc.panelArtifactRemove(w.id, 1)
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.panelApply(w.id, { op: 'artifact-add', path: 'old.png' }) // legacy, no artifactId
+    await svc.panelArtifactRemove(w.id, 1)
     expect(remove).not.toHaveBeenCalled()
   })
 })
@@ -5216,8 +5216,8 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       removeIssue: vi.fn(async () => {}),
     }
     const svc = IssueService.create(h.deps)
-    const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(issue.id, { worktreePath: '/wt/issue-1' })
+    const issue = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(issue.id, { worktreePath: '/wt/issue-1' })
     return { svc, issue, stored, read, snapshot }
   }
 
@@ -5258,7 +5258,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const { svc, issue, stored, snapshot } = await readHarness()
     await svc.panelArtifactAdd(issue.id, { path: 'plan.md' })
     stored.set('art1/plan.md', text('durable'))
-    svc.update(issue.id, { worktreePath: null })
+    await svc.update(issue.id, { worktreePath: null })
     snapshot.mockClear()
     const got = await svc.panelArtifactRead(issue.id, { index: 1 })
     expect(Buffer.from(got.dataBase64, 'base64').toString('utf8')).toBe('durable')
@@ -5272,15 +5272,15 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const got = await svc.panelArtifactRead(issue.id, { index: 1, file: 'app.css' })
     expect(got.file).toBe('app.css')
     expect(got.entry).toBe('index.html')
-    await expect(svc.panelArtifactRead(issue.id, { index: 1, file: 'nope.css' })).rejects.toThrow(
+    await expect(await svc.panelArtifactRead(issue.id, { index: 1, file: 'nope.css' })).rejects.toThrow(
       /bundle holds: index\.html, app\.css/,
     )
   })
 
   it('a legacy path-only entry says to re-add it rather than reporting a missing file', async () => {
     const { svc, issue } = await readHarness()
-    svc.panelApply(issue.id, { op: 'artifact-add', path: 'old.png' })
-    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+    await svc.panelApply(issue.id, { op: 'artifact-add', path: 'old.png' })
+    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
       /has no stored snapshot/,
     )
   })
@@ -5289,18 +5289,18 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const { svc, issue, stored } = await readHarness()
     await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
     stored.set('art1/a.md', text('a'))
-    await expect(svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
+    await expect(await svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
       /no artifact 2 \(issue has 1\)/,
     )
-    await expect(svc.panelArtifactRead(issue.id, { path: 'nope.md' })).rejects.toThrow(
+    await expect(await svc.panelArtifactRead(issue.id, { path: 'nope.md' })).rejects.toThrow(
       /no artifact with path nope\.md/,
     )
-    await expect(svc.panelArtifactRead(issue.id, {})).rejects.toThrow(/an index or a path/)
+    await expect(await svc.panelArtifactRead(issue.id, {})).rejects.toThrow(/an index or a path/)
   })
 
   it('an issue with no artifacts says so', async () => {
     const { svc, issue } = await readHarness()
-    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
+    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
   })
 
   /**
@@ -5326,8 +5326,8 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       const h = await harness([sess('/wt')])
       h.deps.artifacts = new IssueArtifactStore(base, rpc)
       const svc = IssueService.create(h.deps)
-      const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-      svc.update(issue.id, { worktreePath: '/wt/issue-1' })
+      const issue = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+      await svc.update(issue.id, { worktreePath: '/wt/issue-1' })
       await svc.panelArtifactAdd(issue.id, { path: 'shots/a.png', title: 'Shot' })
 
       const got = await svc.panelArtifactRead(issue.id, { index: 1 })
@@ -5348,7 +5348,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       bytes: Buffer.alloc(ARTIFACT_READ_CAP_BYTES + 1),
       contentType: 'video/mp4',
     })
-    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
       new RegExp(`/files/artifact/${issue.id}/art1/big\\.mp4`),
     )
   })
@@ -5357,11 +5357,11 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
 describe('IssueService setState (agent-posted current state → activityNotes)', () => {
   it('writes activityNotes + notesUpdatedAt and broadcasts', async () => {
     const { svc } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    const wire = svc.setState(w.id, 'halfway there; blocked on review')
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const wire = await svc.setState(w.id, 'halfway there; blocked on review')
     expect(wire.activityNotes).toBe('halfway there; blocked on review')
     expect(wire.notesUpdatedAt).toBe('2026-06-30T00:00:00.000Z')
-    expect(svc.get(`#${w.seq}`)?.activityNotes).toContain('halfway')
+    expect((await svc.get(`#${w.seq}`))?.activityNotes).toContain('halfway')
   })
 })
 
@@ -5369,8 +5369,8 @@ describe('IssueService agent mail (#103)', () => {
   it('sendMail stores an unread message and fires the delivery hook', async () => {
     const { svc, deps } = await harness()
     ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = svc.sendMail(asIssueId(`#${a.seq}`), 'issue:#9', 'please rebase')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = await svc.sendMail(asIssueId(`#${a.seq}`), 'issue:#9', 'please rebase')
     expect(m).toMatchObject({ issueId: a.id, fromAuthor: 'issue:#9', status: 'unread' })
     expect(m.id).toMatch(/^msg_/)
     expect(deps.onMailSent).toHaveBeenCalledWith(expect.objectContaining({ id: a.id }), m)
@@ -5381,32 +5381,32 @@ describe('IssueService agent mail (#103)', () => {
     ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn(() => {
       throw new Error('nudge exploded')
     })
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = svc.sendMail(a.id, 'operator', 'hi')
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = await svc.sendMail(a.id, 'operator', 'hi')
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
     expect(m.status).toBe('unread')
   })
 
   it('mailInbox is read-on-list: returns wasUnread, subsequent lists are read', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.sendMail(a.id, 'operator', 'one')
-    const first = svc.mailInbox(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.sendMail(a.id, 'operator', 'one')
+    const first = await svc.mailInbox(a.id)
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ wasUnread: true, status: 'read', body: 'one' })
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
-    const second = svc.mailInbox(a.id)
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 0 })
+    const second = await svc.mailInbox(a.id)
     expect(second[0]).toMatchObject({ wasUnread: false, status: 'read' })
   })
 
   it('mailClaim: first wins, second reports claimed=false with the winning message', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = svc.sendMail(a.id, 'operator', 'act on this')
-    const r1 = svc.mailClaim(m.id, 'issue:#5')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = await svc.sendMail(a.id, 'operator', 'act on this')
+    const r1 = await svc.mailClaim(m.id, 'issue:#5')
     expect(r1.claimed).toBe(true)
     expect(r1.message).toMatchObject({ status: 'claimed', claimedBy: 'issue:#5' })
-    const r2 = svc.mailClaim(m.id, 'issue:#6')
+    const r2 = await svc.mailClaim(m.id, 'issue:#6')
     expect(r2.claimed).toBe(false)
     expect(r2.message.claimedBy).toBe('issue:#5')
     expect(() => svc.mailClaim('msg_nope', 'x')).toThrow(/unknown mail message/)
@@ -5414,13 +5414,13 @@ describe('IssueService agent mail (#103)', () => {
 
   it('prime (bound) surfaces the unread mail count', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
-    svc.sendMail(a.id, 'operator', 'x')
-    svc.sendMail(a.id, 'operator', 'y')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(await svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
+    await svc.sendMail(a.id, 'operator', 'x')
+    await svc.sendMail(a.id, 'operator', 'y')
     // Behavioral: the unread count surfaces and points at the mail inbox command
     // (exact sentence pin relaxed, POD-619 [spec:SP-0be7]).
-    const primed = svc.prime({ boundIssueId: a.id })
+    const primed = await svc.prime({ boundIssueId: a.id })
     expect(primed).toContain('2 unread mail')
     expect(primed).toContain('mail inbox')
   })
@@ -5465,7 +5465,7 @@ describe('IssueService agent mail (#103)', () => {
     // Dual-write + deliver on substrate WITHOUT clearing the legacy mirror —
     // the desync that resurrects "You have N message(s)… run mail inbox".
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const id = 'msg_delivered_turn'
     await store.issues.addIssueMessage({
       id,
@@ -5481,14 +5481,14 @@ describe('IssueService agent mail (#103)', () => {
     // Substrate no longer pending; legacy still unread — old Math.max would nag.
     expect(await store.messages.countPending({ kind: 'issue', id: a.id })).toBe(0)
     expect(await store.issues.countUnreadIssueMessages(a.id)).toBe(1)
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0, senders: [] })
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 0, senders: [] })
     // Prime uses the same predicate.
-    expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
+    expect(await svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
   })
 
   it('mailPending still counts a queued/held message never surfaced in the transcript', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const id = 'msg_queued_unseen'
     await store.issues.addIssueMessage({
       id,
@@ -5501,24 +5501,24 @@ describe('IssueService agent mail (#103)', () => {
       claimedAt: null,
     })
     await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
-    expect(svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+    expect(await svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
   })
 
   it('mailPending counts every queued substrate row beyond the listing page cap', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     for (let i = 0; i < 201; i += 1) {
       const id = `msg_queued_${String(i).padStart(3, '0')}`
       await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
     }
 
-    expect(svc.mailPending(a.id).unread).toBe(201)
+    expect((await svc.mailPending(a.id)).unread).toBe(201)
   })
 
   it('mailPending includes a sender whose only queued row is number 201', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     for (let i = 0; i < 200; i += 1) {
       await store.messages.addMessage({
         ...substrateRow(a.id, `msg_head_${String(i).padStart(3, '0')}`, 'queued'),
@@ -5531,7 +5531,7 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:01.000Z',
     })
 
-    expect(svc.mailPending(a.id)).toEqual({
+    expect(await svc.mailPending(a.id)).toEqual({
       unread: 201,
       senders: ['iss_head_sender', 'iss_tail_sender'],
     })
@@ -5539,14 +5539,14 @@ describe('IssueService agent mail (#103)', () => {
 
   it('mailPending pure-legacy unread (no substrate twin) still nags', async () => {
     const { svc } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.sendMail(a.id, 'operator', 'pre-substrate path')
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.sendMail(a.id, 'operator', 'pre-substrate path')
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
   })
 
   it('mailPending drops the count after inbox read / dismiss-equivalent clear', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const id = 'msg_then_read'
     await store.issues.addIssueMessage({
       id,
@@ -5559,10 +5559,10 @@ describe('IssueService agent mail (#103)', () => {
       claimedAt: null,
     })
     await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
-    expect(svc.mailPending(a.id).unread).toBe(1)
+    expect((await svc.mailPending(a.id)).unread).toBe(1)
     // Slice 2 clear path: inbox pull consumes both surfaces.
-    svc.mailInbox(a.id)
-    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
+    await svc.mailInbox(a.id)
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 0 })
   })
 
   // ---- PER-SESSION read state [POD-1379] ----
@@ -5597,38 +5597,38 @@ describe('IssueService agent mail (#103)', () => {
 
   it('never nags a session about a message it sent itself', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_from_a', { fromSession: asSessionId('sA') })
     // Same notion of self the delivery side uses (attemptDelivery excludes
     // message.fromSession from the members it can target) [POD-1365].
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sA') })).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
   })
 
   it("a peer's inbox read leaves the other session's pending count intact", async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_for_b', { fromSession: asSessionId('sSender') })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
     // The MUTATING surface: session A opens the shared mailbox.
-    svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
+    await svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sA') })).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
   })
 
   it('the observed POD-1342 repro: A sends for B, is not nagged, and B keeps its mail', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_handoff', { fromSession: asSessionId('sA') })
     // A is never nagged about its own send…
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sA') })).unread).toBe(0)
     // …and even when it opens the inbox anyway, B's handoff survives.
-    const seenByA = svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
+    const seenByA = await svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
     expect(seenByA.map((m) => m.body)).toEqual(['body-msg_handoff'])
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
-    const seenByB = svc.mailInbox(a.id, { sessionId: asSessionId('sB') })
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
+    const seenByB = await svc.mailInbox(a.id, { sessionId: asSessionId('sB') })
     expect(seenByB[0]).toMatchObject({ wasUnread: true })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(0)
   })
 
   // A PULL is a delivery to a KNOWN reader [POD-1420]. The ledger used to record
@@ -5639,9 +5639,9 @@ describe('IssueService agent mail (#103)', () => {
   // never-routed share was a small tail.
   it('an inbox pull records WHO read it in the delivery ledger, not NULL', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_pulled', { fromSession: asSessionId('sSender') })
-    svc.mailInbox(a.id, { sessionId: asSessionId('sReader') })
+    await svc.mailInbox(a.id, { sessionId: asSessionId('sReader') })
     expect(await store.messages.getMessage('msg_pulled')).toMatchObject({
       status: 'delivered',
       deliveredTo: 'sReader',
@@ -5650,9 +5650,9 @@ describe('IssueService agent mail (#103)', () => {
 
   it('a claim records the claimer in the delivery ledger', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
-    svc.mailClaim('msg_claimed', 'agent', { sessionId: asSessionId('sClaimer') })
+    await svc.mailClaim('msg_claimed', 'agent', { sessionId: asSessionId('sClaimer') })
     expect(await store.messages.getMessage('msg_claimed')).toMatchObject({
       deliveredTo: 'sClaimer',
     })
@@ -5664,7 +5664,7 @@ describe('IssueService agent mail (#103)', () => {
   // landed in a transcript, and the ledger recorded it as reaching nobody.
   it('a pull does not erase the session a push already reached', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_pushed', { fromSession: asSessionId('sSender') })
     await store.messages.markInjected('msg_pushed', asSessionId('sPushed'), '2026-08-02T14:44:17.283Z')
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
@@ -5672,7 +5672,7 @@ describe('IssueService agent mail (#103)', () => {
       deliveredTo: 'sPushed',
     })
     // A peer opens the shared mailbox 23 seconds later.
-    svc.mailInbox(a.id, { sessionId: asSessionId('sPeer') })
+    await svc.mailInbox(a.id, { sessionId: asSessionId('sPeer') })
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
       status: 'delivered',
       deliveredTo: 'sPushed',
@@ -5682,50 +5682,50 @@ describe('IssueService agent mail (#103)', () => {
     expect(
       (await store.messages.readReceipts(asSessionId('sPeer'), ['msg_pushed'])).has('msg_pushed'),
     ).toBe(true)
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sPeer') }).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sPeer') })).unread).toBe(0)
   })
 
   // An operator/UI peek carries no session. It must still advance the shared
   // ledger (it consumes the legacy unread status), but it has no reader to name.
   it('a readerless pull still leaves delivered_to NULL — nobody to name', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_peek', { fromSession: asSessionId('sSender') })
-    svc.mailInbox(a.id)
+    await svc.mailInbox(a.id)
     expect(await store.messages.getMessage('msg_peek')).toMatchObject({ deliveredTo: null })
   })
 
   it('nags each session exactly once: a second read of my own inbox is quiet', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_once', { fromSession: asSessionId('sSender') })
-    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({
+    expect((await svc.mailInbox(a.id, { sessionId: asSessionId('sB') }))[0]).toMatchObject({
       wasUnread: true,
     })
-    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({
+    expect((await svc.mailInbox(a.id, { sessionId: asSessionId('sB') }))[0]).toMatchObject({
       wasUnread: false,
     })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(0)
   })
 
   it('claiming retires the message for the claimer only — peers still get it once', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
     // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
     // on it, so it retires the claimer's nag and nobody else's.
-    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') }).claimed).toBe(
+    expect((await svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') })).claimed).toBe(
       true,
     )
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sA') })).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
   })
 
   it('a session that starts after mail was consumed does not inherit the backlog', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_history', { fromSession: asSessionId('sSender') })
-    svc.mailInbox(a.id, { sessionId: asSessionId('sOld') })
+    await svc.mailInbox(a.id, { sessionId: asSessionId('sOld') })
     await store.sessions.upsertSession({
       id: asSessionId('sNew'),
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -5753,12 +5753,12 @@ describe('IssueService agent mail (#103)', () => {
       headless: false,
       issueId: a.id,
     })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sNew') }).unread).toBe(0)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sNew') })).unread).toBe(0)
   })
 
   it('still HOLDS undelivered mail for a session that starts later', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     // Nobody was live when it was sent: it is still queued, so the next session
     // to arrive must be told about it even though it predates that session.
     await seedIssueMail(store, a.id, 'msg_held', { fromSession: asSessionId('sSender') })
@@ -5788,18 +5788,18 @@ describe('IssueService agent mail (#103)', () => {
       headless: false,
       issueId: a.id,
     })
-    expect(svc.mailPending(a.id, { sessionId: asSessionId('sLate') }).unread).toBe(1)
+    expect((await svc.mailPending(a.id, { sessionId: asSessionId('sLate') })).unread).toBe(1)
   })
 })
 
 describe('IssueService surfaces daemon argv-hardening rejections (issue #81)', () => {
   it('action(pr) with a crafted leading-dash branch returns the readable unsafe-ref error', async () => {
     const { svc, deps } = await harness()
-    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.start(c.id)
     // A tampered stored branch column. The mock mirrors the daemon: it builds
     // argv via the real repoOpCommand and returns builder errors as ok:false.
-    svc.update(c.id, { branch: '-D' })
+    await svc.update(c.id, { branch: '-D' })
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op, _cwd, args) => {
       const cmd = repoOpCommand(op as never, args as never)
       return 'error' in cmd ? { ok: false, output: cmd.error } : { ok: true, output: '' }
@@ -5835,31 +5835,31 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     return { ...h, svc: IssueService.create(h.deps) }
   }
 
-  const closedIssueWithCheckout = (
+  const closedIssueWithCheckout = async (
     h: { svc: IssueService },
     over: { title?: string; parentId?: IssueId; path?: string } = {},
   ) => {
-    const created = h.svc.create({
+    const created = await h.svc.create({
       repoPath: '/r',
       title: over.title ?? 'Shipped',
       startNow: false,
       ...(over.parentId ? { parentId: over.parentId } : {}),
     })
-    h.svc.update(created.id, {
+    await h.svc.update(created.id, {
       worktreePath: over.path ?? `/r/.worktrees/${created.id}`,
       branch: `issue/${created.id}`,
     })
-    h.svc.close(created.id)
+    await h.svc.close(created.id)
     return created.id
   }
 
-  const observationFor = (
+  const observationFor = async (
     h: { svc: IssueService },
     id: IssueId,
     mode: 'propose' | 'auto',
     afterDays = 14,
   ) => {
-    const row = h.svc.get(id)!
+    const row = (await h.svc.get(id))!
     return {
       issueId: id,
       worktreePath: row.worktreePath as string,
@@ -5878,37 +5878,37 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     // default rather than auto.
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
     const ops = recordOps(h)
-    const id = closedIssueWithCheckout(h)
+    const id = await closedIssueWithCheckout(h)
 
     const result = await h.svc.tryWorktreeGcObserved(
-      observationFor(h, id, 'propose'),
+      await observationFor(h, id, 'propose'),
       DUE,
       systemPrincipal('expiry'),
     )
 
     expect(result).toEqual({ outcome: 'proposed' })
-    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect((await h.svc.get(id))!.worktreePath).not.toBeNull()
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     const proposed = await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_gc_proposed'] })
     expect(proposed.length).toBe(1)
-    expect(proposed[0]!.payload).toMatchObject({ worktreePath: h.svc.get(id)!.worktreePath })
+    expect(proposed[0]!.payload).toMatchObject({ worktreePath: (await h.svc.get(id))!.worktreePath })
   })
 
   it('under `auto` it frees the checkout, keeps the branch, and never forces', async () => {
     const h = await gcHarness({ mode: 'auto', afterDays: 14 })
     const ops = recordOps(h)
-    const id = closedIssueWithCheckout(h)
-    const path = h.svc.get(id)!.worktreePath
+    const id = await closedIssueWithCheckout(h)
+    const path = (await h.svc.get(id))!.worktreePath
 
     const result = await h.svc.tryWorktreeGcObserved(
-      observationFor(h, id, 'auto'),
+      await observationFor(h, id, 'auto'),
       DUE,
       systemPrincipal('expiry'),
     )
 
     expect(result).toEqual({ outcome: 'freed' })
-    expect(h.svc.get(id)!.worktreePath).toBeNull()
-    expect(h.svc.get(id)!.branch).toBe(`issue/${id}`)
+    expect((await h.svc.get(id))!.worktreePath).toBeNull()
+    expect((await h.svc.get(id))!.branch).toBe(`issue/${id}`)
     const remove = ops.find((o) => o.op === 'worktreeRemove')
     expect(remove?.args).toEqual({ path }) // NO force, ever
   })
@@ -5916,17 +5916,17 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
   it('REFUSES a dirty tree and reports it, rather than discarding the work', async () => {
     const h = await gcHarness({ mode: 'auto', afterDays: 14 })
     recordOps(h, '## issue/x\n M src/unsaved.ts')
-    const id = closedIssueWithCheckout(h, { title: 'Half-finished' })
+    const id = await closedIssueWithCheckout(h, { title: 'Half-finished' })
 
     const result = await h.svc.tryWorktreeGcObserved(
-      observationFor(h, id, 'auto'),
+      await observationFor(h, id, 'auto'),
       DUE,
       systemPrincipal('expiry'),
     )
 
     expect(result.outcome).toBe('refused')
     expect(result).toMatchObject({ reason: expect.stringContaining('unsaved.ts') })
-    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect((await h.svc.get(id))!.worktreePath).not.toBeNull()
     expect(
       (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })).length,
     ).toBe(1)
@@ -5940,15 +5940,15 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const sessions: SessionMeta[] = []
     const h = await gcHarness({ mode: 'auto', afterDays: 14 }, sessions)
     const ops = recordOps(h)
-    const id = closedIssueWithCheckout(h, { path: '/r/.worktrees/shared' })
-    const neighbour = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
+    const id = await closedIssueWithCheckout(h, { path: '/r/.worktrees/shared' })
+    const neighbour = await h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
     sessions.push({
       ...sess('/r/.worktrees/shared'),
       issueId: neighbour.id,
     } as unknown as SessionMeta)
 
     const result = await h.svc.tryWorktreeGcObserved(
-      observationFor(h, id, 'auto'),
+      await observationFor(h, id, 'auto'),
       DUE,
       systemPrincipal('expiry'),
     )
@@ -5962,9 +5962,9 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   it('a checkout freed between propose and apply is `precondition`, not an error', async () => {
     const h = await gcHarness({ mode: 'auto', afterDays: 14 })
-    const id = closedIssueWithCheckout(h)
-    const observed = observationFor(h, id, 'auto')
-    h.svc.update(id, { worktreePath: null })
+    const id = await closedIssueWithCheckout(h)
+    const observed = await observationFor(h, id, 'auto')
+    await h.svc.update(id, { worktreePath: null })
 
     expect(await h.svc.tryWorktreeGcObserved(observed, DUE, systemPrincipal('expiry'))).toEqual({
       outcome: 'precondition',
@@ -5976,46 +5976,46 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     // `auto` while settings say `propose` deletes ~97 directories the operator
     // asked only to be shown.
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    const id = closedIssueWithCheckout(h)
+    const id = await closedIssueWithCheckout(h)
 
     expect(
       await h.svc.tryWorktreeGcObserved(
-        observationFor(h, id, 'auto'),
+        await observationFor(h, id, 'auto'),
         DUE,
         systemPrincipal('expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
     expect(
       await h.svc.tryWorktreeGcObserved(
-        observationFor(h, id, 'propose', 30),
+        await observationFor(h, id, 'propose', 30),
         DUE,
         systemPrincipal('expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
-    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect((await h.svc.get(id))!.worktreePath).not.toBeNull()
   })
 
   it('refuses everything while the mode is `off`', async () => {
     const h = await gcHarness({ mode: 'off', afterDays: 14 })
-    const id = closedIssueWithCheckout(h)
+    const id = await closedIssueWithCheckout(h)
 
     expect(
       await h.svc.tryWorktreeGcObserved(
-        observationFor(h, id, 'auto'),
+        await observationFor(h, id, 'auto'),
         DUE,
         systemPrincipal('expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
-    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect((await h.svc.get(id))!.worktreePath).not.toBeNull()
   })
 
   it('says not-due until the close is older than the window', async () => {
     const h = await gcHarness({ mode: 'auto', afterDays: 14 })
-    const id = closedIssueWithCheckout(h)
+    const id = await closedIssueWithCheckout(h)
 
     expect(
       await h.svc.tryWorktreeGcObserved(
-        observationFor(h, id, 'auto'),
+        await observationFor(h, id, 'auto'),
         Date.parse(CLOSED_AT) + 5 * 24 * 3600_000,
         systemPrincipal('expiry'),
       ),
@@ -6025,11 +6025,11 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
   it('lists a SUB-ISSUE’s checkout — the archive sweep can never reach one', async () => {
     const sessions: SessionMeta[] = []
     const h = await gcHarness({ mode: 'propose', afterDays: 14 }, sessions)
-    const parent = h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = closedIssueWithCheckout(h, { title: 'Sub', parentId: parent.id })
-    const open = h.svc.create({ repoPath: '/r', title: 'Still going', startNow: false })
-    h.svc.update(open.id, { worktreePath: '/r/.worktrees/open', branch: 'issue/open' })
-    const busy = closedIssueWithCheckout(h, { title: 'Occupied', path: '/r/.worktrees/busy' })
+    const parent = await h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = await closedIssueWithCheckout(h, { title: 'Sub', parentId: parent.id })
+    const open = await h.svc.create({ repoPath: '/r', title: 'Still going', startNow: false })
+    await h.svc.update(open.id, { worktreePath: '/r/.worktrees/open', branch: 'issue/open' })
+    const busy = await closedIssueWithCheckout(h, { title: 'Occupied', path: '/r/.worktrees/busy' })
     sessions.push(sess('/r/.worktrees/busy'))
 
     const reclaimable = await h.svc.listReclaimableWorktrees(DUE)
@@ -6042,7 +6042,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
   it('reports a git worktree that no issue row claims as an orphan', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
     await h.store.repos.addRepo('/r', h.store.hostMachineId)
-    const claimed = closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
+    const claimed = await closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
     h.deps.repoOp = vi.fn(async (op) =>
       op === 'worktreeList'
         ? {
@@ -6078,8 +6078,8 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   it('releases the whole reclaimable list on one click, reporting what refused', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    const clean = closedIssueWithCheckout(h, { title: 'Clean', path: '/r/.worktrees/clean' })
-    const dirty = closedIssueWithCheckout(h, { title: 'Dirty', path: '/r/.worktrees/dirty' })
+    const clean = await closedIssueWithCheckout(h, { title: 'Clean', path: '/r/.worktrees/clean' })
+    const dirty = await closedIssueWithCheckout(h, { title: 'Dirty', path: '/r/.worktrees/dirty' })
     recordOps(h, (cwd) =>
       cwd === '/r/.worktrees/dirty' ? '## issue/d\n M src/unsaved.ts' : '## issue/c\n',
     )
@@ -6088,9 +6088,9 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
     expect(result.freed).toEqual([clean])
     expect(result.refused.map((r) => r.issueId)).toEqual([dirty])
-    expect(h.svc.get(clean)!.worktreePath).toBeNull()
-    expect(h.svc.get(dirty)!.worktreePath).toBe('/r/.worktrees/dirty')
+    expect((await h.svc.get(clean))!.worktreePath).toBeNull()
+    expect((await h.svc.get(dirty))!.worktreePath).toBe('/r/.worktrees/dirty')
     // Reversible on both sides: nothing lost the branch.
-    expect(h.svc.get(clean)!.branch).toBe(`issue/${clean}`)
+    expect((await h.svc.get(clean))!.branch).toBe(`issue/${clean}`)
   })
 })

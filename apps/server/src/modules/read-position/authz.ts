@@ -60,7 +60,7 @@ export function readPositionAuthzFailure(
 }
 
 /** Resolve principal + live role from a tRPC context (never from payload). */
-export function readPositionAuthzDeps(ctx: Context): ReadPositionAuthzDeps {
+export async function readPositionAuthzDeps(ctx: Context): Promise<ReadPositionAuthzDeps> {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
@@ -72,7 +72,7 @@ export function readPositionAuthzDeps(ctx: Context): ReadPositionAuthzDeps {
   const user = onBehalfOfUser(principal)
   return {
     principal,
-    role: user === null ? undefined : ctx.registry.sessionStore.users.roleOf(user),
+    role: user === null ? undefined : await ctx.registry.sessionStore.users.roleOf(user),
   }
 }
 

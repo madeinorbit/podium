@@ -53,7 +53,7 @@ async function makeRig(
   })
   await store.repos.addRepo(SOURCE, asMachineId('src'))
   await store.repos.addRepo(TARGET, asMachineId('tgt'))
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const calls: OpCall[] = []
   const rpc = {
     repoOp: (op: string, cwd: string, args: Record<string, string> = {}, machineId?: string) => {
@@ -104,8 +104,8 @@ afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true })
 })
 
-const call = (reg: SessionRegistry, ref = REF) =>
-  reg.modules.sessions.workspace.ensureRefOnMachine({
+const call = async (reg: SessionRegistry, ref = REF) =>
+  await reg.modules.sessions.workspace.ensureRefOnMachine({
     sourceRepoPath: SOURCE,
     targetRepoPath: TARGET,
     targetMachineId: asMachineId('tgt'),

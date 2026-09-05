@@ -74,8 +74,8 @@ describe('machine presence (live server, real daemon socket)', () => {
     else process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
-  const listing = () => {
-    const rows = server.registry.modules.machines.listMachines()
+  const listing = async () => {
+    const rows = await server.registry.modules.machines.listMachines()
     const row = rows[0]
     if (rows.length !== 1 || row === undefined)
       throw new Error(`expected exactly one machine row, got ${rows.length}`)
@@ -85,16 +85,16 @@ describe('machine presence (live server, real daemon socket)', () => {
   it('flips the machine ONLINE while a daemon is attached, and back OFFLINE when it goes', async () => {
     // Boot writes the host row (`ensureHostMachine`) before any daemon exists —
     // the row's mere presence, and its `lastSeenAt`, prove nothing about reach.
-    expect(listing().online).toBe(false)
-    const beforeConnect = listing().lastSeenAt
+    expect((await listing()).online).toBe(false)
+    const beforeConnect = (await listing()).lastSeenAt
 
     const ws = await connectDaemon(server.port, stateDir)
-    expect(listing().online).toBe(true)
+    expect((await listing()).online).toBe(true)
 
     // The handshake DID reach the presence writer. Asserted as an advance past a
     // captured value, so a `touchMachine` that stopped being called cannot pass
     // on the boot-time timestamp still sitting in the column.
-    const afterConnect = listing().lastSeenAt
+    const afterConnect = (await listing()).lastSeenAt
     expect(new Date(afterConnect).getTime()).toBeGreaterThan(new Date(beforeConnect).getTime())
 
     await new Promise<void>((resolve) => {
@@ -104,14 +104,14 @@ describe('machine presence (live server, real daemon socket)', () => {
     // Detach is observed through the same field the UI reads, so a socket that
     // closes without evicting its registration is caught here rather than as a
     // machine that stays permanently, wrongly online.
-    await expect.poll(() => listing().online).toBe(false)
+    await expect.poll(async () => (await listing()).online).toBe(false)
 
     // A SECOND handshake must advance it AGAIN: the reported symptom was a value
     // written once at connect and never after, which a single-connect assertion
     // would happily accept.
     const ws2 = await connectDaemon(server.port, stateDir)
-    expect(listing().online).toBe(true)
-    expect(new Date(listing().lastSeenAt).getTime()).toBeGreaterThan(
+    expect((await listing()).online).toBe(true)
+    expect(new Date((await listing()).lastSeenAt).getTime()).toBeGreaterThan(
       new Date(afterConnect).getTime(),
     )
     ws2.close()
@@ -133,16 +133,16 @@ describe('machine presence (live server, real daemon socket)', () => {
     // connection occurrence. Rewriting it on a timer would re-fire connect-scan
     // every interval and fail that revalidation.
     const ws = await connectDaemon(server.port, stateDir)
-    expect(listing().online).toBe(true)
-    const atConnect = listing().lastSeenAt
+    expect((await listing()).online).toBe(true)
+    const atConnect = (await listing()).lastSeenAt
 
     // Two full sweeps: a live socket must be ponged, not reaped.
     await new Promise((resolve) => setTimeout(resolve, 22_000))
 
-    expect(listing().online).toBe(true)
-    expect(listing().lastSeenAt).toBe(atConnect)
+    expect((await listing()).online).toBe(true)
+    expect((await listing()).lastSeenAt).toBe(atConnect)
 
     ws.close()
-    await expect.poll(() => listing().online).toBe(false)
+    await expect.poll(async () => (await listing()).online).toBe(false)
   }, 60_000)
 })

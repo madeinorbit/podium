@@ -59,8 +59,8 @@ function feed(maxBytes = 10_000): FeedPublisher {
   let held: FeedIdentity | null = null
   let index = 0
   const store: FeedIdentityStore = {
-    readIdentity: () => held,
-    writeIdentity: (identity) => {
+    readIdentity: async () => held,
+    writeIdentity: async (identity) => {
       held = identity
     },
   }
@@ -122,7 +122,7 @@ const seen = (frames: readonly ServerFrame[]) => ({
 })
 
 describe('three connections, three principals, three DIFFERENT slices', () => {
-  it('each principal receives its own rows — and a WATERMARK over what was suppressed', () => {
+  it('each principal receives its own rows — and a WATERMARK over what was suppressed', async () => {
     // The fixture the deleted tripwire used, with the outcome inverted. The
     // authority evaluated seqs 1..3 for each principal; each sees one row and has
     // the other two certified as "evaluated, nothing for you".
@@ -131,16 +131,16 @@ describe('three connections, three principals, three DIFFERENT slices', () => {
     const grace = publisher.connect('grace-1', 0, GRACE)
     const agent = publisher.connect('agent-1', 0, AGENT)
 
-    publisher.publish(ADA, batch(3, [change(1, 'a')]))
-    publisher.publish(GRACE, batch(3, [change(2, 'b')]))
-    publisher.publish(AGENT, batch(3, [change(3, 'c')]))
+    await publisher.publish(ADA, batch(3, [change(1, 'a')]))
+    await publisher.publish(GRACE, batch(3, [change(2, 'b')]))
+    await publisher.publish(AGENT, batch(3, [change(3, 'c')]))
 
-    expect(seen(ada.drain()).ids).toEqual(['a'])
-    expect(seen(grace.drain()).ids).toEqual(['b'])
-    expect(seen(agent.drain()).ids).toEqual(['c'])
+    expect(seen(await ada.drain()).ids).toEqual(['a'])
+    expect(seen(await grace.drain()).ids).toEqual(['b'])
+    expect(seen(await agent.drain()).ids).toEqual(['c'])
   })
 
-  it('a principal for whom EVERYTHING was suppressed still advances to the head', () => {
+  it('a principal for whom EVERYTHING was suppressed still advances to the head', async () => {
     // THE case this issue exists for. Ada sees nothing in (0, 5] and must still
     // end up at 5: her next frame will certify (5, …], her replica's
     // `fromSeq === cursor` holds, and there is no heal. An implementation that
@@ -149,46 +149,46 @@ describe('three connections, three principals, three DIFFERENT slices', () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(ADA, batch(5, []))
-    const first = seen(ada.drain())
+    await publisher.publish(ADA, batch(5, []))
+    const first = seen(await ada.drain())
     expect(first.ids).toEqual([])
     expect(first.ranges).toEqual([[0, 5]])
 
-    publisher.publish(ADA, batch(7, [change(7, 'later')]))
-    const second = seen(ada.drain())
+    await publisher.publish(ADA, batch(7, [change(7, 'later')]))
+    const second = seen(await ada.drain())
     expect(second.ids).toEqual(['later'])
     // Contiguous with the watermark, NOT with 0. This is the assertion that fails
     // if the watermark had left the position behind.
     expect(second.ranges).toEqual([[5, 7]])
   })
 
-  it("one principal's delivery reaches NO other principal's connection", () => {
+  it("one principal's delivery reaches NO other principal's connection", async () => {
     // The refusing arm, and it depends on no environmental fact: two connections
     // exist in the same publisher and one publish names one of them.
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
     const grace = publisher.connect('grace-1', 0, GRACE)
 
-    publisher.publish(ADA, batch(4, [change(4, 'ada-private')]))
+    await publisher.publish(ADA, batch(4, [change(4, 'ada-private')]))
 
-    expect(seen(ada.drain()).ids).toEqual(['ada-private'])
+    expect(seen(await ada.drain()).ids).toEqual(['ada-private'])
     // Grace gets nothing at all — not even an empty frame — because nothing was
     // evaluated FOR her yet. Her position is untouched, so the watermark she is
     // owed can still certify (0, …] when her own evaluation arrives.
-    expect(grace.drain()).toEqual([])
+    expect(await grace.drain()).toEqual([])
   })
 
-  it('two connections of the SAME principal both receive its slice', () => {
+  it('two connections of the SAME principal both receive its slice', async () => {
     // Two devices, one person. Scoping is per principal and not per socket, and a
     // publisher that keyed by connection id would drop the second device silently.
     const publisher = feed()
     const phone = publisher.connect('phone', 0, ADA)
     const laptop = publisher.connect('laptop', 0, ADA)
 
-    publisher.publish(ADA, batch(2, [change(2, 'shared')]))
+    await publisher.publish(ADA, batch(2, [change(2, 'shared')]))
 
-    expect(seen(phone.drain()).ids).toEqual(['shared'])
-    expect(seen(laptop.drain()).ids).toEqual(['shared'])
+    expect(seen(await phone.drain()).ids).toEqual(['shared'])
+    expect(seen(await laptop.drain()).ids).toEqual(['shared'])
   })
 })
 
@@ -230,19 +230,19 @@ describe('the seam SHAPE — a scoped feed is representable, and a filter here i
 })
 
 describe('watermarks are free — D13.2 coalescing and D13.4 no-demotion', () => {
-  it('a RUN of watermarks collapses to ONE frame covering the whole range', () => {
+  it('a RUN of watermarks collapses to ONE frame covering the whole range', async () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(ADA, batch(2, []))
-    publisher.publish(ADA, batch(5, []))
-    publisher.publish(ADA, batch(9, []))
+    await publisher.publish(ADA, batch(2, []))
+    await publisher.publish(ADA, batch(5, []))
+    await publisher.publish(ADA, batch(9, []))
 
     // One frame, (0, 9] — range extension only, never a reorder and never a drop.
-    expect(seen(ada.drain()).ranges).toEqual([[0, 9]])
+    expect(seen(await ada.drain()).ranges).toEqual([[0, 9]])
   })
 
-  it('a following frame with real changes ABSORBS the pending watermark', () => {
+  it('a following frame with real changes ABSORBS the pending watermark', async () => {
     // D13.2's concatenation clause: (0,4] with nothing and (4,6] with a row merge
     // into (0,6] with that row. The alternative — deliver the watermark and then
     // the frame — is also legal, so this case asserts the ORDER-SAFE outcome
@@ -251,10 +251,10 @@ describe('watermarks are free — D13.2 coalescing and D13.4 no-demotion', () =>
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(ADA, batch(4, []))
-    publisher.publish(ADA, batch(6, [change(6, 'visible')]))
+    await publisher.publish(ADA, batch(4, []))
+    await publisher.publish(ADA, batch(6, [change(6, 'visible')]))
 
-    const frames = seen(ada.drain())
+    const frames = seen(await ada.drain())
     expect(frames.ids).toEqual(['visible'])
     expect(frames.ranges[0]?.[0]).toBe(0)
     expect(frames.ranges[frames.ranges.length - 1]?.[1]).toBe(6)
@@ -265,62 +265,62 @@ describe('watermarks are free — D13.2 coalescing and D13.4 no-demotion', () =>
     }
   })
 
-  it('a SUPPRESSED FIREHOSE cannot demote a replica (D13.4)', () => {
+  it('a SUPPRESSED FIREHOSE cannot demote a replica (D13.4)', async () => {
     // A replica must never be forced to re-bootstrap because of activity it is not
     // allowed to observe. The bound here is ONE frame, so an implementation that
     // queued watermarks would demote on the second one.
     const publisher = feed(1)
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    for (let seq = 1; seq <= 500; seq += 1) publisher.publish(ADA, batch(seq, []))
+    for (let seq = 1; seq <= 500; seq += 1) await publisher.publish(ADA, batch(seq, []))
 
     expect(ada.isDemoted()).toBe(false)
     expect(ada.queuedBytes()).toBe(0)
-    expect(seen(ada.drain()).ranges).toEqual([[0, 500]])
+    expect(seen(await ada.drain()).ranges).toEqual([[0, 500]])
   })
 
-  it('but a VISIBLE firehose still demotes — the paired half', () => {
+  it('but a VISIBLE firehose still demotes — the paired half', async () => {
     // Without this, "watermarks do not demote" is equally consistent with a queue
     // that never demotes anyone, which would delete D9 by accident.
     const publisher = feed(1)
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(ADA, batch(1, [change(1, 'a')]))
-    publisher.publish(ADA, batch(2, [change(2, 'b')]))
+    await publisher.publish(ADA, batch(1, [change(1, 'a')]))
+    await publisher.publish(ADA, batch(2, [change(2, 'b')]))
 
     expect(ada.isDemoted()).toBe(true)
-    expect(ada.drain().map((f) => f.kind)).toEqual(['resync-required'])
+    expect((await ada.drain()).map((f) => f.kind)).toEqual(['resync-required'])
   })
 
-  it('a watermark held across a demotion is DROPPED, not replayed after re-arm', () => {
+  it('a watermark held across a demotion is DROPPED, not replayed after re-arm', async () => {
     // It certifies a range against a position that no longer exists. Delivering it
     // after a re-bootstrap would hand the replica a lower bound below its new
     // cursor — a frame it must reject, arriving on the recovery path.
     const publisher = feed(1)
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(ADA, batch(3, []))
-    publisher.publish(ADA, batch(4, [change(4, 'a')]))
-    publisher.publish(ADA, batch(5, [change(5, 'b')]))
+    await publisher.publish(ADA, batch(3, []))
+    await publisher.publish(ADA, batch(4, [change(4, 'a')]))
+    await publisher.publish(ADA, batch(5, [change(5, 'b')]))
     expect(ada.isDemoted()).toBe(true)
-    ada.drain()
+    await ada.drain()
 
     ada.rearm(20)
-    publisher.publish(ADA, batch(21, [change(21, 'after')]))
-    expect(seen(ada.drain()).ranges).toEqual([[20, 21]])
+    await publisher.publish(ADA, batch(21, [change(21, 'after')]))
+    expect(seen(await ada.drain()).ranges).toEqual([[20, 21]])
   })
 })
 
 describe('rescope — D14.4, and it is NOT resync-required', () => {
-  it('the rescope arm sends a `rescope` frame and invalidates the position', () => {
+  it('the rescope arm sends a `rescope` frame and invalidates the position', async () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
-    publisher.publish(ADA, batch(2, [change(2, 'a')]))
-    ada.drain()
+    await publisher.publish(ADA, batch(2, [change(2, 'a')]))
+    await ada.drain()
 
-    publisher.publish(ADA, { kind: 'rescope', throughSeq: 3, reason: 'visibility-change:big' })
+    await publisher.publish(ADA, { kind: 'rescope', throughSeq: 3, reason: 'visibility-change:big' })
 
-    const [frame] = ada.drain()
+    const [frame] = await ada.drain()
     // The KIND is the assertion. D14.4 requires the two to be distinguishable in
     // telemetry: `resync-required` means the authority shed load, `rescope` means
     // the principal's rights changed, and a re-bootstrap storm after a policy
@@ -330,39 +330,39 @@ describe('rescope — D14.4, and it is NOT resync-required', () => {
     expect(ada.isDemoted()).toBe(true)
   })
 
-  it('a rescope for one principal leaves another principal untouched', () => {
+  it('a rescope for one principal leaves another principal untouched', async () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
     const grace = publisher.connect('grace-1', 0, GRACE)
 
-    publisher.publish(ADA, { kind: 'rescope', throughSeq: 1, reason: 'rights-changed' })
+    await publisher.publish(ADA, { kind: 'rescope', throughSeq: 1, reason: 'rights-changed' })
 
     expect(ada.isDemoted()).toBe(true)
     expect(grace.isDemoted()).toBe(false)
-    expect(grace.drain()).toEqual([])
+    expect(await grace.drain()).toEqual([])
   })
 
-  it('after a rescope the connection receives no deltas until it re-arms', () => {
+  it('after a rescope the connection receives no deltas until it re-arms', async () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
-    publisher.publish(ADA, { kind: 'rescope', throughSeq: 1, reason: 'rights-changed' })
-    ada.drain()
+    await publisher.publish(ADA, { kind: 'rescope', throughSeq: 1, reason: 'rights-changed' })
+    await ada.drain()
 
-    publisher.publish(ADA, batch(4, [change(4, 'a')]))
-    expect(ada.drain()).toEqual([])
+    await publisher.publish(ADA, batch(4, [change(4, 'a')]))
+    expect(await ada.drain()).toEqual([])
 
     ada.rearm(4)
-    publisher.publish(ADA, batch(6, [change(6, 'b')]))
-    expect(seen(ada.drain()).ranges).toEqual([[4, 6]])
+    await publisher.publish(ADA, batch(6, [change(6, 'b')]))
+    expect(seen(await ada.drain()).ranges).toEqual([[4, 6]])
   })
 })
 
 describe('evict rides the ordinary frame (D14.1)', () => {
-  it('an evict is delivered as a change with NO payload, beside ordinary rows', () => {
+  it('an evict is delivered as a change with NO payload, beside ordinary rows', async () => {
     const publisher = feed()
     const ada = publisher.connect('ada-1', 0, ADA)
 
-    publisher.publish(
+    await publisher.publish(
       ADA,
       batch(6, [
         change(5, 'still-mine'),
@@ -370,7 +370,7 @@ describe('evict rides the ordinary frame (D14.1)', () => {
       ]),
     )
 
-    const [frame] = deltas(ada.drain())
+    const [frame] = deltas(await ada.drain())
     expect(frame?.changes.map((c) => [c.entityId, c.op])).toEqual([
       ['still-mine', 'upsert'],
       ['unshared', 'evict'],
@@ -398,30 +398,30 @@ describe('two agents of ONE identity under DIFFERENT delegations are different a
   const NARROW = testAgent('agent-7', 'ada', 'del-narrow')
   const BROAD = testAgent('agent-7', 'ada', 'del-broad')
 
-  it('delivers an evaluated slice ONLY to the delegation it was evaluated for', () => {
+  it('delivers an evaluated slice ONLY to the delegation it was evaluated for', async () => {
     const publisher = feed()
     const narrow = publisher.connect('narrow-1', 0, NARROW)
     const broad = publisher.connect('broad-1', 0, BROAD)
 
     // Evaluated for BROAD. NARROW must not see the row, and must not have its
     // cursor moved by a range it was never evaluated against.
-    publisher.publish(BROAD, batch(1, [change(1, 's2')]))
+    await publisher.publish(BROAD, batch(1, [change(1, 's2')]))
 
-    expect(rowsOf(broad.drain())).toEqual([{ seq: 1, entityId: 's2' }])
-    expect(broad.drain()).toEqual([])
-    expect(narrow.drain()).toEqual([])
+    expect(rowsOf(await broad.drain())).toEqual([{ seq: 1, entityId: 's2' }])
+    expect(await broad.drain()).toEqual([])
+    expect(await narrow.drain()).toEqual([])
   })
 
-  it('still treats two connections of the SAME delegation as one audience', () => {
+  it('still treats two connections of the SAME delegation as one audience', async () => {
     // The complement: without this, "separate them" could be satisfied by
     // separating every connection, which would break D9.4's two-tabs rule.
     const publisher = feed()
     const tab1 = publisher.connect('tab-1', 0, BROAD)
     const tab2 = publisher.connect('tab-2', 0, BROAD)
 
-    publisher.publish(BROAD, batch(1, [change(1, 's2')]))
+    await publisher.publish(BROAD, batch(1, [change(1, 's2')]))
 
-    expect(rowsOf(tab1.drain())).toEqual([{ seq: 1, entityId: 's2' }])
-    expect(rowsOf(tab2.drain())).toEqual([{ seq: 1, entityId: 's2' }])
+    expect(rowsOf(await tab1.drain())).toEqual([{ seq: 1, entityId: 's2' }])
+    expect(rowsOf(await tab2.drain())).toEqual([{ seq: 1, entityId: 's2' }])
   })
 })

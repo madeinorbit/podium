@@ -53,11 +53,11 @@ export interface LaunchModelDefaults {
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
-  modelDefaults(
+  async modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
-  ): LaunchModelDefaults {
-    const settings = this.ports.store.settings.getSettingsFor(this.ports.settingsViewer())
+  ): Promise<LaunchModelDefaults> {
+    const settings = await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer())
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
     const explicitModel = override?.model
@@ -94,7 +94,7 @@ export class SessionLaunchConfig {
    * Native accounts yield {} — the CLI uses its own login and the frame is
    * unchanged.
    */
-  accountEnv(
+  async accountEnv(
     agentKind: AgentKind,
     // KEPT AS A DEFAULT PARAMETER, not rewritten to an `=== undefined` check
     // inside the body. A default parameter is evaluated at CALL time, before the
@@ -107,8 +107,8 @@ export class SessionLaunchConfig {
       this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
       'coding',
     ).accountId,
-  ): { env?: Record<string, string> } {
+  ): Promise<{ env?: Record<string, string> }> {
     if (agentKind === 'shell') return {}
-    return resolveAccountEnv(this.ports.store.accounts, accountId)
+    return await resolveAccountEnv(this.ports.store.accounts, accountId)
   }
 }

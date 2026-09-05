@@ -244,8 +244,8 @@ export interface MailHarness {
 // which is why this now names the home POD-333 gave it.
 export { OPERATOR } from '../../test-support/capabilities'
 
-export function mailHarness(opts?: HarnessOptions): MailHarness {
-  const store = openTestStore(':memory:')
+export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
+  const store = await openTestStore(':memory:')
   const sessions: SessionMeta[] = []
   const pushes: Push[] = []
   const wakeSpawns: Record<string, unknown>[] = []

@@ -521,16 +521,16 @@ describe('the derived fleet router actually calls the gate', () => {
       tokenHash: 'h1',
       ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
     })
-    const registry = SessionRegistry.create(store, undefined, {
+    const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
       // Ownership transfer commits to the ledger, so the wiring arm needs a real
       // one. Every other command here is indifferent to it.
       ...(opts.stateDir ? { enrollment: openEnrollmentLedger(opts.stateDir) } : {}),
     })
-    registry.modules.machines.ensureHostMachine('machine-under-test')
+    await registry.modules.machines.ensureHostMachine('machine-under-test')
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {
       store,
       // Exposed so a test can read the LEDGER (`effectiveOwner`) and not only
@@ -672,7 +672,7 @@ describe('the derived fleet router actually calls the gate', () => {
       // The projection moved…
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
       // …and the LEDGER — the commit point — is what it moved from.
-      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
+      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
       expect(after.map((m) => m.id)).toContain('m1')
 
       // ADOPTION IS NOT REPEATABLE, and the shape of the second refusal is the
@@ -731,14 +731,14 @@ describe('the derived fleet router actually calls the gate', () => {
         },
         'hash',
       )
-      registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, {
+      await registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, {
         skipRowUpdate: true,
       })
 
       // The two genuinely disagree. Assert BOTH, or the test proves nothing
       // about which one was read.
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
+      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
 
       // REFUSED, and the shape says which layer refused. Because ownership is
       // ledger-derived all the way up, the admin does not hold `see` on a
@@ -753,7 +753,7 @@ describe('the derived fleet router actually calls the gate', () => {
       // Nothing was written: not the row, and — the one that counts — not the
       // ledger, which still records the colleague and only the colleague.
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
+      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -842,7 +842,7 @@ describe('the derived fleet router actually calls the gate', () => {
 describe('a paired machine belongs to whoever minted its code', () => {
   async function service() {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, {
+    const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
     })
@@ -861,7 +861,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
     const { store, machines } = await service()
     const code = machines.mintPairingCode({ ownerUserId: FIRST_ADMIN_USER_ID })
 
-    expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
+    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
     expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
   })
 
@@ -869,7 +869,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
     const { store, machines } = await service()
     const code = machines.mintPairingCode({})
 
-    expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
+    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
     expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBeNull()
     // Unowned is the fail-CLOSED arm for use/manage: not ambient team compute.
     // Admins hold `see` (D19.4b quarantine) so rename is FORBIDDEN rather than

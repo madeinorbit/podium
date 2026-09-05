@@ -103,7 +103,7 @@ export async function acquireLock(
 
     await session.execute(
       statement(
-        db
+        (await db
           .insert(locks)
           .values({
             repoId: request.repoId,
@@ -114,7 +114,7 @@ export async function acquireLock(
             note: null,
             acquiredAt: request.acquiredAt,
             expiresAt: request.expiresAt,
-          })
+          }))
           .onConflictDoUpdate({
             target: [locks.repoId, locks.name],
             set: {

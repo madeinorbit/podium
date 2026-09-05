@@ -126,7 +126,7 @@ describe('attachment staging', () => {
   it('returns not_running before sending bytes when no machine owns the session', async () => {
     const { gateway, staged } = makeGateway({ machineOf: () => undefined })
     await expect(
-      gateway.stageAttachment({
+      await gateway.stageAttachment({
         sessionId: SESSION,
         source: { bytes: new Uint8Array([1]), filename: 'x.png', mediaType: 'image/png' },
       }),
@@ -191,7 +191,7 @@ describe('send', () => {
     })
     expect(forwarded[0]?.attachments).toEqual([attachment])
     await expect(
-      gateway.send({
+      await gateway.send({
         sessionId: SESSION,
         text: 'later',
         origin: 'human',
@@ -272,7 +272,7 @@ describe('the acting principal', () => {
 })
 
 describe('the event sink', () => {
-  it('fans out to subscribers and lets them leave', () => {
+  it('fans out to subscribers and lets them leave', async () => {
     const { gateway } = makeGateway()
     const seen: string[] = []
     const stop = gateway.onEvent((_sessionId, event) => seen.push(event.t))
@@ -285,19 +285,19 @@ describe('the event sink', () => {
       observerGeneration: 1,
       turnEpoch: 1,
     }
-    gateway.record(MACHINE, { sessionId: SESSION, event })
+    await gateway.record(MACHINE, { sessionId: SESSION, event })
     stop()
-    gateway.record(MACHINE, { sessionId: SESSION, event })
+    await gateway.record(MACHINE, { sessionId: SESSION, event })
     // A consumer that went away must not keep receiving into the next one's
     // fan-out.
     expect(seen).toEqual(['state'])
-    expect(gateway.recentEvents(SESSION)).toHaveLength(2)
+    expect(await gateway.recentEvents(SESSION)).toHaveLength(2)
   })
 
-  it('reads the bounded diagnostic window from the durable event port', () => {
+  it('reads the bounded diagnostic window from the durable event port', async () => {
     const { gateway } = makeGateway()
     for (let i = 0; i < 200; i++) {
-      gateway.record(MACHINE, {
+      await gateway.record(MACHINE, {
         sessionId: SESSION,
         event: {
           t: 'state',
@@ -312,8 +312,8 @@ describe('the event sink', () => {
     }
     // The gateway owns no memory tail; this window is supplied by the durable
     // repository port and remains available to a replacement gateway process.
-    expect(gateway.recentEvents(SESSION)).toHaveLength(64)
-    expect(gateway.recentEvents(SESSION).at(-1)?.cursor.components.seq).toBe(199)
+    expect(await gateway.recentEvents(SESSION)).toHaveLength(64)
+    expect((await gateway.recentEvents(SESSION)).at(-1)?.cursor.components.seq).toBe(199)
   })
 
   it('declares fine delivery wired, and names the policy rather than a promise', () => {

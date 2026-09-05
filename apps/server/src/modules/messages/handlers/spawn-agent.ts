@@ -51,12 +51,12 @@ export async function spawnAgentHandler(
     // The rule lives in the contract; this is the site that obeys it.
     const scopeIssue =
       caller.capability.scope.kind === 'subtree'
-        ? issues.getMeta(caller.capability.scope.rootId ?? '')
+        ? await issues.getMeta(caller.capability.scope.rootId ?? '')
         : null
     const repoPath = input.repo ?? scopeIssue?.repoPath
     if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
     const inheritedOwner = scopeIssue
-      ? (issues.ownedTarget(scopeIssue.id, 'read')?.owner ?? callerOwner)
+      ? ((await issues.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
       : callerOwner
     issueId = deps.createIssue({
       ownerUserId: inheritedOwner,
@@ -71,7 +71,7 @@ export async function spawnAgentHandler(
   } else {
     throw new Error('pass --issue <ref> or --new "title"')
   }
-  const issue = issues.getMeta(issueId)
+  const issue = await issues.getMeta(issueId)
   if (!issue) throw new Error(`unknown issue ${issueId}`)
   // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
   // the same per-issue daily budget as the spawn-on-wake seam, or a looping
@@ -79,7 +79,7 @@ export async function spawnAgentHandler(
   // full PTY sessions. Human intent is never braked (contract: the exemption
   // attaches to a human principal, not to an admin grade).
   const budgeted = caller.capability.scope.kind !== 'all'
-  if (budgeted && !deps.messages.takeSpawnBudget(asIssueId(issueId)).ok) {
+  if (budgeted && !(await deps.messages.takeSpawnBudget(asIssueId(issueId))).ok) {
     try {
       deps.appendEvent?.({
         ts: deps.now?.() ?? new Date().toISOString(),
@@ -181,7 +181,7 @@ export async function spawnAgentHandler(
   // persisted snapshot from the previous connection. The wait stays below the
   // relay deadline; on expiry SessionStart returns the honest probing refusal.
   if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
-  const sessionOwner = issues.ownedTarget(issue.id, 'read')?.owner ?? callerOwner
+  const sessionOwner = (await issues.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
   const spawned = deps.spawnSession({
     ownerUserId: sessionOwner,
     cwd,

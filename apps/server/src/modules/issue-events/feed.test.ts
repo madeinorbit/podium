@@ -38,9 +38,9 @@ const event = (over: Partial<{ kind: string; subject: string }> = {}) => ({
 })
 
 describe('IssueEventFeedPublisher', () => {
-  it('publishes a curated event as an upsert keyed on the composite row id', () => {
+  it('publishes a curated event as an upsert keyed on the composite row id', async () => {
     const { captures, publisher } = harness()
-    publisher.publish(9, event())
+    await publisher.publish(9, event())
     expect(captures).toHaveLength(1)
     expect(captures[0]).toEqual([
       {
@@ -60,24 +60,24 @@ describe('IssueEventFeedPublisher', () => {
     ])
   })
 
-  it('ignores an event kind the feed does not carry', () => {
+  it('ignores an event kind the feed does not carry', async () => {
     const { captures, publisher } = harness()
-    publisher.publish(1, event({ kind: 'issue.mailSent' }))
-    publisher.publish(2, event({ kind: 'session.exited' }))
+    await publisher.publish(1, event({ kind: 'issue.mailSent' }))
+    await publisher.publish(2, event({ kind: 'session.exited' }))
     expect(captures).toEqual([])
   })
 
-  it('ignores a subjectless event, which has no issue to be scoped by', () => {
+  it('ignores a subjectless event, which has no issue to be scoped by', async () => {
     const { captures, publisher } = harness()
-    publisher.publish(1, event({ subject: '' }))
+    await publisher.publish(1, event({ subject: '' }))
     expect(captures).toEqual([])
   })
 
-  it('evicts by removal in the SAME capture as the arrival that overflowed it', () => {
+  it('evicts by removal in the SAME capture as the arrival that overflowed it', async () => {
     const { captures, publisher } = harness(2)
-    publisher.publish(1, event())
-    publisher.publish(2, event())
-    publisher.publish(3, event())
+    await publisher.publish(1, event())
+    await publisher.publish(2, event())
+    await publisher.publish(3, event())
     expect(captures).toHaveLength(3)
     // The third arrival carries the first row's eviction with it.
     expect(captures[2]).toEqual([
@@ -86,9 +86,9 @@ describe('IssueEventFeedPublisher', () => {
     ])
   })
 
-  it('keeps the window bounded across many events', () => {
+  it('keeps the window bounded across many events', async () => {
     const { publisher } = harness(3)
-    for (let id = 1; id <= 20; id++) publisher.publish(id, event())
+    for (let id = 1; id <= 20; id++) await publisher.publish(id, event())
     expect(publisher.subjectsFor(asIssueId('POD-13'))).toEqual([
       { entity: 'issueEvent', entityId: issueEventRowId(18, 'POD-13') },
       { entity: 'issueEvent', entityId: issueEventRowId(19, 'POD-13') },
@@ -96,18 +96,18 @@ describe('IssueEventFeedPublisher', () => {
     ])
   })
 
-  it('answers the rescope anchor per subject, not for the whole window', () => {
+  it('answers the rescope anchor per subject, not for the whole window', async () => {
     const { publisher } = harness()
-    publisher.publish(1, event({ subject: 'POD-13' }))
-    publisher.publish(2, event({ subject: 'POD-14' }))
-    publisher.publish(3, event({ subject: 'POD-13' }))
+    await publisher.publish(1, event({ subject: 'POD-13' }))
+    await publisher.publish(2, event({ subject: 'POD-14' }))
+    await publisher.publish(3, event({ subject: 'POD-13' }))
     expect(publisher.subjectsFor(asIssueId('POD-14'))).toEqual([
       { entity: 'issueEvent', entityId: issueEventRowId(2, 'POD-14') },
     ])
     expect(publisher.subjectsFor(asIssueId('POD-99'))).toEqual([])
   })
 
-  it('resumes its window from what the Authority already holds', () => {
+  it('resumes its window from what the Authority already holds', async () => {
     const captures: EntityChangeSpec[][] = []
     const row = (eventId: number): IssueEventWire => ({
       id: issueEventRowId(eventId, 'POD-13'),
@@ -130,7 +130,7 @@ describe('IssueEventFeedPublisher', () => {
       seed: () => [row(5), row(4)],
       windowSize: 2,
     })
-    publisher.publish(6, event())
+    await publisher.publish(6, event())
     // Seeded with 4 and 5, so the arrival of 6 evicts 4 — not 5.
     expect(captures[0]?.[1]).toEqual({
       entity: 'issueEvent',

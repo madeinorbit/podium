@@ -2394,13 +2394,13 @@ export function createUpdateFleetBridge(deps: {
    * list and nothing for an operation whose exact target is still published, so
    * an unrelated row is never written.
    */
-  const restateStaleDeferredPromises = (): void => {
+  const restateStaleDeferredPromises = async (): Promise<void> => {
     for (const row of deps.engine.history(UPDATE_OPERATION_KIND)) {
       if (!row.operation) continue
       const details = updateOperationDetails(row.operation)
       if (!details) continue
       const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
-      if (restated) void deps.engine.recordDeferred(row.id, restated)
+      if (restated) void await deps.engine.recordDeferred(row.id, restated)
     }
   }
 
@@ -2416,13 +2416,13 @@ export function createUpdateFleetBridge(deps: {
      * nothing is granted, no step is entered, and a finished operation stays
      * finished (see {@link OperationEngine.recordDeferred}).
      */
-    onTargetChanged: () => {
-      restateStaleDeferredPromises()
+    onTargetChanged: async () => {
+      await restateStaleDeferredPromises()
       // …and then the ordinary fleet pass, which is what a target change has
       // always driven: an active wave still has to be projected against it.
-      bridge.onFleetChanged()
+      await bridge.onFleetChanged()
     },
-    onFleetChanged: () => {
+    onFleetChanged: async () => {
       const row = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
       if (!row || row.kind !== UPDATE_OPERATION_KIND || !row.operation) return
       const step = stepOf(row.operation, UPDATE_STEP_MACHINES)
@@ -2448,7 +2448,7 @@ export function createUpdateFleetBridge(deps: {
       const admitted = admissibleDeferredPlaces(row.operation, details, deps.updates)
       if (admitted.length > 0) {
         const places = [...(step.places ?? []), ...admitted]
-        void deps.engine.admitDeferred(
+        void await deps.engine.admitDeferred(
           row.id,
           UPDATE_STEP_MACHINES,
           admitted.map((place) => place.id),
@@ -2541,11 +2541,11 @@ export function createUpdateFleetBridge(deps: {
         places.some((place) => place.state === 'pending')
 
       if (returned || stalled) {
-        void deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
+        void await deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
         return
       }
 
-      void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
+      void await deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
     },
   }
   return bridge

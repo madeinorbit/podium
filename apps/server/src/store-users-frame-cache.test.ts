@@ -40,7 +40,7 @@ const readProbe = (store: SessionStore): (() => number) => {
 }
 
 const freshStore = async (): Promise<SessionStore> => {
-  const store = openTestStore(':memory:')
+  const store = await openTestStore(':memory:')
   await Promise.resolve()
   return store
 }
@@ -50,46 +50,46 @@ describe('account frame read cache', () => {
     const store = await freshStore()
     const reads = readProbe(store)
 
-    const first = store.users.get(FIRST_ADMIN_USER_ID)
+    const first = await store.users.get(FIRST_ADMIN_USER_ID)
     const afterFirst = reads()
     expect(afterFirst).toBeGreaterThan(0)
 
-    store.users.get(FIRST_ADMIN_USER_ID)
-    store.users.roleOf(FIRST_ADMIN_USER_ID)
+    await store.users.get(FIRST_ADMIN_USER_ID)
+    await store.users.roleOf(FIRST_ADMIN_USER_ID)
     expect(reads()).toBe(afterFirst)
-    expect(store.users.get(FIRST_ADMIN_USER_ID)?.role).toBe(first?.role)
+    expect((await store.users.get(FIRST_ADMIN_USER_ID))?.role).toBe(first?.role)
 
     await Promise.resolve()
-    store.users.get(FIRST_ADMIN_USER_ID)
+    await store.users.get(FIRST_ADMIN_USER_ID)
     expect(reads()).toBeGreaterThan(afterFirst)
   })
 
   it('caches "no account" as an answer, because that is the verdict callers act on', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
-    expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
+    expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
     const afterFirst = reads()
     // PAIRED WITH THE BOUND BELOW [POD-3407]. See the sibling test in
     // store-issues-frame-cache.test.ts: 0 === 0 passes, so without this the
     // assertion below certifies a cache it never observed.
     expect(afterFirst).toBeGreaterThan(0)
-    expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
-    expect(store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
+    expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
+    expect(await store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
     expect(reads()).toBe(afterFirst)
   })
 
   it('hands every caller its own object', async () => {
     const store = await freshStore()
-    const first = store.users.get(FIRST_ADMIN_USER_ID)
+    const first = await store.users.get(FIRST_ADMIN_USER_ID)
     expect(first).toBeDefined()
     if (first) first.displayName = 'Mutated by its reader'
-    expect(store.users.get(FIRST_ADMIN_USER_ID)?.displayName).not.toBe('Mutated by its reader')
+    expect((await store.users.get(FIRST_ADMIN_USER_ID))?.displayName).not.toBe('Mutated by its reader')
   })
 
   it('a mint inside the frame is visible to the read that follows it', async () => {
     const store = await freshStore()
-    expect(store.users.get(asUserId('user-minted'))).toBeUndefined()
-    store.users.create(
+    expect(await store.users.get(asUserId('user-minted'))).toBeUndefined()
+    await store.users.create(
       {
         id: 'user-minted',
         displayName: 'Minted',
@@ -99,6 +99,6 @@ describe('account frame read cache', () => {
       },
       'hash',
     )
-    expect(store.users.get(asUserId('user-minted'))?.displayName).toBe('Minted')
+    expect((await store.users.get(asUserId('user-minted')))?.displayName).toBe('Minted')
   })
 })

@@ -49,7 +49,7 @@ async function fixture() {
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
   const repo = new SessionRepository({

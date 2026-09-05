@@ -59,7 +59,7 @@ const registryWithMachine = async (id = 'm1', token = 'tok', updatePubkey?: stri
     tokenHash: sha256(token),
     ownerUserId: asUserId('user:sole'),
   })
-  return SessionRegistry.create(store, undefined, {
+  return await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(updatePubkey === undefined ? {} : { updatePubkey: () => updatePubkey }),
   })
@@ -407,7 +407,7 @@ describe('handshake order at the real gateway', () => {
 describe('payload identity is inert at the real MachinesService', () => {
   it('a valid token presented under another machine id is refused, not rebound', async () => {
     const reg = await registryWithMachine('m1', 'tok')
-    reg.modules.machines.listMachines() // warm the cache; irrelevant to the assertion
+    await reg.modules.machines.listMachines() // warm the cache; irrelevant to the assertion
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -428,7 +428,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', async () => {
     const store = await openTestStore(':memory:')
     const pairing = new PairingManager()
-    const reg = SessionRegistry.create(store, undefined, {
+    const reg = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing,
       updatePubkey: () => 'server-key-1',
@@ -475,13 +475,13 @@ describe('payload identity is inert at the real MachinesService', () => {
       ownerUserId: null,
     })
     const pairing = new PairingManager()
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default', pairing })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default', pairing })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
     const code = machines.mintPairingCode({ ownerUserId: asUserId('user:attacker') })
 
     // SECOND machine (attacker) attempts rebind under admin-laptop's id.
-    const attackOwned = machines.authenticateDaemon({
+    const attackOwned = await machines.authenticateDaemon({
       type: 'pair',
       code,
       machineId: asMachineId('admin-laptop'),
@@ -491,7 +491,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     expect(attackOwned).toEqual({ ok: false, reason: 'machine id already registered' })
 
     // Same code, second victim: unowned existing row must refuse too.
-    const attackUnowned = machines.authenticateDaemon({
+    const attackUnowned = await machines.authenticateDaemon({
       type: 'pair',
       code,
       machineId: asMachineId('unowned-box'),
@@ -502,7 +502,7 @@ describe('payload identity is inert at the real MachinesService', () => {
 
     // Both pre-existing credentials still verify — rebind would kill their tokens.
     expect(
-      machines.authenticateDaemon({
+      await machines.authenticateDaemon({
         type: 'hello',
         machineId: asMachineId('admin-laptop'),
         token: 'admin-tok',
@@ -510,7 +510,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       }),
     ).toMatchObject({ ok: true, machineId: 'admin-laptop' })
     expect(
-      machines.authenticateDaemon({
+      await machines.authenticateDaemon({
         type: 'hello',
         machineId: asMachineId('unowned-box'),
         token: 'unowned-tok',

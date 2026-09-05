@@ -212,11 +212,11 @@ export class ReceiptSender {
    * once, and never for a legacy send, so a caller can tell "no receipt is
    * coming" from "the receipt said nothing happened".
    */
-  send(
+  async send(
     via: ReceiptSendVia,
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
-  ): ReceiptSendResult {
+  ): Promise<ReceiptSendResult> {
     // Archive is a deliberate human boundary, not an errored run. Recovery may
     // override the provider failure below, but it must never enqueue, forward,
     // or report success for an archived session.
@@ -299,7 +299,7 @@ export class ReceiptSender {
     // the driver's injection state machine answers with what it did — including
     // `deliveredAs: 'queue'`, the downgrade the server used to have to infer.
     const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
-    const settled = this.ports.contract.send({
+    const settled = await this.ports.contract.send({
       sessionId: input.sessionId,
       ...(input.sourceMessageId ? { turnId: input.sourceMessageId } : {}),
       text: input.text,

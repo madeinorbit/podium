@@ -99,9 +99,9 @@ export class ModelCatalog {
 
   /** SWR read for one machine: returns that machine's snapshot immediately,
    *  refreshing in the background when it's empty or stale. Never blocks. */
-  get(machineId: MachineId): ModelCatalogSnapshot {
+  async get(machineId: MachineId): Promise<ModelCatalogSnapshot> {
     const snapshot = this.ensure(machineId)
-    if (this.isStale(snapshot)) void this.refresh(machineId)
+    if (this.isStale(snapshot)) void await this.refresh(machineId)
     return snapshot
   }
 

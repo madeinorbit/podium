@@ -323,17 +323,17 @@ export class FeedServing {
    * serve is a gap the replica would discover one frame later, having already
    * been told it was resumed.
    */
-  private canResume(peer: FeedPeer, cursor: FeedCursorField): boolean {
+  private async canResume(peer: FeedPeer, cursor: FeedCursorField): Promise<boolean> {
     if (peer.wireVersion < MIN_RESUME_WIRE_VERSION) return false
     // IDENTITY FIRST (ADR 2 D1). A seq from another feed, or one presented against
     // an epoch this server has rolled past, is not a smaller number — it is a
     // position in a sequence that no longer exists.
-    const identity = this.deps.identity.current()
+    const identity = await this.deps.identity.current()
     if (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch) return false
     // A cursor from the FUTURE is not resumable either: the replica claims to hold
     // rows this authority has not written, which on a restored/reset database is
     // exactly what happens.
-    if (cursor.seq > this.deps.authority.cursor()) return false
+    if (cursor.seq > await this.deps.authority.cursor()) return false
     // RETENTION, in `change-log.ts`'s exact spelling: the log can serve a cursor
     // iff every change in `(cursor, max]` is retained, i.e. iff
     // `cursor + 1 >= minAvailableSeq`. ADR 2 D7 rung 2's shorthand
@@ -361,15 +361,15 @@ export class FeedServing {
    * exactly — the socket alone can carry the replica forward, and the heal
    * becomes the shortcut it should be rather than the mechanism.
    */
-  private serveResume(
+  private async serveResume(
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
     cursor: FeedCursorField,
-  ): void {
+  ): Promise<void> {
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
-    const identity = this.deps.identity.current()
+    const identity = await this.deps.identity.current()
     const resume: FeedResumeMessage = {
       type: 'feedResume',
       feedId: identity.feedId,
@@ -390,23 +390,23 @@ export class FeedServing {
       peerId: peer.id,
       wireVersion: peer.wireVersion,
       fromSeq: cursor.seq,
-      headSeq: this.deps.authority.cursor(),
+      headSeq: await this.deps.authority.cursor(),
       durationMs,
     })
   }
 
   /** Read the world, send it, and start framing from the position it was read
    *  at. The one place a connection acquires a position. */
-  private serveWorld(
+  private async serveWorld(
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
     cause: BootstrapCause,
-  ): void {
+  ): Promise<void> {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
-    const { world, reused, readMs } = this.worldFor(principal)
+    const { world, reused, readMs } = await this.worldFor(principal)
     // THE SLICE SIZE, measured at the ONE point the whole visible world is
     // enumerated [POD-736]. A delta batch's `changes.length` is churn and would
     // read as a shrinking working set on a quiet server; a bootstrap is the
@@ -414,7 +414,7 @@ export class FeedServing {
     perf.observeSliceSize(perfKey, world.changes.length)
     perf.record('phase', reused ? 'feedBootstrap.reuse' : 'feedBootstrap.read', readMs, perfKey)
     perf.record('phase', `feedBootstrap.cause.${cause}`, 0, perfKey)
-    const identity = this.deps.identity.current()
+    const identity = await this.deps.identity.current()
     // Wire 1 is kept as one legacy snapshot because its adapter emits lists
     // only at the end of a bootstrap. Current wire peers receive a real stream;
     // every frame repeats the same cursor and identity, and `last` is the only
@@ -489,18 +489,18 @@ export class FeedServing {
    * re-scoping every retained row again. If the cache missed any head movement,
    * it is discarded and rebuilt; reuse never guesses across a gap.
    */
-  private worldFor(principal: Principal): {
+  private async worldFor(principal: Principal): Promise<{
     world: ReturnType<AuthorityPort['bootstrap']>
     reused: boolean
     readMs: number
-  } {
+  }> {
     const key = principalRoutingId(principal)
     const cached = this.latestWorldByPrincipal.get(key)
     const authorizationRevision = this.deps.authorizationRevision?.() ?? 0
     const startedAt = performance.now()
     if (
       cached !== undefined &&
-      cached.throughSeq === this.deps.authority.cursor() &&
+      cached.throughSeq === await this.deps.authority.cursor() &&
       cached.authorizationRevision === authorizationRevision
     ) {
       if (cached.materialized === undefined) {
@@ -516,7 +516,7 @@ export class FeedServing {
     this.deps.onBootstrapReadStart?.()
     let world: ReturnType<AuthorityPort['bootstrap']>
     try {
-      world = this.deps.authority.bootstrap(principal)
+      world = await this.deps.authority.bootstrap(principal)
     } finally {
       this.deps.onBootstrapReadEnd?.(principal, performance.now() - startedAt)
     }
@@ -712,7 +712,7 @@ export class FeedServing {
    * not a schedule: a frame left in it is a frame a connection has not been told
    * about, and there is no other tick in this server that would come back for it.
    */
-  publish(principal: Principal, delivery: ScopedDelivery): void {
+  async publish(principal: Principal, delivery: ScopedDelivery): Promise<void> {
     this.advanceCachedWorld(principal, delivery)
     const totalStartedAt = performance.now()
     const perfKey = perfPrincipal(principal)
@@ -735,18 +735,18 @@ export class FeedServing {
     if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
       this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
     }
-    this.publisher.publishTo(targets, principal, delivery)
+    await this.publisher.publishTo(targets, principal, delivery)
     const tFramed = performance.now()
     perf.record('phase', 'feedPublish.frame', tFramed - t0, perfKey)
-    this.flush(delivery.throughSeq, targets)
+    await this.flush(delivery.throughSeq, targets)
     perf.record('phase', 'feedPublish.fanout', performance.now() - tFramed, perfKey)
     perf.record('phase', 'feedPublish.total', performance.now() - totalStartedAt, perfKey)
   }
 
   /** Roll the epoch and demote every connection to a re-bootstrap (D1 → D7 r4). */
-  bumpEpoch(cause: Parameters<FeedPublisher['bumpEpoch']>[0]): void {
-    this.publisher.bumpEpoch(cause)
-    this.flush(this.deps.authority.cursor())
+  async bumpEpoch(cause: Parameters<FeedPublisher['bumpEpoch']>[0]): Promise<void> {
+    await this.publisher.bumpEpoch(cause)
+    await this.flush(await this.deps.authority.cursor())
   }
 
   /**
@@ -790,8 +790,8 @@ export class FeedServing {
    * one place the pull path can obtain the same triple from the same registry,
    * rather than a second source of "which feed is this".
    */
-  identity(): { readonly feedId: string; readonly epoch: string } {
-    return this.deps.identity.current()
+  async identity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
+    return await this.deps.identity.current()
   }
 
   /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —
@@ -806,13 +806,13 @@ export class FeedServing {
     return this.connections.size
   }
 
-  private flush(atSeq: number, targetIds: Iterable<string> = this.connections.keys()): void {
+  private async flush(atSeq: number, targetIds: Iterable<string> = this.connections.keys()): Promise<void> {
     for (const id of targetIds) {
       const connection = this.connections.get(id)
       if (!connection) continue
       const peer = this.peers.get(id)
       if (peer === undefined) continue
-      for (const frame of connection.drain() as readonly ServerFrame[]) {
+      for (const frame of await connection.drain() as readonly ServerFrame[]) {
         this.edge.publishTo(peer, toWireFrame(frame, atSeq))
       }
     }

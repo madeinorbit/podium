@@ -179,7 +179,7 @@ async function handoffFixture(
   await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
   await store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   built.push(reg)
 
   const source: ControlMessage[] = []
@@ -382,8 +382,8 @@ async function handoffFixture(
   }
 }
 
-const meta = (f: HandoffFixture) =>
-  f.reg.modules.sessions.listSessions().find((s) => s.sessionId === f.sessionId)
+const meta = async (f: HandoffFixture) =>
+  (await f.reg.modules.sessions.listSessions()).find((s) => s.sessionId === f.sessionId)
 
 /**
  * An ownership index that answers for a two-person fleet — POD-381's
@@ -469,7 +469,7 @@ describe('oracle: handoff success across two machines', () => {
     const f = await handoffFixture({ deferTargetInventory: true })
 
     await expect(
-      f.reg.modules.issueSessionLifecycle.handoffSession(
+      await f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
@@ -492,7 +492,7 @@ describe('oracle: handoff success across two machines', () => {
     )
 
     expect(result).toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
-    expect(meta(f)).toMatchObject({
+    expect(await meta(f)).toMatchObject({
       machineId: 'm2',
       cwd: '/target/repo/.worktrees/x',
       status: 'starting',
@@ -513,7 +513,7 @@ describe('oracle: handoff success across two machines', () => {
       }),
     )
     // The overlay every client renders the move with is cleared on arrival.
-    expect(meta(f)?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTarget).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: the whole two-machine step sequence, in order — nothing irreversible happens before the TARGET verified a common base`, async () => {
@@ -617,7 +617,7 @@ describe('oracle: handoff success across two machines', () => {
     // to ignore it. Two callers, one answer, and that is the behaviour-preserving
     // default rather than an absence of enforcement.
     await expect(
-      f.reg.modules.issueSessionLifecycle.handoffSession(
+      await f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         WORKER_CALLER,
       ),
@@ -644,7 +644,7 @@ describe('oracle: handoff success across two machines', () => {
     // NEVER SILENTLY RETARGETED (§3.1.4 M5): the session stayed where it was, and
     // m1 — the one machine alice may use — was not handed its own session back as
     // a consolation move.
-    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
     expect(f.source.some((m) => m.type === 'handoffImportRequest')).toBe(false)
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
   })
@@ -707,13 +707,13 @@ describe('oracle: handoff refusals that must not move anything', () => {
       ),
     ).toBe('target repository has no verified common bundle base')
 
-    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
     // Nothing irreversible ran: no kill, no export, no import.
     expect(f.source.some((m) => m.type === 'kill')).toBe(false)
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
     // And the handover overlay was cleared rather than left painted.
-    expect(meta(f)?.handoffTarget).toBeUndefined()
+    expect((await meta(f))?.handoffTarget).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: handing a session to the machine it is already on is refused`, async () => {
@@ -731,7 +731,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
 
   it(`${MUST_NOT_CHANGE}: a session with no resume ref cannot be handed off — the conversation would not survive`, async () => {
     const f = await handoffFixture()
-    const shell = f.reg.modules.sessions.createSession({
+    const shell = await f.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/source/repo/.worktrees/x',
       machineId: asMachineId('m1'),
@@ -761,7 +761,7 @@ describe('oracle: mid-transfer crash', () => {
       ),
     ).toBe('source binding finalize crashed')
 
-    expect(meta(f)).toMatchObject({
+    expect(await meta(f)).toMatchObject({
       machineId: 'm2',
       cwd: '/target/repo/.worktrees/x',
       status: 'hibernated',
@@ -788,8 +788,8 @@ describe('oracle: mid-transfer crash', () => {
     ).toBe('source exploded mid-export')
 
     // Home, cwd and overlay all restored; the recovery spawn goes back to m1.
-    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
-    expect(meta(f)?.handoffTarget).toBeUndefined()
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect((await meta(f))?.handoffTarget).toBeUndefined()
     await waitFor(
       () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
       'the rollback resurrect to spawn back on the source',
@@ -827,8 +827,8 @@ describe('oracle: mid-transfer crash', () => {
     // back on the source with a recovery spawn — the same rollback contract as a
     // daemon-side failure, because a refusal at apply IS a mid-transfer failure.
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
-    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
-    expect(meta(f)?.handoffTarget).toBeUndefined()
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect((await meta(f))?.handoffTarget).toBeUndefined()
     await waitFor(
       () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
       'the rollback resurrect to spawn back on the source',
@@ -854,7 +854,7 @@ describe('oracle: mid-transfer crash', () => {
     ).toBe("you do not have access to run agents on machine 'target'")
 
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(true)
-    expect(meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
     await waitFor(
       () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
       'the revoked target winner to roll back onto the source',
@@ -891,8 +891,8 @@ describe('oracle: mid-transfer crash', () => {
     expect(seenTargetProbe).toBeGreaterThan(0)
     expect(f.source.some((m) => m.type === 'kill')).toBe(false)
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
-    expect(meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
-    expect(meta(f)?.handoffTarget).toBeUndefined()
+    expect(await meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
+    expect((await meta(f))?.handoffTarget).toBeUndefined()
   })
 })
 
@@ -1070,11 +1070,11 @@ describe('oracle: duplicate dispatch', () => {
     const f = await handoffFixture()
 
     const settled = await Promise.allSettled([
-      f.reg.modules.issueSessionLifecycle.handoffSession(
+      await f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
-      f.reg.modules.issueSessionLifecycle.handoffSession(
+      await f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
@@ -1101,8 +1101,8 @@ describe('oracle: duplicate dispatch', () => {
     // exactly why the row count alone was never evidence: the fork was visible
     // only in the daemon legs above.
     expect(
-      f.reg.modules.sessions
-        .listSessions()
+      (await f.reg.modules.sessions
+        .listSessions())
         .map((s) => ({ machineId: s.machineId, cwd: s.cwd, status: s.status })),
     ).toEqual([{ machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' }])
   })
@@ -1131,14 +1131,14 @@ describe('oracle: duplicate dispatch', () => {
     await f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
     f.reg.gateway.attachDaemon('m3', () => {})
 
-    const first = f.reg.modules.issueSessionLifecycle.handoffSession(
+    const first = await f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
         machineId: asMachineId('m2'),
       },
       TEST_CALLER,
     )
-    const second = f.reg.modules.issueSessionLifecycle.handoffSession(
+    const second = await f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
         machineId: asMachineId('m3'),
@@ -1151,7 +1151,7 @@ describe('oracle: duplicate dispatch', () => {
     // m3 was never asked for anything: not a rev-parse, not an import.
     expect(f.count('m3', 'repoOpRequest')).toBe(0)
     expect(f.count('m3', 'handoffImportRequest')).toBe(0)
-    expect(meta(f)).toMatchObject({ machineId: 'm2' })
+    expect(await meta(f)).toMatchObject({ machineId: 'm2' })
   })
 
   it(`${MUST_NOT_CHANGE}: a caller JOINING an in-flight transfer is authorized with its OWN rights, not the initiator's`, async () => {
@@ -1171,11 +1171,11 @@ describe('oracle: duplicate dispatch', () => {
             ownership: revocableFleet({ m2: ['see', 'use'] }),
           })
 
-    const initiator = f.reg.modules.issueSessionLifecycle.handoffSession(
+    const initiator = await f.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
-    const joiner = f.reg.modules.issueSessionLifecycle.handoffSession(
+    const joiner = await f.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       CAROL_CALLER,
     )

@@ -101,7 +101,7 @@ describe('the wire window, over real sockets', () => {
     ).cookieHeader
     machineId = handle.registry.modules.machines.hostMachineId
     handle.registry.gateway.attachDaemon(machineId, () => {})
-    handle.registry.modules.sessions.createSession({
+    await handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
       machineId: asMachineId(machineId),
@@ -172,9 +172,9 @@ describe('the wire window, over real sockets', () => {
     // so the refusals below are asserted after hello has been processed, not by
     // spinning until the deadline.
     await Promise.all([
-      stale.nextMatching((m) => m.type === 'welcome'),
-      current.nextMatching((m) => m.type === 'welcome'),
-      beyond.nextMatching((m) => m.type === 'welcome'),
+      await stale.nextMatching((m) => m.type === 'welcome'),
+      await current.nextMatching((m) => m.type === 'welcome'),
+      await beyond.nextMatching((m) => m.type === 'welcome'),
     ])
 
     // THE CURRENT BUILD IS SERVED ITS WORLD IN ITS OWN VERSION. It was admitted
@@ -202,7 +202,7 @@ describe('the wire window, over real sockets', () => {
     const beyondAfterHello = beyond.frames.length
 
     // A write AFTER all three connected.
-    handle.registry.modules.sessions.createSession({
+    await handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
       machineId: asMachineId(machineId),

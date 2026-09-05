@@ -378,8 +378,8 @@ export class WorkflowAccess {
    * One `throw`, one message, for both outcomes — which is what makes D20.2 a
    * property of the code shape rather than of two strings agreeing.
    */
-  assertWorkflowRead(caller: WorkflowCaller, workflowId: string): WorkflowWire {
-    const workflow = this.deps.store.getWorkflow(workflowId)
+  async assertWorkflowRead(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
+    const workflow = await this.deps.store.getWorkflow(workflowId)
     if (!workflow || !this.canReadWorkflow(caller, workflow)) {
       throw new Error(unknownWorkflow(workflowId))
     }
@@ -387,8 +387,8 @@ export class WorkflowAccess {
   }
 
   /** The write decision, converged onto the same message for the same reason. */
-  assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): WorkflowWire {
-    const workflow = this.deps.store.getWorkflow(workflowId)
+  async assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
+    const workflow = await this.deps.store.getWorkflow(workflowId)
     if (!workflow) throw new Error(unknownWorkflow(workflowId))
     const entity = this.entityFor(workflow)
     if (this.decide(caller, entity, 'write') === 'denied') {

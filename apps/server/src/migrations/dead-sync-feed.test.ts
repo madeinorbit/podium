@@ -50,7 +50,7 @@ function issueRevision(db: SqlDatabase): { id: string; revision: number } {
 }
 
 describe('the dead sync_feed migration', () => {
-  it('drops only the dead table and can roll back through its pre-migration backup', () => {
+  it('drops only the dead table and can roll back through its pre-migration backup', async () => {
     const cut = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name.includes(DROP_MIGRATION))
     expect(cut).toBeGreaterThan(0)
     const migration = DRIZZLE_MIGRATIONS[cut]
@@ -101,7 +101,7 @@ describe('the dead sync_feed migration', () => {
     )
     expect(backups).toHaveLength(1)
     const backupPath = join(dir, backups[0] ?? '')
-    const restored = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const restored = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
 
     const reopened = openDatabase(dbPath)
     expect(reopened.prepare('SELECT feed_id, epoch FROM sync_feed').get()).toEqual({

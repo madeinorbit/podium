@@ -99,13 +99,13 @@ export function llmClient(
   }
   const label = `${backend.provider} · ${backend.model}`
   if (backend.provider === 'anthropic') {
-    return { label, complete: (m, t) => anthropicComplete(fetchImpl, key, backend.model, m, t) }
+    return { label, complete: async (m, t) => await anthropicComplete(fetchImpl, key, backend.model, m, t) }
   }
   const base =
     backend.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'
   return {
     label,
-    complete: (m, t) => openaiComplete(fetchImpl, base, key, backend.model, m, t),
+    complete: async (m, t) => await openaiComplete(fetchImpl, base, key, backend.model, m, t),
   }
 }
 
@@ -125,7 +125,7 @@ function codexClient(backend: LlmBackend, fetchImpl: FetchLike): LlmClient {
   const effort = codexEffort(backend)
   return {
     label: `codex · ${model} (ChatGPT subscription)`,
-    complete: (m, t) => codexCompleteWithAuth(fetchImpl, model, m, t, effort),
+    complete: async (m, t) => await codexCompleteWithAuth(fetchImpl, model, m, t, effort),
   }
 }
 

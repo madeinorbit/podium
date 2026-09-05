@@ -33,7 +33,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     return new Ledger({
       repo: store.sync,
       now: () => 1_000,
-      transact: (fn) => store.transact(fn),
+      transact: async (fn) => await store.transact(fn),
       // The same wiring the composition root uses (`relay.ts`): the fold is
       // mechanism 1 on the OUTERMOST commit, and with no span open it applies
       // at once, which is where it happens today.
@@ -47,15 +47,15 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
   it('drops a nested write the enclosing span rolled back', async () => {
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
-    const cursorBefore = ledger.cursor()
+    const cursorBefore = await ledger.cursor()
 
     expect(() =>
-      store.transact(() => {
+      store.transact(async () => {
         // A nested ledger.commit: its own transact span degrades to a savepoint
         // and RELEASES when this callback returns.
-        ledger.commit({
-          write: () => {
-            store.conversations.index.upsert([
+        await ledger.commit({
+          write: async () => {
+            await store.conversations.index.upsert([
               { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
             ])
           },
@@ -74,10 +74,10 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     ).toThrow('enclosing span failed')
 
     // The database forgot the row and the change append.
-    expect(store.conversations.index.search({}).map((r) => r.id)).not.toContain('c-rolled-back')
-    expect(ledger.cursor()).toBe(cursorBefore)
+    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect(await ledger.cursor()).toBe(cursorBefore)
     // THE MECHANISM: so must the in-memory baseline.
-    expect(baselineIds(ledger)).not.toContain('c-rolled-back')
+    expect(await baselineIds(ledger)).not.toContain('c-rolled-back')
   })
 
   it('leaves a baseline that still dedups correctly after the rollback', async () => {
@@ -85,8 +85,8 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     const ledger = makeLedger(store)
 
     expect(() =>
-      store.transact(() => {
-        ledger.commit({
+      store.transact(async () => {
+        await ledger.commit({
           write: () => {},
           changes: () => [
             {
@@ -104,7 +104,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // Committing the SAME value again must append: the row is not in the log,
     // so a baseline that still held its detection key would dedup away the only
     // record of a row that does exist.
-    const { changes } = ledger.commit({
+    const { changes } = await ledger.commit({
       write: () => {},
       changes: () => [
         {
@@ -118,18 +118,18 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     expect(changes.map((c) => ({ id: c.id, op: c.op }))).toEqual([
       { id: 'c-rolled-back', op: 'upsert' },
     ])
-    expect(baselineIds(ledger)).toContain('c-rolled-back')
+    expect(await baselineIds(ledger)).toContain('c-rolled-back')
   })
 
   it('still folds when the enclosing span commits', async () => {
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
-    const cursorBefore = ledger.cursor()
+    const cursorBefore = await ledger.cursor()
 
-    await store.transact(() => {
-      ledger.commit({
-        write: () => {
-          store.conversations.index.upsert([
+    await store.transact(async () => {
+      await ledger.commit({
+        write: async () => {
+          await store.conversations.index.upsert([
             { ...conversationRow('c-kept'), machineId: store.hostMachineId },
           ])
         },
@@ -139,10 +139,10 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
       })
     })
 
-    expect(ledger.cursor()).toBe(cursorBefore + 1)
-    expect(baselineIds(ledger)).toContain('c-kept')
+    expect(await ledger.cursor()).toBe(cursorBefore + 1)
+    expect(await baselineIds(ledger)).toContain('c-kept')
     // And the fold landed, so the same value now dedups away.
-    const { changes } = ledger.commit({
+    const { changes } = await ledger.commit({
       write: () => {},
       changes: () => [
         { entity: 'conversation', id: 'c-kept', op: 'upsert', value: conversationRow('c-kept') },
@@ -166,8 +166,8 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     const ledger = makeLedger(store)
 
     expect(() =>
-      store.transact(() => {
-        ledger.commit({
+      store.transact(async () => {
+        await ledger.commit({
           write: () => {},
           changes: () => [
             {
@@ -186,7 +186,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // `changes()` runs, so the orphan is only dropped if the layer knows which
     // UNIT staged it rather than merely that something is open.
     let seenInsideTheSpan: string[] = []
-    ledger.commit({
+    await ledger.commit({
       write: () => {},
       changes: () => {
         seenInsideTheSpan = baselineIds(ledger)
@@ -197,7 +197,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     })
 
     expect(seenInsideTheSpan).not.toContain('c-orphan')
-    expect(baselineIds(ledger)).not.toContain('c-orphan')
+    expect(await baselineIds(ledger)).not.toContain('c-orphan')
   })
 
   it('a second nested write in the same span still sees the first one (the in-window reader)', async () => {
@@ -210,10 +210,10 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // transaction deleted. The pending overlay is what keeps that reader honest.
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
-    const cursorBefore = ledger.cursor()
+    const cursorBefore = await ledger.cursor()
 
-    await store.transact(() => {
-      ledger.commit({
+    await store.transact(async () => {
+      await ledger.commit({
         write: () => {},
         changes: () => [
           {
@@ -226,7 +226,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
       })
       // Same value again: the first write is not folded yet, but the overlay
       // holds it, so this dedups away exactly as it does outside a span.
-      const repeat = ledger.commit({
+      const repeat = await ledger.commit({
         write: () => {},
         changes: () => [
           {
@@ -239,14 +239,14 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
       })
       expect(repeat.changes).toEqual([])
       // And the remove is NOT dropped, because the overlay says the id is there.
-      const removed = ledger.commit({
+      const removed = await ledger.commit({
         write: () => {},
         changes: () => [{ entity: 'conversation', id: 'c-churn', op: 'remove' }],
       })
       expect(removed.changes.map((c) => c.op)).toEqual(['remove'])
     })
 
-    expect(ledger.cursor()).toBe(cursorBefore + 2)
-    expect(baselineIds(ledger)).not.toContain('c-churn')
+    expect(await ledger.cursor()).toBe(cursorBefore + 2)
+    expect(await baselineIds(ledger)).not.toContain('c-churn')
   })
 })

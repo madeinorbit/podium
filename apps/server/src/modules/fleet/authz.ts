@@ -158,10 +158,10 @@ export function roleSatisfiesFloor(role: UserRole | undefined, floor: 'admin' | 
  * for it here, because "the steward is an admin" is exactly the service account
  * ADR 9 D8 S5 rejects.
  */
-function accountRoleOf(principal: CommandPrincipal, ctx: Context): UserRole | undefined {
+async function accountRoleOf(principal: CommandPrincipal, ctx: Context): Promise<UserRole | undefined> {
   const user = onBehalfOfUser(principal)
   if (user === null) return undefined
-  return ctx.registry.sessionStore.users.roleOf(user)
+  return await ctx.registry.sessionStore.users.roleOf(user)
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ function machineRefusal(
  * same construction `sessionCommandCtx` uses; a second answer to "who is
  * calling" is what ADR 3 D7 exists to prevent.
  */
-export function fleetAuthzDeps(ctx: Context): FleetAuthzDeps {
+export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
   const machines = mods(ctx).machines
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
@@ -357,7 +357,7 @@ export function fleetAuthzDeps(ctx: Context): FleetAuthzDeps {
   return {
     principal,
     ownership: ownershipFromMachines(machines),
-    role: accountRoleOf(principal, ctx),
+    role: await accountRoleOf(principal, ctx),
     defaultMachine: () => machines.defaultMachine(),
     allMachineIds: () => machines.ownershipRows().map((row) => row.id),
     machineName: (machineId) => machines.ownershipRows().find((r) => r.id === machineId)?.name,

@@ -116,13 +116,13 @@ export class HandoffCoordinator {
    * Both are decided in {@link HandoffAdmission}, which authorizes every dispatch
    * with its own gate BEFORE coalescing it.
    */
-  handoff(
+  async handoff(
     input: HandoffInput,
     caller: HandoffCaller,
     assertMachineUse: AssertMachineUse,
   ): Promise<HandoffResult> {
-    return this.admission.admit(input, caller, assertMachineUse, () =>
-      this.run(input, caller, assertMachineUse),
+    return await this.admission.admit(input, caller, assertMachineUse, async () =>
+      await this.run(input, caller, assertMachineUse),
     )
   }
 
@@ -153,6 +153,6 @@ export class HandoffCoordinator {
     await this.ports.waitForInventory(input.machineId)
     const placement = resolveHandoffPlacement(this.ports, input, caller)
     const prepared = await this.preflight.prepare(placement, input, assertMachineUse)
-    return this.transfer.apply(placement, prepared, input, caller, assertMachineUse)
+    return await this.transfer.apply(placement, prepared, input, caller, assertMachineUse)
   }
 }

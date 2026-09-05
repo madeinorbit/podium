@@ -80,7 +80,7 @@ export class TranscriptLake {
     this.mirror = new MirrorService(
       deps.store.mirror,
       options.mirrorLakeDir,
-      (machineId, request) => this.read(machineId, request),
+      async (machineId, request) => await this.read(machineId, request),
       deps.now,
       {
         onBytes: (machineId, nativeId, lakePath) => indexer.onBytes(machineId, nativeId, lakePath),
@@ -145,29 +145,29 @@ export class TranscriptLake {
    * Lift the transfer-snapshot fence and restart all mirror work accumulated
    * while paused. Safe as a no-op when mirroring is disabled or disposed.
    */
-  resumeMirroring(): void {
+  async resumeMirroring(): Promise<void> {
     if (this.stopped) return
-    this.mirror?.resume()
+    await this.mirror?.resume()
   }
 
-  triggerSweep(machineId: MachineId): void {
+  async triggerSweep(machineId: MachineId): Promise<void> {
     if (this.stopped) return
     if (!this.mirror) return
-    this.mirror.enqueueDirty(machineId)
-    this.indexer?.backfillMachine(
+    await this.mirror.enqueueDirty(machineId)
+    await this.indexer?.backfillMachine(
       machineId,
       (nativeId) => this.mirror?.lakePath(machineId, nativeId) ?? '',
     )
   }
 
-  pathHint(machineId: MachineId, nativeId: string): { pathHint: string } | undefined {
-    const path = this.deps.store.registry.segmentPath(machineId, nativeId)
+  async pathHint(machineId: MachineId, nativeId: string): Promise<{ pathHint: string } | undefined> {
+    const path = await this.deps.store.registry.segmentPath(machineId, nativeId)
     return path ? { pathHint: path } : undefined
   }
 
-  hasPredecessors(machineId: MachineId, nativeId: string): boolean {
-    return this.deps.store.mirror
-      .incarnations(machineId, nativeId)
+  async hasPredecessors(machineId: MachineId, nativeId: string): Promise<boolean> {
+    return (await this.deps.store.mirror
+      .incarnations(machineId, nativeId))
       .some((incarnation) => !incarnation.active && incarnation.mirroredBytes > 0)
   }
 
@@ -179,7 +179,7 @@ export class TranscriptLake {
   > {
     const nativeId = session.resume?.value
     if (!this.mirror || !nativeId) return undefined
-    const incarnations = this.deps.store.mirror.incarnations(session.machineId, nativeId)
+    const incarnations = await this.deps.store.mirror.incarnations(session.machineId, nativeId)
     const chain =
       incarnations.length > 0
         ? incarnations
@@ -191,7 +191,7 @@ export class TranscriptLake {
               return path ? { path, fileId: fileIdFor(path) } : undefined
             })
             .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
-        : this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) > 0
+        : await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) > 0
           ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
               path,
               fileId: fileIdFor(path),
@@ -229,11 +229,11 @@ export class TranscriptLake {
     })
   }
 
-  private requestRead(
+  private async requestRead(
     machineId: MachineId,
     request: { path: string; offset: number; maxBytes: number },
   ): Promise<MirrorReadReply> {
-    return this.deps.daemonRequest.request({
+    return await this.deps.daemonRequest.request({
       kind: MIRROR_READ,
       timeoutMs: READ_TIMEOUT_MS,
       onTimeout: () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),

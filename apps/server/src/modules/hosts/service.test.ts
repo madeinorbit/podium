@@ -875,7 +875,7 @@ describe('reclaim disk estimate cache', () => {
     })
 
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r', '/r/.worktrees/a'],
         ['/r/.worktrees/a'],
         asMachineId('local'),
@@ -885,7 +885,7 @@ describe('reclaim disk estimate cache', () => {
     await Promise.resolve()
 
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r/.worktrees/a', '/r'],
         ['/r/.worktrees/a'],
         asMachineId('local'),
@@ -899,7 +899,7 @@ describe('reclaim disk estimate cache', () => {
 
     now.mockReturnValue(5 * 60_000 + 1)
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r/.worktrees/a', '/r'],
         ['/r/.worktrees/a'],
         asMachineId('local'),

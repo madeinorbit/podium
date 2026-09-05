@@ -556,7 +556,7 @@ export async function startServer(
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
-  const store = new SessionStore(undefined, asMachineId(hostMachineId))
+  const store = await SessionStore.open(undefined, asMachineId(hostMachineId))
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
   // hash in auth.json is the operator's REAL password and wins, so it is moved into the
@@ -566,8 +566,8 @@ export async function startServer(
   await applyEnvFirstAdminPassword({ users: store.users })
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
-  const credentialsRequired = (): boolean =>
-    !loadConfig().auth?.openMode && store.users.hasPerUserCredentials()
+  const credentialsRequired = async (): Promise<boolean> =>
+    !loadConfig().auth?.openMode && await store.users.hasPerUserCredentials()
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -597,7 +597,7 @@ export async function startServer(
   const lakeEnabled =
     (opts.transcriptLake ??
       resolveTranscriptLake(
-        store.settings.getSettings().transcripts.mirror,
+        (await store.settings.getSettings()).transcripts.mirror,
         config,
         process.env,
       )) === 'on'
@@ -628,7 +628,7 @@ export async function startServer(
   // `tsgo`, which does not report this family; `tsc --noEmit` in apps/server
   // does. That difference is why the same tree was honestly reported as both
   // clean and broken by different readers (POD-1858, POD-1862).
-  const registry: SessionRegistry = SessionRegistry.create(store, undefined, {
+  const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
@@ -680,7 +680,7 @@ export async function startServer(
     // now resolves auth from the DAEMON host (its ANTHROPIC_API_KEY, else its
     // Claude Code login) rather than the server's `apiKeys.anthropic` secret —
     // which is also the auth the agents on that machine actually run under.
-    modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
+    modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
@@ -695,7 +695,7 @@ export async function startServer(
   // structural guard against the regression where data vanished because no daemon ever
   // registered. The same-host daemon then authenticates through the normal hello path
   // (wsServer) presenting this same id.
-  registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
+  await registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -706,7 +706,7 @@ export async function startServer(
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
-  reportParkedUpstreamMutations(store.sync, store.events)
+  await reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
@@ -720,8 +720,8 @@ export async function startServer(
   // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
   const repoDiscovery = new MachineRepoDiscovery({
     listRepos: () => store.repos.listRepos(),
-    addRepo: (path, machineId, originUrl) => store.repos.addRepo(path, machineId, originUrl),
-    removeRepo: (path, machineId) => store.repos.removeRepo(path, machineId),
+    addRepo: async (path, machineId, originUrl) => await store.repos.addRepo(path, machineId, originUrl),
+    removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
     // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
     // browseDirs answers from that daemon's own filesystem, and a directory that is
     // gone comes back without a listing. Any failure to answer is treated as "cannot
@@ -730,14 +730,14 @@ export async function startServer(
       const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
       return Boolean(res.listing)
     },
-    scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
+    scanRepos: async (roots, opts, machineId) => await registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: (id) => registry.modules.machines.machineName(id),
     localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
-  const superagent = SuperagentService.create(registry.modules, repos, store)
+  const superagent = await SuperagentService.create(registry.modules, repos, store)
   // Its turn reaper is a periodic write; the registry's dispose is what stops it
   // before `store.close()` on every close path (POD-2772).
   registry.adoptSuperagent(superagent)
@@ -765,8 +765,8 @@ export async function startServer(
     // superagent (or btw origin) session transcript.
     topicRecap: {
       getSuperagentThread: (threadId) => store.superagent.getSuperagentThread(threadId),
-      readTranscript: (input) =>
-        registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
+      readTranscript: async (input) =>
+        await registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
     },
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
     // The binding table, read live per message: an inbound chat resolves to the
@@ -841,7 +841,7 @@ export async function startServer(
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
     // The publish handoff (spec §6 step 4). Publisher and updater share this
     // process on a source host, so "go and pull what I just wrote" is a call.
-    refreshDevTarget: () => registry.modules.updates.refreshTarget('dev'),
+    refreshDevTarget: async () => await registry.modules.updates.refreshTarget('dev'),
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })
@@ -953,8 +953,8 @@ export async function startServer(
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
-      prepareVerifiedDatabaseSnapshot: (from, target) =>
-        registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
+      prepareVerifiedDatabaseSnapshot: async (from, target) =>
+        await registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
@@ -1091,9 +1091,9 @@ export async function startServer(
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
-      stewardTick: () => registry.runStewardTick(),
-      connectScan: (machineId) => {
-        void repoDiscovery.scan(machineId, { deep: false })
+      stewardTick: async () => await registry.runStewardTick(),
+      connectScan: async (machineId) => {
+        void await repoDiscovery.scan(machineId, { deep: false })
       },
       localMachineId: asMachineId(hostMachineId),
     }),
@@ -1111,12 +1111,12 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const requestPrincipal = (headers: ClientCredentialHeaders) => {
+  const requestPrincipal = async (headers: ClientCredentialHeaders) => {
     const userId =
       requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader) ??
-      (!credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
+      (!await credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
     if (userId === undefined) return undefined
-    const account = store.users.get(userId)
+    const account = await store.users.get(userId)
     return account ? userCommandPrincipal(userId, account.role) : undefined
   }
   const guard = clientAuthGuard({
@@ -1191,7 +1191,7 @@ export async function startServer(
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
-    readAsset: (a) => registry.modules.rpc.readAsset(a),
+    readAsset: async (a) => await registry.modules.rpc.readAsset(a),
     allowsRoot: (root, machineId) =>
       repos.inferFromPath(root, machineId ?? registry.modules.machines.defaultMachine()) !==
       undefined,
@@ -1214,7 +1214,7 @@ export async function startServer(
     app,
     {
       mcpToolSpecs: (threadId) => superagent.mcpToolSpecs(threadId),
-      callMcpTool: (name, args, threadId) => superagent.callMcpTool(name, args, threadId),
+      callMcpTool: async (name, args, threadId) => await superagent.callMcpTool(name, args, threadId),
     },
     mcpToken,
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
@@ -1248,12 +1248,12 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: (_request, hono) => {
+      createContext: async (_request, hono) => {
         const bootstrapAccount = isHostSetupBootstrap(readiness(), hono.req.path, hono.req.raw)
-          ? store.users.get(FIRST_ADMIN_USER_ID)
+          ? await store.users.get(FIRST_ADMIN_USER_ID)
           : undefined
         const principal =
-          requestPrincipal({
+          await requestPrincipal({
             cookieHeader: hono.req.header('cookie'),
             authorizationHeader: hono.req.header('authorization'),
           }) ??
@@ -1380,7 +1380,7 @@ export async function startServer(
 
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
-  if (!isLoopbackHost(host) && !credentialsRequired()) {
+  if (!isLoopbackHost(host) && !await credentialsRequired()) {
     log.warn(
       'server is network-reachable with NO login required — anyone who can reach this host can control your agents and shell; set a password in setup, or bind to 127.0.0.1',
       { host },
@@ -1464,7 +1464,7 @@ export async function startServer(
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
           else headers.delete('x-podium-peer-address')
           const observedRequest = new Request(request, { headers })
-          return compressHttpResponse(request, await app.fetch(observedRequest))
+          return await compressHttpResponse(request, await app.fetch(observedRequest))
         },
       })
     } catch (err) {
@@ -1697,13 +1697,13 @@ export async function startServer(
       },
     }
     void refreshTargetsOnBoot({
-      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+      refresh: async (channel) => await registry.modules.updates.refreshTarget(channel),
     }).then(() => {
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
       const targetRefresh = startTargetRefresh({
-        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+        refresh: async (channel) => await registry.modules.updates.refreshTarget(channel),
         operationActive: (channel) => registry.modules.updates.operationActive(channel),
         schedule: timerSchedule,
       })
@@ -1721,9 +1721,9 @@ export async function startServer(
         // late write against a closed DB would throw), dirty activity
         // timestamps flush while the DB is open, registry.dispose() stops the
         // periodic flush timer, and only then does the store close.
-        close: () =>
-          closeServerFast({
-            closeWebSockets: () => ws.close(),
+        close: async () =>
+          await closeServerFast({
+            closeWebSockets: async () => await ws.close(),
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],

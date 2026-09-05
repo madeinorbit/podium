@@ -55,7 +55,7 @@ export function layoutAuthzFailure(name: string, deps: LayoutAuthzDeps): TRPCErr
 }
 
 /** Resolve principal + live role from a tRPC context (never from payload). */
-export function layoutAuthzDeps(ctx: Context): LayoutAuthzDeps {
+export async function layoutAuthzDeps(ctx: Context): Promise<LayoutAuthzDeps> {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
@@ -67,7 +67,7 @@ export function layoutAuthzDeps(ctx: Context): LayoutAuthzDeps {
   const user = onBehalfOfUser(principal)
   return {
     principal,
-    role: user === null ? undefined : ctx.registry.sessionStore.users.roleOf(user),
+    role: user === null ? undefined : await ctx.registry.sessionStore.users.roleOf(user),
   }
 }
 

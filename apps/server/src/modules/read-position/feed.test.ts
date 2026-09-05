@@ -140,8 +140,8 @@ function build() {
   const service = new ReadPositionService({
     cursors: repo as never,
     ledger: {
-      capture: (specs) => {
-        authority.capture(
+      capture: async (specs) => {
+        await authority.capture(
           specs.map((s) => ({
             entity: s.entity,
             entityId: s.id,
@@ -157,9 +157,9 @@ function build() {
 }
 
 describe('read-cursor rows scope to the owning user on the Authority feed', () => {
-  it("Alice's advance is on Alice's bootstrap, absent from Bob's, and durably stored", () => {
+  it("Alice's advance is on Alice's bootstrap, absent from Bob's, and durably stored", async () => {
     const { authority, service, repo } = build()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 42, seenAt: '2026-08-02T10:00:00Z' }, 't')
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 42, seenAt: '2026-08-02T10:00:00Z' }, 't')
 
     // Positive control: the write happened. Without this, the Bob assertion
     // below passes just as well when nothing was ever captured.
@@ -168,8 +168,8 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
     })
     expect(repo.getSnapshot(BOB)).toEqual({})
 
-    const aliceWorld = authority.bootstrap(humanPrincipal(ALICE))
-    const bobWorld = authority.bootstrap(humanPrincipal(BOB))
+    const aliceWorld = await authority.bootstrap(humanPrincipal(ALICE))
+    const bobWorld = await authority.bootstrap(humanPrincipal(BOB))
 
     const aliceRows = aliceWorld.changes.filter((c) => c.entity === 'userReadPosition')
     const bobRows = bobWorld.changes.filter((c) => c.entity === 'userReadPosition')
@@ -186,13 +186,13 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
     })
   })
 
-  it("a later advance reaches Alice's changesSince and Bob receives no cursor delta", () => {
+  it("a later advance reaches Alice's changesSince and Bob receives no cursor delta", async () => {
     const { authority, service } = build()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, 't1')
-    const before = authority.cursor()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: null }, 't2')
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, 't1')
+    const before = await authority.cursor()
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: null }, 't2')
 
-    const delivery = authority.changesSince(before, humanPrincipal(ALICE))
+    const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     expect(delivery?.kind).toBe('batch')
     if (delivery?.kind !== 'batch') return
     expect(
@@ -202,40 +202,40 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
       ),
     ).toBe(true)
 
-    const bobDelivery = authority.changesSince(before, humanPrincipal(BOB))
+    const bobDelivery = await authority.changesSince(before, humanPrincipal(BOB))
     expect(bobDelivery?.kind).toBe('batch')
     if (bobDelivery?.kind !== 'batch') return
     expect(bobDelivery.changes.filter((c) => c.entity === 'userReadPosition')).toEqual([])
   })
 
-  it('two people reading the same stream hold two independent positions', () => {
+  it('two people reading the same stream hold two independent positions', async () => {
     // The shape of the bug this member exists to prevent: one shared cursor.
     // Both users read the SAME log, so a shared row would look correct for
     // whoever wrote last and would silently mark the other's unread events read.
     const { authority, service, repo } = build()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 99, seenAt: null }, 't')
-    service.advance(BOB, 'issueEvents', { lastEventId: 7, seenAt: null }, 't')
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 99, seenAt: null }, 't')
+    await service.advance(BOB, 'issueEvents', { lastEventId: 7, seenAt: null }, 't')
 
     expect(repo.getSnapshot(ALICE).issueEvents?.lastEventId).toBe(99)
     expect(repo.getSnapshot(BOB).issueEvents?.lastEventId).toBe(7)
 
-    const bobRows = authority
-      .bootstrap(humanPrincipal(BOB))
+    const bobRows = (await authority
+      .bootstrap(humanPrincipal(BOB)))
       .changes.filter((c) => c.entity === 'userReadPosition')
     expect(bobRows.map((c) => c.entityId)).toEqual([readPositionRowId(BOB, 'issueEvents')])
     const bobRow = bobRows[0]
     expect(bobRow?.op === 'upsert' && (bobRow.value as { lastEventId: number }).lastEventId).toBe(7)
   })
 
-  it('a no-op advance publishes nothing — a feed row must mean the position moved', () => {
+  it('a no-op advance publishes nothing — a feed row must mean the position moved', async () => {
     const { authority, service } = build()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 30, seenAt: null }, 't1')
-    const before = authority.cursor()
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 30, seenAt: null }, 't1')
+    const before = await authority.cursor()
     // Behind the stored position: a second device that wrote before its
     // hydration landed. It must neither store nor publish.
-    service.advance(ALICE, 'issueEvents', { lastEventId: 5, seenAt: null }, 't2')
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 5, seenAt: null }, 't2')
 
-    const delivery = authority.changesSince(before, humanPrincipal(ALICE))
+    const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     if (delivery?.kind !== 'batch') return
     expect(delivery.changes.filter((c) => c.entity === 'userReadPosition')).toEqual([])
   })

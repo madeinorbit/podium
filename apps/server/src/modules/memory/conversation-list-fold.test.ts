@@ -31,7 +31,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
 
   async function build() {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, registry, memory: registry.modules.memory }
   }
@@ -53,8 +53,8 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     const { store, memory } = await build()
 
     expect(() =>
-      store.transact(() => {
-        memory.onDiscovery(machine, [conversation('c-rolled-back', 'draft')], [])
+      store.transact(async () => {
+        await memory.onDiscovery(machine, [conversation('c-rolled-back', 'draft')], [])
         // The savepoint has been released and the list is already installed
         // today. Read it here, inside the window the bug lived in: the staged
         // layer must show it to its own writer…
@@ -64,7 +64,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     ).toThrow('enclosing span failed')
 
     // …and the database forgot the row, so the served list must have too.
-    expect(store.conversations.index.search({}).map((row) => row.id)).not.toContain(
+    expect((await store.conversations.index.search({})).map((row) => row.id)).not.toContain(
       'c-rolled-back',
     )
     expect(idsOf(memory.allConversations())).not.toContain('c-rolled-back')
@@ -73,8 +73,8 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
   it('keeps a discovery whose enclosing span commits (site 9)', async () => {
     const { store, memory } = await build()
 
-    await store.transact(() => {
-      memory.onDiscovery(machine, [conversation('c-kept', 'draft')], [])
+    await store.transact(async () => {
+      await memory.onDiscovery(machine, [conversation('c-kept', 'draft')], [])
     })
 
     expect(idsOf(memory.allConversations())).toContain('c-kept')
@@ -82,11 +82,11 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
 
   it('does not serve a meta edit the enclosing span rolled back (site 10)', async () => {
     const { store, memory } = await build()
-    memory.onDiscovery(machine, [conversation('c-meta', 'original')], [])
+    await memory.onDiscovery(machine, [conversation('c-meta', 'original')], [])
 
     expect(() =>
-      store.transact(() => {
-        memory.setConversationMeta(SYSTEM_READER, { id: 'c-meta', name: 'renamed' })
+      store.transact(async () => {
+        await memory.setConversationMeta(SYSTEM_READER, { id: 'c-meta', name: 'renamed' })
         throw new Error('enclosing span failed')
       }),
     ).toThrow('enclosing span failed')
@@ -103,11 +103,11 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     // the first edit set would be silently dropped from the value that finally
     // commits. The read-through staged layer is what keeps that honest.
     const { store, memory } = await build()
-    memory.onDiscovery(machine, [conversation('c-two', 'original')], [])
+    await memory.onDiscovery(machine, [conversation('c-two', 'original')], [])
 
-    await store.transact(() => {
-      memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', name: 'renamed' })
-      memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', summary: 'a summary' })
+    await store.transact(async () => {
+      await memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', name: 'renamed' })
+      await memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', summary: 'a summary' })
     })
 
     const served = memory.allConversations().find((row) => row.id === 'c-two')

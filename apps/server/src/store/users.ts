@@ -19,7 +19,8 @@ import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export interface UserAccountRow {
   id: string
@@ -49,7 +50,7 @@ export interface UserCredentialRow {
 }
 
 export class UsersRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -62,8 +63,8 @@ export class UsersRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -96,7 +97,7 @@ export class UsersRepository {
    */
   private readonly accountsSlot = readScopeSlot(() => new Map<string, UserAccountRow | undefined>())
 
-  private frameCache(): Map<string, UserAccountRow | undefined> {
+  private async frameCache(): Promise<Map<string, UserAccountRow | undefined>> {
     return currentReadScope().slot(this.accountsSlot)
   }
 
@@ -106,19 +107,19 @@ export class UsersRepository {
    * caller's next move is the same — refuse — and giving the caller three arms
    * to get wrong is how one of them ends up permissive.
    */
-  get(userId: UserId): UserAccountRow | undefined {
-    const cache = this.frameCache()
+  async get(userId: UserId): Promise<UserAccountRow | undefined> {
+    const cache = await this.frameCache()
     if (cache.has(userId)) {
       const hit = cache.get(userId)
       return hit === undefined ? undefined : { ...hit }
     }
-    const account = this.read(userId)
+    const account = await this.read(userId)
     cache.set(userId, account)
     return account === undefined ? undefined : { ...account }
   }
 
-  private read(userId: UserId): UserAccountRow | undefined {
-    const r = this.db.select().from(users).where(eq(users.id, userId)).get()
+  private async read(userId: UserId): Promise<UserAccountRow | undefined> {
+    const r = await this.db.select().from(users).where(eq(users.id, userId)).get()
     if (!r) return undefined
     const role = parseRole(r.role)
     if (role === undefined) return undefined
@@ -134,21 +135,21 @@ export class UsersRepository {
   }
 
   /** The account role, or `undefined` for an account that cannot act. */
-  roleOf(userId: UserId): UserRole | undefined {
-    return this.get(userId)?.role
+  async roleOf(userId: UserId): Promise<UserRole | undefined> {
+    return (await this.get(userId))?.role
   }
 
-  list(): UserAccountRow[] {
-    const rows = this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
+  async list(): Promise<UserAccountRow[]> {
+    const rows = await this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
     return rows.flatMap((row) => {
       const account = this.get(row.id)
       return account ? [account] : []
     })
   }
 
-  credentialFor(userId: UserId): UserCredentialRow | undefined {
-    if (!this.get(userId)) return undefined
-    const row = this.db
+  async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
+    if (!await this.get(userId)) return undefined
+    const row = await this.db
       .select()
       .from(userCredentials)
       .where(eq(userCredentials.userId, userId))
@@ -167,8 +168,8 @@ export class UsersRepository {
     }
   }
 
-  hasPerUserCredentials(): boolean {
-    const row = this.db
+  async hasPerUserCredentials(): Promise<boolean> {
+    const row = await this.db
       .select({ present: sql<number>`1` })
       .from(userCredentials)
       .where(
@@ -179,13 +180,13 @@ export class UsersRepository {
     return row?.present === 1
   }
 
-  create(account: UserAccountRow, passwordHash: string): void {
+  async create(account: UserAccountRow, passwordHash: string): Promise<void> {
     // The table's only writer drops the scope's cache, so the read after a mint
     // sees the account rather than the "no account" this scope had cached.
     currentReadScope().clear(this.accountsSlot)
     try {
-      this.createOrJoinTransaction(() => {
-        this.db
+      await this.createOrJoinTransaction(async () => {
+        ;await (this.db
           .insert(users)
           .values({
             // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
@@ -195,9 +196,9 @@ export class UsersRepository {
             role: account.role,
             createdAt: account.createdAt,
             disabledAt: null,
-          })
+          }))
           .run()
-        this.db
+        ;await (this.db
           .insert(userCredentials)
           .values({
             // Same external account id, branded independently for this write.
@@ -205,7 +206,7 @@ export class UsersRepository {
             source: 'per-user-scrypt',
             passwordHash,
             updatedAt: account.createdAt,
-          })
+          }))
           .run()
       })
     } finally {
@@ -216,11 +217,11 @@ export class UsersRepository {
     }
   }
 
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void {
-    if (!this.get(userId)) throw new Error(`unknown user: ${userId}`)
-    this.db
+  async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
+    if (!await this.get(userId)) throw new Error(`unknown user: ${userId}`)
+    ;await (this.db
       .insert(userCredentials)
-      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt })
+      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
       .onConflictDoUpdate({
         target: userCredentials.userId,
         set: { source: 'per-user-scrypt', passwordHash, updatedAt },

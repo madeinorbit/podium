@@ -30,7 +30,7 @@ describe('prepareTarget reconnect inventory', () => {
       store: { repos: { listRepos } },
     } as unknown as SessionWorkspacePorts)
 
-    const preparing = workspace.prepareTarget({
+    const preparing = await workspace.prepareTarget({
       agentKind: 'claude-code',
       cwd: '/repo',
       machineId: asMachineId('machine-b'),
@@ -54,7 +54,7 @@ describe('prepareTarget reconnect inventory', () => {
     } as unknown as SessionWorkspacePorts)
 
     await expect(
-      workspace.prepareTarget({
+      await workspace.prepareTarget({
         agentKind: 'shell',
         cwd: '/repo',
         machineId: asMachineId('machine-b'),
@@ -172,11 +172,11 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
    * promise. Asserting the RETURN TYPE, not just the value — an `await` in the
    * test would hide exactly the regression this guards.
    */
-  it('resolves synchronously when the worktree is already recorded', () => {
+  it('resolves synchronously when the worktree is already recorded', async () => {
     const { workspace, issues, ensureWorktree } = harness(
       issueMeta({ worktreePath: '/repo/.worktrees/issue-7', branch: 'issue/7-thing' }),
     )
-    const result = workspace.ensureSessionWorktree(session({}), issues)
+    const result = await workspace.ensureSessionWorktree(session({}), issues)
 
     expect(result).not.toBeInstanceOf(Promise)
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })

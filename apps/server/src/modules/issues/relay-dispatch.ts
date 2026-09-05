@@ -114,25 +114,25 @@ function sessionLabel(session: SessionMeta): string | undefined {
  * facts — the issue's seq, and the display names of the OTHER sessions on it, so
  * the agent can pick a name that isn't a duplicate of its neighbours'.
  */
-function sessionTitlePrime(
+async function sessionTitlePrime(
   sessionsSvc: SessionLifecycle,
   issues: IssueService,
   actorSessionId: SessionId,
-): string {
-  const actor = sessionsSvc.sessionById(actorSessionId)
+): Promise<string> {
+  const actor = await sessionsSvc.sessionById(actorSessionId)
   if (!actor) return ''
   if (actor.name?.trim()) return ''
   const issueId = actor.issueId ?? issues.issueForCwd(actor.cwd)
   if (!issueId) return ''
-  const issue = issues.getMeta(issueId)
+  const issue = await issues.getMeta(issueId)
   const seq = issue?.seq
   if (seq === undefined) return ''
   // Siblings = the other sessions on the SAME issue that have a usable label. A
   // session still showing a placeholder ('Claude Code', a spinner frame, an empty
   // OSC title) contributes nothing an agent could distinguish itself from, so it
   // is skipped rather than listed as noise.
-  const siblings = sessionsSvc
-    .listSessionsForIssue(issue?.worktreePath ?? null, issueId)
+  const siblings = (await sessionsSvc
+    .listSessionsForIssue(issue?.worktreePath ?? null, issueId))
     .filter((s) => s.sessionId !== actorSessionId && !s.archived)
     .filter((s) => (s.issueId ?? issues.issueForCwd(s.cwd)) === issueId)
     .map((s) => sessionLabel(s))
@@ -162,12 +162,12 @@ export function makeAgentRelayDispatch(
     workflows,
   } = deps
 
-  return (capability, overrideScope, router, proc, input) => {
+  return async (capability, overrideScope, router, proc, input) => {
     if (router === 'features' && proc === 'state') {
       return Promise.resolve(featureStates())
     }
     if (router === 'quota' && proc === 'summary') {
-      return modules().rpc.agentQuotaAll()
+      return await modules().rpc.agentQuotaAll()
     }
     /**
      * `machines.list` for agents (POD-1386) — "what can I run on?".
@@ -203,15 +203,15 @@ export function makeAgentRelayDispatch(
      * SECOND proc rather than a wider `list`.
      */
     if (router === 'machines' && proc === 'list') {
-      return Promise.resolve(visibleMachinesFor(modules(), capability))
+      return Promise.resolve(await visibleMachinesFor(modules(), capability))
     }
     if (router === 'machines' && proc === 'listWithRepos') {
-      return Promise.resolve(fleetViewFor(modules(), capability, listRepos()))
+      return Promise.resolve(await fleetViewFor(modules(), capability, listRepos()))
     }
     if (router === 'machines' && proc === 'reprobe') {
       const raw = (input ?? {}) as Record<string, unknown>
       if (typeof raw.id !== 'string' || !raw.id) throw new Error('machine id is required')
-      const machine = visibleMachinesFor(modules(), capability).find(
+      const machine = (await visibleMachinesFor(modules(), capability)).find(
         (candidate) => candidate.id === raw.id,
       )
       if (!machine) throw new Error(`no visible machine with id '${raw.id}'`)
@@ -223,12 +223,12 @@ export function makeAgentRelayDispatch(
       return Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
-      return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
+      return specs.has(proc) ? (await specs.invoke(proc, input) as Promise<unknown>) : undefined
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
     if (router === 'lock') {
-      return lockCommands.dispatch(
+      return await lockCommands.dispatch(
         { capability, ...(overrideScope ? { overrideScope } : {}) },
         proc,
         input,
@@ -238,7 +238,7 @@ export function makeAgentRelayDispatch(
     // send/inbox/show/reply + the stop-hook's pendingReminders. Authz lives
     // in the gate (session targets: same containment as the sessions arm).
     if (router === 'messages') {
-      return messageGate.dispatch(capability, overrideScope, proc, input)
+      return await messageGate.dispatch(capability, overrideScope, proc, input)
     }
     // The workflow surface, derived from the contract + query tables
     // (POD-732). `WorkflowService.dispatch` — a reflective call over the
@@ -246,7 +246,7 @@ export function makeAgentRelayDispatch(
     // exposure is asked per declaration and both transports enter through
     // the same `execute` door.
     if (router === 'workflows') {
-      return dispatchWorkflowRpc(
+      return await dispatchWorkflowRpc(
         workflows,
         workflowCallerForCapability(capability, overrideScope),
         proc,
@@ -264,7 +264,7 @@ export function makeAgentRelayDispatch(
         throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
       }
       if (proc === 'clean') {
-        return sessionsSvc.workspace.cleanPeeks({
+        return await sessionsSvc.workspace.cleanPeeks({
           callerSessionId: actorSessionId,
         })
       }
@@ -272,7 +272,7 @@ export function makeAgentRelayDispatch(
       return (async () => {
         const raw = (input ?? {}) as Record<string, unknown>
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
-        const target = readToolkit.resolveTarget(raw.ref)
+        const target = await readToolkit.resolveTarget(raw.ref)
         if (!target) throw new Error(`no session found for ${raw.ref}`)
         const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
         if (targetIssueId) {
@@ -287,7 +287,7 @@ export function makeAgentRelayDispatch(
             targetIssueId,
           )
         }
-        return sessionsSvc.workspace.fetch({
+        return await sessionsSvc.workspace.fetch({
           sourceSessionId: target.sessionId,
           callerSessionId: actorSessionId,
         })
@@ -355,8 +355,8 @@ export function makeAgentRelayDispatch(
         // containment (see `capabilityForSession`). Both the retirement guard
         // and the self-reference nudge below are about that one issue.
         const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
-        const ownRow = ownIssueId ? issues.getMeta(ownIssueId) : null
-        const ownRef = ownRow ? issues.niceRef(ownRow) : null
+        const ownRow = ownIssueId ? await issues.getMeta(ownIssueId) : null
+        const ownRef = ownRow ? await issues.niceRef(ownRow) : null
         // RETIRE ON CLOSE, IN EITHER ORDER (POD-1072). `retireIssueOffers`
         // sweeps standing offers when the issue closes, but the common shape is
         // the reverse: an agent closes and THEN posts its closing offer, which
@@ -406,7 +406,7 @@ export function makeAgentRelayDispatch(
       // session ask` rides the messages gate (it IS a message: question +
       // next-turn + wake + bounded ack wait; the gate owns its authz).
       if (proc === 'ask') {
-        return messageGate.dispatch(capability, overrideScope, 'ask', input)
+        return await messageGate.dispatch(capability, overrideScope, 'ask', input)
       }
       if (proc === 'status' || proc === 'read' || proc === 'recap') {
         return (async () => {
@@ -415,7 +415,7 @@ export function makeAgentRelayDispatch(
           if (typeof ref !== 'string' || !ref) {
             throw new Error(`${proc === 'status' ? 'ref' : 'sessionId'} is required`)
           }
-          const target = readToolkit.resolveTarget(ref)
+          const target = await readToolkit.resolveTarget(ref)
           if (!target) throw new Error(`no session found for ${ref}`)
           const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
           if (targetIssueId) {
@@ -444,11 +444,11 @@ export function makeAgentRelayDispatch(
             }
           }
           const reader = capability.actorSessionId ?? 'operator'
-          if (proc === 'status') return readToolkit.status(ref, reader)
+          if (proc === 'status') return await readToolkit.status(ref, reader)
           // Tier 3 — server-side recap since a watermark (#237)
           // [spec:SP-34d7 read-toolkit]: delta-priced repeated check-ins.
           if (proc === 'recap') {
-            return readToolkit.recap(
+            return await readToolkit.recap(
               {
                 sessionId: target.sessionId,
                 ...(typeof raw.since === 'string' && raw.since ? { since: raw.since } : {}),
@@ -457,7 +457,7 @@ export function makeAgentRelayDispatch(
             )
           }
           const turns = raw.turns != null ? Number(raw.turns) : undefined
-          return readToolkit.read(
+          return await readToolkit.read(
             {
               sessionId: target.sessionId,
               ...(turns != null && Number.isFinite(turns) ? { turns } : {}),
@@ -505,7 +505,7 @@ export function makeAgentRelayDispatch(
           }
           const selfStop = actorSessionId !== undefined && sessionId === actorSessionId
           if (!selfStop) {
-            const target = sessionsSvc.sessionById(sessionId)
+            const target = await sessionsSvc.sessionById(sessionId)
             if (!target) throw new Error('session not found')
             const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
             if (targetIssueId) {
@@ -575,7 +575,7 @@ export function makeAgentRelayDispatch(
        */
       if (proc === 'handoff') {
         const parsed = sessionHandoffInput.parse(input)
-        return issueSessionLifecycle.handoffSession(parsed, {
+        return await issueSessionLifecycle.handoffSession(parsed, {
           capability,
           principal: sessionCommandCtx(modules(), capability, overrideScope, 'relay').principal,
         })
@@ -595,11 +595,11 @@ export function makeAgentRelayDispatch(
       return undefined
     }
     if (router === 'approvals') {
-      if (proc === 'request') return Promise.resolve(approvals.request(input))
-      if (proc === 'get') return Promise.resolve(approvals.getFromAgent(input))
+      if (proc === 'request') return Promise.resolve(await approvals.request(input))
+      if (proc === 'get') return Promise.resolve(await approvals.getFromAgent(input))
       return undefined
     }
-    const result = issueCommands.dispatch(
+    const result = await issueCommands.dispatch(
       { capability, ...(overrideScope ? { overrideScope } : {}) },
       router,
       proc,
@@ -607,15 +607,15 @@ export function makeAgentRelayDispatch(
     )
     const actorSessionId = capability.actorSessionId
     if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
-      return Promise.resolve(result).then((issuePrime) => {
+      return Promise.resolve(result).then(async (issuePrime) => {
         const workflowPrime = featureEnabled('workflows')
-          ? workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
+          ? await workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
           : ''
         // Name-your-own-session (#490): asked for only while the session HAS no
         // name — a named session (by the user or by an earlier turn of this agent)
         // never sees the instruction, so the prime doesn't nag an agent into
         // re-titling something already titled.
-        const titlePrime = sessionTitlePrime(sessionsSvc, issues, actorSessionId)
+        const titlePrime = await sessionTitlePrime(sessionsSvc, issues, actorSessionId)
         return [String(issuePrime), workflowPrime, titlePrime].filter(Boolean).join('\n\n')
       })
     }

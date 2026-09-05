@@ -87,11 +87,11 @@ export class SessionActivityHistory {
     this.unsubscribe()
   }
 
-  private record(sessionId: SessionId, phase: AgentPhase, prev: AgentPhase | undefined): void {
+  private async record(sessionId: SessionId, phase: AgentPhase, prev: AgentPhase | undefined): Promise<void> {
     const known = this.lastRecorded.get(sessionId) ?? prev
     if (known === phase) return
     try {
-      this.deps.events.appendEvent({
+      await this.deps.events.appendEvent({
         ts: new Date(this.deps.now()).toISOString(),
         kind: SESSION_PHASE_EVENT,
         subject: sessionId,
@@ -103,12 +103,12 @@ export class SessionActivityHistory {
     }
   }
 
-  history(sessionIds: readonly SessionId[]): SessionActivityHistoryResult {
+  async history(sessionIds: readonly SessionId[]): Promise<SessionActivityHistoryResult> {
     const nowMs = this.deps.now()
     const since = new Date(nowMs - SESSION_ACTIVITY_WINDOW_MS).toISOString()
     const sessions: Record<string, SessionPhaseSample[]> = {}
     for (const sessionId of new Set(sessionIds)) {
-      const rows = this.deps.events.listKindSubjectSinceWithPrior(
+      const rows = await this.deps.events.listKindSubjectSinceWithPrior(
         SESSION_PHASE_EVENT,
         sessionId,
         since,

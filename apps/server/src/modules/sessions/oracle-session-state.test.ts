@@ -279,7 +279,7 @@ describe('oracle: setWorkState', () => {
 describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: attaching an issue is a NAMING POINT (it allocates a ref letter); detaching is not`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
+    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
@@ -565,7 +565,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
     })
 
     expect(reopened.sessionId).toBe(sessionId)
-    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
     expect((await o.store.sessions.loadSessions()).map((r) => r.id)).toEqual([sessionId])
     expect(o.meta(sessionId).status).toBe('starting')
     // It is the resurrect path, so it fences too — one frame, under the old id.

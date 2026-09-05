@@ -95,12 +95,12 @@ function classifyRelay(
 /** An oracle with two issues and one agent session living inside issue A. */
 async function twoIssueOracle() {
   const o = await makeOracle()
-  const a = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-  o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })
-  o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+  await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
+  const b = await o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })
+  await o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
-  const agent = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/.worktrees/a' })
+  const agent = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/.worktrees/a' })
   return { o, a, b, agentSessionId: agent.sessionId }
 }
 
@@ -115,7 +115,7 @@ describe('oracle: the authenticated admin seam', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
     })
     // And it writes sessions it has no relationship to whatsoever.
-    const foreign = o.reg.modules.sessions.createSession({
+    const foreign = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/somebody/elses/tree',
       spawnedBy: 'session:someone-else',
@@ -278,12 +278,12 @@ describe('oracle: how a relayed call ends — refused by the gate, lost before d
 describe('oracle: continue and stop ARE reachable by an agent, under different gates', () => {
   it(`${AGENT_ONLY}: continue rides the same scope gate as the sends — in-subtree accepted, cross-issue refused`, async () => {
     const { o, a, b, agentSessionId } = await twoIssueOracle()
-    const peer = o.reg.modules.sessions.createSession({
+    const peer = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,
     })
-    const stranger = o.reg.modules.sessions.createSession({
+    const stranger = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/b',
       issueId: b.id,
@@ -354,13 +354,13 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     // A shell parks as 'hibernated' (a fresh spawn IS its recovery, so stop keeps
     // it resumable) — the row survives the self-stop.
     expect(
-      o.reg.modules.sessions.listSessions().find((s) => s.sessionId === agentSessionId)?.status,
+      (await o.reg.modules.sessions.listSessions()).find((s) => s.sessionId === agentSessionId)?.status,
     ).toBe('hibernated')
   })
 
   it(`${AGENT_ONLY}: stopping an ISSUELESS stranger is refused with a message DIFFERENT from the send path's — and --outside-scope DOES lift it here`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
-    const orphan = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const orphan = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
 
     const denied = await o.relay({
       requestId: 'stop-issueless',
@@ -391,7 +391,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
 describe('oracle: the writes an agent CAN make, and what gates them', () => {
   it(`${AGENT_ONLY}: sendText to a session in the caller's own subtree is ACCEPTED`, async () => {
     const { o, a, agentSessionId } = await twoIssueOracle()
-    const peer = o.reg.modules.sessions.createSession({
+    const peer = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,
@@ -410,7 +410,7 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
   it(`${AGENT_ONLY}: sendText ACROSS issues is refused as a scope violation, overridable with --outside-scope`, async () => {
     const { o, b, agentSessionId } = await twoIssueOracle()
-    const stranger = o.reg.modules.sessions.createSession({
+    const stranger = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/b',
       issueId: b.id,
@@ -442,7 +442,7 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
   it(`${AGENT_ONLY}: an ISSUELESS target is parent-or-operator only, and --outside-scope does NOT substitute`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
-    const orphan = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const orphan = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
 
     const denied = await o.relay({
       requestId: 'send-issueless',
@@ -474,7 +474,7 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
   it(`${AGENT_ONLY}: the PARENT of an issueless session may message it (spawnedBy provenance is the grant)`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
-    const child = o.reg.modules.sessions.createSession({
+    const child = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/elsewhere',
       spawnedBy: `session:${agentSessionId}`,
@@ -493,7 +493,7 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
   it(`${MUST_NOT_CHANGE}: sessions.title targets the CALLING session — a sessionId in the payload is ignored, never honoured`, async () => {
     const { o, a, agentSessionId } = await twoIssueOracle()
-    const victim = o.reg.modules.sessions.createSession({
+    const victim = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,

@@ -786,8 +786,8 @@ export class HostsService {
   /** Ask a daemon who owns the used memory. Resolves undefined when no daemon
    *  answers in time. `machineId` targets a specific machine (the one whose chip
    *  was clicked); omitted → the default online machine. */
-  memoryBreakdown(roots: string[], machineId?: MachineId): Promise<MemoryBreakdown | undefined> {
-    return this.deps.daemonRequest.request({
+  async memoryBreakdown(roots: string[], machineId?: MachineId): Promise<MemoryBreakdown | undefined> {
+    return await this.deps.daemonRequest.request({
       kind: MEMORY_BREAKDOWN,
       timeoutMs: MEMORY_BREAKDOWN_TIMEOUT_MS,
       onTimeout: () => undefined,
@@ -812,11 +812,11 @@ export class HostsService {
    * daemon worker measurement when the exact all/free path sets have changed.
    * A previous set's bytes are never relabelled as the current answer.
    */
-  reclaimDiskEstimate(
+  async reclaimDiskEstimate(
     roots: string[],
     reclaimRoots: string[],
     machineId?: MachineId,
-  ): ReclaimDiskEstimateState {
+  ): Promise<ReclaimDiskEstimateState> {
     if (roots.length === 0 || reclaimRoots.length === 0) {
       return { status: 'unknown', recoverableBytes: null, measuredAt: null }
     }
@@ -839,7 +839,7 @@ export class HostsService {
       state: measuring,
       validUntilMs: Date.now() + RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
     })
-    void this.deps.daemonRequest
+    void (await this.deps.daemonRequest
       .request({
         kind: RECLAIM_DISK_ESTIMATE,
         timeoutMs: RECLAIM_DISK_ESTIMATE_TIMEOUT_MS,
@@ -851,7 +851,7 @@ export class HostsService {
           reclaimRoots: stableReclaimRoots,
         }),
         machineId,
-      })
+      }))
       .then((result) => {
         const current = this.reclaimDiskEstimateByMachine.get(key)
         if (current?.fingerprint !== fingerprint) return

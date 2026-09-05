@@ -154,9 +154,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     return { s, forwarded, forwardedAttachments, enqueued, legacy }
   }
 
-  it('completes a queued send on the server and forwards nothing', () => {
+  it('completes a queued send on the server and forwards nothing', async () => {
     const { s, forwarded, enqueued } = sender(true)
-    const r = s.send('queue', { sessionId: asSessionId('s1'), text: 'durable' })
+    const r = await s.send('queue', { sessionId: asSessionId('s1'), text: 'durable' })
 
     expect(r).toEqual({ ok: true, queued: true, position: 1 })
     expect(enqueued).toEqual(['durable'])
@@ -164,9 +164,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // that reached the machine would drain unauthorized.
     expect(forwarded).toEqual([])
   })
-  it('reports a native-held send as queued with its durable position', () => {
+  it('reports a native-held send as queued with its durable position', async () => {
     const { s, forwarded, enqueued } = sender(true, false, {}, true)
-    const r = s.send('now', { sessionId: asSessionId('s1'), text: 'held by native' })
+    const r = await s.send('now', { sessionId: asSessionId('s1'), text: 'held by native' })
 
     expect(r).toEqual({ ok: true, queued: true, position: 1 })
     expect(enqueued).toEqual(['held by native'])
@@ -175,7 +175,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
 
   it.each([false, true])(
     'archive refusal outranks allowErrored before the contract=%s send seam',
-    (onContract) => {
+    async (onContract) => {
       const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
         archive: 'session is archived',
         failure: 'provider failed',
@@ -183,7 +183,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
 
       for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
         expect(
-          s.send(via, {
+          await s.send(via, {
             sessionId: asSessionId('s1'),
             text: 'do not revive',
             allowErrored: true,
@@ -197,11 +197,11 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     },
   )
 
-  it('allowErrored still crosses a provider failure when archive is absent', () => {
+  it('allowErrored still crosses a provider failure when archive is absent', async () => {
     const { s, enqueued } = sender(true, false, { failure: 'provider failed' })
 
     expect(
-      s.send('queue', {
+      await s.send('queue', {
         sessionId: asSessionId('s1'),
         text: 'recovery answer',
         allowErrored: true,
@@ -220,7 +220,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     }
     const live = sender(true)
     expect(
-      live.s.send('now', {
+      await live.s.send('now', {
         sessionId: asSessionId('s1'),
         text: 'describe it',
         attachments: [attachment],
@@ -231,7 +231,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const receipts: string[] = []
     const queued = sender(true)
     expect(
-      queued.s.send(
+      await queued.s.send(
         'queue',
         { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
         (receipt) =>
@@ -243,7 +243,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     await Promise.resolve()
   })
 
-  it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', () => {
+  it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', async () => {
     const attachment = {
       id: 'att-1',
       path: '/state/uploads/s1/att-1.png',
@@ -255,7 +255,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const offContract = sender(false)
 
     expect(
-      offContract.s.send(
+      await offContract.s.send(
         'now',
         { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
         (receipt) =>
@@ -267,11 +267,11 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(receipts).toEqual(['unsupported'])
   })
 
-  it('rejects a forged filesystem ref before it reaches either send implementation', () => {
+  it('rejects a forged filesystem ref before it reaches either send implementation', async () => {
     const receipts: string[] = []
     const live = sender(true)
     expect(
-      live.s.send(
+      await live.s.send(
         'now',
         {
           sessionId: asSessionId('s1'),
@@ -298,7 +298,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(receipts).toEqual(['staging_failed'])
   })
 
-  it('carries the idempotency key and the ledger id into the durable row', () => {
+  it('carries the idempotency key and the ledger id into the durable row', async () => {
     // REGRESSION. The port originally carried neither, and nothing about a send
     // would have looked wrong: a dropped `mutationId` turns every steward or
     // automation retry from a no-op into a duplicate turn, and a dropped
@@ -332,7 +332,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       now: () => 0,
     })
 
-    s.send('queue', {
+    await s.send('queue', {
       sessionId: asSessionId('s1'),
       text: 'nudge',
       mutationId: 'fact-key-1' as never,
@@ -342,24 +342,24 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(rows[0]).toMatchObject({ mutationId: 'fact-key-1', sourceMessageId: 'msg-1' })
   })
 
-  it('completes a parked wake on the server too — the resurrect the driver cannot do', () => {
+  it('completes a parked wake on the server too — the resurrect the driver cannot do', async () => {
     const { s, forwarded, enqueued } = sender(true)
-    s.send('wake', { sessionId: asSessionId('s1'), text: 'wake up' })
+    await s.send('wake', { sessionId: asSessionId('s1'), text: 'wake up' })
 
     expect(enqueued).toEqual(['wake up'])
     expect(forwarded).toEqual([])
   })
 
-  it('forwards only the live deliveries, and only those', () => {
+  it('forwards only the live deliveries, and only those', async () => {
     const { s, forwarded, enqueued } = sender(true)
-    expect(s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true })
-    expect(s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({ ok: true })
+    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true })
+    expect(await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({ ok: true })
 
     expect(forwarded).toEqual(['when-ready', 'interrupt'])
     expect(enqueued).toEqual([])
   })
 
-  it('holds a live send behind a non-empty durable queue rather than jumping it', () => {
+  it('holds a live send behind a non-empty durable queue rather than jumping it', async () => {
     // ORDER, WHICH THE DRIVER CANNOT PROTECT. Once a session has a driver there
     // are two queues — the server's durable table and the driver's in-memory one
     // — and nothing sequences between them. A `when-ready` sent past older rows
@@ -371,7 +371,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // now answers it. "Is there older work ahead of this" is a fact about the
     // server's own table, which the driver has never seen.
     const { s, forwarded, enqueued } = sender(true, true)
-    s.send('now', { sessionId: asSessionId('s1'), text: 'newer' })
+    await s.send('now', { sessionId: asSessionId('s1'), text: 'newer' })
 
     expect(enqueued).toEqual(['newer'])
     expect(forwarded).toEqual([])
@@ -410,9 +410,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     })
 
     // No reconciler: must not throw, and must not leave a rejection unobserved.
-    expect(s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({ ok: true })
+    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({ ok: true })
 
-    s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
+    await s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
       seen.push(
         receipt.outcome === 'refused' ? `refused:${receipt.refusal.reason}` : receipt.outcome,
       )
@@ -421,10 +421,10 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(seen).toEqual(['refused:not_running'])
   })
 
-  it('touches neither path for a session with no driver behind it', () => {
+  it('touches neither path for a session with no driver behind it', async () => {
     const { s, forwarded, enqueued } = sender(false)
-    s.send('now', { sessionId: asSessionId('s1'), text: 'legacy' })
-    s.send('queue', { sessionId: asSessionId('s1'), text: 'legacy' })
+    await s.send('now', { sessionId: asSessionId('s1'), text: 'legacy' })
+    await s.send('queue', { sessionId: asSessionId('s1'), text: 'legacy' })
 
     // Flag off goes to the legacy verbs and nowhere near the contract — the
     // "zero diff" claim, as a test rather than an assurance.

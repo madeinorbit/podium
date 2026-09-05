@@ -22,14 +22,14 @@ const bind = (sessionId: SessionId, cwd: string, agentKind: 'claude-code' | 'cod
     geometry,
   }) as const
 
-function caller(
+async function caller(
   cloud?: CloudRuntimeProvider,
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({
     registry,
     repos,
@@ -92,7 +92,7 @@ function captureCloudProvider(): {
 
 describe('cloud router', () => {
   it('reports cloud disabled when no hosted provider is configured', async () => {
-    const { call } = caller()
+    const { call } = await caller()
 
     await expect(call.cloud.capabilities()).resolves.toEqual({
       provider: 'disabled',
@@ -107,7 +107,7 @@ describe('cloud router', () => {
   })
 
   it('rejects cloud runtime creation when no hosted provider is configured', async () => {
-    const { call } = caller()
+    const { call } = await caller()
 
     await expect(
       call.cloud.createAgent({
@@ -120,7 +120,7 @@ describe('cloud router', () => {
 
   it('moves a resumable codex session to a cloud agent request', async () => {
     const cloud = captureCloudProvider()
-    const { call, registry } = caller(cloud.provider)
+    const { call, registry } = await caller(cloud.provider)
     await registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       registry.sessionStore.hostMachineId,
@@ -163,13 +163,13 @@ describe('cloud router', () => {
   it('can hibernate the local session after creating the cloud agent', async () => {
     const cloud = captureCloudProvider()
     const daemon: ControlMessage[] = []
-    const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
+    const { call, registry } = await caller(cloud.provider, (message) => daemon.push(message))
     await registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       registry.sessionStore.hostMachineId,
       'https://github.com/madeinorbit/podium.git',
     )
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',
@@ -193,7 +193,7 @@ describe('cloud router', () => {
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
     expect(
-      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status,
+      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status,
     ).toBe('hibernated')
     expect(cloud.createdAgents.at(-1)).toMatchObject({
       sourceSession: {
@@ -208,8 +208,8 @@ describe('cloud router', () => {
 
   it('rejects moving a session without a resume ref', async () => {
     const cloud = captureCloudProvider()
-    const { call, registry } = caller(cloud.provider)
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { call, registry } = await caller(cloud.provider)
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',

@@ -71,9 +71,9 @@ const badRequest = (e: unknown): never => {
 // machines.* — hub role
 // ---------------------------------------------------------------------------
 
-export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
-  mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
-  return mods(ctx).machines.listMachines()
+export const machineRenameHandler = async ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
+  await mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
+  return await mods(ctx).machines.listMachines()
 }
 
 export const machineSetUpdateChannelHandler = async ({
@@ -82,22 +82,22 @@ export const machineSetUpdateChannelHandler = async ({
 }: FleetArgs<{ id: string; channel: UpdateChannel | null }>) => {
   const modules = mods(ctx)
   const machineId = asMachineId(input.id)
-  modules.machines.setUpdateChannel(machineId, input.channel)
+  await modules.machines.setUpdateChannel(machineId, input.channel)
   // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
   // is the fleet default rather than anything in the input (POD-1882) — and the
   // fleet default is asked for, not assumed to be a literal (POD-2100).
   await modules.updates.refreshTarget(
     resolveMachineChannel(
-      modules.machines.updateChannel(machineId),
+      await modules.machines.updateChannel(machineId),
       modules.updates.fleetDefaultChannel(),
     ),
   )
-  return modules.machines.listMachines()
+  return await modules.machines.listMachines()
 }
 
 export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
   const modules = mods(ctx)
-  const machine = modules.machines.listMachines().find((candidate) => candidate.id === input.id)
+  const machine = (await modules.machines.listMachines()).find((candidate) => candidate.id === input.id)
   if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
   await modules.updates.refreshTarget(
     resolveMachineChannel(machine.updateChannel, modules.updates.fleetDefaultChannel()),
@@ -108,35 +108,35 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
     initiator: { kind: 'operator-apply' },
     eligibility: 'a person pressed Apply on this fleet row',
   })
-  return { machines: modules.machines.listMachines(), outcome }
+  return { machines: await modules.machines.listMachines(), outcome }
 }
 
-export const machineShareHandler = ({
+export const machineShareHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
-  const principal = fleetAuthzDeps(ctx).principal
+  const principal = (await fleetAuthzDeps(ctx)).principal
   const attribution = attributionOf(principal)
   if (attribution.onBehalfOf === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  mods(ctx).machines.shareMachine(asMachineId(input.id), input.grantee, input.verb, {
+  await mods(ctx).machines.shareMachine(asMachineId(input.id), input.grantee, input.verb, {
     actor: attribution.actor,
     onBehalfOf: attribution.onBehalfOf,
   })
-  return mods(ctx).machines.listMachines()
+  return await mods(ctx).machines.listMachines()
 }
 
-export const machineUnshareHandler = ({
+export const machineUnshareHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
-  const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  const owner = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
   if (owner === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner)
-  return mods(ctx).machines.listMachines()
+  await mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner)
+  return await mods(ctx).machines.listMachines()
 }
 
 /**
@@ -149,11 +149,11 @@ export const machineUnshareHandler = ({
  * principal with no human behind it — the in-process system principal — cannot
  * own a machine and therefore cannot give one away.
  */
-export const machineTransferOwnershipHandler = ({
+export const machineTransferOwnershipHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
-  const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  const owner = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
   if (owner === null) {
     throw new TRPCError({
       code: 'FORBIDDEN',
@@ -161,11 +161,11 @@ export const machineTransferOwnershipHandler = ({
     })
   }
   try {
-    mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner)
+    await mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner)
   } catch (e) {
     return badRequest(e)
   }
-  return mods(ctx).machines.listMachines()
+  return await mods(ctx).machines.listMachines()
 }
 
 /**
@@ -183,25 +183,25 @@ export const machineTransferOwnershipHandler = ({
  * The admin may of course name themselves. That is a choice they make in the
  * open and it lands in the ledger with their id on it.
  */
-export const machineAdoptHandler = ({
+export const machineAdoptHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
   try {
-    mods(ctx).machines.adoptMachine(asMachineId(input.id), input.newOwnerUserId)
+    await mods(ctx).machines.adoptMachine(asMachineId(input.id), input.newOwnerUserId)
   } catch (e) {
     return badRequest(e)
   }
-  return mods(ctx).machines.listMachines()
+  return await mods(ctx).machines.listMachines()
 }
 
-export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) => {
-  mods(ctx).machines.revokeMachine(asMachineId(input.id))
-  return mods(ctx).machines.listMachines()
+export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
+  await mods(ctx).machines.revokeMachine(asMachineId(input.id))
+  return await mods(ctx).machines.listMachines()
 }
 
 /** Move authority only after the target reports a durable promotion. */
-export const machineTransferServerHandler = ({
+export const machineTransferServerHandler = async ({
   ctx,
   input,
 }: FleetArgs<{
@@ -210,21 +210,21 @@ export const machineTransferServerHandler = ({
   port?: number
   confirmation: 'TRANSFER SERVER'
 }>) =>
-  mods(ctx).serverTransfer.transfer(input, {
-    reauthorize: () => {
-      const refusal = fleetAuthzFailure('machines.transferServer', input, fleetAuthzDeps(ctx))
+  await mods(ctx).serverTransfer.transfer(input, {
+    reauthorize: async () => {
+      const refusal = fleetAuthzFailure('machines.transferServer', input, await fleetAuthzDeps(ctx))
       if (refusal) throw refusal
     },
   })
 
-export const machinePairingCodeHandler = ({
+export const machinePairingCodeHandler = async ({
   ctx,
   input,
   ports,
-}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean } | undefined>): {
+}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean } | undefined>): Promise<{
   code: string
   joinCommand: string | null
-} => {
+}> => {
   // WHO THE MACHINE WILL BELONG TO IS DECIDED HERE, AT MINT (POD-1079, ADR 9 D6
   // M3: "a newly paired machine is private to its pairer").
   //
@@ -234,7 +234,7 @@ export const machinePairingCodeHandler = ({
   // payload (ADR 3 D7). A code minted by nobody — a system principal, which has
   // no human — carries `null`, and a machine paired with it is owned by nobody
   // and usable by nobody, which is the fail-closed arm rather than a crash.
-  const pairer = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
+  const pairer = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
   const code = mods(ctx).machines.mintPairingCode({
     ...(pairer === null ? {} : { ownerUserId: pairer }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
@@ -257,9 +257,9 @@ export const machinePairingCodeHandler = ({
  * gate, so this adds the structural and liveness ones — the two that were
  * missing.
  */
-const requireRepoHost = (ctx: Context, machineId: MachineId, action: string): void => {
+const requireRepoHost = async (ctx: Context, machineId: MachineId, action: string): Promise<void> => {
   try {
-    mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
+    await mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
   } catch (e) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -281,7 +281,7 @@ export const repoAddHandler = async ({
   } catch (e) {
     badRequest(e)
   }
-  return ctx.repos.list()
+  return await ctx.repos.list()
 }
 
 /**
@@ -302,7 +302,7 @@ export const repoAddManyHandler = async ({
       failed.push({ path, message: e instanceof Error ? e.message : String(e) })
     }
   }
-  return { repos: ctx.repos.list(), failed }
+  return { repos: await ctx.repos.list(), failed }
 }
 
 export const repoRemoveHandler = async ({
@@ -310,26 +310,26 @@ export const repoRemoveHandler = async ({
   input,
 }: FleetArgs<{ path: string; machineId?: MachineId }>) => {
   await ctx.repos.remove(input.path, input.machineId)
-  return ctx.repos.list()
+  return await ctx.repos.list()
 }
 
-export const repoSetPrefixHandler = ({
+export const repoSetPrefixHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ path: string; prefix: string; machineId?: MachineId }>) => {
   try {
-    ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
+    await ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
   } catch (e) {
     badRequest(e)
   }
-  return ctx.registry.sessionStore.repos.listRepos()
+  return await ctx.registry.sessionStore.repos.listRepos()
 }
 
 export const repoCloneGithubHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; repository: string; destination: string }>) => {
-  requireRepoHost(ctx, input.machineId, 'clone repositories')
+  await requireRepoHost(ctx, input.machineId, 'clone repositories')
   const result = await mods(ctx).rpc.githubCli('clone', input.machineId, {
     repository: input.repository,
     destination: input.destination,
@@ -348,7 +348,7 @@ export const repoCloneGithubHandler = async ({
     input.machineId,
     `https://github.com/${input.repository}.git`,
   )
-  return { path: result.path, repos: ctx.repos.list() }
+  return { path: result.path, repos: await ctx.repos.list() }
 }
 
 /**
@@ -368,7 +368,7 @@ export const repoCreateFolderHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
-  requireRepoHost(ctx, input.machineId, 'hold folders')
+  await requireRepoHost(ctx, input.machineId, 'hold folders')
   const result = await mods(ctx).rpc.dirOp('createFolder', input.machineId, {
     parentPath: input.parentPath,
     name: input.name,
@@ -381,7 +381,7 @@ export const repoCreateRepoHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
-  requireRepoHost(ctx, input.machineId, 'host repositories')
+  await requireRepoHost(ctx, input.machineId, 'host repositories')
   const result = await mods(ctx).rpc.dirOp('createRepo', input.machineId, {
     parentPath: input.parentPath,
     name: input.name,
@@ -392,7 +392,7 @@ export const repoCreateRepoHandler = async ({
   if (result.error || !result.path) dirOpFailed(result.error ?? 'Could not create the repository')
   const path = result.path as string
   await ctx.repos.add(path, input.machineId)
-  return { path, repos: ctx.repos.list() }
+  return { path, repos: await ctx.repos.list() }
 }
 
 export const repoRenameFolderHandler = async ({
@@ -404,12 +404,12 @@ export const repoRenameFolderHandler = async ({
   currentName: string
   name: string
 }>) => {
-  requireRepoHost(ctx, input.machineId, 'hold folders')
+  await requireRepoHost(ctx, input.machineId, 'hold folders')
   const source = normalizeRepoPath(join(input.parentPath, input.currentName))
   // The folder itself, or anything registered BELOW it: both sets of rows point
   // at paths the rename would invalidate.
-  const stranded = ctx.repos
-    .list(input.machineId)
+  const stranded = (await ctx.repos
+    .list(input.machineId))
     .filter((repo) => repo === source || repo.startsWith(`${source}/`))
   if (stranded.length > 0) {
     throw new TRPCError({
@@ -447,8 +447,8 @@ export const repoRenameFolderHandler = async ({
  */
 export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => {
   const result = await ctx.repos.scanReposAll(
-    fleetUsePredicate(fleetAuthzDeps(ctx), 'use'),
-    fleetUsePredicate(fleetAuthzDeps(ctx), 'see'),
+    fleetUsePredicate(await fleetAuthzDeps(ctx), 'use'),
+    fleetUsePredicate(await fleetAuthzDeps(ctx), 'see'),
   )
   // Repositories and machines are one authorization snapshot for the client.
   // Returning the repo rows alone lets a page reload scope a valid durable
@@ -456,37 +456,37 @@ export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => 
   // until another event happens to refresh both sides in the right order.
   return {
     ...result,
-    machines: visibleMachinesFor(mods(ctx), ctx.capability),
+    machines: await visibleMachinesFor(mods(ctx), ctx.capability),
   }
 }
 
-export const discoveryScanFolderHandler = ({
+export const discoveryScanFolderHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ path: string; maxDepth?: number; machineId?: MachineId }>) => {
   // The machine is optional here; when it is omitted the scan resolves through
   // `defaultMachine()`, which POD-2700 also taught to prefer a daemon-bearing
   // machine — so guard the id that will actually be used, not the one supplied.
-  requireRepoHost(
+  await requireRepoHost(
     ctx,
-    input.machineId ?? mods(ctx).machines.defaultMachine(),
+    input.machineId ?? await mods(ctx).machines.defaultMachine(),
     'scan for repositories',
   )
-  return ctx.registry.modules.rpc.scanRepos(
+  return await ctx.registry.modules.rpc.scanRepos(
     [input.path],
     { includeHome: false, maxDepth: input.maxDepth ?? 6 },
     input.machineId,
   )
 }
 
-export const discoveryScanMachineHandler = ({
+export const discoveryScanMachineHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; deep?: boolean; atPath?: string }>) => {
   if (!ctx.discovery)
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
-  requireRepoHost(ctx, input.machineId, 'scan for repositories')
-  return ctx.discovery.scan(input.machineId, {
+  await requireRepoHost(ctx, input.machineId, 'scan for repositories')
+  return await ctx.discovery.scan(input.machineId, {
     deep: input.deep ?? true,
     ...(input.atPath === undefined ? {} : { atPath: input.atPath }),
   })

@@ -112,7 +112,7 @@ export interface LedgerDeps {
    *  never imports the sqlite helper; composition wires it later (to the
    *  nesting-safe `transaction(db, fn)` over the shared connection). Unit
    *  tests may pass a pass-through `(fn) => fn()`. */
-  transact: <T>(fn: () => T) => T
+  transact: <T>(fn: () => Promise<T>) => Promise<T>
   /**
    * Runs subscriber delivery after the OUTERMOST unit of work commits
    * [POD-3260, spec §3.3 mechanism 3]. Passed straight to the Authority — see
@@ -149,8 +149,8 @@ export interface LedgerBootOptions {
  * Real-server readiness gate [spec:SP-c29e]: finish the sliced boot prune before
  * any Ledger construction can fold or reconcile the retained change log.
  */
-export function prepareLedgerBoot(options: LedgerBootOptions) {
-  return pruneChangeLog(options.repo, {
+export async function prepareLedgerBoot(options: LedgerBootOptions) {
+  return await pruneChangeLog(options.repo, {
     keepRows: CHANGE_KEEP_ROWS,
     maxAgeMs: CHANGE_MAX_AGE_MS,
     now: options.now(),
@@ -158,14 +158,6 @@ export function prepareLedgerBoot(options: LedgerBootOptions) {
     monotonicNow: options.monotonicNow,
     onMetrics: options.onPruneMetrics,
   })
-}
-
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value != null &&
-    (typeof value === 'object' || typeof value === 'function') &&
-    typeof (value as { then?: unknown }).then === 'function'
-  )
 }
 
 export class AuthorityArbitrationRejected extends Error {
@@ -196,7 +188,7 @@ export class AuthorityArbitrationRejected extends Error {
  * decision in the type instead of an omission nobody notices.
  */
 export interface LedgerCommitOp<T> {
-  write: () => T
+  write: () => Promise<T>
   changes: (result: T) => EntityChangeSpec[]
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
@@ -333,8 +325,8 @@ export class Ledger {
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
    */
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> {
-    const outcome = this.authority.commit({
+  async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+    const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       write: op.write,
       changes: (result: T) => op.changes(result).map(toKernelSpec),
@@ -363,8 +355,8 @@ export class Ledger {
    * to (volatile session view state, an upstream mirror). The caller supplies the
    * exact upserts/removes; this never diffs a full list.
    */
-  capture(specs: EntityChangeSpec[]): MetadataChange[] {
-    return this.authority.capture(specs.map(toKernelSpec)).map(toWireChange)
+  async capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
+    return (await this.authority.capture(specs.map(toKernelSpec))).map(toWireChange)
   }
 
   /**
@@ -373,22 +365,22 @@ export class Ledger {
    * diff path — so changes made while the server was down land in the log before
    * the first client reads it.
    */
-  reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): MetadataChange[] {
-    return this.authority.reconcile(entity, rows).map(toWireChange)
+  async reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): Promise<MetadataChange[]> {
+    return (await this.authority.reconcile(entity, rows)).map(toWireChange)
   }
 
   /** Catch-up read for `sync.changesSince` — null means "fall back to a
    *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
-  changesSince(cursor: number | null): MetadataChange[] | null {
-    const delivery = this.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+  async changesSince(cursor: number | null): Promise<MetadataChange[] | null> {
+    const delivery = await this.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
     if (delivery === null) return null
     if (delivery.kind !== 'batch') return null
     return delivery.changes.map(toWireChange)
   }
 
   /** Current cursor — the highest seq ever assigned (0 before any change). */
-  cursor(): number {
-    return this.authority.cursor()
+  async cursor(): Promise<number> {
+    return await this.authority.cursor()
   }
 
   /** Cancel maintenance between bounded units during server shutdown. */
@@ -411,7 +403,7 @@ export class Ledger {
    * [spec:SP-c29e] Coalesce overlapping cadence triggers into the current
    * retention flight plus at most one rerun.
    */
-  private schedulePrune(): void {
+  private async schedulePrune(): Promise<void> {
     if (this.shutdown.signal.aborted) return
     if (this.pruneFlight) {
       this.pruneRerunRequested = true

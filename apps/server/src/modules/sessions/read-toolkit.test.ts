@@ -193,7 +193,7 @@ describe('session status (tier 1)', () => {
     const { toolkit } = harness()
     const s = await toolkit.status('#228', 'operator')
     expect(s.sessionId).toBe('s1')
-    await expect(toolkit.status('#999', 'operator')).rejects.toThrow(/no session found/)
+    await expect(await toolkit.status('#999', 'operator')).rejects.toThrow(/no session found/)
   })
 
   it('resolves a permanent session birth ref before treating it as an issue ref', async () => {
@@ -240,7 +240,7 @@ describe('session read (tier 2)', () => {
 
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
-    await expect(toolkit.read({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
+    await expect(await toolkit.read({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
   })
 
   it('accepts a permanent session birth ref and reads the canonical session id', async () => {
@@ -312,7 +312,7 @@ describe('session recap (tier 3)', () => {
 
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
-    await expect(toolkit.recap({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
+    await expect(await toolkit.recap({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
   })
 
   it('accepts a permanent session birth ref and keys watermarks by canonical session id', async () => {

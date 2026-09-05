@@ -77,13 +77,13 @@ export type SessionListCaller =
 export class SessionView {
   constructor(private readonly ports: SessionViewPorts) {}
 
-  list(
+  async list(
     forPrincipal?: SessionStatePrincipal,
     caller: SessionListCaller = 'unlabeled',
-  ): SessionMeta[] {
+  ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
-      return this.project([...this.ports.sessions.values()], forPrincipal)
+      return await this.project([...this.ports.sessions.values()], forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.list', performance.now() - startedAt, DEPLOYMENT)
       perf.record('phase', `sessionView.list.${caller}`, performance.now() - startedAt, DEPLOYMENT)
@@ -107,17 +107,17 @@ export class SessionView {
    * through `canReadSession` for the same principal, so a caller sees exactly the
    * sessions it saw before.
    */
-  listForIssue(
+  async listForIssue(
     worktreePath: string | null,
     issueId: IssueId | undefined,
     forPrincipal?: SessionStatePrincipal,
-  ): SessionMeta[] {
+  ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
       const members = [...this.ports.sessions.values()].filter((session) =>
         isIssueMember(worktreePath, issueId, session),
       )
-      return this.project(members, forPrincipal)
+      return await this.project(members, forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.listForIssue', performance.now() - startedAt, DEPLOYMENT)
     }
@@ -135,12 +135,12 @@ export class SessionView {
    * through `canReadSession` for the same principal, so a caller sees `undefined`
    * in exactly the cases the post-filter left it empty.
    */
-  byId(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): SessionMeta | undefined {
+  async byId(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<SessionMeta | undefined> {
     const startedAt = performance.now()
     try {
       const session = this.ports.sessions.get(sessionId)
       if (!session) return undefined
-      return this.project([session], forPrincipal)[0]
+      return (await this.project([session], forPrincipal))[0]
     } finally {
       perf.record('phase', 'sessionView.byId', performance.now() - startedAt, DEPLOYMENT)
     }
@@ -153,7 +153,7 @@ export class SessionView {
    * `list().filter(...)` would return them. Visibility and projection still
    * use the shared path; duplicate and absent ids add no work.
    */
-  byIds(sessionIds: Iterable<SessionId>, forPrincipal?: SessionStatePrincipal): SessionMeta[] {
+  async byIds(sessionIds: Iterable<SessionId>, forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
       const wanted = new Set(sessionIds)
@@ -161,7 +161,7 @@ export class SessionView {
       const candidates = [...this.ports.sessions.values()].filter((session) =>
         wanted.has(session.sessionId),
       )
-      return this.project(candidates, forPrincipal)
+      return await this.project(candidates, forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.byIds', performance.now() - startedAt, DEPLOYMENT)
     }
@@ -178,12 +178,12 @@ export class SessionView {
    * `undefined` optional chaining produced), so this returns what the wired
    * lookup returned, under the same visibility check.
    */
-  spawnedByOf(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): string | undefined {
+  async spawnedByOf(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<string | undefined> {
     const startedAt = performance.now()
     try {
       const session = this.ports.sessions.get(sessionId)
       if (!session) return undefined
-      const principal = forPrincipal ?? this.defaultPrincipal()
+      const principal = forPrincipal ?? await this.defaultPrincipal()
       if (!principal) return undefined
       if (!this.ports.state.canReadSession(principal, sessionId, newSessionListMemo())) {
         return undefined
@@ -197,8 +197,8 @@ export class SessionView {
   /** The reader-scoped projection over a candidate set — the body `list()`,
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
-  private project(candidates: Session[], forPrincipal?: SessionStatePrincipal): SessionMeta[] {
-    const principal = forPrincipal ?? this.defaultPrincipal()
+  private async project(candidates: Session[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
+    const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
     // ONE memo for the whole pass [POD-1618] — see {@link SessionListMemo}.
     const memo = newSessionListMemo()
@@ -230,7 +230,7 @@ export class SessionView {
       ),
     ]
     if (refIssueIds.length > 0) {
-      const found = this.ports.store.issues.getIssues(refIssueIds)
+      const found = await this.ports.store.issues.getIssues(refIssueIds)
       for (const id of refIssueIds) memo.issues.set(id, found.get(id) ?? null)
     }
     return candidates
@@ -245,26 +245,26 @@ export class SessionView {
    * the live object happens to hold — which, until the install after the commit,
    * is the previous committed state.
    */
-  wire(
+  async wire(
     session: Session,
     forPrincipal?: SessionStatePrincipal,
     memo?: SessionListMemo,
     d: SessionDurableFields = session,
-  ): SessionMeta {
+  ): Promise<SessionMeta> {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
-    const viewer = forPrincipal ?? this.defaultPrincipal()
-    const loginCondition = this.ports.machines.agentLoginCondition?.(d.machineId, session.agentKind)
+    const viewer = forPrincipal ?? await this.defaultPrincipal()
+    const loginCondition = await this.ports.machines.agentLoginCondition?.(d.machineId, session.agentKind)
     const meta = session.toMeta(
-      viewer ? this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
+      viewer ? await this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
       d,
     )
     const occupancy = this.ports.sessionOccupancyCount?.(session.sessionId)
-    return this.stampRef(d, memo, {
+    return await this.stampRef(d, memo, {
       ...meta,
       // Presence-room occupancy is the product "who is watching" count when the
       // stream plane is wired; attach-set size remains the fallback for fixtures.
       ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
-      machineName: this.ports.machines.machineName(d.machineId),
+      machineName: await this.ports.machines.machineName(d.machineId),
       ...(loginCondition ? { condition: loginCondition } : {}),
       ...(harnessCapabilities
         ? {
@@ -279,21 +279,21 @@ export class SessionView {
     return FIRST_ADMIN_USER_ID
   }
 
-  principalForTrustedUser(userId: UserId): SessionStatePrincipal {
-    const role = this.ports.store.users.roleOf(userId)
+  async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
+    const role = await this.ports.store.users.roleOf(userId)
     if (!role) throw new Error(`refused: no active account for session-state user ${userId}`)
     return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
   }
 
-  defaultPrincipal(): SessionStatePrincipal | undefined {
-    const role = this.ports.store.users.roleOf(FIRST_ADMIN_USER_ID)
+  async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
+    const role = await this.ports.store.users.roleOf(FIRST_ADMIN_USER_ID)
     return role
       ? sessionStatePrincipalFor(userCommandPrincipal(FIRST_ADMIN_USER_ID, role))
       : undefined
   }
 
-  overlay(sessionId: SessionId): SessionUserOverlay {
-    return this.ports.state.overlay(this.broadcastViewer(), sessionId)
+  async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
+    return await this.ports.state.overlay(this.broadcastViewer(), sessionId)
   }
 
   /**
@@ -303,11 +303,11 @@ export class SessionView {
    * else — so passing the live session here would decide against the PREVIOUS
    * attachment and allocate the wrong ref, or none.
    */
-  prepareRefAllocation(session: SessionDurableFields): (() => void) | undefined {
+  async prepareRefAllocation(session: SessionDurableFields): Promise<(() => void) | undefined> {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
-      const issue = this.ports.store.issues.getIssue(birthIssueId)
+      const issue = await this.ports.store.issues.getIssue(birthIssueId)
       if (issue) {
         return () => {
           session.refLetter = this.ports.store.issues.allocateSessionLetter(birthIssueId)
@@ -315,19 +315,19 @@ export class SessionView {
         }
       }
     }
-    const repoId = this.ports.store.repos.resolveRepoIdForPath(session.cwd)
-    if (this.ports.store.repos.prefixForRepoId(repoId) === null) return
+    const repoId = await this.ports.store.repos.resolveRepoIdForPath(session.cwd)
+    if (await this.ports.store.repos.prefixForRepoId(repoId) === null) return
     return () => {
       session.refDraft = this.ports.store.repos.nextDraftSeq(repoId)
     }
   }
 
-  private stampRef(
+  private async stampRef(
     session: SessionDurableFields,
     memo: SessionListMemo | undefined,
     meta: SessionMeta,
-  ): SessionMeta {
-    const displayRef = this.computeDisplayRef(session, memo)
+  ): Promise<SessionMeta> {
+    const displayRef = await this.computeDisplayRef(session, memo)
     return {
       ...meta,
       ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
@@ -337,37 +337,37 @@ export class SessionView {
     }
   }
 
-  private computeDisplayRef(
+  private async computeDisplayRef(
     session: SessionDurableFields,
     memo?: SessionListMemo,
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (session.refIssueId && session.refLetter) {
-      const issue = this.memoIssue(session.refIssueId, memo)
+      const issue = await this.memoIssue(session.refIssueId, memo)
       if (!issue) return undefined
-      const prefix = this.memoPrefix(issue.repoPath, memo)
+      const prefix = await this.memoPrefix(issue.repoPath, memo)
       return prefix
         ? formatSessionRef({ prefix, seq: issue.seq, letter: session.refLetter })
         : undefined
     }
     if (session.refDraft != null) {
-      const prefix = this.memoPrefix(session.cwd, memo)
+      const prefix = await this.memoPrefix(session.cwd, memo)
       return prefix ? formatSessionRef({ prefix, draft: session.refDraft }) : undefined
     }
     return undefined
   }
 
   /** Same lookup, memoized for the pass — see {@link SessionListMemo}. */
-  private memoIssue(id: string, memo?: SessionListMemo): { repoPath: string; seq: number } | null {
-    if (!memo) return this.ports.store.issues.getIssue(id) as never
-    if (!memo.issues.has(id)) memo.issues.set(id, this.ports.store.issues.getIssue(id))
+  private async memoIssue(id: string, memo?: SessionListMemo): Promise<{ repoPath: string; seq: number } | null> {
+    if (!memo) return await this.ports.store.issues.getIssue(id) as never
+    if (!memo.issues.has(id)) memo.issues.set(id, await this.ports.store.issues.getIssue(id))
     return memo.issues.get(id) as never
   }
 
-  private memoPrefix(path: string, memo?: SessionListMemo): string | null {
-    if (!memo) return this.ports.store.repos.prefixForPath(path) ?? null
+  private async memoPrefix(path: string, memo?: SessionListMemo): Promise<string | null> {
+    if (!memo) return await this.ports.store.repos.prefixForPath(path) ?? null
     const hit = memo.prefixes.get(path)
     if (hit !== undefined) return hit
-    const value = this.ports.store.repos.prefixForPath(path) ?? null
+    const value = await this.ports.store.repos.prefixForPath(path) ?? null
     memo.prefixes.set(path, value)
     return value
   }

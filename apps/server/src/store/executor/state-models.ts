@@ -100,12 +100,12 @@ export class LeasedState<T> {
   ) {}
 
   /** The value as of the read lease. Never read it outside one. */
-  read<R>(project: (value: T) => R): Promise<R> {
-    return this.executor.read(async () => project(this.value))
+  async read<R>(project: (value: T) => R): Promise<R> {
+    return await this.executor.read(async () => project(this.value))
   }
 
-  update(mutate: (value: T) => T, persist: (next: T) => Promise<void>): Promise<T> {
-    return this.executor.transact(async () => {
+  async update(mutate: (value: T) => T, persist: (next: T) => Promise<void>): Promise<T> {
+    return await this.executor.transact(async () => {
       const next = mutate(this.value)
       await persist(next)
       // The mirror moves with the commit, not with the write: a reader must
@@ -146,8 +146,8 @@ export class VersionedMutex {
   }
 
   /** Serialised, and refused if the state moved since `expected` was read. */
-  runIfUnchanged<T>(expected: number, fn: (version: number) => Promise<T>): Promise<T> {
-    return this.run((version) => {
+  async runIfUnchanged<T>(expected: number, fn: (version: number) => Promise<T>): Promise<T> {
+    return await this.run((version) => {
       if (version !== expected) throw new StaleVersionError(expected, version)
       return fn(version)
     })

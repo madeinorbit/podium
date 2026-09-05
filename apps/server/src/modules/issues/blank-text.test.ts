@@ -37,8 +37,8 @@ async function harness() {
 describe('blank issue text normalizes to null', () => {
   it('collapses an empty assignee written through update()', async () => {
     const { store, svc } = await harness()
-    const created = svc.create({ repoPath: '/repo', title: 'T', startNow: false })
-    svc.update(created.id, { assignee: '' as UserId })
+    const created = await svc.create({ repoPath: '/repo', title: 'T', startNow: false })
+    await svc.update(created.id, { assignee: '' as UserId })
 
     // Read back through the STORE, not the wire: the wire's truthiness omission
     // renders both spellings identically, which is why this was invisible.
@@ -47,8 +47,8 @@ describe('blank issue text normalizes to null', () => {
 
   it('leaves a non-empty value and a legitimately empty description alone', async () => {
     const { store, svc } = await harness()
-    const created = svc.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
-    svc.update(created.id, { assignee: asUserId('user:sole') })
+    const created = await svc.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
+    await svc.update(created.id, { assignee: asUserId('user:sole') })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.assignee).toBe('user:sole')
@@ -58,8 +58,8 @@ describe('blank issue text normalizes to null', () => {
 
   it('applies to the whole nullable-text class, not just the measured column', async () => {
     const { store, svc } = await harness()
-    const created = svc.create({ repoPath: '/repo', title: 'T', startNow: false })
-    svc.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
+    const created = await svc.create({ repoPath: '/repo', title: 'T', startNow: false })
+    await svc.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.design).toBeNull()

@@ -34,7 +34,8 @@ import {
 } from '@podium/model'
 import { and, eq } from 'drizzle-orm'
 import { userReadPosition } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -43,7 +44,7 @@ export interface StoredReadPosition {
 }
 
 export class UserReadPositionRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -54,12 +55,12 @@ export class UserReadPositionRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /** One person's position in every stream they have read. Absent key = never. */
-  getSnapshot(userId: UserId): ReadPositionSnapshot {
-    const rows = this.db
+  async getSnapshot(userId: UserId): Promise<ReadPositionSnapshot> {
+    const rows = await this.db
       .select({
         streamId: userReadPosition.streamId,
         lastEventId: userReadPosition.lastEventId,
@@ -79,8 +80,8 @@ export class UserReadPositionRepository {
   }
 
   /** One stream's position for one person, or `undefined` when never read. */
-  get(userId: UserId, streamId: string): StoredReadPosition | undefined {
-    const row = this.db
+  async get(userId: UserId, streamId: string): Promise<StoredReadPosition | undefined> {
+    const row = await this.db
       .select({
         lastEventId: userReadPosition.lastEventId,
         seenAt: userReadPosition.seenAt,
@@ -99,19 +100,19 @@ export class UserReadPositionRepository {
    * THROWS on a feed outside the closed vocabulary — a mis-routed key must not
    * grow a server row.
    */
-  advance(
+  async advance(
     userId: UserId,
     streamId: string,
     proposed: StoredReadPosition,
     updatedAt: string,
-  ): StoredReadPosition | null {
+  ): Promise<StoredReadPosition | null> {
     if (!isReadStreamId(streamId)) {
       throw new Error(
         `'${streamId}' is not a known event stream (POD-1380 / isReadStreamId), so it has no cursor row`,
       )
     }
-    return this.createOrJoinTransaction(() => {
-      const current = this.get(userId, streamId)
+    return await this.createOrJoinTransaction(async () => {
+      const current = await this.get(userId, streamId)
       const next = advanceReadPosition(current, {
         lastEventId: proposed.lastEventId,
         seenAt: proposed.seenAt,
@@ -127,9 +128,9 @@ export class UserReadPositionRepository {
         seenAt: next.seenAt,
         updatedAt,
       }
-      this.db
+      ;await (this.db
         .insert(userReadPosition)
-        .values(values)
+        .values(values))
         .onConflictDoUpdate({
           target: [userReadPosition.userId, userReadPosition.streamId],
           set: values,

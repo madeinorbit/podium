@@ -38,7 +38,7 @@ async function start(
   },
 ) {
   store = await openTestStore(':memory:')
-  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(
     registry,
     {
@@ -72,7 +72,7 @@ async function start(
 
 async function startNotReady() {
   store = await openTestStore(':memory:')
-  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     readinessForClient: () => ({
       state: 'activation_pending',
@@ -272,10 +272,10 @@ describe('/client WS auth gate', () => {
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
     if (!registry) throw new Error('missing test registry')
-    const sessionId = registry.modules.sessions.createSession({
+    const sessionId = (await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/feed-only',
-    }).sessionId
+    })).sessionId
     registry.modules.sessions.flushBroadcasts()
 
     const client = await connectDeltaClient(url)

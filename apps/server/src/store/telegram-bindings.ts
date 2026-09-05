@@ -33,7 +33,8 @@ import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { asc, eq } from 'drizzle-orm'
 import { telegramChatBindings } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** The stored row, as drizzle's own execution path maps it back. */
 type BindingRow = typeof telegramChatBindings.$inferSelect
@@ -95,7 +96,7 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
 }
 
 export class TelegramBindingsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -106,13 +107,13 @@ export class TelegramBindingsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted
    *  — see {@link toAttribution} on why omission is the fail-closed direction. */
-  list(): TelegramChatBinding[] {
-    const rows = this.db
+  async list(): Promise<TelegramChatBinding[]> {
+    const rows = await this.db
       .select()
       .from(telegramChatBindings)
       .orderBy(asc(telegramChatBindings.boundAt))
@@ -125,8 +126,8 @@ export class TelegramBindingsRepository {
 
   /** One person's bindings — the read a settings surface needs to show someone
    *  which chats speak as them. */
-  listForUser(userId: UserId): TelegramChatBinding[] {
-    return this.list().filter((b) => b.userId === userId)
+  async listForUser(userId: UserId): Promise<TelegramChatBinding[]> {
+    return (await this.list()).filter((b) => b.userId === userId)
   }
 
   /**
@@ -144,7 +145,7 @@ export class TelegramBindingsRepository {
    * column to its default. Nothing references this table, so nothing could have
    * cascaded off the delete either.
    */
-  upsert(binding: TelegramChatBinding): void {
+  async upsert(binding: TelegramChatBinding): Promise<void> {
     const actor = binding.boundBy.actor
     const values = {
       chatId: binding.chatId,
@@ -154,9 +155,9 @@ export class TelegramBindingsRepository {
       actorId: actor.kind === 'system' ? actor.job : actor.id,
       onBehalfOf: binding.boundBy.onBehalfOf,
     }
-    this.db
+    ;await (this.db
       .insert(telegramChatBindings)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({ target: telegramChatBindings.chatId, set: values })
       .run()
   }
@@ -164,7 +165,7 @@ export class TelegramBindingsRepository {
   /** Remove a binding. The chat stops resolving to anyone on the next message —
    *  no reaper, no cache to invalidate, because resolution reads this table
    *  live. */
-  remove(chatId: string): void {
-    this.db.delete(telegramChatBindings).where(eq(telegramChatBindings.chatId, chatId)).run()
+  async remove(chatId: string): Promise<void> {
+    await this.db.delete(telegramChatBindings).where(eq(telegramChatBindings.chatId, chatId)).run()
   }
 }

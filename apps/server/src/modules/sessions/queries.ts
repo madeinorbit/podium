@@ -48,12 +48,12 @@ function assertMayReadSession(state: FamilyState, sessionId: SessionId): void {
 }
 
 export const SESSION_QUERIES = {
-  list: q(z.object({}).passthrough().optional(), (s) =>
-    s.modules.sessions.listSessions().filter((session) => mayReadSession(s, session.sessionId)),
+  list: q(z.object({}).passthrough().optional(), async (s) =>
+    (await s.modules.sessions.listSessions()).filter((session) => mayReadSession(s, session.sessionId)),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
-  concurrencyHistory: q(z.object({}).passthrough().optional(), (s) =>
-    s.modules.sessions.agentConcurrencyHistory(),
+  concurrencyHistory: q(z.object({}).passthrough().optional(), async (s) =>
+    await s.modules.sessions.agentConcurrencyHistory(),
   ),
   /** Per-session phase-transition history (48h window) for the Flight Deck
    *  waterfall's on/off segments. Unreadable ids are silently omitted — the
@@ -61,8 +61,8 @@ export const SESSION_QUERIES = {
    *  segmentation known", so a NOT_FOUND per stray id would only leak liveness. */
   activityHistory: q(
     z.object({ sessionIds: z.array(SessionIdField).max(200) }),
-    (s, input) =>
-      s.modules.sessions.sessionActivityHistory(
+    async (s, input) =>
+      await s.modules.sessions.sessionActivityHistory(
         input.sessionIds.filter((sessionId) => mayReadSession(s, sessionId)),
       ),
   ),
@@ -78,9 +78,9 @@ export const SESSION_QUERIES = {
       direction: z.enum(['before', 'after']),
       limit: z.number().int().positive().max(2000),
     }),
-    (s, input) => {
+    async (s, input) => {
       assertMayReadSession(s, input.sessionId)
-      return s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
+      return await s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
     },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
@@ -88,8 +88,8 @@ export const SESSION_QUERIES = {
    *  transcript text). The /trpc surface is operator-authority; agents reach the
    *  same procs via the daemon relay's scope-gated sessions arm. Every read is
    *  event-logged by the toolkit. */
-  status: q(z.object({ ref: z.string() }), (s, input) =>
-    s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
+  status: q(z.object({ ref: z.string() }), async (s, input) =>
+    await s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
   ),
   read: q(
     z.object({
@@ -97,17 +97,17 @@ export const SESSION_QUERIES = {
       turns: z.coerce.number().int().positive().optional(),
       cursor: z.string().optional(),
     }),
-    (s, input) => {
+    async (s, input) => {
       assertMayReadSession(s, input.sessionId)
-      return s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator')
+      return await s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator')
     },
   ),
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), (s, input) => {
+  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), async (s, input) => {
     assertMayReadSession(s, input.sessionId)
-    return s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
+    return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
   }),
 } as const
 
@@ -116,8 +116,8 @@ export const SYNC_QUERIES = {
    *  bootstrap snapshot; a valid cursor = the changes after it; a
    *  compacted/future cursor falls back to snapshot. The client heals every WS
    *  (re)connect through this. */
-  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), (s, input) =>
-    s.modules.sessions.syncChangesSince(
+  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), async (s, input) =>
+    await s.modules.sessions.syncChangesSince(
       input.cursor,
       s.feedPrincipal ??
         (() => {
@@ -148,8 +148,8 @@ export const SYNC_QUERIES = {
         })
         .nullable(),
     }),
-    (s, input) =>
-      s.modules.funnel.feedChangesSince(
+    async (s, input) =>
+      await s.modules.funnel.feedChangesSince(
         input.cursor,
         s.feedPrincipal ??
           (() => {
@@ -171,8 +171,8 @@ export const SYNC_QUERIES = {
    * receive its key here either — which is exactly the property that makes it
    * usable as the comparison's basis.
    */
-  feedSlice: q(z.object({}).optional(), (s) =>
-    s.modules.funnel.feedSlice(
+  feedSlice: q(z.object({}).optional(), async (s) =>
+    await s.modules.funnel.feedSlice(
       s.feedPrincipal ??
         (() => {
           throw new Error('authenticated feed principal required')
@@ -185,13 +185,13 @@ const noInput = z.object({}).passthrough().optional()
 
 /** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
 export const PIN_QUERIES = {
-  list: q(noInput, (s) => s.modules.sessions.state.listPins(s.caller.sessionState)),
+  list: q(noInput, async (s) => await s.modules.sessions.state.listPins(s.caller.sessionState)),
 } as const
 
 export const SNOOZE_QUERIES = {
-  list: q(noInput, (s) => s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
+  list: q(noInput, async (s) => await s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
 } as const
 
 export const TAB_QUERIES = {
-  listOrders: q(noInput, (s) => s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
+  listOrders: q(noInput, async (s) => await s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
 } as const

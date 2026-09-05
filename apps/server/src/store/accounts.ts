@@ -10,7 +10,8 @@
 import { type AccountId, asAccountId } from '@podium/model'
 import { asc, eq } from 'drizzle-orm'
 import { accounts } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export interface ManagedAccountRow {
   id: AccountId
@@ -49,7 +50,7 @@ function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow {
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: the legacy account lookup API accepts
  * provider-facing string ids; its query comparisons brand those inputs. */
 export class AccountsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -60,15 +61,15 @@ export class AccountsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
-  list(): ManagedAccountRow[] {
-    return this.db.select().from(accounts).orderBy(asc(accounts.createdAt)).all().map(toRow)
+  async list(): Promise<ManagedAccountRow[]> {
+    return (await this.db.select().from(accounts).orderBy(asc(accounts.createdAt)).all()).map(toRow)
   }
 
-  get(id: string): ManagedAccountRow | undefined {
-    const row = this.db
+  async get(id: string): Promise<ManagedAccountRow | undefined> {
+    const row = await this.db
       .select()
       .from(accounts)
       .where(eq(accounts.id, asAccountId(id)))
@@ -90,7 +91,7 @@ export class AccountsRepository {
    * column list the two agree. No table references `accounts`, so the
    * delete-and-reinsert could not have cascaded either.
    */
-  upsert(row: ManagedAccountRow): void {
+  async upsert(row: ManagedAccountRow): Promise<void> {
     const values = {
       id: row.id,
       provider: row.provider,
@@ -100,9 +101,9 @@ export class AccountsRepository {
       scope: row.scope,
       createdAt: row.createdAt,
     }
-    this.db
+    ;await (this.db
       .insert(accounts)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: accounts.id,
         set: values,
@@ -110,8 +111,8 @@ export class AccountsRepository {
       .run()
   }
 
-  remove(id: string): void {
-    this.db
+  async remove(id: string): Promise<void> {
+    await this.db
       .delete(accounts)
       .where(eq(accounts.id, asAccountId(id)))
       .run()

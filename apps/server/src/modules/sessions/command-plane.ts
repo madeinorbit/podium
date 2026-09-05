@@ -238,10 +238,10 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(
+  async target(
     sessionId: SessionId,
     proc: string,
-  ): (SessionTargetRow & { machineId?: MachineId }) | undefined {
+  ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -251,7 +251,7 @@ export class SessionCommandCtx {
       this.deps.access,
       this.overrideScope,
     )
-    const row = this.sessions.sessionById(resolved.session.sessionId)
+    const row = await this.sessions.sessionById(resolved.session.sessionId)
     // Commanding an existing session is execution on the machine it lives on.
     if (row?.machineId !== undefined) this.assertMachineUse(row.machineId)
     return row ?? resolved.session
@@ -527,7 +527,7 @@ const INTERRUPTED_SEND: SubstrateOutcome = {
 
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
-    const target = ctx.target(input.sessionId, proc)
+    const target = await ctx.target(input.sessionId, proc)
     if (!target) {
       // A relayed agent's absent target throws; an operator's dead-letters. Both
       // POD-379-pinned, and they differ because the TRANSPORTS differ — not because
@@ -565,7 +565,7 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
         ? 'wake'
         : lifecycle
-    return substrateSend(ctx, input, effectiveLifecycle)
+    return await substrateSend(ctx, input, effectiveLifecycle)
   }
 }
 
@@ -607,7 +607,7 @@ export const SESSION_COMMAND_HANDLERS = {
         if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
         await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
       }
-      return ctx.sessions.createSession({
+      return await ctx.sessions.createSession({
         ...rest,
         ...target,
         ...(issueId ? { issueId } : {}),
@@ -773,7 +773,7 @@ export const SESSION_COMMAND_HANDLERS = {
       machineId?: MachineId
     },
   ) => {
-    const row = ctx.sessions.sessionById(input.sessionId)
+    const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
     if (ctx.deps.runtimeContractActive(input.sessionId)) {

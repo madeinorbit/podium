@@ -225,18 +225,18 @@ function leaseActivity(
 
   return {
     session: {
-      execute: (statement) => track(() => session.execute(statement)),
-      executeBatch: (statements) => track(() => session.executeBatch(statements)),
-      begin: (lane) => track(() => session.begin(lane)),
-      commit: () => track(() => session.commit()),
-      rollback: () => track(() => session.rollback()),
-      enterSavepoint: (name) => track(() => session.enterSavepoint(name)),
-      releaseSavepoint: (name) => track(() => session.releaseSavepoint(name)),
-      rollbackToSavepoint: (name) => track(() => session.rollbackToSavepoint(name)),
+      execute: async (statement) => await track(async () => await session.execute(statement)),
+      executeBatch: async (statements) => await track(async () => await session.executeBatch(statements)),
+      begin: async (lane) => await track(async () => await session.begin(lane)),
+      commit: async () => await track(async () => await session.commit()),
+      rollback: async () => await track(async () => await session.rollback()),
+      enterSavepoint: async (name) => await track(async () => await session.enterSavepoint(name)),
+      releaseSavepoint: async (name) => await track(async () => await session.releaseSavepoint(name)),
+      rollbackToSavepoint: async (name) => await track(async () => await session.rollbackToSavepoint(name)),
       // NOT TRACKED, deliberately: the scheduler closes the connection after the
       // body has ended and the watch is already stopped, so stamping the clock
       // here could only arm a timer nobody will ever read.
-      close: () => session.close(),
+      close: async () => await session.close(),
     },
     idleMs: () => (inFlight > 0 ? 0 : now() - lastSettledAt),
     watch(budget, gap) {
@@ -380,7 +380,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
   async function runLease<T>(lane: Lane, body: (lease: Lease) => Promise<T>): Promise<T> {
     if (state !== 'accepting') throw new SchedulerClosedError(`scheduler is ${state}`)
-    const queued = admit(lane)
+    const queued = await admit(lane)
     if (queued) await queued
     /**
      * THE SLOT IS HELD FROM HERE, so everything that can reject is inside the
@@ -397,7 +397,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     // release, and a throw here is exactly what used to skip it.
     const acquireAndRun = async (): Promise<LeaseOutcome<T>> => {
       try {
-        session = await withBusyRetry(() => driver.open(lane))
+        session = await withBusyRetry(async () => await driver.open(lane))
         const startedAt = now()
         // OBSERVED, not merely held: the gap clock the watchdog reads only
         // exists because every call the body makes goes through this wrapper.
@@ -407,8 +407,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
           id: nextLeaseId++,
           lane,
           session: observed,
-          begin: (beginLane: Lane) => withBusyRetry(() => observed.begin(beginLane)),
-          atomicWrite: (attempt) => withBusyRetry(attempt),
+          begin: async (beginLane: Lane) => await withBusyRetry(async () => await observed.begin(beginLane)),
+          atomicWrite: async (attempt) => await withBusyRetry(attempt),
           heldMs: () => now() - startedAt,
           idleMs: () => activity.idleMs(),
         }
@@ -470,8 +470,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     get state() {
       return state
     },
-    run(lane, body) {
-      return runLease(lane, body)
+    async run(lane, body) {
+      return await runLease(lane, body)
     },
     async detachedRead<T>(body: (session: DriverSession) => Promise<T>): Promise<T> {
       if (state === 'closed') throw new SchedulerClosedError('scheduler is closed')

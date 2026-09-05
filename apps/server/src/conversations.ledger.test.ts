@@ -27,8 +27,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  function makeRegistry(store?: SessionStore): SessionRegistry {
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  async function makeRegistry(store?: SessionStore): Promise<SessionRegistry> {
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
@@ -68,8 +68,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     return { inbox }
   }
 
-  const ownConversation = (registry: SessionRegistry, conversationId: string): void => {
-    const { sessionId } = registry.modules.sessions.createSession({
+  const ownConversation = async (registry: SessionRegistry, conversationId: string): Promise<void> => {
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/owned-conversation',
     })
@@ -81,14 +81,14 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     registry.modules.sessions.flushBroadcasts()
   }
 
-  const cursorOf = (registry: SessionRegistry): number =>
-    registry.modules.sessions.syncChangesSince(null).cursor
+  const cursorOf = async (registry: SessionRegistry): Promise<number> =>
+    (await registry.modules.sessions.syncChangesSince(null)).cursor
 
-  const conversationChangesSince = (
+  const conversationChangesSince = async (
     registry: SessionRegistry,
     cursor: number,
-  ): MetadataChange[] => {
-    const healed = registry.modules.sessions.syncChangesSince(cursor)
+  ): Promise<MetadataChange[]> => {
+    const healed = await registry.modules.sessions.syncChangesSince(cursor)
     if (healed.kind !== 'delta') throw new Error('expected a delta read')
     return healed.changes.filter((c) => c.entity === 'conversation')
   }
@@ -109,20 +109,20 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const ledger = new Ledger({
       repo: store.sync,
       now: () => 1_000,
-      transact: (fn) => store.transact(fn),
+      transact: async (fn) => await store.transact(fn),
     })
     // Seed one row so the delete half of the batch has something to bite on.
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       { id: 'c-old', agentKind: 'claude-code', providerId: 'p', machineId: store.hostMachineId },
     ])
-    const cursorBefore = ledger.cursor()
+    const cursorBefore = await ledger.cursor()
     expect(() =>
       ledger.commit({
         // BOTH store methods open their own transaction() internally — inside
         // the ledger's transact span they degrade to savepoints (depth 1), and
         // the outer rollback must unwind them together.
-        write: () => {
-          store.conversations.index.upsert([
+        write: async () => {
+          await store.conversations.index.upsert([
             {
               id: 'c-new',
               agentKind: 'claude-code',
@@ -130,22 +130,22 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
               machineId: store.hostMachineId,
             },
           ])
-          store.conversations.index.delete(['c-old'])
+          await store.conversations.index.delete(['c-old'])
         },
         changes: () => {
           throw new Error('declaration failed')
         },
       }),
     ).toThrow('declaration failed')
-    const ids = store.conversations.index.search({}).map((r) => r.id)
+    const ids = (await store.conversations.index.search({})).map((r) => r.id)
     expect(ids).toContain('c-old') // delete rolled back
     expect(ids).not.toContain('c-new') // upsert rolled back
-    expect(ledger.cursor()).toBe(cursorBefore)
+    expect(await ledger.cursor()).toBe(cursorBefore)
 
     // And the same nested layering COMMITS as one unit when nothing throws.
-    ledger.commit({
-      write: () => {
-        store.conversations.index.upsert([
+    await ledger.commit({
+      write: async () => {
+        await store.conversations.index.upsert([
           {
             id: 'c-new',
             agentKind: 'claude-code',
@@ -153,33 +153,33 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
             machineId: store.hostMachineId,
           },
         ])
-        store.conversations.index.delete(['c-old'])
+        await store.conversations.index.delete(['c-old'])
       },
       changes: () => [
         { entity: 'conversation', id: 'c-new', op: 'upsert', value: { id: 'c-new' } },
       ],
     })
-    const after = store.conversations.index.search({}).map((r) => r.id)
+    const after = (await store.conversations.index.search({})).map((r) => r.id)
     expect(after).toContain('c-new')
     expect(after).not.toContain('c-old')
-    expect(ledger.cursor()).toBe(cursorBefore + 1)
+    expect(await ledger.cursor()).toBe(cursorBefore + 1)
   })
 
-  it('(a2) a discovery push with `removed` commits the remove durably with the row delete', () => {
-    const registry = makeRegistry()
+  it('(a2) a discovery push with `removed` commits the remove durably with the row delete', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1'), conv('c2')])
-    const cursor = cursorOf(registry)
+    const cursor = await cursorOf(registry)
     push(registry, [conv('c1')], { removed: ['c2'] })
-    const changes = conversationChangesSince(registry, cursor)
+    const changes = await conversationChangesSince(registry, cursor)
     expect(changes.some((c) => c.id === 'c2' && c.op === 'remove')).toBe(true)
-    expect(registry.sessionStore.conversations.index.search({}).map((r) => r.id)).not.toContain(
+    expect((await registry.sessionStore.conversations.index.search({})).map((r) => r.id)).not.toContain(
       'c2',
     )
   })
 
-  it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', () => {
-    const registry = makeRegistry()
+  it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [
       conv('c1', {
@@ -189,7 +189,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         statusHint: 'idle',
       }),
     ])
-    const cursor = cursorOf(registry)
+    const cursor = await cursorOf(registry)
     // Volatile fields only (updatedAt/messageCount/statusHint) — the scan-storm
     // churn the conversation projection exists to drop.
     push(registry, [
@@ -200,7 +200,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         statusHint: 'busy',
       }),
     ])
-    expect(conversationChangesSince(registry, cursor)).toEqual([])
+    expect(await conversationChangesSince(registry, cursor)).toEqual([])
     // A stable field (title) changes → ONE append carrying the FULL wire value,
     // volatile fields included at their current values.
     push(registry, [
@@ -211,7 +211,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         statusHint: 'idle',
       }),
     ])
-    const changes = conversationChangesSince(registry, cursor)
+    const changes = await conversationChangesSince(registry, cursor)
     expect(changes).toHaveLength(1)
     const value = (changes[0] as { value?: ConversationSummaryWire }).value
     expect(value?.title).toBe('t2')
@@ -221,23 +221,23 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(value?.podiumId).toMatch(/^conv_/) // the broadcast enrichment IS the committed payload
   })
 
-  it('(c) setConversationMeta reaches the change log AND the snapshot fan-out (the silent-write fix)', () => {
-    const registry = makeRegistry()
+  it('(c) setConversationMeta reaches the change log AND the snapshot fan-out (the silent-write fix)', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' })])
-    ownConversation(registry, 'c1')
+    await ownConversation(registry, 'c1')
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
-    const cursor = cursorOf(registry)
+    const cursor = await cursorOf(registry)
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
-    registry.modules.memory.setConversationMeta(
+    await registry.modules.memory.setConversationMeta(
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
       { id: 'c1', name: 'My run', summary: 'sum' },
     )
     registry.modules.sessions.flushBroadcasts()
     // Durable: the curated wire row is in the change log…
-    const changes = conversationChangesSince(registry, cursor)
+    const changes = await conversationChangesSince(registry, cursor)
     expect(changes).toHaveLength(1)
     const value = (changes[0] as { value?: ConversationSummaryWire }).value
     expect(value?.name).toBe('My run')
@@ -256,56 +256,56 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ).toBe(true)
     // The store write itself landed too (the original behavior, now seam-bound).
     expect(
-      registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'c1')?.name,
+      (await registry.sessionStore.conversations.index.search({})).find((r) => r.id === 'c1')?.name,
     ).toBe('My run')
     // A later identical discovery push must NOT flap the log: the curated meta
     // is overlaid onto scan rows, so the re-committed wire is byte-stable.
-    const cursor2 = cursorOf(registry)
+    const cursor2 = await cursorOf(registry)
     push(registry, [conv('c1', { title: 't' })])
-    expect(conversationChangesSince(registry, cursor2)).toEqual([])
+    expect(await conversationChangesSince(registry, cursor2)).toEqual([])
   })
 
-  it('(c2) setConversationMeta is default-closed for an undiscovered id', () => {
-    const registry = makeRegistry()
-    const cursor = cursorOf(registry)
+  it('(c2) setConversationMeta is default-closed for an undiscovered id', async () => {
+    const registry = await makeRegistry()
+    const cursor = await cursorOf(registry)
     expect(() =>
       registry.modules.memory.setConversationMeta(
         { kind: 'user', id: FIRST_ADMIN_USER_ID },
         { id: 'ghost', name: 'n' },
       ),
     ).toThrow('conversation not found')
-    expect(conversationChangesSince(registry, cursor)).toEqual([])
+    expect(await conversationChangesSince(registry, cursor)).toEqual([])
     expect(
-      registry.sessionStore.conversations.index.search({}).find((r) => r.id === 'ghost'),
+      (await registry.sessionStore.conversations.index.search({})).find((r) => r.id === 'ghost'),
     ).toBeUndefined()
   })
 
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', async () => {
     const store = await openTestStore(':memory:')
-    const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     first.gateway.attachDaemon('m1', () => {})
     push(first, [conv('c1', { title: 't' }), conv('c2')])
     first.dispose()
-    const cursor = first.modules.sessions.syncChangesSince(null).cursor
+    const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
     // Restart over the same store. Conversations are daemon-fed: boot must NOT
     // reconcile them (an empty list means "not scanned yet", not "all gone").
-    const second = makeRegistry(store)
-    expect(conversationChangesSince(second, cursor)).toEqual([])
+    const second = await makeRegistry(store)
+    expect(await conversationChangesSince(second, cursor)).toEqual([])
     second.gateway.attachDaemon('m1', () => {})
     // First post-restart scan re-reports the same conversations: the folded
     // baseline dedups it — no spurious full re-append.
     push(second, [conv('c1', { title: 't' }), conv('c2')])
-    expect(conversationChangesSince(second, cursor)).toEqual([])
+    expect(await conversationChangesSince(second, cursor)).toEqual([])
     // A real change still lands.
     push(second, [conv('c1', { title: 'renamed' }), conv('c2')])
-    const changes = conversationChangesSince(second, cursor)
+    const changes = await conversationChangesSince(second, cursor)
     expect(changes.map((c) => c.id)).toEqual(['c1'])
   })
 
   it('(e) diagnostics stay outside the canonical feed while entity changes remain live', async () => {
-    const registry = makeRegistry()
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
-    ownConversation(registry, 'c1')
+    await ownConversation(registry, 'c1')
     const delta = client(registry, ['metadataDelta'])
     // Diagnostics are advisory scan state, not canonical entity-feed content.
     push(registry, [conv('c1', { title: 't' })], {
@@ -327,17 +327,17 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(deltaConversationChanges(since).some((c) => c.id === 'c1')).toBe(true)
   })
 
-  it('replaying the whole durable log folds to the live conversation list', () => {
-    const registry = makeRegistry()
+  it('replaying the whole durable log folds to the live conversation list', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' }), conv('c2')])
-    ownConversation(registry, 'c1')
-    registry.modules.memory.setConversationMeta(
+    await ownConversation(registry, 'c1')
+    await registry.modules.memory.setConversationMeta(
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
       { id: 'c1', name: 'kept' },
     )
     push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })
-    const healed = registry.modules.sessions.syncChangesSince(0)
+    const healed = await registry.modules.sessions.syncChangesSince(0)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const folded = new Map<string, unknown>()

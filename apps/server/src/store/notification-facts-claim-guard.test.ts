@@ -33,8 +33,8 @@ const T0 = '2026-01-01T00:00:00.000Z'
 const T1 = '2026-01-01T01:00:00.000Z'
 const T2 = '2026-01-01T02:00:00.000Z'
 
-const claim = (over: Partial<Parameters<NotificationFactsRepository['claim']>[0]> = {}) =>
-  facts.claim({
+const claim = async (over: Partial<Parameters<NotificationFactsRepository['claim']>[0]> = {}) =>
+  await facts.claim({
     factKey: 'fact:one',
     target: 'target-a',
     source: 'first',
@@ -49,60 +49,60 @@ beforeEach(() => {
 })
 
 describe('NotificationFactsRepository.claim', () => {
-  it('grants a claim nobody holds', () => {
-    expect(claim()).toBe(true)
-    expect(facts.hasActive('fact:one', 'target-a', T1)).toBe(true)
+  it('grants a claim nobody holds', async () => {
+    expect(await claim()).toBe(true)
+    expect(await facts.hasActive('fact:one', 'target-a', T1)).toBe(true)
   })
 
-  it('refuses a second claim while the first is live', () => {
-    expect(claim()).toBe(true)
+  it('refuses a second claim while the first is live', async () => {
+    expect(await claim()).toBe(true)
 
     // The whole point of the guard: the loser is told it lost.
-    expect(claim({ source: 'second', createdAt: T1 })).toBe(false)
+    expect(await claim({ source: 'second', createdAt: T1 })).toBe(false)
   })
 
-  it('leaves the live claim untouched when it refuses', () => {
+  it('leaves the live claim untouched when it refuses', async () => {
     // The holder expires at T1. The refused claim would give it no expiry at all.
-    expect(claim({ expiresAt: T1 })).toBe(true)
+    expect(await claim({ expiresAt: T1 })).toBe(true)
 
-    expect(claim({ source: 'second', createdAt: T0, expiresAt: null })).toBe(false)
+    expect(await claim({ source: 'second', createdAt: T0, expiresAt: null })).toBe(false)
 
     // A guard that refuses the RETURN but still applies the SET would answer
     // false and quietly rewrite the row — same boolean, wrong state. If the SET
     // had landed, expires_at would now be NULL and this claim would read as live
     // forever.
-    expect(facts.hasActive('fact:one', 'target-a', T2)).toBe(false)
+    expect(await facts.hasActive('fact:one', 'target-a', T2)).toBe(false)
   })
 
-  it('grants the claim again once the holder has retired it', () => {
-    expect(claim()).toBe(true)
-    expect(facts.retire('fact:one', 'target-a', T1)).toBe(true)
+  it('grants the claim again once the holder has retired it', async () => {
+    expect(await claim()).toBe(true)
+    expect(await facts.retire('fact:one', 'target-a', T1)).toBe(true)
 
-    expect(claim({ source: 'second', createdAt: T2 })).toBe(true)
-    expect(facts.hasActive('fact:one', 'target-a', T2)).toBe(true)
+    expect(await claim({ source: 'second', createdAt: T2 })).toBe(true)
+    expect(await facts.hasActive('fact:one', 'target-a', T2)).toBe(true)
   })
 
-  it('grants the claim again once the holder has expired', () => {
-    expect(claim({ expiresAt: T1 })).toBe(true)
+  it('grants the claim again once the holder has expired', async () => {
+    expect(await claim({ expiresAt: T1 })).toBe(true)
 
     // Expiry is judged against the INCOMING claim's created_at, not against a
     // clock the statement reads for itself.
-    expect(claim({ source: 'second', createdAt: T2 })).toBe(true)
+    expect(await claim({ source: 'second', createdAt: T2 })).toBe(true)
   })
 
-  it('still refuses while an unexpired holder is live', () => {
-    expect(claim({ expiresAt: T2 })).toBe(true)
+  it('still refuses while an unexpired holder is live', async () => {
+    expect(await claim({ expiresAt: T2 })).toBe(true)
 
     // The other side of the expiry comparison, so the test above cannot be
     // satisfied by a guard that treats every expires_at as past.
-    expect(claim({ source: 'second', createdAt: T1 })).toBe(false)
+    expect(await claim({ source: 'second', createdAt: T1 })).toBe(false)
   })
 
-  it('keeps a claim on one target from blocking another', () => {
-    expect(claim()).toBe(true)
+  it('keeps a claim on one target from blocking another', async () => {
+    expect(await claim()).toBe(true)
 
     // The conflict target is (fact_key, target), so the same fact for a second
     // recipient is a different claim and not a conflict at all.
-    expect(claim({ target: 'target-b' })).toBe(true)
+    expect(await claim({ target: 'target-b' })).toBe(true)
   })
 })

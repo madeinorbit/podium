@@ -1,10 +1,11 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import { currentTransaction } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
-const prepareConversationUpsert = (db: SyncDrizzle) =>
+const prepareConversationUpsert = (db: StoreDrizzle) =>
   db
     .insert(conversations)
     .values({
@@ -57,7 +58,7 @@ const prepareConversationUpsert = (db: SyncDrizzle) =>
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   private preparedUpsertValue: ReturnType<typeof prepareConversationUpsert> | undefined
   protected readonly createOrJoinTransaction: TransactionRunner
   constructor(
@@ -77,8 +78,8 @@ export class ConversationIndexRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -96,26 +97,26 @@ export class ConversationIndexRepository {
    * is on; a build without FTS5 support falls into the catch and leaves
    * `ftsAvailable` false, which the LIKE fallback in `searchCandidates` covers.
    */
-  enableFts(): void {
+  async enableFts(): Promise<void> {
     try {
       // ONE STATEMENT PER CALL, where the raw handle took a whole script: the
       // query layer prepares what it is given, so a multi-statement string would
       // run its first statement and silently drop the rest. The order is the one
       // the script had.
-      this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+      await this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
         title, name, summary, project_path, content='conversations', content_rowid='rowid')`)
-      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+      await this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
         VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`)
-      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+      await this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END`)
-      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+      await this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path);
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
         VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`)
-      this.db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`)
+      await this.db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`)
       this.ftsAvailable = true
     } catch {
       this.ftsAvailable = false
@@ -135,10 +136,10 @@ export class ConversationIndexRepository {
    * `INSERT INTO conversations_fts` has no table fails every write to
    * `conversations`.
    */
-  disableFts(): void {
-    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`)
-    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`)
-    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_au`)
+  async disableFts(): Promise<void> {
+    await this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`)
+    await this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`)
+    await this.db.run(sql`DROP TRIGGER IF EXISTS conversations_au`)
     this.ftsAvailable = false
   }
 
@@ -156,11 +157,11 @@ export class ConversationIndexRepository {
    * like any other value. A row that would change still changes; only a write
    * with nothing to say is skipped.
    */
-  upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): void {
+  async upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): Promise<void> {
     if (rows.length === 0) return
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (const row of rows) {
-        this.preparedUpsert.run({
+        await this.preparedUpsert.run({
           id: row.id,
           agentKind: row.agentKind,
           title: row.title ?? null,
@@ -178,15 +179,15 @@ export class ConversationIndexRepository {
     })
   }
 
-  delete(ids: string[]): void {
+  async delete(ids: string[]): Promise<void> {
     if (ids.length === 0) return
-    this.createOrJoinTransaction(() => {
-      for (const id of ids) this.db.delete(conversations).where(eq(conversations.id, id)).run()
+    await this.createOrJoinTransaction(async () => {
+      for (const id of ids) await this.db.delete(conversations).where(eq(conversations.id, id)).run()
     })
   }
 
-  curatedMeta(): Map<string, { name?: string; summary?: string }> {
-    const rows = this.db
+  async curatedMeta(): Promise<Map<string, { name?: string; summary?: string }>> {
+    const rows = await this.db
       .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
       .from(conversations)
       .where(or(isNotNull(conversations.name), isNotNull(conversations.summary)))
@@ -202,8 +203,8 @@ export class ConversationIndexRepository {
     )
   }
 
-  setMeta(id: string, meta: { name?: string; summary?: string }): void {
-    const present = this.db
+  async setMeta(id: string, meta: { name?: string; summary?: string }): Promise<void> {
+    const present = await this.db
       .select({ one: sql<number>`1` })
       .from(conversations)
       .where(eq(conversations.id, id))
@@ -213,20 +214,20 @@ export class ConversationIndexRepository {
       // since POD-318 the machine column has no default to manufacture one — so
       // this names the host, which is where a local curation act happens. It used
       // to lean on the `'__local__'` default, silently.
-      this.db
+      ;await (this.db
         .insert(conversations)
         .values({
           id,
           agentKind: 'claude-code',
           providerId: 'unknown',
           machineId: this.hostMachineId,
-        })
+        }))
         .run()
     }
     if (meta.name !== undefined)
-      this.db.update(conversations).set({ name: meta.name }).where(eq(conversations.id, id)).run()
+      await this.db.update(conversations).set({ name: meta.name }).where(eq(conversations.id, id)).run()
     if (meta.summary !== undefined)
-      this.db
+      await this.db
         .update(conversations)
         .set({ summary: meta.summary })
         .where(eq(conversations.id, id))
@@ -243,7 +244,7 @@ export class ConversationIndexRepository {
    * through the query layer now, and every value is still a bound parameter, so
    * the projectPath filter is a fragment rather than string concatenation.
    */
-  searchCandidates(opts: { query?: string; projectPath?: string }): ConversationIndexRow[] {
+  async searchCandidates(opts: { query?: string; projectPath?: string }): Promise<ConversationIndexRow[]> {
     const pathFilter = opts.projectPath
       ? sql` AND (c.project_path=${opts.projectPath} OR c.project_path LIKE ${`${opts.projectPath}/%`})`
       : sql``
@@ -252,7 +253,7 @@ export class ConversationIndexRepository {
     const query = opts.query?.trim() ?? ''
     let rows: Record<string, unknown>[]
     if (!query) {
-      rows = this.db.all(
+      rows = await this.db.all(
         sql`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}${order}`,
       )
     } else if (this.ftsAvailable) {
@@ -261,13 +262,13 @@ export class ConversationIndexRepository {
         .filter(Boolean)
         .map((token) => `"${token.replace(/"/g, '""')}"*`)
         .join(' ')
-      rows = this.db.all(
+      rows = await this.db.all(
         sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
         WHERE conversations_fts MATCH ${fts}${pathFilter}${topLevel}${order}`,
       )
     } else {
       const like = `%${query}%`
-      rows = this.db.all(
+      rows = await this.db.all(
         sql`SELECT c.* FROM conversations c WHERE
         (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
         ${pathFilter}${topLevel}${order}`,
@@ -295,8 +296,8 @@ export class ConversationIndexRepository {
     }))
   }
 
-  search(opts: { query?: string; projectPath?: string; limit?: number }): ConversationIndexRow[] {
+  async search(opts: { query?: string; projectPath?: string; limit?: number }): Promise<ConversationIndexRow[]> {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
-    return this.searchCandidates(opts).slice(0, limit)
+    return (await this.searchCandidates(opts)).slice(0, limit)
   }
 }

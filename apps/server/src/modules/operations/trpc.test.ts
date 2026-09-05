@@ -30,11 +30,11 @@ import type { OperationKindDefinition, StepOutcome } from './kinds'
 
 const registries: SessionRegistry[] = []
 
-function harness() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'operations-test' })
+async function harness() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'operations-test' })
   registries.push(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const caller = appRouter.createCaller({
     registry,
     repos,
@@ -66,7 +66,7 @@ function testKind(over: Partial<OperationKindDefinition> = {}): OperationKindDef
 
 describe('operations.active', () => {
   it('serves a payload the conformance parser accepts', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(testKind())
     const started = await operations.engine.start('test', undefined, { createdBy: 'user' })
     expect(started.started).toBe(true)
@@ -82,12 +82,12 @@ describe('operations.active', () => {
   })
 
   it('answers null when nothing is live — the ordinary case', async () => {
-    const { caller } = harness()
+    const { caller } = await harness()
     expect(await caller.operations.active()).toBeNull()
   })
 
   it('answers null once the operation has an outcome', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(testKind({ runners: { first: { ensure: done } } }))
     const started = await operations.engine.start('test')
     if (started.started) await operations.engine.whenSettled(started.operation.id)
@@ -96,7 +96,7 @@ describe('operations.active', () => {
   })
 
   it('scopes to an exclusion group when asked', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(testKind())
     operations.kinds.register(
       testKind({
@@ -119,7 +119,7 @@ describe('operations.active', () => {
   })
 
   it('serves a field this binary never invented, byte for byte (P8)', async () => {
-    const { caller, registry, operations } = harness()
+    const { caller, registry, operations } = await harness()
     operations.kinds.register(testKind())
     await operations.engine.start('test')
     // What a NEWER server wrote before this one adopted its operation. The
@@ -143,7 +143,7 @@ describe('operations.active', () => {
 })
 
 describe('operations.history', () => {
-  const finishThree = async (operations: ReturnType<typeof harness>['operations']) => {
+  const finishThree = async (operations: Awaited<ReturnType<typeof harness>>['operations']) => {
     operations.kinds.register(
       testKind({
         plan: () => ({ steps: [{ id: 'first' }] }),
@@ -157,7 +157,7 @@ describe('operations.history', () => {
   }
 
   it('lists finished operations, newest first, and every entry parses', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     await finishThree(operations)
 
     const history = (await caller.operations.history()) as unknown[]
@@ -168,27 +168,27 @@ describe('operations.history', () => {
   })
 
   it('filters by kind', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     await finishThree(operations)
     expect(await caller.operations.history({ kind: 'server-move' })).toEqual([])
     expect((await caller.operations.history({ kind: 'test' })) as unknown[]).toHaveLength(3)
   })
 
   it('honours the limit', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     await finishThree(operations)
     expect((await caller.operations.history({ limit: 2 })) as unknown[]).toHaveLength(2)
   })
 
   it('is empty, not an error, before anything has ever run', async () => {
-    const { caller } = harness()
+    const { caller } = await harness()
     expect(await caller.operations.history()).toEqual([])
   })
 })
 
 describe('operations.cancel', () => {
   it('cancels while the step in flight says it is safe', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(
       testKind({
         plan: () => ({ steps: [{ id: 'first' }] }),
@@ -205,7 +205,7 @@ describe('operations.cancel', () => {
   })
 
   it('returns a refusal rather than throwing, and names the step', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(testKind())
     const started = await operations.engine.start('test')
     if (!started.started) throw new Error('expected a live operation')
@@ -221,7 +221,7 @@ describe('operations.cancel', () => {
   })
 
   it('refuses an operation that never existed', async () => {
-    const { caller } = harness()
+    const { caller } = await harness()
     expect(await caller.operations.cancel({ id: 'op_nope' })).toEqual({
       canceled: false,
       refused: 'not-found',
@@ -229,7 +229,7 @@ describe('operations.cancel', () => {
   })
 
   it('refuses one that already finished', async () => {
-    const { caller, operations } = harness()
+    const { caller, operations } = await harness()
     operations.kinds.register(
       testKind({
         plan: () => ({ steps: [{ id: 'first' }] }),

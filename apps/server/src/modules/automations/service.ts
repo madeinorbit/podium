@@ -134,15 +134,15 @@ export class AutomationsService {
    * root runs it after the object exists, in the order the constructor
    * established, so constructing an automations service never reads the store.
    */
-  reconcileFromStore(): void {
+  async reconcileFromStore(): Promise<void> {
     const deps = this.deps
-    deps.ledger.reconcile(
+    await deps.ledger.reconcile(
       'automation',
-      deps.store.list().map((automation) => ({ id: automation.id, value: automation })),
+      (await deps.store.list()).map((automation) => ({ id: automation.id, value: automation })),
     )
-    deps.ledger.reconcile(
+    await deps.ledger.reconcile(
       'automationRun',
-      deps.store.listAllRuns().map((run) => ({ id: run.id, value: run })),
+      (await deps.store.listAllRuns()).map((run) => ({ id: run.id, value: run })),
     )
   }
 
@@ -201,25 +201,25 @@ export class AutomationsService {
     }
   }
 
-  list(): AutomationRow[] {
-    return this.deps.store.list()
+  async list(): Promise<AutomationRow[]> {
+    return await this.deps.store.list()
   }
 
-  listForUser(userId: UserId): AutomationRow[] {
-    return this.deps.store.list().filter((row) => row.ownerUserId === userId)
+  async listForUser(userId: UserId): Promise<AutomationRow[]> {
+    return (await this.deps.store.list()).filter((row) => row.ownerUserId === userId)
   }
 
-  runs(automationId: AutomationId, limit?: number): AutomationRunRow[] {
-    return this.deps.store.listRuns(automationId, limit)
+  async runs(automationId: AutomationId, limit?: number): Promise<AutomationRunRow[]> {
+    return await this.deps.store.listRuns(automationId, limit)
   }
 
-  runsForUser(userId: UserId, automationId: AutomationId, limit?: number): AutomationRunRow[] {
-    const automation = this.deps.store.get(automationId)
-    return automation?.ownerUserId === userId ? this.deps.store.listRuns(automationId, limit) : []
+  async runsForUser(userId: UserId, automationId: AutomationId, limit?: number): Promise<AutomationRunRow[]> {
+    const automation = await this.deps.store.get(automationId)
+    return automation?.ownerUserId === userId ? await this.deps.store.listRuns(automationId, limit) : []
   }
 
-  allRuns(): AutomationRunRow[] {
-    return this.deps.store.listAllRuns()
+  async allRuns(): Promise<AutomationRunRow[]> {
+    return await this.deps.store.listAllRuns()
   }
 
   private ownerFor(principal: CommandPrincipal): UserId {
@@ -236,7 +236,7 @@ export class AutomationsService {
 
   /** Create an automation. Validation happens before persistence, including the
    *  explicit one-minute floor [spec:SP-17db]. */
-  create(input: AutomationInput, principal: CommandPrincipal): AutomationRow {
+  async create(input: AutomationInput, principal: CommandPrincipal): Promise<AutomationRow> {
     const attribution = attributionOf(principal)
     const ownerUserId = this.ownerFor(principal)
     const scheduleKind = input.scheduleKind ?? 'cron'
@@ -272,22 +272,22 @@ export class AutomationsService {
       createdByActor: attribution.actor,
       createdByOnBehalfOf: ownerUserId,
     }
-    const created = this.deps.ledger.commit({
-      write: () => {
-        this.deps.store.insert(row)
+    const created = (await this.deps.ledger.commit({
+      write: async () => {
+        await this.deps.store.insert(row)
         return row
       },
       changes: (automation) => [
         { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
       ],
-    }).result
+    })).result
     return created
   }
 
   /** Patch an automation. Any schedule/enabled change re-arms from now; an edited
    *  cron never retains the old expression's pending fire. */
-  update(id: string, patch: Partial<AutomationInput>, principal: CommandPrincipal): AutomationRow {
-    const current = this.deps.store.get(id)
+  async update(id: string, patch: Partial<AutomationInput>, principal: CommandPrincipal): Promise<AutomationRow> {
+    const current = await this.deps.store.get(id)
     if (!current) throw new Error('unknown automation: ' + id)
     this.assertOwner(principal, current)
     const scheduleKind = patch.scheduleKind ?? current.scheduleKind
@@ -337,36 +337,36 @@ export class AutomationsService {
     if (rearm) {
       next.nextRunAt = this.armFrom(next.scheduleKind, next.cron, next.runAt, next.enabled)
     }
-    const updated = this.deps.ledger.commit({
-      write: () => {
-        this.deps.store.update(next)
+    const updated = (await this.deps.ledger.commit({
+      write: async () => {
+        await this.deps.store.update(next)
         return next
       },
       changes: (automation) => [
         { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
       ],
-    }).result
+    })).result
     return updated
   }
 
-  setEnabled(id: string, enabled: boolean, principal: CommandPrincipal): AutomationRow {
-    return this.update(id, { enabled }, principal)
+  async setEnabled(id: string, enabled: boolean, principal: CommandPrincipal): Promise<AutomationRow> {
+    return await this.update(id, { enabled }, principal)
   }
 
-  remove(id: string, principal: CommandPrincipal): { removed: boolean } {
-    const current = this.deps.store.get(id)
+  async remove(id: string, principal: CommandPrincipal): Promise<{ removed: boolean }> {
+    const current = await this.deps.store.get(id)
     if (!current) return { removed: false }
     this.assertOwner(principal, current)
-    const runIds = this.deps.store
-      .listAllRuns()
+    const runIds = (await this.deps.store
+      .listAllRuns())
       .filter((run) => run.automationId === id)
       .map((run) => run.id)
     // The store TOMBSTONES rather than deletes (POD-1509) — the clock stays
     // injected here rather than reaching into the store, so a test that freezes
     // time still controls what a deletion is stamped with.
     const deletedAt = this.now().toISOString()
-    const removed = this.deps.ledger.commit({
-      write: () => this.deps.store.remove(id, deletedAt),
+    const removed = (await this.deps.ledger.commit({
+      write: async () => await this.deps.store.remove(id, deletedAt),
       changes: (didRemove) =>
         didRemove
           ? [
@@ -378,7 +378,7 @@ export class AutomationsService {
               { entity: 'automation' as const, id, op: 'remove' as const },
             ]
           : [],
-    }).result
+    })).result
     return { removed }
   }
 
@@ -388,20 +388,20 @@ export class AutomationsService {
    * fires that deliberately did nothing (missed, skipped_overlap) are part of the
    * history, so a quiet night is explainable.
    */
-  tick(): void {
+  async tick(): Promise<void> {
     const decisions = decideTick({
       now: this.now(),
-      automations: this.schedulables(),
+      automations: await this.schedulables(),
       liveSessionIds: this.deps.liveSessionIds(),
     })
-    for (const decision of decisions) this.apply(decision)
+    for (const decision of decisions) await this.apply(decision)
   }
 
   /** The decision function's input snapshot: the rows plus each automation's last
    *  spawned session (the overlap check's subject). */
-  private schedulables(): Schedulable[] {
-    const lastSessions = this.deps.store.lastSpawnedSessions()
-    return this.deps.store.list().map((a) => ({
+  private async schedulables(): Promise<Schedulable[]> {
+    const lastSessions = await this.deps.store.lastSpawnedSessions()
+    return (await this.deps.store.list()).map((a) => ({
       id: a.id,
       enabled: a.enabled,
       scheduleKind: a.scheduleKind,
@@ -417,11 +417,11 @@ export class AutomationsService {
    * mutationId, then finalize run + re-arm. A crash between reserve and finalize
    * leaves detail='reserved' so replay resumes rather than losing the occurrence.
    */
-  private apply(decision: AutomationDecision): void {
-    const automation = this.deps.store.get(decision.automationId)
+  private async apply(decision: AutomationDecision): Promise<void> {
+    const automation = await this.deps.store.get(decision.automationId)
     if (!automation) return
     const runId = automationOccurrenceRunId(automation.id, decision.firedAt)
-    const existing = this.deps.store.getRun(runId)
+    const existing = await this.deps.store.getRun(runId)
     // Fully settled occurrence — idempotent no-op.
     if (existing && existing.detail !== 'reserved') return
 
@@ -435,10 +435,10 @@ export class AutomationsService {
     // Non-spawn decisions have no side effects: record run + re-arm together.
     if (decision.kind !== 'spawn') {
       const outcome: AutomationRunOutcome = decision.kind
-      this.deps.ledger.commit({
-        write: () => {
+      await this.deps.ledger.commit({
+        write: async () => {
           if (!existing) {
-            this.deps.store.addRun({
+            await this.deps.store.addRun({
               id: runId,
               automationId: automation.id,
               firedAt: decision.firedAt,
@@ -449,13 +449,13 @@ export class AutomationsService {
               onBehalfOf: automation.ownerUserId,
             })
           } else {
-            this.deps.store.updateRun(runId, {
+            await this.deps.store.updateRun(runId, {
               sessionId: null,
               outcome,
               detail: decision.detail ?? null,
             })
           }
-          this.deps.store.update(rearmed)
+          await this.deps.store.update(rearmed)
           return { runId, automation: rearmed }
         },
         changes: (result) => [
@@ -478,9 +478,9 @@ export class AutomationsService {
 
     // Reserve occurrence ONLY — do not re-arm nextRunAt until side effects finish.
     if (!existing) {
-      this.deps.ledger.commit({
-        write: () => {
-          this.deps.store.addRun({
+      await this.deps.ledger.commit({
+        write: async () => {
+          await this.deps.store.addRun({
             id: runId,
             automationId: automation.id,
             firedAt: decision.firedAt,
@@ -490,7 +490,7 @@ export class AutomationsService {
             actor: `automation:${automation.id}`,
             onBehalfOf: automation.ownerUserId,
           })
-          return this.deps.store.getRun(runId)!
+          return (await this.deps.store.getRun(runId))!
         },
         changes: (run) => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
       })
@@ -500,7 +500,7 @@ export class AutomationsService {
     let sessionId: SessionId | null = null
     let detail: string | null = 'reserved'
     try {
-      sessionId = this.spawn(automation, runId)
+      sessionId = await this.spawn(automation, runId)
       outcome = 'spawned'
       detail = null
     } catch (err) {
@@ -511,11 +511,11 @@ export class AutomationsService {
     }
 
     // Finalize run + re-arm only after the side-effect attempt (success or terminal error).
-    this.deps.ledger.commit({
-      write: () => {
-        this.deps.store.updateRun(runId, { sessionId, outcome, detail })
-        this.deps.store.update(rearmed)
-        return { run: this.deps.store.getRun(runId)!, automation: rearmed }
+    await this.deps.ledger.commit({
+      write: async () => {
+        await this.deps.store.updateRun(runId, { sessionId, outcome, detail })
+        await this.deps.store.update(rearmed)
+        return { run: (await this.deps.store.getRun(runId))!, automation: rearmed }
       },
       changes: (result) => [
         { entity: 'automationRun', id: result.run.id, op: 'upsert', value: result.run },
@@ -534,17 +534,17 @@ export class AutomationsService {
    * the server revalidates schedule facts. A reserved-but-unfinished run is
    * resumed, not treated as already-applied.
    */
-  applyObservedOccurrence(input: {
+  async applyObservedOccurrence(input: {
     automationId: AutomationId
     nextRunAt: string
     enabled: true
     liveSessionIds: Set<string>
     now: Date
-  }): 'applied' | 'precondition' | 'not-due' | 'already' {
-    const automation = this.deps.store.get(input.automationId)
+  }): Promise<'applied' | 'precondition' | 'not-due' | 'already'> {
+    const automation = await this.deps.store.get(input.automationId)
     if (!automation || !automation.enabled || !input.enabled) return 'precondition'
     const runId = automationOccurrenceRunId(automation.id, input.nextRunAt)
-    const existing = this.deps.store.getRun(runId)
+    const existing = await this.deps.store.getRun(runId)
     if (existing && existing.detail !== 'reserved') return 'already'
 
     // Resume reserved: nextRunAt was intentionally NOT re-armed, so it still matches.
@@ -565,7 +565,7 @@ export class AutomationsService {
           scheduleKind: automation.scheduleKind,
           cron: automation.cron,
           nextRunAt: nextRunAtForDecide,
-          lastSessionId: this.deps.store.lastSpawnedSessions().get(automation.id) ?? null,
+          lastSessionId: (await this.deps.store.lastSpawnedSessions()).get(automation.id) ?? null,
         },
       ],
       liveSessionIds: input.liveSessionIds,
@@ -591,7 +591,7 @@ export class AutomationsService {
     }
     if (!decision) return 'not-due'
     // Ensure firedAt stays the original occurrence identity.
-    this.apply({ ...decision, firedAt: input.nextRunAt })
+    await this.apply({ ...decision, firedAt: input.nextRunAt })
     return 'applied'
   }
 
@@ -607,7 +607,7 @@ export class AutomationsService {
    * gets the turn through the durable outbox. The run id is the replay-safe outbox
    * mutation id.
    */
-  private spawn(automation: AutomationRow, runId: string): SessionId {
+  private async spawn(automation: AutomationRow, runId: string): Promise<SessionId> {
     const principal = this.deps.principalForOwner(automation.ownerUserId)
     if (!principal) {
       throw new AutomationSpawnError('automation creator account is disabled or missing', null)
@@ -617,7 +617,7 @@ export class AutomationsService {
     }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
-        automation.targetSessionId ?? this.deps.store.lastSpawnedSessions().get(automation.id)
+        automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessions()).get(automation.id)
       if (previousSessionId) {
         const resumed = this.deps.resumeAndSend({
           sessionId: previousSessionId,

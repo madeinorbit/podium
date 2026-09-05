@@ -73,25 +73,25 @@ export class InteractionFeedPublisher {
    * table auto-answered in the same tick it was minted never blocked anyone, and
    * a `remove` for a row no replica ever held is a change with no meaning.
    */
-  publish(row: InteractionRow): void {
+  async publish(row: InteractionRow): Promise<void> {
     try {
       const id = interactionRowId(row.sessionId, row.id)
       if (row.status === 'asked') {
         this.carried.add(id)
-        this.capture([
+        await this.capture([
           { entity: 'pendingInteraction', id, op: 'upsert', value: this.deps.toWire(row) },
         ])
         return
       }
       if (this.carried.delete(id)) {
-        this.capture([{ entity: 'pendingInteraction', id, op: 'remove' }])
+        await this.capture([{ entity: 'pendingInteraction', id, op: 'remove' }])
       }
     } catch (err) {
       log.warn('interaction feed publish failed', { err, id: row.id })
     }
   }
 
-  private capture(changes: EntityChangeSpec[]): void {
-    this.deps.ledger.capture(changes)
+  private async capture(changes: EntityChangeSpec[]): Promise<void> {
+    await this.deps.ledger.capture(changes)
   }
 }

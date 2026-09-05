@@ -54,7 +54,7 @@ function positiveFinite(name: string, value: number): number {
  * overshoot the target, so callers must keep each individual unit bounded.
  */
 export async function runTimeBudgetedJob(
-  runUnit: () => TimeBudgetedJobUnitResult,
+  runUnit: () => TimeBudgetedJobUnitResult | Promise<TimeBudgetedJobUnitResult>,
   options: TimeBudgetedJobOptions = {},
 ): Promise<TimeBudgetedJobMetrics> {
   const sliceBudgetMs = positiveFinite(
@@ -88,7 +88,7 @@ export async function runTimeBudgetedJob(
       }
 
       units++
-      const result = runUnit()
+      const result = await runUnit()
       if (result === 'done') {
         outcome = 'completed'
         break

@@ -172,7 +172,7 @@ export interface SessionStartPorts {
 export class SessionStart {
   constructor(private readonly ports: SessionStartPorts) {}
 
-  create(input: {
+  async create(input: {
     /** Authenticated human owner; every production caller supplies this. */
     ownerUserId?: UserId
     agentKind?: AgentKind
@@ -214,7 +214,7 @@ export class SessionStart {
      * spawn dialog would be a product decision nobody has made.
      */
     runtimeContract?: RuntimeContractRequest
-  }): SessionSpawnResult {
+  }): Promise<SessionSpawnResult> {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
     // AgentKind: persisting or broadcasting it fails the sessionsChanged
@@ -222,7 +222,7 @@ export class SessionStart {
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
+      : resolveRole(await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
           .harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
@@ -238,7 +238,7 @@ export class SessionStart {
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
     const { forced } = assertModelSelectionValid(
-      this.ports.store.settings.getModelCatalog(machineId),
+      await this.ports.store.settings.getModelCatalog(machineId),
       {
         agentKind,
         ...(input.model !== undefined ? { model: input.model } : {}),
@@ -270,7 +270,7 @@ export class SessionStart {
     // Session ownership is declared per class: an issue-owned child inherits the
     // issue owner; otherwise a binding resolves to its on-behalf-of human. The
     // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId ? this.ports.store.issues.getIssue(issueId)?.ownerUserId : undefined
+    const parentOwner = issueId ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId : undefined
     const bindingOwner =
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
@@ -294,7 +294,7 @@ export class SessionStart {
     // exactly when a session is spawned under a shared issue, and conflating
     // them would attribute the spawn to the issue's owner.
     const createdBy = createdByForBinding(binding.principal, bindingOwner ?? ownerUserId)
-    const spawned = this.spawn({
+    const spawned = await this.spawn({
       agentKind,
       ownerUserId,
       cwd: input.cwd,
@@ -341,7 +341,7 @@ export class SessionStart {
     // Forcing an unlisted model is a deliberate override — make it durable and
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {
-      this.ports.store.events.appendEvent({
+      await this.ports.store.events.appendEvent({
         ts: new Date().toISOString(),
         kind: 'agent.model_forced',
         subject: spawned.sessionId,
@@ -357,7 +357,7 @@ export class SessionStart {
     return spawned
   }
 
-  spawn(input: {
+  async spawn(input: {
     agentKind: AgentKind
     ownerUserId?: UserId
     cwd: string
@@ -388,7 +388,7 @@ export class SessionStart {
     /** The operator's per-spawn driver choice — see `create()`'s field of the
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     runtimeContract?: RuntimeContractRequest
-  }): SessionSpawnResult {
+  }): Promise<SessionSpawnResult> {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
@@ -403,7 +403,7 @@ export class SessionStart {
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const launch = this.ports.launchConfig.modelDefaults(
+    const launch = await this.ports.launchConfig.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
@@ -413,7 +413,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+            await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the
@@ -504,12 +504,12 @@ export class SessionStart {
     // draft ordinal from the repo), so it has to assign into the state the row
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
-    const additionalWrite = this.ports.view.prepareRefAllocation(draft)
+    const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
     this.ports.repository.persistDraft(session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
-    const observationLease = this.ports.terminalProof.fence(session)
+    const observationLease = await this.ports.terminalProof.fence(session)
     this.ports.toMachine(machineId, {
       type: 'spawn',
       sessionId,
@@ -543,7 +543,7 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
+      ...await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })

@@ -106,7 +106,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       throw new Error('store is gone')
     })
 
-    await expect(h.steward.tick()).rejects.toThrow('store is gone')
+    await expect(await h.steward.tick()).rejects.toThrow('store is gone')
     await h.steward.tick()
 
     expect(h.calls()).toBe(2)

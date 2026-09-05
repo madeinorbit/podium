@@ -42,8 +42,8 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
-    registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
-      ...registry.modules.settings.getSettings(),
+    await registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+      ...await registry.modules.settings.getSettings(),
       experimental: { workflows: true },
     })
     // Open (no-password) server ⇒ the CLI acts as the operator, exactly as it
@@ -118,12 +118,12 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
         { id: 'ship', title: 'Ship', instructions: 'ship', completionGuidance: 'shipped' },
       ],
     })
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/wt',
       initialPrompt: 'do the work',
     })
-    const run = registry.modules.workflows.startRun({
+    const run = await registry.modules.workflows.startRun({
       sessionId,
       cwd: '/repo/wt',
       revisionId: created.revision.id,
@@ -150,7 +150,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     expect(status).toContain('current: ship — Ship')
 
     // The advance actually landed in the store, not just in the rendered packet.
-    const after = registry.modules.workflows.status({ runId: run.id }, operator)
+    const after = await registry.modules.workflows.status({ runId: run.id }, operator)
     expect(after.steps.find((s) => s.stepId === 'build')?.status).toBe('complete')
 
     // The counterfactual: the OTHER step did not advance, so "complete" above is

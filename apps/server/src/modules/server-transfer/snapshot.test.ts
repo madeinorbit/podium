@@ -62,7 +62,7 @@ describe('portable server snapshot', () => {
     const checkpoint = vi.fn()
 
     await expect(
-      createPortableSnapshot({
+      await createPortableSnapshot({
         stateRoot: root,
         packageDir: join(root, '.server-transfer', 'snapshot'),
         transferId: 'transfer-1',

@@ -191,7 +191,7 @@ describe('D12 — a blocked aggregate never stalls another, and never stalls ano
       close('BLOCKED', { attribution: GRACE, partitionKey: 'issue:BLOCKED' }),
     )
 
-    await Promise.all([ada.outbox.drain(), grace.outbox.drain()])
+    await Promise.all([await ada.outbox.drain(), await grace.outbox.drain()])
 
     expect(stateOf(ada.outbox, adaBlocked.mutationId)).toBe('accepted')
     expect(stateOf(ada.outbox, adaBehind.mutationId)).toBe('queued')
@@ -739,7 +739,7 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
     await w.outbox.drain()
     expect(stateOf(w.outbox, record.mutationId)).toBe('accepted')
 
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(0, 1, [
         upsertChange(1, 'issue', 'POD-1', { closed: true }, { mutationId: record.mutationId }),
       ]),
@@ -758,7 +758,7 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
 
     // 500 watermarks: under private-by-default this is the NORMAL frame, and it is
     // exactly the shape a range suppressed for this principal takes.
-    for (let seq = 1; seq <= 500; seq += 1) w.replica.receive(watermark(seq - 1, seq))
+    for (let seq = 1; seq <= 500; seq += 1) await w.replica.receive(watermark(seq - 1, seq))
     await w.replica.settled()
     await Promise.all(w.retirements)
 
@@ -786,7 +786,7 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
     // (feed liveness is not the entry's age).
     for (let seq = 1; seq <= 13; seq += 1) {
       w.clock.advance(DAY)
-      w.replica.receive(watermark(seq - 1, seq))
+      await w.replica.receive(watermark(seq - 1, seq))
     }
     await w.replica.settled()
     await Promise.all(w.retirements)

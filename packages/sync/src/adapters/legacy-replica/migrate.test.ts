@@ -132,7 +132,7 @@ async function runMigration(
   store: SqliteSyncStore,
   evidence: LegacyIdentityEvidence,
 ) {
-  return migrateLegacyReplica({
+  return await migrateLegacyReplica({
     legacy,
     outbox: store.viewFor(PRINCIPAL).outbox,
     transact: store.unitOfWork.transact,
@@ -152,7 +152,7 @@ async function durableOutbox(file: string): Promise<readonly OutboxRecord[]> {
     onDegraded: () => {},
   })
   cleanups.push(() => reopened.close())
-  return reopened.viewFor(PRINCIPAL).outbox.read()
+  return await reopened.viewFor(PRINCIPAL).outbox.read()
 }
 
 describe('the capture is what this file claims it is', () => {

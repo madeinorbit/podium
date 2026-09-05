@@ -39,7 +39,7 @@ export interface FeedTestPlumbing {
   readonly routingPrincipal: (peerId: string, user?: UserId, role?: UserRole) => ClientPrincipal
 }
 
-export function feedTestPlumbing(
+export async function feedTestPlumbing(
   opts: {
     diagnostics?: () => ConversationDiagnosticWire[]
     onVisibilityChanged?: (subscriberIds: readonly SubscriberId[]) => void
@@ -71,14 +71,14 @@ export function feedTestPlumbing(
      */
     retention?: FeedRetentionPort
   } = {},
-): FeedTestPlumbing {
-  const store = openTestStore(':memory:')
+): Promise<FeedTestPlumbing> {
+  const store = await openTestStore(':memory:')
   const ledger = new Ledger({
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),
     repo: store.sync,
     now: () => 1_000,
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
   })
   let minted = 0
   let identity: FeedIdentity | null = null

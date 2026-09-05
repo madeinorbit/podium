@@ -361,14 +361,14 @@ export class MailAccess {
     )
   }
 
-  wire(m: MessageRow): MessageWire {
+  async wire(m: MessageRow): Promise<MessageWire> {
     const issues = this.deps.issues
-    const label = (kind: string, issueId: IssueId | null, sessionId: SessionId | null): string => {
+    const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
-          const issue = issues.getMeta(issueId)
+          const issue = await issues.getMeta(issueId)
           // Nice-id form (#474), matching the envelope labels.
-          if (issue) return `issue:${issues.niceRef(issue)}`
+          if (issue) return `issue:${await issues.niceRef(issue)}`
           return issueId
         }
         if (sessionId) return `session:${sessionId}`
@@ -383,10 +383,10 @@ export class MailAccess {
       from:
         m.fromKind === 'system' && m.fromName
           ? `system:${m.fromName}`
-          : label(m.fromKind, m.fromIssue, m.fromSession),
+          : await label(m.fromKind, m.fromIssue, m.fromSession),
       // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so the
       // brand is recovered inside each discriminated branch — never once, up front.
-      to: label(
+      to: await label(
         m.toKind,
         m.toKind === 'issue' && m.toId ? asIssueId(m.toId) : null,
         m.toKind === 'session' && m.toId ? asSessionId(m.toId) : null,

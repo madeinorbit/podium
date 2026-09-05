@@ -50,11 +50,11 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 
 async function harness(role: UserRole | undefined) {
   const store = await openTestStore(':memory:')
-  const registry = SessionRegistry.create(store, undefined, {
+  const registry = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
   })
-  registry.modules.machines.ensureHostMachine('machine-under-test')
+  await registry.modules.machines.ensureHostMachine('machine-under-test')
 
   // Override only after boot has loaded the real migration account. The command
   // gate must see the requested role (including unreadable), while unrelated
@@ -62,7 +62,7 @@ async function harness(role: UserRole | undefined) {
   const users = store.users as { roleOf: (id: UserId) => UserRole | undefined }
   users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     store,
     call: appRouter.createCaller({

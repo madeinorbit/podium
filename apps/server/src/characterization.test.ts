@@ -63,11 +63,11 @@ function sink() {
 // ---------------------------------------------------------------------------
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
-  it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
     })
@@ -95,7 +95,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // Daemon connection drops: the session degrades to reconnecting (not exited).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'reconnecting',
     )
 
@@ -103,7 +103,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     const daemon2: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
 
@@ -192,7 +192,7 @@ async function observe(reg: SessionRegistry, issueId: string): Promise<Lifecycle
   reg.modules.sessions.flushBroadcasts()
   const store = reg.sessionStore
   return {
-    wire: normalize(reg.issues.get(issueId)),
+    wire: normalize(await reg.issues.get(issueId)),
     events: normalize(
       (await store.events.listEventsSince(0)).map((e) => ({
         kind: e.kind,
@@ -221,7 +221,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
   const freshRegistry = async () => {
-    const reg = SessionRegistry.create(await openTestStore(':memory:', HOST), undefined, {
+    const reg = await SessionRegistry.create(await openTestStore(':memory:', HOST), undefined, {
       instanceId: 'default',
     })
     registries.push(reg)
@@ -250,15 +250,15 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     try {
       // (a) IssueService direct.
       const regA = await freshRegistry()
-      const a = regA.issues.create({
+      const a = await regA.issues.create({
         repoPath: '/repo',
         title: 'Lifecycle',
         description: 'characterize me',
         startNow: false,
       })
-      regA.issues.claim(a.id, asUserId('agent:test'))
-      regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
-      regA.issues.close(a.id, 'done')
+      await regA.issues.claim(a.id, asUserId('agent:test'))
+      await regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
+      await regA.issues.close(a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.
@@ -281,7 +281,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note', '--author', 'agent:test'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
-      const bId = regB.issues.resolveRef(seq)
+      const bId = await regB.issues.resolveRef(seq)
 
       // (c) the tRPC router directly.
       const regC = await freshRegistry()
@@ -339,18 +339,18 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
   it('a bare closedReason patch moves the stage to done (#24)', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const w = reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
-      const patched = reg.issues.update(w.id, { closedReason: 'wontfix' })
+      const w = await reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
+      const patched = await reg.issues.update(w.id, { closedReason: 'wontfix' })
       // #24: closing via reason IS closing — stage follows to 'done'.
       expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
-      expect(reg.issues.search({ repoPath: '/r', status: 'closed' }).map((i) => i.id)).toEqual([
+      expect((await reg.issues.search({ repoPath: '/r', status: 'closed' })).map((i) => i.id)).toEqual([
         w.id,
       ])
-      expect(reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
-      expect(reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
+      expect(await reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
+      expect(await reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
         (e) => e.kind === 'issue.closed',
@@ -367,18 +367,18 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const w = reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
-      reg.issues.close(w.id) // stage done + closedReason 'done'
+      const w = await reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
+      await reg.issues.close(w.id) // stage done + closedReason 'done'
       // The obvious "reopen": drag the card back to in_progress.
-      const reopened = reg.issues.update(w.id, { stage: 'in_progress' })
+      const reopened = await reg.issues.update(w.id, { stage: 'in_progress' })
       expect(reopened.stage).toBe('in_progress')
       // #24: closedReason clears with the stage move, so the reopened issue is
       // open/ready-visible again — no explicit closedReason:null needed.
       expect(reopened.closedReason).toBeUndefined()
-      expect(reg.issues.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([w.id])
-      expect(reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
+      expect((await reg.issues.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([w.id])
+      expect(await reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
       const reopenedEvents = (await reg.sessionStore.events.listEventsSince(0)).filter(
         (e) => e.kind === 'issue.reopened',
@@ -391,12 +391,12 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
   })
 
   it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const w = reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
-      reg.issues.close(w.id)
-      reg.issues.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
-      reg.issues.update(w.id, { stage: 'done' }) // drag back to done
+      const w = await reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
+      await reg.issues.close(w.id)
+      await reg.issues.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
+      await reg.issues.update(w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
@@ -441,14 +441,14 @@ describe('characterization: change-log delta client heals to identical state (co
     const ledger = new Ledger({
       repo: store.sync,
       now: Date.now,
-      transact: (fn) => store.transact(fn),
+      transact: async (fn) => await store.transact(fn),
     })
     const liveState = new Map<string, unknown>()
     const lagState = new Map<string, unknown>()
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = ledger.reconcile('issue', [
+    let changes = await ledger.reconcile('issue', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -457,19 +457,19 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Rounds 2-3 happen while the lagging client is offline: an edit, a removal,
     // and a brand-new entity.
-    apply(liveState, ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
-    changes = ledger.reconcile('issue', [
+    apply(liveState, await ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
+    changes = await ledger.reconcile('issue', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
     apply(liveState, changes)
 
     // Heal: exactly the missed range, and folding it reproduces the live state.
-    const missed = ledger.changesSince(lagCursor)
+    const missed = await ledger.changesSince(lagCursor)
     expect(missed).not.toBeNull()
     const healedCursor = apply(lagState, missed as MetadataChange[])
     expect(lagState).toEqual(liveState)
-    expect(healedCursor).toBe(ledger.cursor())
+    expect(healedCursor).toBe(await ledger.cursor())
 
     // Compaction past the client's cursor forces the full-resync signal (null),
     // never a silent partial delta.
@@ -477,7 +477,7 @@ describe('characterization: change-log delta client heals to identical state (co
       await store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() }),
       500,
     )
-    expect(ledger.changesSince(lagCursor)).toBeNull()
+    expect(await ledger.changesSince(lagCursor)).toBeNull()
     store.close()
   })
 })
@@ -506,15 +506,15 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
 
     // Populate one row in each family through the real write paths.
     const store1 = await openTestStore(file)
-    const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
+    const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
-    const { sessionId } = reg1.modules.sessions.createSession({
+    const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
-    reg1.issues.close(issue.id, 'done')
+    const issue = await reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
+    await reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
+    await reg1.issues.close(issue.id, 'done')
     reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({ ok: true }))
     await store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
@@ -582,7 +582,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
     )
 
   it('scope violations are PRECONDITION_FAILED, role denials are FORBIDDEN, operator passes — identically via the middleware and the in-proc mailClaim check', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = appRouter.createCaller({
         registry: reg,
@@ -617,9 +617,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       // Seed durable mailbox rows directly: the production send path can
       // legitimately dead-letter when these fixture issues have no recipient
       // sessions, while this contract is specifically about claim authz.
-      const mailA = reg.issues.sendMail(A.id, 'operator', 'for A')
-      const mailB = reg.issues.sendMail(B.id, 'operator', 'for B')
-      const mailC = reg.issues.sendMail(C.id, 'operator', 'for C')
+      const mailA = await reg.issues.sendMail(A.id, 'operator', 'for A')
+      const mailB = await reg.issues.sendMail(B.id, 'operator', 'for B')
+      const mailC = await reg.issues.sendMail(C.id, 'operator', 'for C')
 
       const worker = caller({
         role: 'worker',

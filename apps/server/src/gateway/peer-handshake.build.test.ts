@@ -83,7 +83,7 @@ describe('build report on hello accept', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()
     wireDaemonSocket(ws as never, registry)
 

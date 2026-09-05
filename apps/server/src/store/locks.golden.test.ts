@@ -56,19 +56,19 @@ function lock(overrides: Partial<LockRow> = {}): LockRow {
 it('reads a lock back exactly as it was written, and reports a missing one as null', async () => {
   const store = await openTestStore(':memory:')
   try {
-    expect(store.locks.getLock(repo, 'build')).toBeNull()
+    expect(await store.locks.getLock(repo, 'build')).toBeNull()
 
     const row = lock()
-    store.locks.upsertLock(row)
-    expect(store.locks.getLock(repo, 'build')).toEqual(row)
+    await store.locks.upsertLock(row)
+    expect(await store.locks.getLock(repo, 'build')).toEqual(row)
 
     // Absent optional columns come back as `null`, never `undefined`: the mapper
     // coalesces, and a conversion that returned the raw column would hand a
     // caller `undefined` for a lock the operator holds with no note.
-    store.locks.upsertLock(
+    await store.locks.upsertLock(
       lock({ name: 'free', holderSessionId: null, holderIssueId: null, note: null }),
     )
-    const bare = store.locks.getLock(repo, 'free')
+    const bare = await store.locks.getLock(repo, 'free')
     expect(bare).not.toBeNull()
     expect(bare?.holderSessionId).toBeNull()
     expect(bare?.holderIssueId).toBeNull()
@@ -81,14 +81,14 @@ it('reads a lock back exactly as it was written, and reports a missing one as nu
 it('lists one repo’s locks by name, and leaves another repo’s alone', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.locks.upsertLock(lock({ name: 'ship' }))
-    store.locks.upsertLock(lock({ name: 'build' }))
-    store.locks.upsertLock(lock({ name: 'merge' }))
-    store.locks.upsertLock(lock({ repoId: other, name: 'aardvark' }))
+    await store.locks.upsertLock(lock({ name: 'ship' }))
+    await store.locks.upsertLock(lock({ name: 'build' }))
+    await store.locks.upsertLock(lock({ name: 'merge' }))
+    await store.locks.upsertLock(lock({ repoId: other, name: 'aardvark' }))
 
-    expect(store.locks.listLocks(repo).map((l) => l.name)).toEqual(['build', 'merge', 'ship'])
-    expect(store.locks.listLocks(other).map((l) => l.name)).toEqual(['aardvark'])
-    expect(store.locks.listLocks(asRepoId('repo-none'))).toEqual([])
+    expect((await store.locks.listLocks(repo)).map((l) => l.name)).toEqual(['build', 'merge', 'ship'])
+    expect((await store.locks.listLocks(other)).map((l) => l.name)).toEqual(['aardvark'])
+    expect(await store.locks.listLocks(asRepoId('repo-none'))).toEqual([])
   } finally {
     store.close()
   }
@@ -98,14 +98,14 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
   const store = await openTestStore(':memory:')
   try {
     const now = '2026-09-01T00:10:00.000Z'
-    store.locks.upsertLock(lock({ name: 'past', expiresAt: '2026-09-01T00:09:59.999Z' }))
-    store.locks.upsertLock(lock({ name: 'exactly', expiresAt: now }))
-    store.locks.upsertLock(lock({ name: 'future', expiresAt: '2026-09-01T00:10:00.001Z' }))
+    await store.locks.upsertLock(lock({ name: 'past', expiresAt: '2026-09-01T00:09:59.999Z' }))
+    await store.locks.upsertLock(lock({ name: 'exactly', expiresAt: now }))
+    await store.locks.upsertLock(lock({ name: 'future', expiresAt: '2026-09-01T00:10:00.001Z' }))
 
     // BOTH EDGES, because the comparison is `<=` and a conversion to `lt` would
     // leave the boundary lock held forever by exactly one millisecond.
-    const expired = store.locks
-      .listExpiredLocks(repo, now)
+    const expired = (await store.locks
+      .listExpiredLocks(repo, now))
       .map((l) => l.name)
       .sort()
     expect(expired).toEqual(['exactly', 'past'])
@@ -117,19 +117,19 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
 it('finds the locks a session holds across repos, and does not count an operator lock as anyone’s', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.locks.upsertLock(lock({ name: 'build', holderSessionId: s1 }))
-    store.locks.upsertLock(lock({ repoId: other, name: 'ship', holderSessionId: s1 }))
-    store.locks.upsertLock(lock({ name: 'merge', holderSessionId: s2 }))
-    store.locks.upsertLock(lock({ name: 'operator-held', holderSessionId: null }))
+    await store.locks.upsertLock(lock({ name: 'build', holderSessionId: s1 }))
+    await store.locks.upsertLock(lock({ repoId: other, name: 'ship', holderSessionId: s1 }))
+    await store.locks.upsertLock(lock({ name: 'merge', holderSessionId: s2 }))
+    await store.locks.upsertLock(lock({ name: 'operator-held', holderSessionId: null }))
 
-    const held = store.locks.listLocksHeldBySession(s1)
+    const held = await store.locks.listLocksHeldBySession(s1)
     expect(held.map((l) => `${l.repoId}/${l.name}`).sort()).toEqual(['repo-1/build', 'repo-2/ship'])
 
     // `holder_session_id = ?` never matches NULL, so the session-exit sweep
     // leaves an operator's lease alone. That is the current contract and the
     // reason this repository's two holder predicates are spelled differently.
-    expect(store.locks.listLocksHeldBySession(null as unknown as LockSessionKey)).toEqual([])
-    expect(store.locks.listLocksHeldBySession(OPERATOR_LOCK_SESSION)).toEqual([])
+    expect(await store.locks.listLocksHeldBySession(null as unknown as LockSessionKey)).toEqual([])
+    expect(await store.locks.listLocksHeldBySession(OPERATOR_LOCK_SESSION)).toEqual([])
   } finally {
     store.close()
   }
@@ -138,7 +138,7 @@ it('finds the locks a session holds across repos, and does not count an operator
 it('replaces every lease column on a second acquire of the same lock', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.locks.upsertLock(lock())
+    await store.locks.upsertLock(lock())
     const taken = lock({
       holderSessionId: s2,
       holderIssueId: null,
@@ -147,11 +147,11 @@ it('replaces every lease column on a second acquire of the same lock', async () 
       acquiredAt: '2026-09-01T00:05:00.000Z',
       expiresAt: '2026-09-01T00:15:00.000Z',
     })
-    store.locks.upsertLock(taken)
+    await store.locks.upsertLock(taken)
 
-    expect(store.locks.getLock(repo, 'build')).toEqual(taken)
+    expect(await store.locks.getLock(repo, 'build')).toEqual(taken)
     // One row, not two: the conflict target is the whole primary key.
-    expect(store.locks.listLocks(repo)).toHaveLength(1)
+    expect(await store.locks.listLocks(repo)).toHaveLength(1)
   } finally {
     store.close()
   }
@@ -160,25 +160,25 @@ it('replaces every lease column on a second acquire of the same lock', async () 
 it('renews only for the session that holds the lock, and for the operator whose holder is null', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.locks.upsertLock(lock())
+    await store.locks.upsertLock(lock())
     const later = '2026-09-01T00:20:00.000Z'
 
-    expect(store.locks.renewLock(repo, 'build', s2, later)).toBe(false)
-    expect(store.locks.renewLock(repo, 'build', null, later)).toBe(false)
-    expect(store.locks.getLock(repo, 'build')?.expiresAt).toBe('2026-09-01T00:10:00.000Z')
+    expect(await store.locks.renewLock(repo, 'build', s2, later)).toBe(false)
+    expect(await store.locks.renewLock(repo, 'build', null, later)).toBe(false)
+    expect((await store.locks.getLock(repo, 'build'))?.expiresAt).toBe('2026-09-01T00:10:00.000Z')
 
-    expect(store.locks.renewLock(repo, 'build', s1, later)).toBe(true)
-    expect(store.locks.getLock(repo, 'build')?.expiresAt).toBe(later)
+    expect(await store.locks.renewLock(repo, 'build', s1, later)).toBe(true)
+    expect((await store.locks.getLock(repo, 'build'))?.expiresAt).toBe(later)
 
     // THE `IS ?` CASE. An operator's lease has a NULL holder, and `= NULL`
     // matches nothing, so a conversion that reaches for `eq` here would make
     // the operator's lock unrenewable and silently expire it.
-    store.locks.upsertLock(lock({ name: 'operator-held', holderSessionId: null }))
-    expect(store.locks.renewLock(repo, 'operator-held', null, later)).toBe(true)
-    expect(store.locks.getLock(repo, 'operator-held')?.expiresAt).toBe(later)
+    await store.locks.upsertLock(lock({ name: 'operator-held', holderSessionId: null }))
+    expect(await store.locks.renewLock(repo, 'operator-held', null, later)).toBe(true)
+    expect((await store.locks.getLock(repo, 'operator-held'))?.expiresAt).toBe(later)
 
     // A lock that is not there renews as false rather than throwing.
-    expect(store.locks.renewLock(repo, 'absent', s1, later)).toBe(false)
+    expect(await store.locks.renewLock(repo, 'absent', s1, later)).toBe(false)
   } finally {
     store.close()
   }
@@ -187,13 +187,13 @@ it('renews only for the session that holds the lock, and for the operator whose 
 it('deletes one lock and leaves the rest, and deleting an absent lock is not an error', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.locks.upsertLock(lock({ name: 'build' }))
-    store.locks.upsertLock(lock({ name: 'ship' }))
-    store.locks.upsertLock(lock({ repoId: other, name: 'build' }))
+    await store.locks.upsertLock(lock({ name: 'build' }))
+    await store.locks.upsertLock(lock({ name: 'ship' }))
+    await store.locks.upsertLock(lock({ repoId: other, name: 'build' }))
 
-    store.locks.deleteLock(repo, 'build')
-    expect(store.locks.listLocks(repo).map((l) => l.name)).toEqual(['ship'])
-    expect(store.locks.listLocks(other).map((l) => l.name)).toEqual(['build'])
+    await store.locks.deleteLock(repo, 'build')
+    expect((await store.locks.listLocks(repo)).map((l) => l.name)).toEqual(['ship'])
+    expect((await store.locks.listLocks(other)).map((l) => l.name)).toEqual(['build'])
 
     expect(() => store.locks.deleteLock(repo, 'build')).not.toThrow()
   } finally {
@@ -214,17 +214,17 @@ it('keeps the waiter queue in arrival order, per lock', async () => {
       note: null,
       enqueuedAt: '2026-09-01T00:00:00.000Z',
     })
-    store.locks.enqueueWaiter(waiter(s1))
-    store.locks.enqueueWaiter(waiter(s2))
-    store.locks.enqueueWaiter(waiter('sess-3' as SessionId))
-    store.locks.enqueueWaiter(waiter(s1, 'ship'))
+    await store.locks.enqueueWaiter(waiter(s1))
+    await store.locks.enqueueWaiter(waiter(s2))
+    await store.locks.enqueueWaiter(waiter('sess-3' as SessionId))
+    await store.locks.enqueueWaiter(waiter(s1, 'ship'))
 
-    const queue = store.locks.listWaiters(repo, 'build')
+    const queue = await store.locks.listWaiters(repo, 'build')
     expect(queue.map((w) => w.sessionId)).toEqual([s1, s2, 'sess-3'])
     // FIFO is the rowid, so the ids ascend with arrival.
     expect(queue.map((w) => w.id)).toEqual([...queue.map((w) => w.id)].sort((a, b) => a - b))
-    expect(store.locks.listWaiters(repo, 'ship').map((w) => w.sessionId)).toEqual([s1])
-    expect(store.locks.listWaiters(repo, 'none')).toEqual([])
+    expect((await store.locks.listWaiters(repo, 'ship')).map((w) => w.sessionId)).toEqual([s1])
+    expect(await store.locks.listWaiters(repo, 'none')).toEqual([])
   } finally {
     store.close()
   }
@@ -243,12 +243,12 @@ it('re-queueing a waiter updates its ttl and note in place and moves nothing els
       note: 'the first note',
       enqueuedAt: '2026-09-01T00:00:00.000Z',
     }
-    store.locks.enqueueWaiter(first)
-    store.locks.enqueueWaiter({ ...first, sessionId: s2, label: 'behind' })
-    const before = store.locks.listWaiters(repo, 'build')
+    await store.locks.enqueueWaiter(first)
+    await store.locks.enqueueWaiter({ ...first, sessionId: s2, label: 'behind' })
+    const before = await store.locks.listWaiters(repo, 'build')
     expect(before.map((w) => w.sessionId)).toEqual([s1, s2])
 
-    store.locks.enqueueWaiter({
+    await store.locks.enqueueWaiter({
       ...first,
       issueId: asIssueId('iss-changed'),
       label: 'a later label',
@@ -257,7 +257,7 @@ it('re-queueing a waiter updates its ttl and note in place and moves nothing els
       enqueuedAt: '2026-09-01T00:09:00.000Z',
     })
 
-    const after = store.locks.listWaiters(repo, 'build')
+    const after = await store.locks.listWaiters(repo, 'build')
     expect(after).toHaveLength(2)
     // Still first in the queue, and still the same row.
     expect(after[0]?.id).toBe(before[0]?.id)
@@ -287,26 +287,26 @@ it('removes a waiter by row id and by session, and lists every lock a session wa
       note: null,
       enqueuedAt: '2026-09-01T00:00:00.000Z',
     })
-    store.locks.enqueueWaiter(waiter(s1, 'build'))
-    store.locks.enqueueWaiter(waiter(s2, 'build'))
-    store.locks.enqueueWaiter(waiter(s1, 'ship'))
-    store.locks.enqueueWaiter(waiter(s1, 'build', other))
+    await store.locks.enqueueWaiter(waiter(s1, 'build'))
+    await store.locks.enqueueWaiter(waiter(s2, 'build'))
+    await store.locks.enqueueWaiter(waiter(s1, 'ship'))
+    await store.locks.enqueueWaiter(waiter(s1, 'build', other))
 
-    expect(store.locks.listWaitsBySession(s1).map((w) => `${w.repoId}/${w.name}`)).toEqual([
+    expect((await store.locks.listWaitsBySession(s1)).map((w) => `${w.repoId}/${w.name}`)).toEqual([
       'repo-1/build',
       'repo-1/ship',
       'repo-2/build',
     ])
 
-    const target = store.locks.listWaiters(repo, 'build').find((w) => w.sessionId === s2)
+    const target = (await store.locks.listWaiters(repo, 'build')).find((w) => w.sessionId === s2)
     expect(target).toBeDefined()
-    if (target) store.locks.removeWaiter(target.id)
-    expect(store.locks.listWaiters(repo, 'build').map((w) => w.sessionId)).toEqual([s1])
+    if (target) await store.locks.removeWaiter(target.id)
+    expect((await store.locks.listWaiters(repo, 'build')).map((w) => w.sessionId)).toEqual([s1])
 
     // By session removes one lock's waiter, not every wait that session holds.
-    store.locks.removeWaiterBySession(repo, 'build', s1)
-    expect(store.locks.listWaiters(repo, 'build')).toEqual([])
-    expect(store.locks.listWaitsBySession(s1).map((w) => `${w.repoId}/${w.name}`)).toEqual([
+    await store.locks.removeWaiterBySession(repo, 'build', s1)
+    expect(await store.locks.listWaiters(repo, 'build')).toEqual([])
+    expect((await store.locks.listWaitsBySession(s1)).map((w) => `${w.repoId}/${w.name}`)).toEqual([
       'repo-1/ship',
       'repo-2/build',
     ])

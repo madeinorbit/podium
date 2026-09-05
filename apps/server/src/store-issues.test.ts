@@ -931,9 +931,9 @@ describe('shipping durable store', () => {
     const s = await openTestStore(':memory:')
     const issue = { ...base(), stage: 'review' as const }
     await s.issues.upsertIssue(issue)
-    await s.transact(() => {
-      s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
-      s.shipping.createOrder(shipOrder())
+    await s.transact(async () => {
+      await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
+      await s.shipping.createOrder(shipOrder())
     })
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('shipping')
     expect(() => s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).toThrow(

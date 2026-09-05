@@ -284,7 +284,7 @@ describe('ServerTransferService final-fence flow', () => {
       targetState: () => ({ exists: true, online: false, capable: true, hasDaemon: true }),
     })
 
-    await expect(service.transfer(input, allow)).rejects.toMatchObject({ code: 'target-offline' })
+    await expect(await service.transfer(input, allow)).rejects.toMatchObject({ code: 'target-offline' })
     expect(fake.rpc.serverTransferPrepare).not.toHaveBeenCalled()
     expect(fence).not.toHaveBeenCalled()
     await expect(readFile(join(root, '.server-transfer', 'journal.json'))).rejects.toMatchObject({
@@ -334,7 +334,7 @@ describe('ServerTransferService final-fence flow', () => {
     })
     service = makeService(fake.rpc, { demoteSource })
 
-    await expect(service.transfer(input, allow)).resolves.toMatchObject({
+    await expect(await service.transfer(input, allow)).resolves.toMatchObject({
       ok: true,
       state: 'committed',
     })
@@ -349,7 +349,7 @@ describe('ServerTransferService final-fence flow', () => {
       }),
     })
 
-    await expect(service.transfer(input, allow)).resolves.toMatchObject({
+    await expect(await service.transfer(input, allow)).resolves.toMatchObject({
       ok: false,
       state: 'commit-uncertain',
     })

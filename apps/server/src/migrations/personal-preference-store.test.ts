@@ -255,15 +255,15 @@ describe('the COPY happens, and lands under the right key with the right type', 
     expect(Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value)]))).toEqual(SEEDED)
   })
 
-  it('keeps JSON TYPES — booleans are booleans and the array is an array', () => {
+  it('keeps JSON TYPES — booleans are booleans and the array is an array', async () => {
     // The `->` vs `->>` property, asserted as types rather than as values so it
     // cannot pass on a stringified `"true"`.
     const prefs = new UserPreferencesRepository(stageASeam(migrated()))
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.enabled')).toBe(true)
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'notifications.web')).toBe(true)
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.promptDismissed')).toBe(false)
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'roles.coding.seedCliTheme')).toBe(false)
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'sidebar.repoOrder')).toEqual([
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.enabled')).toBe(true)
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'notifications.web')).toBe(true)
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.promptDismissed')).toBe(false)
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'roles.coding.seedCliTheme')).toBe(false)
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'sidebar.repoOrder')).toEqual([
       '/repo/DISTINCT-a',
       '/repo/DISTINCT-b',
     ])
@@ -303,12 +303,12 @@ describe('the COPY happens, and lands under the right key with the right type', 
     expect(keys).toEqual(['sidebar.repoSort'])
   })
 
-  it('an EMPTY STRING is a real preference and DOES become a row', () => {
+  it('an EMPTY STRING is a real preference and DOES become a row', async () => {
     // Unlike POD-419's secrets, where `''` meant "not configured": an empty ntfy
     // topic means "mobile push off", which is a choice this person made.
     const db = migrated(nestedBlob({ notifications: { ntfyTopic: '', web: true } }))
     const prefs = new UserPreferencesRepository(stageASeam(db))
-    expect(prefs.get(FIRST_ADMIN_USER_ID, 'notifications.ntfyTopic')).toBe('')
+    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'notifications.ntfyTopic')).toBe('')
   })
 
   it('survives a corrupt blob instead of wedging boot', () => {
@@ -345,7 +345,7 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
     expect(blob.experimental).toEqual(INSTANCE.experimental)
   })
 
-  it('every value that left the blob is present in the table — nothing is dropped in transit', () => {
+  it('every value that left the blob is present in the table — nothing is dropped in transit', async () => {
     // The COPY-BEFORE-CLEAR property stated as one assertion over both halves:
     // for each key, gone from the blob AND present in the table with its value.
     // Deleting the INSERT..SELECT leaves the DDL, the CLEAR and three green
@@ -360,7 +360,7 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
         cursor = (cursor as Record<string, unknown> | undefined)?.[segment]
       }
       expect(cursor, `${key} should be gone from the blob`).toBeUndefined()
-      expect(prefs.get(FIRST_ADMIN_USER_ID, key), `${key} should be in user_preferences`).toEqual(
+      expect(await prefs.get(FIRST_ADMIN_USER_ID, key), `${key} should be in user_preferences`).toEqual(
         SEEDED[key],
       )
     }

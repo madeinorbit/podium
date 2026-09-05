@@ -75,11 +75,11 @@ export class DeliveryBrakes {
 
   /** True while this key's last wake is inside the cooldown window. Cold reads
    *  fall through to the durable row, so a restart does not reopen the brake. */
-  isWakeHot(key: string): boolean {
+  async isWakeHot(key: string): Promise<boolean> {
     const cutoff = this.nowMs() - WAKE_COOLDOWN_MS
     const last = this.lastWakeAt.get(key)
     if (last !== undefined) return last > cutoff
-    const attemptedAt = this.deps.messages.getWakeCooldown(key)
+    const attemptedAt = await this.deps.messages.getWakeCooldown(key)
     const parsed = attemptedAt ? Date.parse(attemptedAt) : 0
     const derived = Number.isFinite(parsed) ? parsed : 0
     this.lastWakeAt.set(key, derived)
@@ -116,9 +116,9 @@ export class DeliveryBrakes {
 
   /** Durable write happens before queueText/spawn, so a crash or transport
    * failure cannot erase the cooldown attempt. */
-  recordWake(key: string): void {
+  async recordWake(key: string): Promise<void> {
     const attemptedAt = this.deps.now()
-    this.deps.messages.recordWakeCooldown(key, attemptedAt)
+    await this.deps.messages.recordWakeCooldown(key, attemptedAt)
     const parsed = Date.parse(attemptedAt)
     this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
   }
@@ -129,12 +129,12 @@ export class DeliveryBrakes {
    *  event ledger (`message.spawned` from the wake seam, plus `agent.spawned`
    *  rows that carry `budgetIssue` — the gate's budgeted agent spawns), so a
    *  restart never resets brake 2. */
-  spawnCountFor(key: string, day: string): number {
+  async spawnCountFor(key: string, day: string): Promise<number> {
     const entry = this.spawnCount.get(key)
     if (entry?.day === day) return entry.count
     let count = 0
     try {
-      for (const e of this.deps.events.listEventsSince(0, {
+      for (const e of await this.deps.events.listEventsSince(0, {
         kinds: ['message.spawned', 'agent.spawned'],
         limit: 5000,
       })) {
@@ -157,10 +157,10 @@ export class DeliveryBrakes {
    *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
    *  agent could fork-bomb the host with full PTY sessions the wake budget
    *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
-  takeSpawnBudget(issueId: IssueId | null): { ok: boolean; count: number } {
+  async takeSpawnBudget(issueId: IssueId | null): Promise<{ ok: boolean; count: number }> {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
-    const count = this.spawnCountFor(key, day)
+    const count = await this.spawnCountFor(key, day)
     if (count >= SPAWN_BUDGET_PER_DAY) return { ok: false, count }
     this.spawnCount.set(key, { day, count: count + 1 })
     return { ok: true, count: count + 1 }

@@ -61,7 +61,7 @@ const noInput = z.object({}).passthrough().optional()
 export const APPROVAL_QUERIES = {
   /** The operator decision surface's queue: every request still awaiting an
    *  answer, already projected to the wire shape by the service. */
-  list: query(noInput, (service) => service.listPending()),
+  list: query(noInput, async (service) => await service.listPending()),
 } as const
 
 export type ApprovalQueryName = keyof typeof APPROVAL_QUERIES

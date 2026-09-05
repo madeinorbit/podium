@@ -41,7 +41,7 @@ async function post(path: string, body: unknown, headers: Record<string, string>
 }
 
 beforeEach(async () => {
-  const stage = createBunStoreExecutor({ database: openMigratedTestDatabase() }).syncQueries
+  const stage = createBunStoreExecutor({ database: openMigratedTestDatabase() }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   store = new AuthRepository(stage)
   await store.createClientSession(

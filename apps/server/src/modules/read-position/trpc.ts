@@ -25,8 +25,8 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
-function authorize(ctx: Context, name: string): { actor: NonNullable<ReturnType<typeof readPositionActor>> } {
-  const deps = readPositionAuthzDeps(ctx)
+async function authorize(ctx: Context, name: string): Promise<{ actor: NonNullable<ReturnType<typeof readPositionActor>> }> {
+  const deps = await readPositionAuthzDeps(ctx)
   const refusal = readPositionAuthzFailure(name, deps)
   if (refusal) throw refusal
   const actor = readPositionActor(deps)
@@ -43,15 +43,15 @@ function authorize(ctx: Context, name: string): { actor: NonNullable<ReturnType<
 export function readPositionFamilyProcedures() {
   return {
     /** Bootstrap snapshot for the calling principal (tRPC read path). */
-    get: t.procedure.query(({ ctx }) => {
-      const { actor } = authorize(ctx, readPositionAdvanceContract.name)
-      return familyState(ctx).modules.readPosition.getSnapshot(actor)
+    get: t.procedure.query(async ({ ctx }) => {
+      const { actor } = await authorize(ctx, readPositionAdvanceContract.name)
+      return await familyState(ctx).modules.readPosition.getSnapshot(actor)
     }),
 
-    advance: t.procedure.input(readPositionAdvanceInput).mutation(({ ctx, input }) => {
-      const { actor } = authorize(ctx, readPositionAdvanceContract.name)
+    advance: t.procedure.input(readPositionAdvanceInput).mutation(async ({ ctx, input }) => {
+      const { actor } = await authorize(ctx, readPositionAdvanceContract.name)
       const parsed = readPositionAdvanceContract.input.parse(input)
-      return familyState(ctx).modules.readPosition.advance(
+      return await familyState(ctx).modules.readPosition.advance(
         actor,
         parsed.streamId,
         { lastEventId: parsed.lastEventId, seenAt: parsed.seenAt ?? null },

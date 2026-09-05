@@ -203,7 +203,7 @@ describe('fleet daemon log ingestion', () => {
  * exactly.
  */
 describe('ingestion backpressure and event-loop occupancy', () => {
-  it('writes nothing in the socket callback — the batch is only queued', () => {
+  it('writes nothing in the socket callback — the batch is only queued', async () => {
     const sink = countingSink()
     const store = new FleetLogStore({ dir, createSink: sink.make })
 
@@ -214,7 +214,7 @@ describe('ingestion backpressure and event-loop occupancy', () => {
     expect(result.accepted).toBe(50)
     expect(sink.writes).toEqual([])
     expect(store.pendingWrites()).toBe(50)
-    void store.close()
+    void await store.close()
   })
 
   it('writes a bounded slice per event-loop turn, not the whole backlog', async () => {
@@ -302,7 +302,7 @@ describe('ingestion backpressure and event-loop occupancy', () => {
 
   /** The file a batch is told it landed in must not depend on how far the drain
    *  has got — the answer is given while the socket callback is still running. */
-  it('assigns a machine its file at accept time, before anything is opened', () => {
+  it('assigns a machine its file at accept time, before anything is opened', async () => {
     const store = new FleetLogStore({ dir, maxMachineFiles: 2 })
 
     const one = store.append(asMachineId('one'), { records: [record('1')] })
@@ -313,6 +313,6 @@ describe('ingestion backpressure and event-loop occupancy', () => {
     expect(two.file).toBe('logs/fleet/two.ndjson')
     // Past the budget: told the truth immediately, not after a drain.
     expect(three.file).toBe('logs/fleet/other.ndjson')
-    void store.close()
+    void await store.close()
   })
 })

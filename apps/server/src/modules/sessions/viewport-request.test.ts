@@ -568,8 +568,8 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     modules: { sessions: { sessions: Map<string, Session> } }
   }
 
-  const attachWith = (caps: string[]) => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const attachWith = async (caps: string[]) => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(
@@ -577,19 +577,19 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
       (m: ControlMessage) => daemon.push(m),
       caps,
     )
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     expect(session).toBeDefined()
     return { reg, session: session as Session, daemon }
   }
 
-  it('a geometry report republishes the ROW, not only the geometry frame', () => {
+  it('a geometry report republishes the ROW, not only the geometry frame', async () => {
     // THE GAP THE BROWSER CHECK FOUND. `applyDaemonGeometry` moved W and
     // broadcast a `geometry` frame, and stopped there — so `SessionMeta.geometry`
     // stayed at whatever it was. That field is now what a terminal is CONSTRUCTED
     // at (B1), so a stale row means the next mount builds at the wrong size: the
     // exact failure this issue removes, reintroduced one layer up.
-    const { reg, session } = attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
+    const { reg, session } = await attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
     const sessionId = session.sessionId
     let broadcasts = 0
     const sessions = reg.modules.sessions as unknown as { broadcastSessions: () => void }
@@ -606,7 +606,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
       cause: 'request',
     })
 
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
     expect(row?.geometryState).toBe('current')
     // …AND IT WAS PUBLISHED. The row above is derived from the live object on
@@ -616,8 +616,8 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     expect(broadcasts).toBeGreaterThan(0)
   })
 
-  it('a session on a machine whose daemon advertised the cap takes the report path', () => {
-    const { session, daemon } = attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
+  it('a session on a machine whose daemon advertised the cap takes the report path', async () => {
+    const { session, daemon } = await attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
     const client = controllerOf(session.terminal, 'c-wired')
     daemon.length = 0
     const before = session.terminal.geometry
@@ -631,8 +631,8 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     expect(session.terminal.geometry).toEqual(before) // forwarded, not written
   })
 
-  it('ARMED: the same session on a machine that advertised NOTHING takes the fallback', () => {
-    const { session } = attachWith([])
+  it('ARMED: the same session on a machine that advertised NOTHING takes the fallback', async () => {
+    const { session } = await attachWith([])
     const client = controllerOf(session.terminal, 'c-unwired')
 
     session.terminal.handleViewportRequest(
@@ -649,11 +649,11 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     // create path would leave every session that survived a restart on the
     // fallback branch, silently, forever.
     const store = await openTestStore(':memory:')
-    const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(first)
-    const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
-    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
       CAP_DAEMON_GEOMETRY_APPLIED,
@@ -675,8 +675,8 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     expect(rehydrated.terminal.geometry).toEqual(before) // report path, not fallback
   })
 
-  it('the answer follows the LIVE socket: a detach takes the capability with it', () => {
-    const { reg, session } = attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
+  it('the answer follows the LIVE socket: a detach takes the capability with it', async () => {
+    const { reg, session } = await attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
     const client = controllerOf(session.terminal, 'c-drop')
     session.terminal.handleViewportRequest(
       client.id,

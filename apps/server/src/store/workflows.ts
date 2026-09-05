@@ -41,7 +41,8 @@ import {
   workflowRuns,
   workflows as workflowsTable,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -207,9 +208,9 @@ function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
 export class WorkflowsRepository {
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * A call site reads `this.db.select(…)` and `this.createOrJoinTransaction(…)`.
+   * A call site reads `this.db.select(…)` and `await this.createOrJoinTransaction(…)`.
    */
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -223,20 +224,20 @@ export class WorkflowsRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line, here, instead of turning 39 fields into getters.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
-  ownerOf(kind: string, id: string): string | null {
+  async ownerOf(kind: string, id: string): Promise<string | null> {
     let row: { ownerUserId?: UserId | null } | undefined
     if (kind === 'workflow-definition' || kind === 'workflow-library-entry') {
-      row = this.db
+      row = await this.db
         .select({ ownerUserId: workflowsTable.ownerUserId })
         .from(workflowsTable)
         .where(eq(workflowsTable.id, id))
         .get()
     } else if (kind === 'workflow-revision') {
-      row = this.db
+      row = await this.db
         .select({ ownerUserId: workflowsTable.ownerUserId })
         .from(workflowRevisions)
         .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
@@ -245,7 +246,7 @@ export class WorkflowsRepository {
     } else if (kind === 'workflow-binding') {
       const split = id.indexOf(':')
       if (split < 0) return null
-      row = this.db
+      row = await this.db
         .select({ ownerUserId: workflowBindings.ownerUserId })
         .from(workflowBindings)
         .where(
@@ -256,13 +257,13 @@ export class WorkflowsRepository {
         )
         .get()
     } else if (kind === 'execution-profile') {
-      row = this.db
+      row = await this.db
         .select({ ownerUserId: executionProfiles.ownerUserId })
         .from(executionProfiles)
         .where(eq(executionProfiles.id, id))
         .get()
     } else if (kind === 'workflow-run') {
-      row = this.db
+      row = await this.db
         .select({ ownerUserId: workflowRuns.ownerUserId })
         .from(workflowRuns)
         .where(eq(workflowRuns.id, id))
@@ -271,9 +272,9 @@ export class WorkflowsRepository {
     return typeof row?.ownerUserId === 'string' ? row.ownerUserId : null
   }
 
-  listWorkflows(
+  async listWorkflows(
     opts: { includeArchived?: boolean; scope?: WorkflowScope; scopeRef?: string } = {},
-  ): WorkflowWire[] {
+  ): Promise<WorkflowWire[]> {
     const clauses: SQL[] = []
     if (!opts.includeArchived) clauses.push(isNull(workflowsTable.archivedAt))
     if (opts.scope) clauses.push(eq(workflowsTable.scope, opts.scope))
@@ -282,19 +283,19 @@ export class WorkflowsRepository {
     // pin in store/workflows-golden.test.ts.
     if (opts.scopeRef !== undefined) clauses.push(eq(workflowsTable.scopeRef, opts.scopeRef))
     return (
-      this.db
+      (await this.db
         .select(workflowSelection)
         .from(workflowsTable)
         .where(clauses.length ? and(...clauses) : undefined)
         // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
         .orderBy(sql`${workflowsTable.name} COLLATE NOCASE`, asc(workflowsTable.createdAt))
-        .all()
+        .all())
         .map(toWorkflow)
     )
   }
 
-  getWorkflow(id: string): WorkflowWire | null {
-    const row = this.db
+  async getWorkflow(id: string): Promise<WorkflowWire | null> {
+    const row = await this.db
       .select(workflowSelection)
       .from(workflowsTable)
       .where(eq(workflowsTable.id, id))
@@ -302,7 +303,7 @@ export class WorkflowsRepository {
     return row ? toWorkflow(row) : null
   }
 
-  insertWorkflow(row: {
+  async insertWorkflow(row: {
     id: string
     name: string
     description: string
@@ -311,8 +312,8 @@ export class WorkflowsRepository {
     actor: WorkflowActor
     ownerUserId: UserId
     now: string
-  }): void {
-    this.db
+  }): Promise<void> {
+    ;await (this.db
       .insert(workflowsTable)
       .values({
         id: row.id,
@@ -325,42 +326,42 @@ export class WorkflowsRepository {
         ownerUserId: row.ownerUserId,
         createdAt: row.now,
         updatedAt: row.now,
-      })
+      }))
       .run()
   }
 
-  listRevisions(workflowId: string): WorkflowRevisionWire[] {
-    return this.db
+  async listRevisions(workflowId: string): Promise<WorkflowRevisionWire[]> {
+    return (await this.db
       .select()
       .from(workflowRevisions)
       .where(eq(workflowRevisions.workflowId, workflowId))
       .orderBy(desc(workflowRevisions.version))
-      .all()
+      .all())
       .map(toRevision)
   }
 
-  getRevision(id: string): WorkflowRevisionWire | null {
-    const row = this.db.select().from(workflowRevisions).where(eq(workflowRevisions.id, id)).get()
+  async getRevision(id: string): Promise<WorkflowRevisionWire | null> {
+    const row = await this.db.select().from(workflowRevisions).where(eq(workflowRevisions.id, id)).get()
     return row ? toRevision(row) : null
   }
 
-  insertRevision(row: {
+  async insertRevision(row: {
     id: string
     workflowId: string
     instructions: string
     steps: Step[]
     actor: WorkflowActor
     now: string
-  }): WorkflowRevisionWire {
+  }): Promise<WorkflowRevisionWire> {
     // READ-DECIDE-WRITE. The version is allocated from MAX(version)+1 and then
     // inserted at, so the span is the allocation's atomicity and not decoration.
-    return this.createOrJoinTransaction(() => {
-      const next = this.db
+    return await this.createOrJoinTransaction(async () => {
+      const next = await this.db
         .select({ version: max(workflowRevisions.version) })
         .from(workflowRevisions)
         .where(eq(workflowRevisions.workflowId, row.workflowId))
         .get()
-      this.db
+      ;await (this.db
         .insert(workflowRevisions)
         .values({
           id: row.id,
@@ -371,19 +372,19 @@ export class WorkflowsRepository {
           createdByKind: row.actor.kind,
           createdById: row.actor.id,
           createdAt: row.now,
-        })
+        }))
         .run()
-      this.db
+      await this.db
         .update(workflowsTable)
         .set({ latestRevisionId: row.id, updatedAt: row.now })
         .where(eq(workflowsTable.id, row.workflowId))
         .run()
-      return required(this.getRevision(row.id), `workflow revision ${row.id} was not persisted`)
+      return required(await this.getRevision(row.id), `workflow revision ${row.id} was not persisted`)
     })
   }
 
-  publishRevision(revisionId: string, now: string): void {
-    this.db
+  async publishRevision(revisionId: string, now: string): Promise<void> {
+    await this.db
       .update(workflowRevisions)
       // COALESCE: a published revision has ONE publication moment, so a repeat
       // must not re-date it.
@@ -392,8 +393,8 @@ export class WorkflowsRepository {
       .run()
   }
 
-  getBinding(targetKind: WorkflowBindingTarget, targetId: string): WorkflowBindingWire | null {
-    const row = this.db
+  async getBinding(targetKind: WorkflowBindingTarget, targetId: string): Promise<WorkflowBindingWire | null> {
+    const row = await this.db
       .select()
       .from(workflowBindings)
       .where(
@@ -403,24 +404,24 @@ export class WorkflowsRepository {
     return row ? toBinding(row) : null
   }
 
-  listBindings(): WorkflowBindingWire[] {
-    return this.db
+  async listBindings(): Promise<WorkflowBindingWire[]> {
+    return (await this.db
       .select()
       .from(workflowBindings)
       .orderBy(asc(workflowBindings.targetKind), asc(workflowBindings.targetId))
-      .all()
+      .all())
       .map(toBinding)
   }
 
-  setBinding(input: {
+  async setBinding(input: {
     targetKind: WorkflowBindingTarget
     targetId: string
     revisionId: string
     actor: WorkflowActor
     ownerUserId: UserId
     now: string
-  }): WorkflowBindingWire {
-    this.db
+  }): Promise<WorkflowBindingWire> {
+    ;await (this.db
       .insert(workflowBindings)
       .values({
         targetKind: input.targetKind,
@@ -430,7 +431,7 @@ export class WorkflowsRepository {
         updatedById: input.actor.id,
         ownerUserId: input.ownerUserId,
         updatedAt: input.now,
-      })
+      }))
       .onConflictDoUpdate({
         target: [workflowBindings.targetKind, workflowBindings.targetId],
         // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
@@ -444,26 +445,26 @@ export class WorkflowsRepository {
       })
       .run()
     return required(
-      this.getBinding(input.targetKind, input.targetId),
+      await this.getBinding(input.targetKind, input.targetId),
       `workflow binding ${input.targetKind}:${input.targetId} was not persisted`,
     )
   }
 
-  listProfiles(): ExecutionProfile[] {
-    return this.db
+  async listProfiles(): Promise<ExecutionProfile[]> {
+    return (await this.db
       .select()
       .from(executionProfiles)
       .orderBy(sql`${executionProfiles.name} COLLATE NOCASE`)
-      .all()
+      .all())
       .map(toProfile)
   }
 
-  getProfile(id: string): ExecutionProfile | null {
-    const row = this.db.select().from(executionProfiles).where(eq(executionProfiles.id, id)).get()
+  async getProfile(id: string): Promise<ExecutionProfile | null> {
+    const row = await this.db.select().from(executionProfiles).where(eq(executionProfiles.id, id)).get()
     return row ? toProfile(row) : null
   }
 
-  upsertProfile(input: {
+  async upsertProfile(input: {
     id: string
     name: string
     accountId: AccountId
@@ -474,8 +475,8 @@ export class WorkflowsRepository {
     actor: WorkflowActor
     ownerUserId: UserId
     now: string
-  }): ExecutionProfile {
-    this.db
+  }): Promise<ExecutionProfile> {
+    ;await (this.db
       .insert(executionProfiles)
       .values({
         id: input.id,
@@ -490,7 +491,7 @@ export class WorkflowsRepository {
         ownerUserId: input.ownerUserId,
         createdAt: input.now,
         updatedAt: input.now,
-      })
+      }))
       .onConflictDoUpdate({
         target: executionProfiles.id,
         // `created_by_*` and `owner_user_id` are absent on purpose: an update
@@ -506,31 +507,31 @@ export class WorkflowsRepository {
         },
       })
       .run()
-    return required(this.getProfile(input.id), `execution profile ${input.id} was not persisted`)
+    return required(await this.getProfile(input.id), `execution profile ${input.id} was not persisted`)
   }
 
-  listRuns(includeTerminal = false): WorkflowRunRow[] {
-    return this.db
+  async listRuns(includeTerminal = false): Promise<WorkflowRunRow[]> {
+    return (await this.db
       .select()
       .from(workflowRuns)
       .where(includeTerminal ? undefined : inArray(workflowRuns.status, ['active', 'blocked']))
       .orderBy(desc(workflowRuns.startedAt))
-      .all()
+      .all())
       .map(toRun)
   }
 
-  getRun(id: string): WorkflowRunRow | null {
-    const row = this.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get()
+  async getRun(id: string): Promise<WorkflowRunRow | null> {
+    const row = await this.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get()
     return row ? toRun(row) : null
   }
 
-  getRunSteps(runId: string): RunStep[] {
-    return this.db
+  async getRunSteps(runId: string): Promise<RunStep[]> {
+    return (await this.db
       .select()
       .from(workflowRunSteps)
       .where(eq(workflowRunSteps.runId, runId))
       .orderBy(asc(workflowRunSteps.position))
-      .all()
+      .all())
       .map(toRunStep)
   }
 
@@ -548,8 +549,8 @@ export class WorkflowsRepository {
    * would be a redaction change, not a simplification (spec §6 rule 4 names this
    * column as having no store reader by design).
    */
-  listRunEvents(runId: string): WorkflowRunEventWire[] {
-    return this.db
+  async listRunEvents(runId: string): Promise<WorkflowRunEventWire[]> {
+    return (await this.db
       .select({
         kind: workflowEvents.kind,
         actorKind: workflowEvents.actorKind,
@@ -560,7 +561,7 @@ export class WorkflowsRepository {
       .from(workflowEvents)
       .where(eq(workflowEvents.runId, runId))
       .orderBy(asc(workflowEvents.id))
-      .all()
+      .all())
       .map((row) => ({
         kind: row.kind,
         actorKind: row.actorKind,
@@ -572,8 +573,8 @@ export class WorkflowsRepository {
       }))
   }
 
-  findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): WorkflowRunRow | null {
-    const row = this.db
+  async findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): Promise<WorkflowRunRow | null> {
+    const row = await this.db
       .select()
       .from(workflowRuns)
       .where(
@@ -589,8 +590,8 @@ export class WorkflowsRepository {
     return row ? toRun(row) : null
   }
 
-  findLiveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
-    const row = this.db
+  async findLiveRunForSession(sessionId: SessionId): Promise<WorkflowRunRow | null> {
+    const row = await this.db
       .selectDistinct(getTableColumns(workflowRuns))
       .from(workflowRuns)
       .leftJoin(workflowRunSteps, eq(workflowRunSteps.runId, workflowRuns.id))
@@ -609,12 +610,12 @@ export class WorkflowsRepository {
     return row ? toRun(row) : null
   }
 
-  insertRun(input: {
+  async insertRun(input: {
     run: WorkflowRunRow
     steps: Array<Step & { profile: ExecutionProfile | null }>
-  }): void {
-    this.createOrJoinTransaction(() => {
-      this.db
+  }): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      ;await (this.db
         .insert(workflowRuns)
         .values({
           id: input.run.id,
@@ -627,11 +628,11 @@ export class WorkflowsRepository {
           startedAt: input.run.startedAt,
           completedAt: input.run.completedAt,
           ownerUserId: input.run.ownerUserId,
-        })
+        }))
         .run()
       // No steps means NO statement, as the `forEach` this replaces did.
       if (input.steps.length === 0) return
-      this.db
+      ;await (this.db
         .insert(workflowRunSteps)
         .values(
           input.steps.map((step, position) => ({
@@ -648,16 +649,16 @@ export class WorkflowsRepository {
             status: 'pending',
             evidenceJson: '{}',
           })),
-        )
+        ))
         .run()
     })
   }
 
-  updateRunStatus(id: string, status: WorkflowRunStatus, completedAt: string | null): void {
-    this.db.update(workflowRuns).set({ status, completedAt }).where(eq(workflowRuns.id, id)).run()
+  async updateRunStatus(id: string, status: WorkflowRunStatus, completedAt: string | null): Promise<void> {
+    await this.db.update(workflowRuns).set({ status, completedAt }).where(eq(workflowRuns.id, id)).run()
   }
 
-  updateStep(input: {
+  async updateStep(input: {
     runId: string
     stepId: string
     status: WorkflowRunStepStatus
@@ -668,8 +669,8 @@ export class WorkflowsRepository {
     warnings: string[]
     startedAt: string | null
     completedAt: string | null
-  }): void {
-    this.db
+  }): Promise<void> {
+    await this.db
       .update(workflowRunSteps)
       .set({
         status: input.status,
@@ -687,16 +688,16 @@ export class WorkflowsRepository {
       .run()
   }
 
-  assignStep(runId: string, stepId: string, sessionId: SessionId | null): void {
-    this.db
+  async assignStep(runId: string, stepId: string, sessionId: SessionId | null): Promise<void> {
+    await this.db
       .update(workflowRunSteps)
       .set({ assignedSessionId: sessionId })
       .where(and(eq(workflowRunSteps.runId, runId), eq(workflowRunSteps.stepId, stepId)))
       .run()
   }
 
-  resetStep(runId: string, stepId: string): void {
-    this.db
+  async resetStep(runId: string, stepId: string): Promise<void> {
+    await this.db
       .update(workflowRunSteps)
       .set({
         status: 'pending',
@@ -723,7 +724,7 @@ export class WorkflowsRepository {
    * acted for — ADR 9 D5 A3's pair, not a substitution. Both come from the
    * transport principal; neither is reachable from payload.
    */
-  appendEvent(input: {
+  async appendEvent(input: {
     workflowId?: string | null
     runId?: string | null
     kind: string
@@ -733,8 +734,8 @@ export class WorkflowsRepository {
     onBehalfOf?: string | null
     payload?: Record<string, unknown>
     now: string
-  }): void {
-    this.db
+  }): Promise<void> {
+    ;await (this.db
       .insert(workflowEvents)
       .values({
         workflowId: input.workflowId ?? null,
@@ -745,7 +746,7 @@ export class WorkflowsRepository {
         onBehalfOf: input.onBehalfOf ?? null,
         payloadJson: JSON.stringify(input.payload ?? {}),
         createdAt: input.now,
-      })
+      }))
       .run()
   }
 }

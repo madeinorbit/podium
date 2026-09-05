@@ -962,7 +962,7 @@ describe('D12 — ordering partitions', () => {
     await outbox.enqueue(close('POD-1'))
     await outbox.enqueue(close('POD-2'))
 
-    const draining = outbox.drain()
+    const draining = await outbox.drain()
     // Let the event loop turn over as far as it will while POD-1 is stuck.
     for (let i = 0; i < 20; i++) await Promise.resolve()
 
@@ -1045,7 +1045,7 @@ describe('single-flight drain', () => {
     const { outbox, authority } = await harness(() => applied)
     const record = await outbox.enqueue(close('POD-1'))
 
-    await Promise.all([outbox.drain(), outbox.drain(), outbox.drain()])
+    await Promise.all([await outbox.drain(), await outbox.drain(), await outbox.drain()])
 
     expect(authority.attempts(record.mutationId)).toBe(1)
   })
@@ -1158,8 +1158,8 @@ describe('review round 1 — the blockers, each with the test that would have ca
     store.delayNextWrites = 1
 
     const [a, b] = await Promise.all([
-      outbox.enqueue(close('POD-1')),
-      outbox.enqueue(close('POD-2')),
+      await outbox.enqueue(close('POD-1')),
+      await outbox.enqueue(close('POD-2')),
     ])
 
     expect(outbox.all().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
@@ -1835,8 +1835,8 @@ describe('review round 3 — concurrent writers, deterministically', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.allSettled([
-      ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
-      grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
+      await ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
+      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
     ])
     await Promise.resolve()
     release()
@@ -1871,7 +1871,7 @@ describe('review round 3 — concurrent writers, deterministically', () => {
     await tabB.outbox.enqueue(close('POD-2'))
 
     const release = store.holdNextApplies(2)
-    const both = Promise.allSettled([tabA.outbox.discard(record.mutationId), tabB.outbox.drain()])
+    const both = Promise.allSettled([await tabA.outbox.discard(record.mutationId), await tabB.outbox.drain()])
     await Promise.resolve()
     release()
     const [discarded, drained] = await both
@@ -1911,8 +1911,8 @@ describe('review round 3 — concurrent writers, deterministically', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.allSettled([
-      ada.outbox.enqueue(close('POD-1', { attribution: ADA })),
-      grace.outbox.enqueue(close('POD-2', { attribution: GRACE })),
+      await ada.outbox.enqueue(close('POD-1', { attribution: ADA })),
+      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE })),
     ])
     await Promise.resolve()
     release()
@@ -2207,7 +2207,7 @@ describe('review round 5 — store-level transaction isolation', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.all([
-      uowOne.transact(async (span) => {
+      await uowOne.transact(async (span) => {
         await store.apply(
           {
             put: [
@@ -2227,7 +2227,7 @@ describe('review round 5 — store-level transaction isolation', () => {
           span,
         )
       }),
-      uowTwo.transact(async (span) => {
+      await uowTwo.transact(async (span) => {
         await store.apply(
           {
             put: [
@@ -2280,13 +2280,13 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
     const outerHeld = new Promise<void>((resolve) => {
       releaseOuter = resolve
     })
-    const outer = uow.transact(async () => {
+    const outer = await uow.transact(async () => {
       await outerHeld
       throw new Error('unrelated outer transaction aborts')
     })
 
     // Concurrent, unrelated user action while the outer transaction is open.
-    const enqueued = outbox.enqueue(close('POD-1'))
+    const enqueued = await outbox.enqueue(close('POD-1'))
     for (let i = 0; i < 20; i++) await Promise.resolve()
 
     // It must NOT have resolved by joining someone else's open transaction...
@@ -2313,12 +2313,12 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
       releaseFirst = resolve
     })
 
-    const first = uow.transact(async () => {
+    const first = await uow.transact(async () => {
       order.push('first:start')
       await firstHeld
       order.push('first:end')
     })
-    const second = uow.transact(async () => {
+    const second = await uow.transact(async () => {
       order.push('second:start')
     })
     for (let i = 0; i < 20; i++) await Promise.resolve()

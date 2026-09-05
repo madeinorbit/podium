@@ -84,7 +84,7 @@ export class IssueEventFeedPublisher {
    * failed command — a feed row that never arrives is a stale pane, a rolled
    * back `issues.close` is a lie about the world.
    */
-  publish(eventId: number, record: Omit<PodiumEventRecord, 'id'>): void {
+  async publish(eventId: number, record: Omit<PodiumEventRecord, 'id'>): Promise<void> {
     if (!isFeedEventKind(record.kind)) return
     if (record.subject === '') return
     try {
@@ -109,7 +109,7 @@ export class IssueEventFeedPublisher {
       // ONE capture: the arrival and the eviction it caused are the same
       // observation, and a replica must never see the window grow past its own
       // bound because the two halves were separately ordered.
-      this.deps.ledger.capture(specs)
+      await this.deps.ledger.capture(specs)
     } catch {
       // Publishing is best-effort by design (see the doc comment above).
     }

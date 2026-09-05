@@ -61,9 +61,9 @@ function spawnedByRefForMessage(m: MessageRow): SpawnedByRef {
 
 export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
   return {
-    spawn({ issueId, message }) {
+    async spawn({ issueId, message }) {
       if (!issueId) return { ok: false, reason: 'no target issue to spawn on' }
-      const issue = deps.issues.getMeta(issueId)
+      const issue = await deps.issues.getMeta(issueId)
       if (!issue) return { ok: false, reason: `unknown issue ${issueId}` }
       // Started issue: spawn alongside its work. Unstarted: the repo root —
       // starting the issue (worktree + branch) stays a deliberate action.

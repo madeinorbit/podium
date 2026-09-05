@@ -35,14 +35,14 @@ import { SessionStore } from '../store'
  * its order: the database path (`':memory:'` unless the test needs a file), the
  * host machine identity, and the snapshot-verifier seam.
  */
-export function openTestStore(
+export async function openTestStore(
   path?: string,
   hostMachineId?: MachineId,
   snapshotVerifierDeps?: SnapshotVerifierDeps,
-): SessionStore {
+): Promise<SessionStore> {
   // Every parameter of the constructor has a default and an explicit `undefined`
   // selects it, so forwarding all three keeps the state-dir path, the freshly
   // minted machine id and the real verifier exactly as a bare `new SessionStore()`
   // would have them.
-  return new SessionStore(path, hostMachineId, snapshotVerifierDeps)
+  return await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
 }

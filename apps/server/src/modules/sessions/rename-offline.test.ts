@@ -60,11 +60,11 @@ afterEach(() => {
  */
 async function revocableStack() {
   const store = await openTestStore(':memory:')
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessions = reg.modules.sessions
-  const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
   // Mutable ownership, read LIVE on every call — which is the whole mechanism.
   // There is no snapshot to invalidate because there is no snapshot.
@@ -85,7 +85,7 @@ async function revocableStack() {
     mutations: reg.modules.mutations,
   }
 
-  const nameNow = () => sessions.listSessions().find((s) => s.sessionId === created.sessionId)?.name
+  const nameNow = async () => (await sessions.listSessions()).find((s) => s.sessionId === created.sessionId)?.name
 
   return { deps, sessions, store, sessionId: created.sessionId, ownership, nameNow }
 }
@@ -147,7 +147,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     )
 
     expect(drained.outcome).toBe('applied')
-    expect(s.nameNow()).toBe('queued while offline')
+    expect(await s.nameNow()).toBe('queued while offline')
   })
 
   it('REJECTS on drain when the principal lost access while offline', async () => {
@@ -169,7 +169,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
 
     expect(drained.outcome).toBe('denied')
     // The write did NOT land.
-    expect(s.nameNow()).toBeUndefined()
+    expect(await s.nameNow()).toBeUndefined()
   })
 
   it('REJECTS on drain when the delegating HUMAN was revoked, though the agent was not', async () => {
@@ -200,7 +200,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     )
 
     expect(drained.outcome).toBe('denied')
-    expect(s.nameNow()).toBe('agent name')
+    expect(await s.nameNow()).toBe('agent name')
   })
 
   it('re-grants take effect on the next drain, with nothing to invalidate', async () => {
@@ -228,7 +228,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
         'outbox',
       ).outcome,
     ).toBe('applied')
-    expect(s.nameNow()).toBe('yes')
+    expect(await s.nameNow()).toBe('yes')
   })
 
   it('a GRANT, not just ownership, is enough — and is also read live', async () => {
@@ -255,7 +255,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
         'outbox',
       ).outcome,
     ).toBe('denied')
-    expect(s.nameNow()).toBe('granted')
+    expect(await s.nameNow()).toBe('granted')
   })
 })
 
@@ -314,7 +314,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
 
     expect(replay.outcome).toBe('replayed')
     // The second call's payload was NOT applied — that is what dedup means.
-    expect(s.nameNow()).toBe('once')
+    expect(await s.nameNow()).toBe('once')
   })
 })
 
@@ -416,7 +416,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
     // POD-1075 replaces OPERATOR with a scoped per-user principal this flips to
     // 'denied' and this test is the one that says so.
     expect(dispatch.outcome).toBe('applied')
-    expect(s.nameNow()).toBe('operator wrote this')
+    expect(await s.nameNow()).toBe('operator wrote this')
   })
 
   it('but an AGENT is refused on the same session, even with an admin/all capability', async () => {
@@ -435,6 +435,6 @@ describe('today’s operator principal short-circuits the owner gate (transition
     )
 
     expect(dispatch.outcome).toBe('denied')
-    expect(s.nameNow()).toBeUndefined()
+    expect(await s.nameNow()).toBeUndefined()
   })
 })

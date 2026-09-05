@@ -142,13 +142,13 @@ export class SessionRevival {
     if (input.machineId && input.agentKind !== 'shell') {
       await this.ports.machines.waitForInventory(input.machineId)
     }
-    const machineId = this.ports.machines.resolveMachineForAgent(
+    const machineId = await this.ports.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
       input.agentKind,
       input.use,
     )
-    const issueId = this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = await this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
@@ -158,7 +158,7 @@ export class SessionRevival {
       agentKind: input.agentKind,
       ...(issueId ? { issueId } : {}),
     })
-    const spawned = this.ports.spawn({
+    const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
       ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       cwd: input.cwd,
@@ -213,12 +213,12 @@ export class SessionRevival {
    *
    * `machineUseGate` arrives as a port — it is not decided here.
    */
-  handoffSession(
+  async handoffSession(
     input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.handoffs(issues).handoff(input, caller, this.ports.machineUseGate(caller))
+    return await this.handoffs(issues).handoff(input, caller, this.ports.machineUseGate(caller))
   }
 
   /**
@@ -247,11 +247,11 @@ export class SessionRevival {
         ),
       listRepos: () => this.ports.store.repos.listRepos(),
       listMachines: () => this.ports.machines.listMachines(),
-      waitForInventory: (machineId) => this.ports.machines.waitForInventory(machineId),
+      waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
       issueMeta: (issueId) => this.ports.issueAccess.getMeta(issueId) ?? undefined,
       rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
-      ensureTargetRepo: (sourceRepo, targetMachineId) =>
-        this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
+      ensureTargetRepo: async (sourceRepo, targetMachineId) =>
+        await this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       write: (session, mutate) => this.ports.repository.write(session, mutate),
       mutateSessionView: (sessionId, mutate) => {
         this.ports.repository.mutateSessionView(sessionId, mutate)
@@ -261,8 +261,8 @@ export class SessionRevival {
       toMachine: (machineId, message) => this.ports.toMachine(machineId, message),
       onWorktreesChanged: (repoPath, machineId) =>
         this.ports.onWorktreesChanged(repoPath, machineId),
-      resumeSession: (resumeInput) => this.resumeSession(resumeInput, issues),
-      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput, issues),
+      resumeSession: async (resumeInput) => await this.resumeSession(resumeInput, issues),
+      resurrectSession: async (resurrectInput) => await this.resurrectSession(resurrectInput, issues),
       recordEvent: (event) => {
         this.ports.store.events.appendEvent(event)
       },
@@ -275,7 +275,7 @@ export class SessionRevival {
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  resurrectSession(
+  async resurrectSession(
     {
       sessionId,
       adoptedBinding,
@@ -284,7 +284,7 @@ export class SessionRevival {
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<Promise<{ ok: boolean; reason?: string }>> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     if (session.archived) return Promise.resolve({ ok: false, reason: 'session is archived' })
@@ -343,24 +343,24 @@ export class SessionRevival {
     // mistake the ordered handoff transition for stale resume state.
     const ensured = adoptedBinding
       ? { ok: true, cwd: session.cwd }
-      : this.ports.workspace.ensureSessionWorktree(session, issues)
+      : await this.ports.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
       const resurrection = ensured
-        .then((e) => this.finishResurrect(session, e, adoptedBinding))
+        .then(async (e) => await this.finishResurrect(session, e, adoptedBinding))
         .finally(() => {
           this.pendingResurrections.delete(sessionId)
         })
       this.pendingResurrections.set(sessionId, resurrection)
       return resurrection
     }
-    return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
+    return Promise.resolve(await this.finishResurrect(session, ensured, adoptedBinding))
   }
 
-  finishResurrect(
+  async finishResurrect(
     session: Session,
     ensured: { ok: boolean; reason?: string; cwd?: string },
     adoptedBinding?: SessionBindingAdoptLaunchInstruction,
-  ): { ok: boolean; reason?: string } {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const sessionId = session.sessionId
     // `ensureSessionWorktree` may be asynchronous. Re-check the retirement
     // boundary after it resolves so an archive racing the ensure cannot spawn.
@@ -388,7 +388,7 @@ export class SessionRevival {
       // lastActiveAt makes it immediately eligible to be parked again.
       session.markResumed(draft)
     })
-    const observationLease = this.ports.terminalProof.fence(session)
+    const observationLease = await this.ports.terminalProof.fence(session)
     this.ports.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
@@ -431,8 +431,8 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...this.ports.launchConfig.modelDefaults(session.agentKind),
-      ...this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
+      ...await this.ports.launchConfig.modelDefaults(session.agentKind),
+      ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     preparedInstructions.commit()

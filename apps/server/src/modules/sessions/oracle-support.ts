@@ -184,7 +184,7 @@ export interface OfflineMachine {
  * machines service caches its records, so a row inserted afterwards reads as an
  * unknown machine rather than an offline one.
  */
-export function makeOracle(
+export async function makeOracle(
   opts: {
     machineId?: MachineId
     offlineMachines?: OfflineMachine[]
@@ -207,10 +207,10 @@ export function makeOracle(
      */
     mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   } = {},
-): Oracle {
-  const store = openTestStore(':memory:')
+): Promise<Oracle> {
+  const store = await openTestStore(':memory:')
   for (const machine of opts.offlineMachines ?? []) {
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: machine.id,
       name: machine.name,
       hostname: machine.id,
@@ -219,7 +219,7 @@ export function makeOracle(
       // rows stand in for machines the operator paired (POD-1079).
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    store.machines.setMachineInventory(
+    await store.machines.setMachineInventory(
       machine.id,
       JSON.stringify({
         os: 'linux',
@@ -231,7 +231,7 @@ export function makeOracle(
       }),
     )
   }
-  const reg = SessionRegistry.create(store, undefined, {
+  const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
     ...(opts.now ? { now: opts.now } : {}),
@@ -290,7 +290,7 @@ export function makeOracle(
     viewport: { cols: 80, rows: 24, dpr: 1 },
   })
   const repos = new RepoRegistry(reg, reg.sessionStore)
-  const superagent = SuperagentService.create(reg.modules, repos, reg.sessionStore)
+  const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)
   // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
   // stop the turn reaper too (POD-2772).
   reg.adoptSuperagent(superagent)
@@ -307,8 +307,8 @@ export function makeOracle(
     client,
     daemon,
     call,
-    meta: (sessionId) => {
-      const found = reg.modules.sessions.sessionById(sessionId)
+    meta: async (sessionId) => {
+      const found = await reg.modules.sessions.sessionById(sessionId)
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },

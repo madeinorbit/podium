@@ -1121,8 +1121,8 @@ describe('target refresh bookkeeping', () => {
       const resolveTarget = vi.fn(() => resolving)
       const { svc } = build(resolveTarget as never)
 
-      const first = svc.checkNow()
-      const second = svc.checkNow()
+      const first = await svc.checkNow()
+      const second = await svc.checkNow()
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finishResolve(target)
@@ -1172,9 +1172,9 @@ describe('target refresh bookkeeping', () => {
       const { svc } = build(resolveTarget as never)
 
       // The periodic tick (server.ts:440) — also the shape of boot and both fleet handlers.
-      const tick = svc.refreshTarget('stable')
+      const tick = await svc.refreshTarget('stable')
       // …and the user hits "Check now" while it is mid-flight.
-      const forced = svc.checkNow()
+      const forced = await svc.checkNow()
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finish()
@@ -1190,9 +1190,9 @@ describe('target refresh bookkeeping', () => {
       const { resolveTarget, finish } = suspended()
       const { svc } = build(resolveTarget as never)
 
-      const forced = svc.checkNow()
+      const forced = await svc.checkNow()
       // machineApplyUpdateHandler / machineSetUpdateChannelHandler / onFleetChannelChanged.
-      const handler = svc.refreshTarget('stable')
+      const handler = await svc.refreshTarget('stable')
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finish()
@@ -1204,7 +1204,7 @@ describe('target refresh bookkeeping', () => {
       const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
       const { svc } = build(resolveTarget as never)
 
-      await Promise.all([svc.refreshTarget('stable'), svc.refreshTarget('edge')])
+      await Promise.all([await svc.refreshTarget('stable'), await svc.refreshTarget('edge')])
 
       expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable', 'edge'])
     })

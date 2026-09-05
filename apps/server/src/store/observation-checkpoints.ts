@@ -7,7 +7,8 @@ import {
   sessionObservationRebinds,
   sessionTerminalCandidates,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -80,7 +81,7 @@ type LeaseSelect = Pick<
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -97,10 +98,10 @@ export class ObservationCheckpointsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
-  private mapRow(r: LeaseSelect): ObservationLeaseRecord | null {
+  private async mapRow(r: LeaseSelect): Promise<ObservationLeaseRecord | null> {
     const provider = ObservationProvider.safeParse(r.provider)
     if (!provider.success) {
       log.warn('ignoring an observation lease with an invalid provider', {
@@ -136,16 +137,16 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  private read(sessionId: SessionId): ObservationLeaseRecord | null {
-    const row = this.db
+  private async read(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {
+    const row = await this.db
       .select(LEASE_COLUMNS)
       .from(sessionObservationCheckpoints)
       .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
       .get()
-    return row ? this.mapRow(row) : null
+    return row ? await this.mapRow(row) : null
   }
 
-  private readRebindReceipt(sessionId: SessionId): {
+  private async readRebindReceipt(sessionId: SessionId): Promise<{
     provider: ObservationLeaseRecord['provider']
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     fromProviderSessionId: string | null
@@ -155,8 +156,8 @@ export class ObservationCheckpointsRepository {
     toProviderSessionId: string
     resultingBindingVersion: number
     resultingObservationGeneration: number
-  } | null {
-    const row = this.db
+  } | null> {
+    const row = await this.db
       .select({
         provider: sessionObservationRebinds.provider,
         fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
@@ -183,33 +184,33 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  loadAll(): ObservationLeaseRecord[] {
-    return this.db
+  async loadAll(): Promise<ObservationLeaseRecord[]> {
+    return (await this.db
       .select(LEASE_COLUMNS)
       .from(sessionObservationCheckpoints)
       .orderBy(sessionObservationCheckpoints.sessionId)
-      .all()
+      .all())
       .map((row) => this.mapRow(row))
       .filter((row): row is ObservationLeaseRecord => row !== null)
   }
 
-  get(sessionId: SessionId): ObservationLeaseRecord | null {
-    return this.read(sessionId)
+  async get(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {
+    return await this.read(sessionId)
   }
 
   /**
    * Fence a new observer before spawn/reattach is sent. Existing exact provider
    * identity is never replaced by a conflicting resume hint.
    */
-  advanceGeneration(
+  async advanceGeneration(
     sessionId: SessionId,
     provider: ObservationLeaseRecord['provider'],
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string | null,
-  ): ObservationLeaseRecord {
-    return this.createOrJoinTransaction(() => {
+  ): Promise<ObservationLeaseRecord> {
+    return await this.createOrJoinTransaction(async () => {
       const updatedAt = new Date().toISOString()
-      this.db
+      ;await (this.db
         .insert(sessionObservationCheckpoints)
         .values({
           sessionId,
@@ -220,7 +221,7 @@ export class ObservationCheckpointsRepository {
           observationGeneration: 0,
           checkpointJson: null,
           updatedAt,
-        })
+        }))
         // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
         // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
         // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
@@ -237,7 +238,7 @@ export class ObservationCheckpointsRepository {
         // the primary key. The enumeration is in the commit message.
         .onConflictDoNothing()
         .run()
-      this.db
+      await this.db
         .update(sessionObservationCheckpoints)
         .set({
           // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
@@ -260,9 +261,9 @@ export class ObservationCheckpointsRepository {
       // ineligible with no path back short of a new user turn (POD-1879).
       // Unconsumed proofs are LEFT ALONE: an exact reattachment replay renews
       // them through `renewTerminalCandidate`, which is strictly fenced.
-      const candidate = this.getTerminalCandidate(sessionId)
-      if (candidate?.consumedAt) this.cancelTerminalCandidate(sessionId)
-      const lease = this.read(sessionId)
+      const candidate = await this.getTerminalCandidate(sessionId)
+      if (candidate?.consumedAt) await this.cancelTerminalCandidate(sessionId)
+      const lease = await this.read(sessionId)
       if (!lease || lease.provider !== provider) {
         throw new Error(`unable to advance observation generation for ${sessionId}`)
       }
@@ -276,7 +277,7 @@ export class ObservationCheckpointsRepository {
    * Duplicate old→already-current-next requests return the durable current
    * lease without advancing again, including after process restart. [spec:SP-cdb2]
    */
-  rebindExact(input: {
+  async rebindExact(input: {
     sessionId: SessionId
     provider: ObservationLeaseRecord['provider']
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
@@ -285,9 +286,9 @@ export class ObservationCheckpointsRepository {
     observationGeneration: number
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     nextProviderSessionId: string
-  }): ObservationRebindResult {
-    return this.createOrJoinTransaction(() => {
-      const current = this.read(input.sessionId)
+  }): Promise<ObservationRebindResult> {
+    return await this.createOrJoinTransaction(async () => {
+      const current = await this.read(input.sessionId)
       if (!current) throw new Error(`missing observation lease for ${input.sessionId}`)
       if (current.provider !== input.provider) {
         return { kind: 'rejected', rejectionReason: 'provider_binding_mismatch', lease: current }
@@ -300,7 +301,7 @@ export class ObservationCheckpointsRepository {
       ) {
         return { kind: 'accepted', disposition: 'unchanged', lease: current }
       }
-      const receipt = this.readRebindReceipt(input.sessionId)
+      const receipt = await this.readRebindReceipt(input.sessionId)
       if (
         receipt?.provider === input.provider &&
         receipt.fromProviderSessionId === input.providerSessionId &&
@@ -330,7 +331,7 @@ export class ObservationCheckpointsRepository {
       const bindingVersion = current.bindingVersion + 1
       const observationGeneration = current.observationGeneration + 1
       const updatedAt = new Date().toISOString()
-      const result = this.db
+      const result = await this.db
         .update(sessionObservationCheckpoints)
         .set({
           providerSessionId: input.nextProviderSessionId,
@@ -366,9 +367,9 @@ export class ObservationCheckpointsRepository {
         resultingObservationGeneration: observationGeneration,
         updatedAt,
       }
-      this.db
+      ;await (this.db
         .insert(sessionObservationRebinds)
-        .values(receiptRow)
+        .values(receiptRow))
         .onConflictDoUpdate({
           target: sessionObservationRebinds.sessionId,
           set: {
@@ -383,16 +384,16 @@ export class ObservationCheckpointsRepository {
           },
         })
         .run()
-      this.cancelTerminalCandidate(input.sessionId)
-      const lease = this.read(input.sessionId)
+      await this.cancelTerminalCandidate(input.sessionId)
+      const lease = await this.read(input.sessionId)
       if (!lease) throw new Error(`missing rebound observation lease for ${input.sessionId}`)
       return { kind: 'accepted', disposition: 'advanced', lease }
     })
   }
 
   /** Persist only against the still-current lease; stale sockets cannot win. */
-  save(checkpoint: SessionObservationCheckpointV1): void {
-    const result = this.db
+  async save(checkpoint: SessionObservationCheckpointV1): Promise<void> {
+    const result = await this.db
       .update(sessionObservationCheckpoints)
       .set({
         providerSessionId: sql`COALESCE(${sessionObservationCheckpoints.providerSessionId}, ${checkpoint.providerSessionId})`,
@@ -420,8 +421,8 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  getTerminalCandidate(sessionId: SessionId): TerminalCandidateRecord | null {
-    const row = this.db
+  async getTerminalCandidate(sessionId: SessionId): Promise<TerminalCandidateRecord | null> {
+    const row = await this.db
       .select({
         proofJson: sessionTerminalCandidates.proofJson,
         confirmedAt: sessionTerminalCandidates.confirmedAt,
@@ -451,13 +452,13 @@ export class ObservationCheckpointsRepository {
   }
 
   /** Pass one for a genuinely live terminal edge. Bootstrap/replay never call this. */
-  recordTerminalCandidate(facts: TerminalCandidateFacts, at: string): void {
+  async recordTerminalCandidate(facts: TerminalCandidateFacts, at: string): Promise<void> {
     const proof = {
       facts,
       firstLivePollSequence: 0,
       lastLivePollSequence: 0,
     }
-    this.upsertProof(facts.sessionId, proof, at)
+    await this.upsertProof(facts.sessionId, proof, at)
   }
 
   /**
@@ -465,9 +466,9 @@ export class ObservationCheckpointsRepository {
    * share. It was two identical statements before the conversion; they are one
    * here because a difference between them would have been a defect either way.
    */
-  private upsertProof(sessionId: SessionId, proof: unknown, at: string): void {
+  private async upsertProof(sessionId: SessionId, proof: unknown, at: string): Promise<void> {
     const proofJson = JSON.stringify(proof)
-    this.db
+    ;await (this.db
       .insert(sessionTerminalCandidates)
       .values({
         sessionId,
@@ -475,7 +476,7 @@ export class ObservationCheckpointsRepository {
         confirmedAt: null,
         consumedAt: null,
         updatedAt: at,
-      })
+      }))
       .onConflictDoUpdate({
         target: sessionTerminalCandidates.sessionId,
         set: { proofJson, confirmedAt: null, consumedAt: null, updatedAt: at },
@@ -484,17 +485,17 @@ export class ObservationCheckpointsRepository {
   }
 
   /** Arm pass one at this observer sequence, discarding whatever was there. */
-  private armTerminalCandidate(
+  private async armTerminalCandidate(
     facts: TerminalCandidateFacts,
     livePollSequence: number,
     at: string,
-  ): void {
+  ): Promise<void> {
     const proof = {
       facts,
       firstLivePollSequence: livePollSequence,
       lastLivePollSequence: livePollSequence,
     }
-    this.upsertProof(facts.sessionId, proof, at)
+    await this.upsertProof(facts.sessionId, proof, at)
   }
 
   /**
@@ -511,20 +512,20 @@ export class ObservationCheckpointsRepository {
    * fence. The consumed row is superseded only from a strictly newer observer
    * generation: within one generation that exact terminal is genuinely spent.
    */
-  confirmTerminalCandidate(
+  async confirmTerminalCandidate(
     facts: TerminalCandidateFacts,
     livePollSequence: number,
     at: string,
-  ): 'recorded' | 'confirmed' | 'unchanged' | 'rehabilitated' {
-    return this.createOrJoinTransaction(() => {
-      const current = this.getTerminalCandidate(facts.sessionId)
+  ): Promise<'recorded' | 'confirmed' | 'unchanged' | 'rehabilitated'> {
+    return await this.createOrJoinTransaction(async () => {
+      const current = await this.getTerminalCandidate(facts.sessionId)
       if (current?.consumedAt) {
         if (facts.observerGeneration <= current.facts.observerGeneration) return 'unchanged'
-        this.armTerminalCandidate(facts, livePollSequence, at)
+        await this.armTerminalCandidate(facts, livePollSequence, at)
         return 'rehabilitated'
       }
       if (!current || !sameFacts(current.facts, facts)) {
-        this.armTerminalCandidate(facts, livePollSequence, at)
+        await this.armTerminalCandidate(facts, livePollSequence, at)
         return 'recorded'
       }
       if (current.confirmedAt) return 'unchanged'
@@ -532,7 +533,7 @@ export class ObservationCheckpointsRepository {
         // The observer's counter only ever rises within one observer life, so a
         // lower sequence is a RESTARTED counter, not a replayed receipt. Left
         // alone it can never clear `lastLivePollSequence` again.
-        this.armTerminalCandidate(facts, livePollSequence, at)
+        await this.armTerminalCandidate(facts, livePollSequence, at)
         return 'rehabilitated'
       }
       if (livePollSequence <= current.lastLivePollSequence) return 'unchanged'
@@ -543,7 +544,7 @@ export class ObservationCheckpointsRepository {
         firstLivePollSequence: current.firstLivePollSequence,
         lastLivePollSequence: livePollSequence,
       }
-      this.db
+      await this.db
         .update(sessionTerminalCandidates)
         .set({
           proofJson: JSON.stringify(proof),
@@ -568,16 +569,16 @@ export class ObservationCheckpointsRepository {
    * durable checkpoint under the new observer generation. Generation and PTY
    * repaint counters may advance; every causal/work fact must remain identical.
    */
-  renewTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
-    return this.createOrJoinTransaction(() => {
-      const current = this.getTerminalCandidate(facts.sessionId)
+  async renewTerminalCandidate(facts: TerminalCandidateFacts, at: string): Promise<boolean> {
+    return await this.createOrJoinTransaction(async () => {
+      const current = await this.getTerminalCandidate(facts.sessionId)
       if (
         !current?.confirmedAt ||
         current.consumedAt ||
         !sameFactsAcrossReattachment(current.facts, facts)
       )
         return false
-      const lease = this.read(facts.sessionId)
+      const lease = await this.read(facts.sessionId)
       const checkpoint = lease?.checkpoint
       if (
         !lease ||
@@ -600,7 +601,7 @@ export class ObservationCheckpointsRepository {
         firstLivePollSequence: current.firstLivePollSequence,
         lastLivePollSequence: current.lastLivePollSequence,
       }
-      const result = this.db
+      const result = await this.db
         .update(sessionTerminalCandidates)
         .set({ proofJson: JSON.stringify(proof), updatedAt: at })
         .where(
@@ -620,11 +621,11 @@ export class ObservationCheckpointsRepository {
   }
 
   /** Final apply-time compare-and-consume; callers run this in the session-row transaction. */
-  consumeTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
-    const current = this.getTerminalCandidate(facts.sessionId)
+  async consumeTerminalCandidate(facts: TerminalCandidateFacts, at: string): Promise<boolean> {
+    const current = await this.getTerminalCandidate(facts.sessionId)
     if (!current?.confirmedAt || current.consumedAt || !sameFacts(current.facts, facts))
       return false
-    const lease = this.read(facts.sessionId)
+    const lease = await this.read(facts.sessionId)
     const checkpoint = lease?.checkpoint
     if (
       !lease ||
@@ -637,7 +638,7 @@ export class ObservationCheckpointsRepository {
       JSON.stringify(checkpoint.providerCursor) !== JSON.stringify(facts.providerCursor)
     )
       return false
-    const result = this.db
+    const result = await this.db
       .update(sessionTerminalCandidates)
       .set({ consumedAt: at, updatedAt: at })
       .where(
@@ -651,15 +652,15 @@ export class ObservationCheckpointsRepository {
     return Number(result.changes) === 1
   }
 
-  cancelTerminalCandidate(sessionId: SessionId): void {
-    this.db
+  async cancelTerminalCandidate(sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(sessionTerminalCandidates)
       .where(eq(sessionTerminalCandidates.sessionId, sessionId))
       .run()
   }
 
-  purge(sessionId: SessionId): void {
-    this.db
+  async purge(sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(sessionObservationCheckpoints)
       .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
       .run()

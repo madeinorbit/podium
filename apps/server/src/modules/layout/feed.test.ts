@@ -125,8 +125,8 @@ function build() {
   const service = new LayoutService({
     layout: repo as never,
     ledger: {
-      capture: (specs) => {
-        authority.capture(
+      capture: async (specs) => {
+        await authority.capture(
           specs.map((s) => ({
             entity: s.entity,
             entityId: s.id,
@@ -142,16 +142,16 @@ function build() {
 }
 
 describe('layout rows scope to the owning user on the Authority feed', () => {
-  it('Alice write is on Alice bootstrap; Bob bootstrap is empty; row exists', () => {
+  it('Alice write is on Alice bootstrap; Bob bootstrap is empty; row exists', async () => {
     const { authority, service, repo } = build()
-    service.set(ALICE, { dockTab: 'files', superOpen: true }, 't')
+    await service.set(ALICE, { dockTab: 'files', superOpen: true }, 't')
 
     // Positive control: durable storage holds the row for Alice.
     expect(repo.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
     expect(repo.getSnapshot(BOB)).toEqual({})
 
-    const aliceWorld = authority.bootstrap(humanPrincipal(ALICE))
-    const bobWorld = authority.bootstrap(humanPrincipal(BOB))
+    const aliceWorld = await authority.bootstrap(humanPrincipal(ALICE))
+    const bobWorld = await authority.bootstrap(humanPrincipal(BOB))
 
     const aliceLayout = aliceWorld.changes.filter((c) => c.entity === 'userLayout')
     const bobLayout = bobWorld.changes.filter((c) => c.entity === 'userLayout')
@@ -169,13 +169,13 @@ describe('layout rows scope to the owning user on the Authority feed', () => {
     })
   })
 
-  it('a later write is visible on Alice changesSince; Bob receives no layout delta', () => {
+  it('a later write is visible on Alice changesSince; Bob receives no layout delta', async () => {
     const { authority, service } = build()
-    service.set(ALICE, { dockTab: 'chat' }, 't1')
-    const before = authority.cursor()
-    service.set(ALICE, { dockTab: 'files' }, 't2')
+    await service.set(ALICE, { dockTab: 'chat' }, 't1')
+    const before = await authority.cursor()
+    await service.set(ALICE, { dockTab: 'files' }, 't2')
 
-    const delivery = authority.changesSince(before, humanPrincipal(ALICE))
+    const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     expect(delivery?.kind).toBe('batch')
     if (delivery?.kind !== 'batch') return
     expect(
@@ -184,7 +184,7 @@ describe('layout rows scope to the owning user on the Authority feed', () => {
       ),
     ).toBe(true)
 
-    const bobDelivery = authority.changesSince(before, humanPrincipal(BOB))
+    const bobDelivery = await authority.changesSince(before, humanPrincipal(BOB))
     expect(bobDelivery?.kind).toBe('batch')
     if (bobDelivery?.kind !== 'batch') return
     expect(bobDelivery.changes.filter((c) => c.entity === 'userLayout')).toEqual([])

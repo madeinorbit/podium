@@ -33,8 +33,8 @@ describe('composition root reaction principals', () => {
     ).toThrow('system reactions must not widen write scope beyond the acted-on entity')
   })
 
-  it('publishes the declared registry when every principal is in scope', () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('publishes the declared registry when every principal is in scope', async () => {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     expect(registry.modules.reactions).toHaveLength(REACTIONS.length)
     for (const reaction of registry.modules.reactions) {

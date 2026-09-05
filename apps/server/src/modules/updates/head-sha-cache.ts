@@ -210,7 +210,7 @@ export function createHeadShaCache(deps: {
           const stamp = await deps.stamp()
           if (stamp !== null && stamp === held.stamp) return held.sha
         }
-        return fromGit()
+        return await fromGit()
       })()
       inFlight = request
       void request.then(
@@ -242,13 +242,13 @@ export function createGitHeadShaCache(
   return createHeadShaCache({
     read,
     stamp: async () => {
-      located ??= locateGitRefs(root)
+      located ??= await locateGitRefs(root)
       const where = await located
       if (where === null) {
         located = null
         return null
       }
-      return readHeadStamp(where)
+      return await readHeadStamp(where)
     },
     ...options,
   })

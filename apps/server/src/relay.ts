@@ -479,17 +479,17 @@ export class SessionRegistry {
    * this method is where the awaits go — which is the whole reason the steps are
    * a list in one place rather than three lines in three constructors.
    */
-  private hydrate(): void {
+  private async hydrate(): Promise<void> {
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
-    this.ledger.reconcile(
+    await this.ledger.reconcile(
       'shipOrder',
       scheduledShipOrderProjectionRows(
-        this.store.shipping.listOrders(),
-        this.store.shipping.listHolds(),
-        this.store.shipping.listReceipts(),
+        await this.store.shipping.listOrders(),
+        await this.store.shipping.listHolds(),
+        await this.store.shipping.listReceipts(),
         this.now(),
-        this.store.shipping.listAttempts().flatMap((attempt) => {
+        (await this.store.shipping.listAttempts()).flatMap((attempt) => {
           if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
           const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
           return Number.isFinite(durationMs) && durationMs >= 0
@@ -499,9 +499,9 @@ export class SessionRegistry {
       ),
     )
     // The one boot WRITE, owned by the memory service rather than by the store.
-    this.modules.memory.repairSubagentEvidence()
+    await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
-    this.modules.automations.reconcileFromStore()
+    await this.modules.automations.reconcileFromStore()
   }
 
   /**
@@ -517,16 +517,16 @@ export class SessionRegistry {
    * constructor established, and the store's own constructor establishes the
    * order above that (POD-318: machine identity before any reader).
    */
-  static create(
+  static async create(
     store: SessionStore | undefined,
     notificationPushers: NotificationPushers | undefined,
     options: SessionRegistryOptions,
-  ): SessionRegistry {
-    const resolvedStore = store ?? new SessionStore(':memory:')
+  ): Promise<SessionRegistry> {
+    const resolvedStore = store ?? (await SessionStore.open(':memory:'))
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
-      settings: resolvedStore.settings.getSettings(),
+      settings: await resolvedStore.settings.getSettings(),
     })
-    registry.hydrate()
+    await registry.hydrate()
     return registry
   }
 
@@ -570,13 +570,13 @@ export class SessionRegistry {
         onBehalfOfFor: (candidate) =>
           this.store.sessions.getSession(asSessionId(candidate))?.ownerUserId,
       })
-    const workflowCallerForCapability = (
+    const workflowCallerForCapability = async (
       capability: import('@podium/model').Capability,
       overrideScope?: boolean,
-    ): import('./modules/workflows/service').WorkflowCaller => {
+    ): Promise<import('./modules/workflows/service').WorkflowCaller> => {
       const principal = principalForCapability(capability)
       const human = onBehalfOfUser(principal)
-      const role = human === null ? undefined : this.store.users.roleOf(human)
+      const role = human === null ? undefined : await this.store.users.roleOf(human)
       return {
         actor: capability.actorSessionId
           ? { kind: 'session', id: capability.actorSessionId }
@@ -741,8 +741,8 @@ export class SessionRegistry {
       // installation's own feed descriptor, which only the composition root can
       // state; without one the resolver refuses `dev` by name rather than
       // resolving something else.
-      resolveTarget: (channel) =>
-        resolveReleaseTarget(channel, {
+      resolveTarget: async (channel) =>
+        await resolveReleaseTarget(channel, {
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
         }),
       // `dev` on a source host is the one channel this server both PUBLISHES
@@ -869,7 +869,7 @@ export class SessionRegistry {
       listenerPrincipal: DEVICE_GRADE_PRINCIPAL,
       repo: this.store.sync,
       now: () => this.now(),
-      transact: (fn) => this.store.transact(fn),
+      transact: async (fn) => await this.store.transact(fn),
       // Subscriber delivery waits for the OUTERMOST commit, not for the nested
       // savepoint this commit may be [POD-3260, spec §3.3 mechanism 3]. With no
       // span open — the common case, a top-level ledger.commit — `afterCommit`
@@ -937,8 +937,8 @@ export class SessionRegistry {
       authorizationRevision: feedVisibility.authorizationRevision,
       identity: new FeedIdentityRegistry(
         {
-          readIdentity: () => this.store.sync.readFeedIdentity(),
-          writeIdentity: (identity) => this.store.sync.writeFeedIdentity(identity, this.now()),
+          readIdentity: async () => await this.store.sync.readFeedIdentity(),
+          writeIdentity: async (identity) => await this.store.sync.writeFeedIdentity(identity, this.now()),
         },
         // Opaque, never a counter: D1 forbids a counter outright (restoring one
         // backup twice re-mints the same value and hands a different timeline an
@@ -960,17 +960,17 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
-    const snapshotTail = (): SnapshotTail => ({
-      issues: ledger.authority.snapshot('issue') as SnapshotTail['issues'],
-      issueProjections: ledger.authority.snapshot(
+    const snapshotTail = async (): Promise<SnapshotTail> => ({
+      issues: await ledger.authority.snapshot('issue') as SnapshotTail['issues'],
+      issueProjections: await ledger.authority.snapshot(
         'issueProjection',
       ) as SnapshotTail['issueProjections'],
-      issueDeps: ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
-      repos: repoProjectionRows(this.store.repos.listRepos()).map((row) => row.value),
-      shipOrders: ledger.authority.snapshot('shipOrder') as SnapshotTail['shipOrders'],
-      conversations: ledger.authority.snapshot('conversation') as SnapshotTail['conversations'],
-      automations: ledger.authority.snapshot('automation') as SnapshotTail['automations'],
-      automationRuns: ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],
+      issueDeps: await ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
+      repos: repoProjectionRows(await this.store.repos.listRepos()).map((row) => row.value),
+      shipOrders: await ledger.authority.snapshot('shipOrder') as SnapshotTail['shipOrders'],
+      conversations: await ledger.authority.snapshot('conversation') as SnapshotTail['conversations'],
+      automations: await ledger.authority.snapshot('automation') as SnapshotTail['automations'],
+      automationRuns: await ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],
       diagnostics: [...conversationDiagnostics.current],
     })
     // Spec factory only (POD-1576). The `publishIssueList` reconcile tail that
@@ -1057,8 +1057,8 @@ export class SessionRegistry {
     // rules cannot drift between the fleet path and the point lookup — and a
     // caller looping over the fleet no longer re-reads the whole table per
     // machine.
-    const targetStateResolver = (): ((machineId: MachineId) => ServerTransferTargetState) => {
-      const byId = new Map(machines.listMachines().map((m) => [m.id, m] as const))
+    const targetStateResolver = async (): Promise<((machineId: MachineId) => ServerTransferTargetState)> => {
+      const byId = new Map((await machines.listMachines()).map((m) => [m.id, m] as const))
       const digest = wireSchemaDigest()
       return (machineId) => {
         const machine = byId.get(machineId)
@@ -1102,15 +1102,15 @@ export class SessionRegistry {
           mirroringPaused = true
           this.store.beginTransferFence()
         } catch (error) {
-          if (mirroringPaused) memory.resumeMirroringAfterTransfer()
+          if (mirroringPaused) await memory.resumeMirroringAfterTransfer()
           if (portableFenceHeld) portableStateFence.release()
           daemonPortableState?.resume()
           throw error
         }
       },
-      releaseFence: () => {
+      releaseFence: async () => {
         this.store.endTransferFence()
-        memory.resumeMirroringAfterTransfer()
+        await memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
         this.localDaemonPortableState?.resume()
       },
@@ -1127,10 +1127,10 @@ export class SessionRegistry {
       rpc,
       now: () => this.now(),
     })
-    const capabilityForLiveSession = (sessionId: SessionId) => {
+    const capabilityForLiveSession = async (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
       if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
-      const issueId = session.issueId ?? issueAccess.issueForCwd(session.cwd)
+      const issueId = session.issueId ?? await issueAccess.issueForCwd(session.cwd)
       return issueId
         ? {
             role: 'worker' as const,
@@ -1145,13 +1145,13 @@ export class SessionRegistry {
             onBehalfOf: session.ownerUserId,
           }
     }
-    const liveSessionOwnership = (sessionId: SessionId) => {
+    const liveSessionOwnership = async (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
       if (!session) return undefined
       return {
         owner: session.ownerUserId,
-        grants: this.store.grants
-          .listForResource('session', sessionId)
+        grants: (await this.store.grants
+          .listForResource('session', sessionId))
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       }
@@ -1316,10 +1316,10 @@ export class SessionRegistry {
     const closedIssueIdsSlot = readScopeSlot<{ ids: Set<string> | undefined }>(() => ({
       ids: undefined,
     }))
-    const closedIssueIdsInScope = (): Set<string> => {
+    const closedIssueIdsInScope = async (): Promise<Set<string>> => {
       const held = currentReadScope().slot(closedIssueIdsSlot)
       if (held.ids !== undefined) return held.ids
-      const closed = this.store.issues.closedIssueIds()
+      const closed = await this.store.issues.closedIssueIds()
       held.ids = closed
       return closed
     }
@@ -1441,8 +1441,8 @@ export class SessionRegistry {
     const issueArtifacts = new IssueArtifactStore(
       join(stateDir(), 'artifacts'),
       {
-        readAsset: (i) => rpc.readAsset(i),
-        listDir: (i) => rpc.listDir(i),
+        readAsset: async (i) => await rpc.readAsset(i),
+        listDir: async (i) => await rpc.listDir(i),
       },
       portableStateFence,
     )
@@ -1480,7 +1480,7 @@ export class SessionRegistry {
           ...(o.machineId ? { machineId: o.machineId } : {}),
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
         }),
-      repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
+      repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
@@ -1541,10 +1541,10 @@ export class SessionRegistry {
     this.bus.on('session.created', ({ sessionId, issueId }) => {
       if (issueId) issues.ensureCoordinator(issueId, sessionId, { onlyMember: true })
     })
-    const applySessionDerived = (event: EventMap['issue.sessionDerived']): void => {
+    const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {
         case 'gitActivity':
-          issues.recordSessionGitActivity(event.sessionId, {
+          await issues.recordSessionGitActivity(event.sessionId, {
             ...(event.commits ? { commits: event.commits } : {}),
             ...(event.touched ? { touched: event.touched } : {}),
           })
@@ -1553,16 +1553,16 @@ export class SessionRegistry {
           issues.onSessionActivity(event.sessionId)
           break
         case 'attention':
-          issues.onSessionAttention(event.sessionId)
+          await issues.onSessionAttention(event.sessionId)
           break
         case 'turnEnd':
-          issues.onSessionTurnEnd(event.sessionId)
+          await issues.onSessionTurnEnd(event.sessionId)
           break
         case 'removedOrArchived':
-          issues.onSessionRemovedOrArchived(event.sessionId)
+          await issues.onSessionRemovedOrArchived(event.sessionId)
           break
         case 'adoptWorktree': {
-          const issue = issueAccess.getMeta(event.issueId)
+          const issue = await issueAccess.getMeta(event.issueId)
           const message = event.message
           if (
             !issue ||
@@ -1572,8 +1572,8 @@ export class SessionRegistry {
           )
             break
           if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
-          if (issueAccess.worktreePaths().includes(message.cwd)) break
-          issues.update(issue.id, {
+          if ((await issueAccess.worktreePaths()).includes(message.cwd)) break
+          await issues.update(issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
@@ -1591,7 +1591,7 @@ export class SessionRegistry {
           })
           break
         case 'attention':
-          issues.onSessionAttention(event.sessionId)
+          await issues.onSessionAttention(event.sessionId)
           break
         case 'turnEnd':
           await issues.projectSessionTurnEnd(event.sessionId)
@@ -1635,13 +1635,13 @@ export class SessionRegistry {
       }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
-        .then((result) => {
+        .then(async (result) => {
           if (!result.ok) {
             log.warn('wake-on-queue failed', {
               sessionId,
               reason: result.reason,
             })
-            messagesSvc.onWakeUnavailable(sessionId, result.reason ?? 'wake failed')
+            await messagesSvc.onWakeUnavailable(sessionId, result.reason ?? 'wake failed')
             return
           }
           // THE WAKE IS AN ELIGIBILITY EDGE (POD-1703). A bind normally re-arms
@@ -1651,9 +1651,9 @@ export class SessionRegistry {
           // already ran.
           sessionsSvc.inbox.drain(sessionId)
         })
-        .catch((err) => {
+        .catch(async (err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
-          messagesSvc.onWakeUnavailable(sessionId, 'wake threw')
+          await messagesSvc.onWakeUnavailable(sessionId, 'wake threw')
         })
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
@@ -1723,11 +1723,11 @@ export class SessionRegistry {
       issues,
       sessions: sessionsSvc,
       runtimeContractActive: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
-      mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
+      mirrorIssueMail: (row) => funnel.run({ write: async () => await this.store.issues.addIssueMessage(row) }),
       mirrorMarkIssueMailRead: (issueId, ids) =>
         funnel.run({
-          write: () =>
-            this.store.issues.markIssueMessagesRead(
+          write: async () =>
+            await this.store.issues.markIssueMessagesRead(
               FIRST_ADMIN_USER_ID,
               issueId,
               ids,
@@ -1947,7 +1947,7 @@ export class SessionRegistry {
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
-        awaitMachineInventory: (machineId) => machines.waitForInventory(machineId),
+        awaitMachineInventory: async (machineId) => await machines.waitForInventory(machineId),
         spawnSession: (o) =>
           sessionsSvc.createSession({
             ownerUserId: o.ownerUserId,
@@ -2003,9 +2003,9 @@ export class SessionRegistry {
       events: this.store.events,
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
-      repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
-      readTranscript: (input) =>
-        rpc.readTranscript(input, {
+      repoOp: async (op, cwd, machineId) => await rpc.repoOp(op, cwd, undefined, machineId),
+      readTranscript: async (input) =>
+        await rpc.readTranscript(input, {
           kind: 'system',
           id: 'session-read-toolkit',
         }),
@@ -2013,7 +2013,7 @@ export class SessionRegistry {
     })
 
     const issueAttach = new IssueAttachOrchestrator({
-      transact: (work) => this.store.transact(work),
+      transact: async (work) => await this.store.transact(work),
       attention: issues.attention,
     })
 
@@ -2188,10 +2188,10 @@ export class SessionRegistry {
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: (input) => shippingPort().enqueueCurrent(input),
-        resolveHold: (input) => shippingPort().resolveHold(input),
-        cancel: (input) => shippingPort().cancel(input),
-        deliveryReceipt: (input) => shippingPort().deliveryReceipt(input),
+        enqueueCurrent: async (input) => await shippingPort().enqueueCurrent(input),
+        resolveHold: async (input) => await shippingPort().resolveHold(input),
+        cancel: async (input) => await shippingPort().cancel(input),
+        deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
@@ -2212,8 +2212,8 @@ export class SessionRegistry {
             getSession: (id) => sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             rpc: {
-              readTranscript: (input) =>
-                rpc.readTranscript(input, {
+              readTranscript: async (input) =>
+                await rpc.readTranscript(input, {
                   kind: 'system',
                   id: 'issue-answer-delivery',
                 }),
@@ -2229,7 +2229,7 @@ export class SessionRegistry {
         return r.ok ? { ok: true, via: r.via } : r
       },
       // issue stop [spec:SP-9904]: park every member session + free worktree.
-      stopIssueSessions: (input) => issueSessionLifecycle.stopIssue(input),
+      stopIssueSessions: async (input) => await issueSessionLifecycle.stopIssue(input),
     })
     this.issues = issues
     this.bus.on('machine.diagnostic', (diagnostic) => {
@@ -2358,7 +2358,7 @@ export class SessionRegistry {
             issueId: issue.id,
             principal: systemPrincipal('shipping-custody'),
           })
-          const live = issues.get(issue.id)
+          const live = await issues.get(issue.id)
           const freed = live?.worktreePath == null
           return {
             ok: stopped.ok && freed,
@@ -2564,7 +2564,7 @@ export class SessionRegistry {
         machines.listMachines().find((machine) => machine.id === machineId)?.deliveryCaps ?? [],
       resolveBranchTip: async (issue) => {
         if (!issue.branch) throw new Error(`issue ${issue.id} has no branch`)
-        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const machineId = issue.machineId ?? await machines.pickMachineForRepo(undefined, issue.repoPath)
         const result = await rpc.repoOp(
           'revParseVerify',
           issue.repoPath,
@@ -2580,7 +2580,7 @@ export class SessionRegistry {
         return tip
       },
       resolveRefTip: async (issue, ref) => {
-        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const machineId = issue.machineId ?? await machines.pickMachineForRepo(undefined, issue.repoPath)
         const result = await rpc.repoOp(
           'revParseVerify',
           issue.repoPath,
@@ -2594,7 +2594,7 @@ export class SessionRegistry {
         return tip
       },
       isAncestor: async (issue, ancestorSha, descendantSha) => {
-        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const machineId = issue.machineId ?? await machines.pickMachineForRepo(undefined, issue.repoPath)
         const result = await rpc.repoOp(
           'isMergedInto',
           issue.repoPath,
@@ -2780,20 +2780,20 @@ export class SessionRegistry {
         if (!checkpoint) return false
         return this.store.events.hasCausalTurnFailure(sessionId, checkpoint.turnEpoch)
       },
-      deliver: (input) =>
-        deliverAnswerToSession(
+      deliver: async (input) =>
+        await deliverAnswerToSession(
           {
             getSession: (id) => sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             rpc: {
-              readTranscript: (readInput) =>
-                rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
+              readTranscript: async (readInput) =>
+                await rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
             },
           },
           input,
         ),
-      readTranscript: (input) =>
-        rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
+      readTranscript: async (input) =>
+        await rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
       policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
       /**
        * THE SCREEN-READ MENU'S ANSWER ROUTE (POD-2414).
@@ -2829,8 +2829,8 @@ export class SessionRegistry {
        * request id this answers. Narrowing here would mean the server deciding
        * the shape of a reply it does not send.
        */
-      deliverStructured: (input) =>
-        sessionsSvc.runtimeGateway.answer({
+      deliverStructured: async (input) =>
+        await sessionsSvc.runtimeGateway.answer({
           sessionId: input.sessionId,
           interactionId: input.interactionId,
           answer: input.answer as unknown as Record<string, unknown>,
@@ -2877,9 +2877,9 @@ export class SessionRegistry {
      * credential a person actually has to refresh instead of echoing a failure
      * reason back at them.
      */
-    sessionsSvc.interactionTurn = (msg) => {
-      const provider = sessionsSvc.sessionById(msg.sessionId)?.agentKind
-      return interactions.onTurnEvent({
+    sessionsSvc.interactionTurn = async (msg) => {
+      const provider = (await sessionsSvc.sessionById(msg.sessionId))?.agentKind
+      return await interactions.onTurnEvent({
         sessionId: msg.sessionId,
         ev: msg.ev,
         at: msg.at,
@@ -2891,8 +2891,8 @@ export class SessionRegistry {
      * harness's own UI retires here; without it the aggregate could only ever
      * open one of those rows.
      */
-    sessionsSvc.interactionResolved = (msg) => {
-      interactions.onInteractionResolved(msg)
+    sessionsSvc.interactionResolved = async (msg) => {
+      await interactions.onInteractionResolved(msg)
     }
     this.bus.on('session.stateChanged', (e) => {
       void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
@@ -3064,10 +3064,10 @@ export class SessionRegistry {
       messaging: {
         ackFallback: (sessionId, outcome, notificationFact) =>
           void (async () => {
-            if (messagesSvc.settleNotifiable(sessionId).length === 0) return
-            const meta = sessionsSvc.sessionById(sessionId)
+            if ((await messagesSvc.settleNotifiable(sessionId)).length === 0) return
+            const meta = await sessionsSvc.sessionById(sessionId)
             const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
-            const issue = issueId ? issues.getMeta(issueId) : null
+            const issue = issueId ? await issues.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {
               try {
@@ -3075,7 +3075,7 @@ export class SessionRegistry {
                 if (r.ok) lastCommit = r.output.split('\n')[0]
               } catch {}
             }
-            messagesSvc.systemAckFallback(sessionId, {
+            await messagesSvc.systemAckFallback(sessionId, {
               outcome,
               notificationFact,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
@@ -3147,12 +3147,12 @@ export class SessionRegistry {
     this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.
-    this.quotaSampler = new QuotaSampler(this.store.quotaHistory, () =>
-      this.modules.rpc.agentQuotaAll(),
+    this.quotaSampler = new QuotaSampler(this.store.quotaHistory, async () =>
+      await this.modules.rpc.agentQuotaAll(),
     )
     this.quotaSampler.start()
-    this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, (sinceMs) =>
-      this.modules.rpc.quotaHistoryAll(sinceMs),
+    this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, async (sinceMs) =>
+      await this.modules.rpc.quotaHistoryAll(sinceMs),
     )
     this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
@@ -3284,7 +3284,7 @@ export class SessionRegistry {
   /** Fenced janitor entry: one bounded steward poll with
    * deliveries-before-cursor-advance. First ownership seeds past the source
    * topology's intentionally dark history. */
-  runStewardTick(): Promise<void> {
-    return this.steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
+  async runStewardTick(): Promise<void> {
+    return await this.steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
   }
 }

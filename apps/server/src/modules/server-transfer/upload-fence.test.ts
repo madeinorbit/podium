@@ -27,7 +27,7 @@ describe('portable upload fence', () => {
     await waitFor(() => request !== undefined, 'first upload request')
 
     let acquired = false
-    const acquire = fence.acquire().then(() => {
+    const acquire = (await fence.acquire()).then(() => {
       acquired = true
     })
     await Promise.resolve()

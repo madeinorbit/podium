@@ -55,8 +55,8 @@ export interface FileCommand {
 
 /** The shipped FORBIDDEN, moved verbatim. Shared by the write and the two reads
  *  so the three cannot drift into three notions of "an allowed root". */
-export const assertAllowedRoot = (state: FileState, root: string): void => {
-  if (!isAllowedRoot(state.repos.list(), root)) {
+export const assertAllowedRoot = async (state: FileState, root: string): Promise<void> => {
+  if (!isAllowedRoot(await state.repos.list(), root)) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
   }
 }

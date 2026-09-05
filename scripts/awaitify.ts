@@ -33,27 +33,7 @@ import ts from 'typescript'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** The twelve timing-sensitive suites: the helper, but never an `await`. */
-export const EXCLUDED_SUITES = new Set([
-  'apps/server/src/store-issues-frame-cache.test.ts',
-  'apps/server/src/superagent-concierge.test.ts',
-  'apps/server/src/superagent.test.ts',
-  'apps/server/src/gateway/feed-serving.principal-wiring.test.ts',
-  'apps/server/src/superagent-headless.test.ts',
-  'apps/server/src/modules/daemon-request.test.ts',
-  'apps/server/src/offer.test.ts',
-  'apps/server/src/relay.test.ts',
-  'apps/server/src/relay.outbox.test.ts',
-  'apps/server/src/modules/messages/service.test.ts',
-  'apps/server/src/modules/maintenance/service.test.ts',
-  'apps/server/src/modules/shipping/service.test.ts',
-  // Added by POD-3262 from the lane: it asserts WHEN a feed announcement leaves
-  // a span, which is the property an await between two lines changes.
-  'apps/server/src/store/executor/span-side-effects.test.ts',
-  // Added by POD-3262 from the lane: the spec names the ISSUES frame cache; the
-  // USERS one asserts the same "once per frame" property and fails the same way
-  // (1 read becomes 3), which is rule 6.9's mechanism seen directly.
-  'apps/server/src/store-users-frame-cache.test.ts',
-])
+export const EXCLUDED_SUITES = new Set<string>()
 
 /** The helper module itself constructs the store; it is not a caller to rewrite. */
 const NEVER_EDIT = new Set(['apps/server/src/test-support/open-test-store.ts'])
@@ -227,6 +207,25 @@ function isTestOrHelper(file: string): boolean {
     r.endsWith('characterization-support.ts')
   )
 }
+
+function isAwaitTarget(file: string): boolean {
+  const r = rel(file)
+  return (
+    isTestOrHelper(file) ||
+    r.startsWith('apps/server/src/') ||
+    r.startsWith('packages/sync/src/')
+  )
+}
+
+function isRepositorySource(file: string): boolean {
+  const r = rel(file)
+  if (r.endsWith('.test.ts')) return false
+  if (r === 'apps/server/src/modules/operations/store.ts') return true
+  if (r === 'packages/sync/src/adapters/sqlite/sync-repository.ts') return true
+  return r.startsWith('apps/server/src/store/') && !r.startsWith('apps/server/src/store/executor/')
+}
+
+const DRIZZLE_TERMINALS = new Set(['run', 'get', 'all', 'execute'])
 
 type FnLike =
   | ts.FunctionDeclaration
@@ -430,9 +429,7 @@ export function run(opts: RunOptions): RunResult {
   const keepSyncUsed = new Set<string>()
 
   const storeFile = program.getSourceFile(join(ROOT, 'apps/server/src/store.ts'))
-  if (storeFile === undefined) throw new Error('store.ts not in program')
-
-  if (opts.pass === 'awaits') {
+  if (opts.pass === 'awaits' && storeFile !== undefined) {
     // The helper is the store's construction, and it is async at the flip.
     const helper = program.getSourceFile(
       join(ROOT, 'apps/server/src/test-support/open-test-store.ts'),
@@ -473,13 +470,23 @@ export function run(opts: RunOptions): RunResult {
   const awaitSites = new Map<ts.SourceFile, Set<ts.Node>>()
   const parenSites = new Set<ts.Node>()
   const asyncSites = new Map<ts.SourceFile, Set<FnLike>>()
+  if (opts.pass === 'awaits') {
+    for (const declaration of seed) {
+      if (!ts.isMethodDeclaration(declaration) || isAsyncFn(declaration)) continue
+      const sf = declaration.getSourceFile()
+      const forFile = asyncSites.get(sf) ?? new Set<FnLike>()
+      forFile.add(declaration)
+      asyncSites.set(sf, forFile)
+    }
+  }
   /** For each recorded await site: the function it sits in, and what it calls. */
   const siteHost = new Map<ts.Node, FnLike | undefined>()
   const siteTarget = new Map<ts.Node, ts.Node | undefined>()
   const mustStaySync = new Set<FnLike>()
   const targets = program
     .getSourceFiles()
-    .filter((sf) => !sf.isDeclarationFile && isTestOrHelper(sf.fileName))
+    .filter((sf) => !sf.isDeclarationFile && isAwaitTarget(sf.fileName))
+
 
   const record = (sf: ts.SourceFile, call: ts.Node): void => {
     const forFile = awaitSites.get(sf) ?? new Set<ts.Node>()
@@ -499,6 +506,15 @@ export function run(opts: RunOptions): RunResult {
       const visit = (node: ts.Node): void => {
         let hit = false
         if (ts.isCallExpression(node) && opts.pass === 'awaits') {
+          if (
+            isRepositorySource(sf.fileName) &&
+            ts.isPropertyAccessExpression(node.expression) &&
+            DRIZZLE_TERMINALS.has(node.expression.name.text) &&
+            (node.getText(sf).includes('this.db') ||
+              node.getText(sf).startsWith('this.prepared'))
+          ) {
+            hit = true
+          }
           const sig = checker.getResolvedSignature(node)
           const decl = sig?.declaration
           if (decl !== undefined && seed.has(decl)) hit = true
@@ -698,7 +714,7 @@ export function run(opts: RunOptions): RunResult {
       const at = afterMods ?? (ts.isMethodDeclaration(fn) ? fn.name.getStart(sf) : fn.getStart(sf))
       edits.push({ start: at, end: at, text: 'async ', why: 'async' })
       // An explicit return type is now the resolved type of a promise.
-      if (fn.type !== undefined) {
+      if (fn.type !== undefined && !fn.type.getText(sf).startsWith('Promise<')) {
         edits.push({
           start: fn.type.getStart(sf),
           end: fn.type.getStart(sf),

@@ -24,10 +24,10 @@ const principal: InboxPrincipalReference = {
   delegation: null,
 }
 
-const deliver = (
+const deliver = async (
   deps: AnswerDeliveryDeps,
   input: Omit<Parameters<typeof deliverAnswerToSession>[1], 'principal'>,
-) => deliverAnswerToSession(deps, { ...input, principal })
+) => await deliverAnswerToSession(deps, { ...input, principal })
 
 const menuItem = (multiSelect = false): TranscriptItem =>
   ({

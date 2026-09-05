@@ -270,8 +270,8 @@ const defs = {
   }),
   prime: def('prime', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.prime(
+    handler: async (ctx, input) =>
+      await ctx.reports.prime(
         {
           repoPath: input?.repoPath,
           boundIssueId:
@@ -296,24 +296,24 @@ const defs = {
   }),
   graph: def('graph', {
     kind: 'query',
-    handler: (ctx, input) => ctx.visibleGraph(ctx.reports.graph(input.repoPath)),
+    handler: async (ctx, input) => ctx.visibleGraph(await ctx.reports.graph(input.repoPath)),
   }),
   epicStatus: def('epicStatus', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.readIssue(input.id, () => ctx.reports.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () => await ctx.reports.epicStatus(input.id, (id) => ctx.mayReadIssue(id))),
   }),
   children: def('children', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.readIssue(input.id, () =>
-        ctx.reports.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () =>
+        await ctx.reports.children(input.id, input.recursive ?? false, (id) => ctx.mayReadIssue(id)),
       ),
   }),
   tree: def('tree', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.tree(
+    handler: async (ctx, input) =>
+      await ctx.reports.tree(
         input.id,
         {
           ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
@@ -324,42 +324,42 @@ const defs = {
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.depReport(input, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.depReport(input, (id) => ctx.mayReadIssue(id)),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.closeEligibleEpics(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.findDuplicates(input.repoPath, input.threshold, (id) => ctx.mayReadIssue(id)),
   }),
   stale: def('stale', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) =>
+      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), (id) => ctx.mayReadIssue(id)),
   }),
   lint: def('lint', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.lint(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
     // Shipping resolves order -> root and authorizes before revealing whether a
     // receipt exists. Collapse inaccessible/absent orders at this command edge.
-    handler: (ctx, input) =>
-      shippingOrderResult(() =>
-        ctx.shipping.deliveryReceipt({
+    handler: async (ctx, input) =>
+      await shippingOrderResult(async () =>
+        await ctx.shipping.deliveryReceipt({
           orderId: input.orderId,
           principal: ctx.requirePrincipal(),
         }),
@@ -367,25 +367,25 @@ const defs = {
   }),
   search: def('search', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.search(input, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.search(input, (id) => ctx.mayReadIssue(id)),
   }),
   count: def('count', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
+    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
   get: def('get', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.readIssue(input.id, () => {
-        const issue = ctx.reports.get(input.id)
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () => {
+        const issue = await ctx.reports.get(input.id)
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
@@ -402,9 +402,9 @@ const defs = {
    *  snapshot dir, so it answers with the authoring machine offline. */
   artifactRead: def('artifactRead', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.readIssue(input.id, () =>
-        ctx.crud.panelArtifactRead(input.id, {
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () =>
+        await ctx.crud.panelArtifactRead(input.id, {
           ...(input.index != null ? { index: input.index } : {}),
           ...(input.path != null ? { path: input.path } : {}),
           ...(input.file != null ? { file: input.file } : {}),
@@ -416,12 +416,12 @@ const defs = {
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {
     kind: 'query',
-    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.commentsMail.comments(input.id)),
+    handler: async (ctx, input) => await ctx.readIssue(input.id, async () => await ctx.commentsMail.comments(input.id)),
   }),
   events: def('events', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.reports.listEvents(input.since, {
+    handler: async (ctx, input) =>
+      await ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
         ...(input.subject ? { subject: input.subject } : {}),
@@ -431,7 +431,7 @@ const defs = {
   // hits the external Linear API — 'write' keeps read-only callers from driving it
   linearSearch: def('linearSearch', {
     kind: 'query',
-    handler: (ctx, input) => ctx.gitWorkflow.linearSearch(input.query),
+    handler: async (ctx, input) => await ctx.gitWorkflow.linearSearch(input.query),
   }),
 
   // ---- writes (scope-gated on their existing target via `target`) ----
@@ -440,19 +440,19 @@ const defs = {
   setState: def('setState', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.crud.setState(input.id, input.text),
+    handler: async (ctx, input) => await ctx.crud.setState(input.id, input.text),
   }),
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
   panelApply: def('panelApply', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
       // add pulls a snapshot from the owning daemon before the panel commit;
       // remove also deletes the snapshot dir.
       if (input.op === 'artifact-add') {
         if (!input.path) throw new Error('artifact-add requires a path')
-        return ctx.crud.panelArtifactAdd(
+        return await ctx.crud.panelArtifactAdd(
           input.id,
           {
             path: input.path,
@@ -468,9 +468,9 @@ const defs = {
       }
       if (input.op === 'artifact-remove') {
         if (input.index == null) throw new Error('artifact-remove requires an index')
-        return ctx.crud.panelArtifactRemove(input.id, input.index)
+        return await ctx.crud.panelArtifactRemove(input.id, input.index)
       }
-      return ctx.crud.panelApply(input.id, {
+      return await ctx.crud.panelApply(input.id, {
         op: input.op,
         text: input.text,
         index: input.index,
@@ -504,7 +504,7 @@ const defs = {
       let parent: ReturnType<typeof ctx.reports.get> = null
       if (input.parentId) {
         try {
-          parent = ctx.reports.get(input.parentId)
+          parent = await ctx.reports.get(input.parentId)
         } catch {
           parent = null
         }
@@ -525,7 +525,7 @@ const defs = {
       // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
       const underProposed =
-        parent != null && !isOperator && ctx.hierarchy.inProposedSubtree(parent.id)
+        parent != null && !isOperator && await ctx.hierarchy.inProposedSubtree(parent.id)
       const isAgentTopLevel = origin === 'agent' && !input.parentId
       const audience: 'human' | 'agent' = isOperator
         ? 'human'
@@ -569,7 +569,7 @@ const defs = {
           },
           { spawnedBy: ctx.spawnProvenance() },
         )
-        if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
+        if (audience === 'agent' && !await ctx.hasHumanAudienceAncestor(created)) {
           return {
             ...created,
             warning:
@@ -585,18 +585,18 @@ const defs = {
   start: def('start', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
       assertNotProposedForAgent(ctx, input.id, 'start')
       if (ctx.caller.capability.scope.kind !== 'all') {
-        for (const anc of ctx.hierarchy.ancestorIds(input.id)) {
+        for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
           assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return ctx.withMutation(input.mutationId, () =>
-        ctx.gitWorkflow.start(input.id, input.agentKind, {
+      return ctx.withMutation(input.mutationId, async () =>
+        await ctx.gitWorkflow.start(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
           // Explicit per-launch choice (POD-1545); persists onto the issue profile.
           ...(input.defaultModel ? { model: input.defaultModel } : {}),
@@ -610,7 +610,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => {
+      ctx.withMutation(input.mutationId, async () => {
         // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
         // lane through MORE than `stage` — archived (dismissal), closedReason
         // (close), parentId (no longer top-level). All of them are lifecycle
@@ -622,7 +622,7 @@ const defs = {
           p.closedReason !== undefined ||
           p.parentId !== undefined
         if (movesLifecycle) assertNotProposedForAgent(ctx, input.id, 'promote')
-        return ctx.crud.update(input.id, input.patch, {
+        return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         })
       }),
@@ -630,19 +630,19 @@ const defs = {
   promote: def('promote', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       if (ctx.caller.capability.scope.kind !== 'all') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'only an operator may promote a proposed issue',
         })
       }
-      const issue = ctx.reports.get(input.id)
+      const issue = await ctx.reports.get(input.id)
       if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
       if (issue.stage !== 'proposed') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
       }
-      return ctx.crud.update(input.id, { stage: 'backlog' })
+      return await ctx.crud.update(input.id, { stage: 'backlog' })
     },
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
@@ -680,7 +680,7 @@ const defs = {
       // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
       // replayed archive must not be waved through on a cached receipt minted
       // when the subtree looked different (D8 re-authorizes at every apply).
-      return ctx.withMutation(input.mutationId, () => ctx.attention.archive(input.id))
+      return ctx.withMutation(input.mutationId, async () => await ctx.attention.archive(input.id))
     },
   }),
   delete: def('delete', {
@@ -705,7 +705,7 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.action(input.id, input.kind),
+    handler: async (ctx, input) => await ctx.gitWorkflow.action(input.id, input.kind),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -713,7 +713,7 @@ const defs = {
   cleanup: def('cleanup', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id, ctx.requirePrincipal()),
+    handler: async (ctx, input) => await ctx.gitWorkflow.cleanup(input.id, ctx.requirePrincipal()),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
@@ -752,16 +752,16 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+    handler: async (ctx, input) => await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
   }),
   ship: def('ship', {
     kind: 'mutation',
     // Optional by design. An explicit raw id is guarded before parsing; an
     // omission is resolved only from the authenticated subtree in the handler.
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.shipping.enqueueCurrent({
-        issueId: ctx.shipIssue(input.id),
+    handler: async (ctx, input) =>
+      await ctx.shipping.enqueueCurrent({
+        issueId: await ctx.shipIssue(input.id),
         principal: ctx.requirePrincipal(),
         overrideScope: ctx.caller.overrideScope === true,
       }),
@@ -771,9 +771,9 @@ const defs = {
     // The input names an ORDER. Shipping resolves order -> delivery root before
     // authorization and owns every durable generation/custody fence.
     target: () => undefined,
-    handler: (ctx, input) =>
-      shippingOrderResult(() =>
-        ctx.shipping.cancel({
+    handler: async (ctx, input) =>
+      await shippingOrderResult(async () =>
+        await ctx.shipping.cancel({
           orderId: input.orderId,
           principal: ctx.requirePrincipal(),
           overrideScope: ctx.caller.overrideScope === true,
@@ -785,9 +785,9 @@ const defs = {
     // The input names an ORDER. The Shipping service loads order -> root issue
     // and runs the same live issue authorization there.
     target: () => undefined,
-    handler: (ctx, input) =>
-      shippingOrderResult(() =>
-        ctx.shipping.resolveHold({
+    handler: async (ctx, input) =>
+      await shippingOrderResult(async () =>
+        await ctx.shipping.resolveHold({
           orderId: input.orderId,
           action: input.action,
           expectedGeneration: input.expectedGeneration,
@@ -799,8 +799,8 @@ const defs = {
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.gitWorkflow.addSession(input.id, input.agentKind, {
+    handler: async (ctx, input) =>
+      await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
       }),
@@ -808,23 +808,23 @@ const defs = {
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+    handler: async (ctx, input) =>
+      await ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.crud.applySuggestion(input.id),
+    handler: async (ctx, input) => await ctx.crud.applySuggestion(input.id),
   }),
   dismissSuggestion: def('dismissSuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.crud.dismissSuggestion(input.id),
+    handler: async (ctx, input) => await ctx.crud.dismissSuggestion(input.id),
   }),
   refreshAssistant: def('refreshAssistant', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.refreshAssistant(input.id),
+    handler: async (ctx, input) => await ctx.gitWorkflow.refreshAssistant(input.id),
   }),
   setLabels: def('setLabels', {
     kind: 'mutation',
@@ -833,41 +833,41 @@ const defs = {
     // the SET is computed on the client from the labels it could see — a replay
     // that re-ran it would push a stale set over one edited in between.
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.crud.setLabels(input.id, input.labels)),
+      ctx.withMutation(input.mutationId, async () => await ctx.crud.setLabels(input.id, input.labels)),
   }),
   share: def('share', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.crud.share(input.id, input.grantee, input.verb, ctx.ownerAttribution(input.id)),
+    handler: async (ctx, input) =>
+      await ctx.crud.share(input.id, input.grantee, input.verb, await ctx.ownerAttribution(input.id)),
   }),
   unshare: def('unshare', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
-      ctx.ownerAttribution(input.id)
-      return ctx.crud.unshare(input.id, input.grantee, input.verb)
+    handler: async (ctx, input) => {
+      await ctx.ownerAttribution(input.id)
+      return await ctx.crud.unshare(input.id, input.grantee, input.verb)
     },
   }),
   addComment: def('addComment', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () =>
-        ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.requirePrincipal()),
+      ctx.withMutation(input.mutationId, async () =>
+        await ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {
     kind: 'mutation',
     target: (i) => i.fromId as string,
-    handler: (ctx, input) => ctx.hierarchy.addDep(input.fromId, input.toId, input.type),
+    handler: async (ctx, input) => await ctx.hierarchy.addDep(input.fromId, input.toId, input.type),
   }),
   depRemove: def('depRemove', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
     target: (i) => i.fromId as string,
-    handler: (ctx, input) => ctx.hierarchy.removeDep(input.fromId, input.toId, input.type),
+    handler: async (ctx, input) => await ctx.hierarchy.removeDep(input.fromId, input.toId, input.type),
   }),
   defer: def('defer', {
     kind: 'mutation',
@@ -876,7 +876,7 @@ const defs = {
     // a second identical apply is harmless — but a LATE one is not: the ledger is
     // what stops a drain landing a snooze the operator has since ended.
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.attention.defer(input.id, input.until)),
+      ctx.withMutation(input.mutationId, async () => await ctx.attention.defer(input.id, input.until)),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -888,7 +888,7 @@ const defs = {
     // `deferUntil` against the clock at apply time, so a re-sent drain would move
     // the "Unsnoozed" marker forward and re-emit `issue.unsnoozed`.
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.attention.undefer(input.id)),
+      ctx.withMutation(input.mutationId, async () => await ctx.attention.undefer(input.id)),
   }),
   // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
   // Read-tracking carries 'read' authority only (reading marks read), despite being
@@ -896,14 +896,14 @@ const defs = {
   markRead: def('markRead', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.attention.markIssueRead(input.id)),
+      ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueRead(input.id)),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.attention.markIssueUnread(input.id)),
+      ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueUnread(input.id)),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
@@ -911,14 +911,14 @@ const defs = {
   setTucked: def('setTucked', {
     kind: 'mutation',
     handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () =>
-        ctx.attention.setIssueTucked(input.id, input.tucked),
+      ctx.withMutation(input.mutationId, async () =>
+        await ctx.attention.setIssueTucked(input.id, input.tucked),
       ),
   }),
   setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // askedBy is SERVER-AUTHORITATIVE (#53 review): issues.answerQuestion later
       // delivers the human's answer INTO the stored askedBy session, so letting a
       // constrained caller point it at an arbitrary live session would turn the
@@ -939,7 +939,7 @@ const defs = {
             'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
         })
       }
-      return ctx.attention.setNeedsHuman(input.id, input.question ?? null, {
+      return await ctx.attention.setNeedsHuman(input.id, input.question ?? null, {
         ...(input.options ? { options: input.options } : {}),
         ...(askedBy ? { askedBy } : {}),
       })
@@ -954,7 +954,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      const issue = ctx.reports.getMeta(input.id)
+      const issue = await ctx.reports.getMeta(input.id)
       if (!issue) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
       }
@@ -988,20 +988,20 @@ const defs = {
           message: `answer not delivered: ${r.message}`,
         })
       }
-      return { issue: ctx.attention.clearNeedsHuman(input.id), deliveredVia: r.via }
+      return { issue: await ctx.attention.clearNeedsHuman(input.id), deliveredVia: r.via }
     },
   }),
   clearNeedsHuman: def('clearNeedsHuman', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.attention.clearNeedsHuman(input.id),
+    handler: async (ctx, input) => await ctx.attention.clearNeedsHuman(input.id),
   }),
   reparent: def('reparent', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // This lets an agent repair its own planning hierarchy without recreating issues.
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // B2 [spec:SP-6144]: reparenting a proposal pulls it out of the lane's
       // structural definition (top-level), and reparenting work UNDER a
       // proposal runs activity beneath an unapproved item — both operator-only.
@@ -1009,7 +1009,7 @@ const defs = {
       if (input.parentId != null) {
         assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
       }
-      return ctx.hierarchy.reparent(input.id, input.parentId)
+      return await ctx.hierarchy.reparent(input.id, input.parentId)
     },
   }),
   /**
@@ -1028,7 +1028,7 @@ const defs = {
   setPlacement: def('setPlacement', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       if (ctx.caller.capability.scope.kind !== 'all') {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -1038,9 +1038,9 @@ const defs = {
       if (input.id === input.originId) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'an issue cannot be its own origin' })
       }
-      const issue = ctx.reports.get(input.id)
+      const issue = await ctx.reports.get(input.id)
       if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
-      const origin = ctx.reports.get(input.originId)
+      const origin = await ctx.reports.get(input.originId)
       if (!origin) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.originId}` })
       }
@@ -1049,26 +1049,26 @@ const defs = {
       // `archive`'s scope guard does — D8 re-authorizes at every apply, and a
       // replayed placement must not be waved through on a receipt minted when
       // the caller's scope looked different.
-      return ctx.withMutation(input.mutationId, () => {
+      return ctx.withMutation(input.mutationId, async () => {
         if (input.placement === 'own') {
-          const withEdge = ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
-          return issue.parentId ? ctx.hierarchy.reparent(input.id, null) : withEdge
+          const withEdge = await ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
+          return issue.parentId ? await ctx.hierarchy.reparent(input.id, null) : withEdge
         }
-        ctx.hierarchy.reparent(input.id, input.originId)
+        await ctx.hierarchy.reparent(input.id, input.originId)
         // The edge is removed only after the parent link exists, and only the one
         // pointing at THIS origin — an issue discovered from somewhere else keeps
         // saying so.
-        return ctx.hierarchy.removeDep(input.id, input.originId, 'discovered-from')
+        return await ctx.hierarchy.removeDep(input.id, input.originId, 'discovered-from')
       })
     },
   }),
   claim: def('claim', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'claim')
       const actorSessionId = ctx.caller.capability.actorSessionId
-      return ctx.crud.claim(
+      return await ctx.crud.claim(
         input.id,
         input.assignee,
         actorSessionId ? { actorSessionId } : undefined,
@@ -1081,7 +1081,7 @@ const defs = {
   setCoordinator: def('setCoordinator', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       let sessionId: SessionId | null
       if (input.claim) {
         const actor = ctx.caller.capability.actorSessionId
@@ -1100,7 +1100,7 @@ const defs = {
           message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
         })
       }
-      return ctx.crud.setCoordinator(input.id, sessionId)
+      return await ctx.crud.setCoordinator(input.id, sessionId)
     },
   }),
   close: def('close', {
@@ -1108,8 +1108,8 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'close')
-      return ctx.withMutation(input.mutationId, () =>
-        ctx.crud.close(input.id, input.reason, {
+      return ctx.withMutation(input.mutationId, async () =>
+        await ctx.crud.close(input.id, input.reason, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         }),
       )
@@ -1120,9 +1120,9 @@ const defs = {
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is oldId; newId remains a relation destination.
     target: (i) => i.oldId as string,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       assertNotProposedForAgent(ctx, input.oldId, 'supersede')
-      return ctx.hierarchy.supersede(input.oldId, input.newId)
+      return await ctx.hierarchy.supersede(input.oldId, input.newId)
     },
   }),
   duplicate: def('duplicate', {
@@ -1130,9 +1130,9 @@ const defs = {
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is id; canonicalId remains a relation destination.
     target: targetId,
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
-      return ctx.hierarchy.duplicate(input.id, input.canonicalId)
+      return await ctx.hierarchy.duplicate(input.id, input.canonicalId)
     },
   }),
 
@@ -1148,9 +1148,9 @@ const defs = {
     // Unified substrate (#237) [spec:SP-34d7]: the send persists a `messages`
     // row + delivery ledger and mirrors the legacy issue_messages row (same
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       const send = ctx.deps.sendMessage
-      if (!send) return ctx.commentsMail.sendMail(input.id, ctx.mailIdentity(), input.body)
+      if (!send) return await ctx.commentsMail.sendMail(input.id, await ctx.mailIdentity(), input.body)
       const r = send(ctx.messageSender(), { to: { kind: 'issue', id: input.id }, body: input.body })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only
@@ -1160,7 +1160,7 @@ const defs = {
       const base = r.legacy ?? {
         id: r.message.id,
         issueId: r.message.toId ?? input.id,
-        fromAuthor: ctx.mailIdentity(),
+        fromAuthor: await ctx.mailIdentity(),
         body: input.body,
         createdAt: r.message.createdAt,
         status: 'unread' as const,
@@ -1180,18 +1180,18 @@ const defs = {
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.
   mailInbox: def('mailInbox', {
     kind: 'mutation',
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       const id = ctx.mailOwnIssue(input?.id)
       // Only the recipient consumes unread status: an agent reading its own
       // mailbox (scope root = the issue). Operator/other-agent peeks must not
       // mark mail read, or delivery to the real recipient is suppressed.
       const markRead =
         ctx.caller.capability.scope.kind === 'subtree' &&
-        ctx.reports.resolveRef(id) === ctx.caller.capability.scope.rootId
+        await ctx.reports.resolveRef(id) === ctx.caller.capability.scope.rootId
       // WHICH session is reading [POD-1379]: the mailbox is shared by every
       // agent on the issue, so the read is consumed per reader. Server-stamped
       // from the caller (mailIdentity pattern); client input never contributes.
-      return ctx.commentsMail.mailInbox(asIssueId(id), {
+      return await ctx.commentsMail.mailInbox(asIssueId(id), {
         markRead,
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
@@ -1208,17 +1208,17 @@ const defs = {
   mailClaim: def('mailClaim', {
     kind: 'mutation',
     target: () => undefined,
-    handler: (ctx, input) => {
-      const msg = ctx.commentsMail.mailMessage(input.messageId)
+    handler: async (ctx, input) => {
+      const msg = await ctx.commentsMail.mailMessage(input.messageId)
       if (!msg) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: `unknown mail message ${input.messageId}`,
         })
       }
-      ctx.requireReadableIssue(msg.issueId)
+      await ctx.requireReadableIssue(msg.issueId)
       checkIssueAccess(ctx.caller, ctx.access, 'mailClaim', 'write', msg.issueId)
-      return ctx.commentsMail.mailClaim(input.messageId, ctx.mailIdentity(), {
+      return await ctx.commentsMail.mailClaim(input.messageId, await ctx.mailIdentity(), {
         // Claiming proves this reader has the message [POD-1379].
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
@@ -1228,8 +1228,8 @@ const defs = {
   }),
   mailPending: def('mailPending', {
     kind: 'query',
-    handler: (ctx, input) =>
-      ctx.commentsMail.mailPending(asIssueId(ctx.mailOwnIssue(input?.id)), {
+    handler: async (ctx, input) =>
+      await ctx.commentsMail.mailPending(asIssueId(ctx.mailOwnIssue(input?.id)), {
         // The stop-hook nag is per READER [POD-1379]: each session on the issue
         // is told once, and none of them can clear a peer's count.
         ...(ctx.caller.capability.actorSessionId
@@ -1246,7 +1246,7 @@ const defs = {
 
   subscriptionAdd: def('subscriptionAdd', {
     kind: 'mutation',
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // Operator (scope 'all') may create a subscription for an explicit subscriber
       // (#129 Phase C — the Automations UI); constrained agents always subscribe
       // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
@@ -1258,9 +1258,9 @@ const defs = {
       // operator (scope 'all') is unconstrained. Relationship sources resolve
       // dynamically against the subscriber's own subtree, so they are always in-scope.
       if (ctx.caller.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
-        ctx.assertSourceInSubtree(input.source)
+        await ctx.assertSourceInSubtree(input.source)
       }
-      return ctx.attention.subscriptionAdd({
+      return await ctx.attention.subscriptionAdd({
         subscriberKind: subscriber.kind,
         subscriberId: subscriber.id,
         event: input.event,
@@ -1273,12 +1273,12 @@ const defs = {
   }),
   subscriptionRemove: def('subscriptionRemove', {
     kind: 'mutation',
-    handler: (ctx, input) => {
+    handler: async (ctx, input) => {
       // Constrained callers may only remove their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
         const subscriber = ctx.deriveSubscriber()
-        const owned = ctx.attention
-          .subscriptionList({ subscriberId: subscriber.id })
+        const owned = (await ctx.attention
+          .subscriptionList({ subscriberId: subscriber.id }))
           .some((s) => s.id === input.id)
         if (!owned) {
           throw new TRPCError({
@@ -1287,7 +1287,7 @@ const defs = {
           })
         }
       }
-      return ctx.attention.subscriptionRemove(input.id)
+      return await ctx.attention.subscriptionRemove(input.id)
     },
   }),
   /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
@@ -1316,11 +1316,11 @@ const defs = {
     kind: 'query',
     // The one historical no-input proc: z.void() keeps `query()` (no args) valid
     // on every client while the registry contract still carries ONE schema.
-    handler: (ctx) => {
+    handler: async (ctx) => {
       // Operator sees every subscription; a constrained caller sees only its own.
-      if (ctx.caller.capability.scope.kind === 'all') return ctx.attention.subscriptionList()
+      if (ctx.caller.capability.scope.kind === 'all') return await ctx.attention.subscriptionList()
       const subscriber = ctx.deriveSubscriber()
-      return ctx.attention.subscriptionList({ subscriberId: subscriber.id })
+      return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },
   }),
 } satisfies Record<IssueContractName, AnyIssueCommandDef>
@@ -1347,13 +1347,13 @@ export function commandTarget(name: string, input: Record<string, unknown>): str
  * PRECONDITION_FAILED unless overridden (--outside-scope). The action and the
  * target extractor come from the DEFINITION — no path-string parsing.
  */
-export function guardIssueCommand(
+export async function guardIssueCommand(
   caller: IssueCaller,
   reports: IssueCommandAccess,
   name: string,
   def: Pick<AnyIssueCommandDef, 'action' | 'target'>,
   rawInput: unknown,
-): void {
+): Promise<void> {
   // Target extraction: only for constrained caps writing an existing target issue.
   const extract = caller.capability.scope.kind !== 'all' ? def.target : undefined
   let targetId: string | undefined
@@ -1366,10 +1366,10 @@ export function guardIssueCommand(
     // own repo (#140).
     const scopeRepoPath =
       caller.capability.scope.kind === 'subtree'
-        ? (reports.getMeta(caller.capability.scope.rootId)?.repoPath ?? undefined)
+        ? ((await reports.getMeta(caller.capability.scope.rootId))?.repoPath ?? undefined)
         : undefined
     targetId =
-      typeof rawTarget === 'string' ? reports.resolveRef(rawTarget, scopeRepoPath) : rawTarget
+      typeof rawTarget === 'string' ? await reports.resolveRef(rawTarget, scopeRepoPath) : rawTarget
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
   checkIssueAccess(caller, reports, name, def.action, targetId)

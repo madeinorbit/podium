@@ -385,7 +385,7 @@ export class SnapshotVerifier {
         await previous
       } catch {}
     }
-    const run = this.runOnce(path, expectedSchemaVersion)
+    const run = await this.runOnce(path, expectedSchemaVersion)
     this.inFlight = run
     try {
       return await run
@@ -417,7 +417,7 @@ export class SnapshotVerifier {
     const timeoutMs = this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS
     const runChild =
       this.deps.runChild ??
-      ((request, ms, signal) => spawnSnapshotVerifierChild(request, ms, { signal }))
+      (async (request, ms, signal) => await spawnSnapshotVerifierChild(request, ms, { signal }))
     const request: VerifySnapshotRequest = {
       path,
       expected,

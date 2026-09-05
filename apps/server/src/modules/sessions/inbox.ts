@@ -868,7 +868,7 @@ export class SessionInbox {
    * is the delivery those sessions actually have; every server driver
    * implements `interrupt()` and none of them was ever called.
    */
-  interruptTurn(input: Omit<InboxSendInput, 'text'>): InterruptOutcome | Promise<InterruptOutcome> {
+  async interruptTurn(input: Omit<InboxSendInput, 'text'>): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
@@ -880,7 +880,7 @@ export class SessionInbox {
           reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,
         }
       }
-      return this.contractInterrupt(session, input)
+      return await this.contractInterrupt(session, input)
     }
     const cancelledDelivery = this.cancelInterruptedDelivery(
       input.sessionId,
@@ -1662,7 +1662,7 @@ export class SessionInbox {
         )
       } else settleHead(current, head)
     }
-    const deliverNext = (): void => {
+    const deliverNext = async (): Promise<void> => {
       if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
@@ -1735,13 +1735,13 @@ export class SessionInbox {
           stop()
           return
         }
-        void contractDeliver({
+        void (await contractDeliver({
           sessionId,
           turnId: head.sourceMessageId ?? head.id,
           text: head.text,
           origin: head.inputOrigin,
           principal: head.principal,
-        }).then(
+        })).then(
           (receipt) => {
             if (!isCurrent()) return
             const after = this.deps.getSession(sessionId)
@@ -1855,7 +1855,7 @@ export class SessionInbox {
         now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
       return settled || now - liveAtMs >= READY_MAX_MS
     }
-    const tick = (): void => {
+    const tick = async (): Promise<void> => {
       if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
@@ -1902,7 +1902,7 @@ export class SessionInbox {
             ? undefined
             : current.agentState?.phase
           if (phase === undefined || phase === 'idle') {
-            deliverNext()
+            await deliverNext()
             return
           }
           setTimeout(tick, READY_POLL_MS).unref?.()
@@ -1936,7 +1936,7 @@ export class SessionInbox {
           baseOutputMs = current.terminal.lastOutputAtMs
         }
         if (readyForInput(current, now) || now >= deadline) {
-          deliverNext()
+          await deliverNext()
           return
         }
       } else if (now >= deadline) {

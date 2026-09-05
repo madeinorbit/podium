@@ -43,15 +43,15 @@ describe('IssueService boot quarantine', () => {
     const listSpy = vi.spyOn(store.issues, 'listIssueRows')
     const svc = IssueService.compose(deps(store))
     expect(listSpy).not.toHaveBeenCalled() // constructor no longer hydrates
-    svc.init()
+    await svc.init()
     expect(listSpy).toHaveBeenCalledTimes(1)
   })
 
   it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', async () => {
     const store = await openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
-    const good1 = svc.create({ repoPath: '/r', title: 'healthy one', startNow: false })
-    const good2 = svc.create({ repoPath: '/r', title: 'healthy two', startNow: false })
+    const good1 = await svc.create({ repoPath: '/r', title: 'healthy one', startNow: false })
+    const good2 = await svc.create({ repoPath: '/r', title: 'healthy two', startNow: false })
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
     rawDb(store)
       .prepare(
@@ -65,7 +65,7 @@ describe('IssueService boot quarantine', () => {
       // Fresh service over the same store simulates the next boot.
       const rebooted = IssueService.create(deps(store))
       expect(() => rebooted.init()).not.toThrow()
-      const ids = rebooted.list('/r').map((w) => w.id)
+      const ids = (await rebooted.list('/r')).map((w) => w.id)
       expect(ids).toContain(good1.id)
       expect(ids).toContain(good2.id)
       expect(ids).toHaveLength(2)
@@ -82,12 +82,12 @@ describe('IssueService boot quarantine', () => {
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
     const store = await openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
-    const w = svc.create({ repoPath: '/r', title: 'keep me', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'keep me', startNow: false })
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)
 
     const rebooted = IssueService.create(deps(store))
     expect(() => rebooted.init()).not.toThrow()
-    const row = rebooted.get(w.id)
+    const row = await rebooted.get(w.id)
     expect(row?.id).toBe(w.id)
     expect((await store.issues.getIssue(w.id))?.blockedBy).toEqual([])
   })

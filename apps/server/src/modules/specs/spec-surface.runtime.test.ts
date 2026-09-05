@@ -50,9 +50,9 @@ afterEach(() => {
  * is not the `Proxy` POD-732 removed.
  */
 function realClient(svc: SpecsService, calls: string[]): IssueTrpc {
-  const call = (proc: string) => (input: unknown) => {
+  const call = (proc: string) => async (input: unknown) => {
     calls.push(proc)
-    return svc.invoke(proc, input) as Promise<unknown>
+    return await svc.invoke(proc, input) as Promise<unknown>
   }
   const specs = Object.fromEntries(
     Object.keys(specsInputs).map((proc) => [proc, { query: call(proc), mutate: call(proc) }]),
@@ -83,7 +83,7 @@ const drive = async (
 }
 
 describe('the instrument can say NO', () => {
-  it('the client is derived from the real schema table, so an absent proc is absent', () => {
+  it('the client is derived from the real schema table, so an absent proc is absent', async () => {
     const repo = tmpRepo()
     const svc = new SpecsService({ repoRoots: () => [repo] })
     const client = realClient(svc, []) as unknown as { specs: Record<string, unknown> }
@@ -95,7 +95,7 @@ describe('the instrument can say NO', () => {
     // below about the SERVER rather than about this file's own object.
     expect(svc.has('thisProcHasNoSchema')).toBe(false)
     expect(svc.has('create')).toBe(true)
-    expect(svc.invoke('thisProcHasNoSchema', {})).toBeUndefined()
+    expect(await svc.invoke('thisProcHasNoSchema', {})).toBeUndefined()
   })
 })
 
@@ -236,12 +236,12 @@ describe('the contract schemas are THE schemas the surface validates with', () =
     const repo = tmpRepo()
     const svc = new SpecsService({ repoRoots: () => [repo] })
     // The refusals the shipped schemas made, still made, through the relay path.
-    await expect(svc.invoke('create', { repoPath: repo, parent: 'SP-root' })).rejects.toThrow()
+    await expect(await svc.invoke('create', { repoPath: repo, parent: 'SP-root' })).rejects.toThrow()
     await expect(
-      svc.invoke('create', { repoPath: repo, title: '', parent: 'SP-root' }),
+      await svc.invoke('create', { repoPath: repo, title: '', parent: 'SP-root' }),
     ).rejects.toThrow()
-    await expect(svc.invoke('save', { repoPath: repo, id: '' })).rejects.toThrow()
-    await expect(svc.invoke('remove', { repoPath: '', id: 'SP-abcd' })).rejects.toThrow()
+    await expect(await svc.invoke('save', { repoPath: repo, id: '' })).rejects.toThrow()
+    await expect(await svc.invoke('remove', { repoPath: '', id: 'SP-abcd' })).rejects.toThrow()
     // …and the acceptances, so the refusals are not a schema that rejects everything.
     const made = (await svc.invoke('create', {
       repoPath: repo,
@@ -250,7 +250,7 @@ describe('the contract schemas are THE schemas the surface validates with', () =
     })) as { id: string }
     expect(made.id).toMatch(/^SP-/)
     await expect(
-      svc.invoke('save', { repoPath: repo, id: made.id, title: 'Kept' }),
+      await svc.invoke('save', { repoPath: repo, id: made.id, title: 'Kept' }),
     ).resolves.toBeTruthy()
   })
 })

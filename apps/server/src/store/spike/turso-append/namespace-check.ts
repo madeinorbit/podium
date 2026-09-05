@@ -69,8 +69,8 @@ async function worker(config: BackendConfig): Promise<void> {
         op: 'upsert' as const,
         payload: JSON.stringify({ round }),
       }))
-      const seqs = await slice.withSession((s) =>
-        appendChangesLiteral(s, slice.db, slice.tables, rows, 1_000 + round),
+      const seqs = await slice.withSession(async (s) =>
+        await appendChangesLiteral(s, slice.db, slice.tables, rows, 1_000 + round),
       )
 
       // (2) The contiguity claim, checked against where this run's log actually
@@ -87,7 +87,7 @@ async function worker(config: BackendConfig): Promise<void> {
 
       // (1) The isolation claim. Any row that is not ours means another run is
       // writing into our tables, which is the whole defect.
-      const all = await slice.withSession((s) => changesSince(s, slice.db, slice.tables, 0))
+      const all = await slice.withSession(async (s) => await changesSince(s, slice.db, slice.tables, 0))
       const foreign = all.find((row) => !row.entityId.startsWith(`${tag}-`))
       if (foreign !== undefined) {
         throw new CheckFailure(
@@ -103,7 +103,7 @@ async function worker(config: BackendConfig): Promise<void> {
       }
 
       // (3) The high-water mark the feed's cursor arithmetic depends on.
-      const head = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
+      const head = await slice.withSession(async (s) => await maxChangeSeq(s, slice.tables))
       if (head !== written) {
         throw new CheckFailure(`round ${round}: sqlite_sequence head ${head}, expected ${written}`)
       }
@@ -115,7 +115,7 @@ async function worker(config: BackendConfig): Promise<void> {
     // Collect the namespace. A check that proves runs are isolated by giving
     // each one its own tables must not leave those tables behind, or the
     // evidence run is itself the thing that fills the shared database.
-    await slice.dropTables().catch(() => {})
+    await (await slice.dropTables()).catch(() => {})
     await slice.close()
   }
 }
@@ -152,7 +152,7 @@ async function bothAtOnce(
       child.on('close', (code) => resolve({ code: code ?? -1, output: `run ${n}: ${output}` }))
     })
 
-  const results = await Promise.all([run(1), run(2)])
+  const results = await Promise.all([await run(1), await run(2)])
   let green = 0
   let red = 0
   for (const result of results) {

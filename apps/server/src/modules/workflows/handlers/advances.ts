@@ -27,7 +27,7 @@ import type {
 } from '@podium/commands'
 import { unknownRevision, type WorkflowHandlerContext } from './context'
 
-export function checkpointHandler(
+export async function checkpointHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowCheckpointContract>,
 ) {
@@ -37,9 +37,9 @@ export function checkpointHandler(
   if (run.steps.length === 0) {
     // The prompt-only arm: no steps, so the checkpoint moves the RUN.
     access.assertCoordinator(run, caller)
-    if (input.status === 'complete') deps.store.updateRunStatus(run.id, 'complete', now)
-    else deps.store.updateRunStatus(run.id, input.status === 'blocked' ? 'blocked' : 'active', null)
-    deps.store.appendEvent({
+    if (input.status === 'complete') await deps.store.updateRunStatus(run.id, 'complete', now)
+    else await deps.store.updateRunStatus(run.id, input.status === 'blocked' ? 'blocked' : 'active', null)
+    await deps.store.appendEvent({
       workflowId: run.revision.workflowId,
       runId: run.id,
       kind: `workflow.run_${input.status}`,
@@ -68,7 +68,7 @@ export function checkpointHandler(
   const warnings = engine.observationWarningsForRun(run, step, caller, input.status, observation)
   const assignedSessionId =
     step.assignedSessionId ?? (caller.actor.kind === 'session' ? caller.actor.id : null)
-  deps.store.updateStep({
+  await deps.store.updateStep({
     runId: run.id,
     stepId: step.stepId,
     status: input.status,
@@ -80,13 +80,13 @@ export function checkpointHandler(
     startedAt: step.startedAt ?? now,
     completedAt: input.status === 'complete' ? now : null,
   })
-  const updatedSteps = deps.store.getRunSteps(run.id)
+  const updatedSteps = await deps.store.getRunSteps(run.id)
   const remaining = updatedSteps.find((candidate) => candidate.status === 'pending')
-  if (input.status === 'blocked') deps.store.updateRunStatus(run.id, 'blocked', null)
+  if (input.status === 'blocked') await deps.store.updateRunStatus(run.id, 'blocked', null)
   else if (input.status === 'complete' && !remaining)
-    deps.store.updateRunStatus(run.id, 'complete', now)
-  else deps.store.updateRunStatus(run.id, 'active', null)
-  deps.store.appendEvent({
+    await deps.store.updateRunStatus(run.id, 'complete', now)
+  else await deps.store.updateRunStatus(run.id, 'active', null)
+  await deps.store.appendEvent({
     workflowId: run.revision.workflowId,
     runId: run.id,
     kind: `workflow.step_${input.status}`,
@@ -113,7 +113,7 @@ export function checkpointHandler(
   return engine.nextPacket(run.id, message, warnings)
 }
 
-export function assignStepHandler(
+export async function assignStepHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowAssignStepContract>,
 ) {
@@ -129,8 +129,8 @@ export function assignStepHandler(
   if (input.sessionId !== null) {
     access.assertMayPlaceOn(caller, access.machineForSession(input.sessionId))
   }
-  deps.store.assignStep(run.id, input.stepId, input.sessionId)
-  deps.store.appendEvent({
+  await deps.store.assignStep(run.id, input.stepId, input.sessionId)
+  await deps.store.appendEvent({
     workflowId: run.revision.workflowId,
     runId: run.id,
     kind: 'workflow.step_assigned',
@@ -145,7 +145,7 @@ export function assignStepHandler(
   )
 }
 
-export function skipHandler(
+export async function skipHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowSkipContract>,
 ) {
@@ -156,7 +156,7 @@ export function skipHandler(
   if (!current || current.stepId !== input.stepId)
     throw new Error('only the current step may be skipped')
   const now = deps.now()
-  deps.store.updateStep({
+  await deps.store.updateStep({
     runId: run.id,
     stepId: current.stepId,
     status: 'skipped',
@@ -168,10 +168,10 @@ export function skipHandler(
     startedAt: current.startedAt,
     completedAt: now,
   })
-  const remaining = deps.store.getRunSteps(run.id).find((step) => step.status === 'pending')
-  if (!remaining) deps.store.updateRunStatus(run.id, 'complete', now)
-  else deps.store.updateRunStatus(run.id, 'active', null)
-  deps.store.appendEvent({
+  const remaining = (await deps.store.getRunSteps(run.id)).find((step) => step.status === 'pending')
+  if (!remaining) await deps.store.updateRunStatus(run.id, 'complete', now)
+  else await deps.store.updateRunStatus(run.id, 'active', null)
+  await deps.store.appendEvent({
     workflowId: run.revision.workflowId,
     runId: run.id,
     kind: 'workflow.step_skipped',
@@ -186,7 +186,7 @@ export function skipHandler(
   )
 }
 
-export function retryHandler(
+export async function retryHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowRetryContract>,
 ) {
@@ -199,9 +199,9 @@ export function retryHandler(
     (step) => step.position > target.position && step.status !== 'pending',
   )
   if (laterStarted) throw new Error('cannot retry a step after a later step has started')
-  deps.store.resetStep(run.id, target.stepId)
-  deps.store.updateRunStatus(run.id, 'active', null)
-  deps.store.appendEvent({
+  await deps.store.resetStep(run.id, target.stepId)
+  await deps.store.updateRunStatus(run.id, 'active', null)
+  await deps.store.appendEvent({
     workflowId: run.revision.workflowId,
     runId: run.id,
     kind: 'workflow.step_retried',
@@ -213,7 +213,7 @@ export function retryHandler(
   return engine.nextPacket(run.id, `Retry ready: ${target.title}`)
 }
 
-export function adoptHandler(
+export async function adoptHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowAdoptContract>,
 ) {
@@ -225,10 +225,10 @@ export function adoptHandler(
   const coordinatorSessionId = caller.actor.id ?? current.coordinatorSessionId
   const session = deps.session(coordinatorSessionId)
   if (!session) throw new Error('coordinator session no longer exists')
-  const revision = deps.store.getRevision(input.revisionId)
+  const revision = await deps.store.getRevision(input.revisionId)
   if (!revision) throw new Error(unknownRevision(input.revisionId))
   try {
-    access.assertWorkflowRead(caller, revision.workflowId)
+    await access.assertWorkflowRead(caller, revision.workflowId)
   } catch {
     throw new Error(unknownRevision(input.revisionId))
   }
@@ -244,7 +244,7 @@ export function adoptHandler(
   if (input.startStepId && !revision.steps.some((step) => step.id === input.startStepId))
     throw new Error(`workflow has no step ${input.startStepId}`)
   const now = deps.now()
-  deps.store.updateRunStatus(current.id, 'superseded', now)
+  await deps.store.updateRunStatus(current.id, 'superseded', now)
   return engine.startRun({
     sessionId: session.sessionId,
     cwd: session.cwd,

@@ -62,7 +62,7 @@ describe('oracle: not-found shape, per write', () => {
     ).resolves.toBeUndefined()
 
     expect(await o.store.sessions.loadSessions()).toEqual([])
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
   it(`${SESSION_STATE_CLOSED_DEFAULT}: snooze writes on an unknown session are silent no-ops with no row`, async () => {
@@ -147,17 +147,17 @@ describe('oracle: not-found shape, per write', () => {
 
   it(`${EXISTENCE_ORACLE}: via the RELAY, not-found and authz-denied are DIFFERENT messages — the send path is an existence oracle today`, async () => {
     const o = await makeOracle()
-    const a = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
-    const b = o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })
-    o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
-    const agent = o.reg.modules.sessions.createSession({
+    const a = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const b = await o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    await o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
     // A session that EXISTS but is outside the caller's subtree — the invisible
     // case's closest present-day analogue.
-    const stranger = o.reg.modules.sessions.createSession({
+    const stranger = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/b',
       issueId: b.id,
@@ -207,7 +207,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p', machineId: 'gone' }),
       ),
     ).toBe("machine 'Gone' is offline")
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: resume against an OFFLINE machine throws the same reachability message as create, and spawns nothing`, async () => {
@@ -224,7 +224,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         }),
       ),
     ).toBe("machine 'Gone' is offline")
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
     expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 

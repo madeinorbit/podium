@@ -13,41 +13,41 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function makeRegistry(): SessionRegistry {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function makeRegistry(): Promise<SessionRegistry> {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return registry
 }
 
 describe('createSession name (spawner-prescribed curated slot)', () => {
-  it('lands in name with nameSource=agent, not the derived title', () => {
-    const reg = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('lands in name with nameSource=agent, not the derived title', async () => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/proj',
       name: '  Spawn placement worker  ',
     })
-    const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Spawn placement worker')
     expect(meta?.nameSource).toBe('agent')
     // Derived title is still the cwd basename default — name is the curated slot.
     expect(meta?.title).toBe('proj')
   })
 
-  it('omits name when not passed (unchanged self-title path)', () => {
-    const reg = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('omits name when not passed (unchanged self-title path)', async () => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/proj',
     })
-    const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBeUndefined()
     expect(meta?.nameSource).toBeUndefined()
   })
 
-  it('rejects empty / whitespace-only names before spawning', () => {
-    const reg = makeRegistry()
+  it('rejects empty / whitespace-only names before spawning', async () => {
+    const reg = await makeRegistry()
     expect(() =>
       reg.modules.sessions.createSession({
         agentKind: 'shell',
@@ -55,12 +55,12 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
         name: '   ',
       }),
     ).toThrow(/title is empty/)
-    expect(reg.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
   })
 
-  it('a user-set name is never clobbered by setAgentName', () => {
-    const reg = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('a user-set name is never clobbered by setAgentName', async () => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/proj',
       name: 'Agent first name',
@@ -72,21 +72,21 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
     })
     expect(r).toMatchObject({ ok: false })
     expect(r.reason).toMatch(/named by the user/i)
-    const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Mike’s pet session')
     expect(meta?.nameSource).toBe('user')
   })
 
-  it('an agent may re-title its own agent-set name', () => {
-    const reg = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('an agent may re-title its own agent-set name', async () => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/proj',
       name: 'First cut',
     })
     const r = reg.modules.sessions.setAgentName({ sessionId, name: 'Clearer name' })
     expect(r).toEqual({ ok: true, name: 'Clearer name' })
-    const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Clearer name')
     expect(meta?.nameSource).toBe('agent')
   })

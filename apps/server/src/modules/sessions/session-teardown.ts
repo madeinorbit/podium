@@ -198,7 +198,7 @@ export class SessionTeardown {
   }
 
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
-  tryAutoArchiveStoppedObserved(
+  async tryAutoArchiveStoppedObserved(
     observed: {
       sessionId: SessionId
       issueId: IssueId | null
@@ -207,7 +207,7 @@ export class SessionTeardown {
       archived: false
     },
     nowMs: number,
-  ): 'applied' | 'precondition' | 'not-due' {
+  ): Promise<'applied' | 'precondition' | 'not-due'> {
     const session = this.ports.sessions.get(observed.sessionId)
     if (!session || session.archived) return 'precondition'
     // WHOSE read (POD-1229) — see `IssueAttention.tryAutoArchiveObserved` for the
@@ -227,7 +227,7 @@ export class SessionTeardown {
       return 'precondition'
     }
     const stoppedMs = Date.parse(session.stoppedAt ?? '')
-    const readMs = Date.parse(this.ports.view.overlay(observed.sessionId).readAt ?? '')
+    const readMs = Date.parse((await this.ports.view.overlay(observed.sessionId)).readAt ?? '')
     if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
       return 'precondition'
     }
@@ -281,8 +281,8 @@ export class SessionTeardown {
     const session = this.ports.sessions.get(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
 
-    const issueId = session.issueId ?? this.ports.issueAccess.issueForCwd(session.cwd)
-    const issue = issueId ? this.ports.issueAccess.getMeta(issueId) : undefined
+    const issueId = session.issueId ?? await this.ports.issueAccess.issueForCwd(session.cwd)
+    const issue = issueId ? await this.ports.issueAccess.getMeta(issueId) : undefined
     const worktreePath = issue?.worktreePath ?? null
 
     // Unsaved-work guard: inspect the working copy when present. Branch commits
@@ -438,11 +438,11 @@ export class SessionTeardown {
     worktreeFreed: boolean
     deferredKill?: boolean
   }> {
-    const issue = this.ports.issueAccess.getMeta(input.issueId)
+    const issue = await this.ports.issueAccess.getMeta(input.issueId)
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
-    const members = this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
+    const members = await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
     const stopped: string[] = []
     let deferredKill = false
     const principal = input.principal ?? systemPrincipal('stop')
@@ -477,7 +477,7 @@ export class SessionTeardown {
     }
     // Final free pass: only when no live cwd still uses the worktree (any issue).
     let worktreeFreed = false
-    const current = this.ports.issueAccess.getMeta(input.issueId)
+    const current = await this.ports.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.ports.listSessions())
@@ -513,13 +513,13 @@ export class SessionTeardown {
    * when the session can't come back later (no resume ref) — we refuse rather
    * than silently turn "hibernate" into "kill".
    */
-  hibernateSession({
+  async hibernateSession({
     sessionId,
     requireTerminalProof = false,
   }: {
     sessionId: SessionId
     requireTerminalProof?: boolean
-  }): { ok: boolean; reason?: string } {
+  }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status !== 'live' && session.status !== 'reconnecting')
@@ -536,14 +536,14 @@ export class SessionTeardown {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
     const lease = requireTerminalProof
-      ? this.ports.store.observationCheckpoints.get(sessionId)
+      ? await this.ports.store.observationCheckpoints.get(sessionId)
       : null
     const facts = lease ? this.ports.terminalProof.facts(session, lease) : null
     if (requireTerminalProof) {
       if (!facts || !this.ports.terminalProof.consumable(facts)) {
         return { ok: false, reason: 'terminal state is not safely reapable' }
       }
-      const proof = this.ports.store.observationCheckpoints.getTerminalCandidate(sessionId)
+      const proof = await this.ports.store.observationCheckpoints.getTerminalCandidate(sessionId)
       if (
         !proof?.confirmedAt ||
         proof.consumedAt ||

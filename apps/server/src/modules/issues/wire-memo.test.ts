@@ -54,12 +54,12 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
   it('rebuilds only the issue whose member changed; reuses the cached payload for the rest', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
+    const i1 = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const i2 = (await svc.create({ repoPath: '/repo', title: 'two', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), i1, 'planning'))
     sessions.push(member(asSessionId('sess-2'), i2, 'planning'))
 
-    const first = svc.allWire()
+    const first = await svc.allWire()
     const w1a = first.find((w) => w.id === i1)!
     const w2a = first.find((w) => w.id === i2)!
 
@@ -68,7 +68,7 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     // republish path used to trigger; the memo property outlives that caller).
     sessions[0]!.workState = 'testing'
 
-    const second = svc.allWire()
+    const second = await svc.allWire()
     const w1b = second.find((w) => w.id === i1)!
     const w2b = second.find((w) => w.id === i2)!
 
@@ -87,12 +87,12 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
   it('an issue-row change republishes that issue (fresh payload)', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const i1 = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
     sessions.push(member(asSessionId('sess-1'), i1))
 
-    const w1a = svc.allWire().find((w) => w.id === i1)!
-    svc.setLabels(i1, ['urgent'])
-    const w1b = svc.allWire().find((w) => w.id === i1)!
+    const w1a = (await svc.allWire()).find((w) => w.id === i1)!
+    await svc.setLabels(i1, ['urgent'])
+    const w1b = (await svc.allWire()).find((w) => w.id === i1)!
 
     expect(w1b).not.toBe(w1a)
     expect(w1b.labels).toContain('urgent')
@@ -101,14 +101,14 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
   it('a member JOINING an issue no longer rebuilds it (membership left the key)', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
-    const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
+    const i1 = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const i2 = (await svc.create({ repoPath: '/repo', title: 'two', startNow: false })).id
     sessions.push(member(asSessionId('sess-2'), i2))
 
-    const w1a = svc.allWire().find((w) => w.id === i1)!
+    const w1a = (await svc.allWire()).find((w) => w.id === i1)!
     // A new session attaches to issue 1 — no issue-side mutation.
     sessions.push(member(asSessionId('sess-1'), i1))
-    const w1b = svc.allWire().find((w) => w.id === i1)!
+    const w1b = (await svc.allWire()).find((w) => w.id === i1)!
 
     // The counterfactual for the case above: a JOIN is the largest membership
     // change there is, and it still does not move the payload — so "no rebuild"

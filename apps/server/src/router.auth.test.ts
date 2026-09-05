@@ -18,13 +18,13 @@ import { OPERATOR } from './test-support/capabilities'
  * now, and a fake store would let the per-caller scoping pass without ever proving a row
  * moved. `loginRequired` is composed the way server.ts composes it.
  */
-function harness() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function harness() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
-  const loginRequired = (): boolean => !loadConfig().auth?.openMode && users.hasPerUserCredentials()
+  const loginRequired = async (): Promise<boolean> => !loadConfig().auth?.openMode && await users.hasPerUserCredentials()
   const caller = appRouter.createCaller({
     registry,
     repos,
@@ -55,7 +55,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('status reports instance policy and the CALLER’s own credential', async () => {
-    const { caller, users } = harness()
+    const { caller, users } = await harness()
     expect(await caller.auth.status()).toEqual({
       loginRequired: false,
       hasOwnCredential: false,
@@ -74,13 +74,13 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('sets the caller’s own credential without requiring a current password', async () => {
-    const { caller, users } = harness()
+    const { caller, users } = await harness()
     await caller.auth.setPassword({ next: 'first-pw' })
     expect(await verifyPasswordHash('first-pw', hashOf(users))).toBe(true)
   })
 
   it('changing a password requires the correct current one', async () => {
-    const { caller, users } = harness()
+    const { caller, users } = await harness()
     await caller.auth.setPassword({ next: 'old-pw' })
     await expect(caller.auth.setPassword({ current: 'wrong', next: 'new-pw' })).rejects.toThrow()
     expect(await verifyPasswordHash('old-pw', hashOf(users))).toBe(true)
@@ -89,12 +89,12 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('rejects an empty new password', async () => {
-    const { caller } = harness()
+    const { caller } = await harness()
     await expect(caller.auth.setPassword({ next: '' })).rejects.toThrow()
   })
 
   it('requires explicit acknowledgement before turning login off', async () => {
-    const { caller, loginRequired } = harness()
+    const { caller, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
     await expect(
       caller.auth.setLoginRequired({ required: false, current: 'hunter2' }),
@@ -103,7 +103,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('turns login off for the instance WITHOUT destroying the credential', async () => {
-    const { caller, users, loginRequired } = harness()
+    const { caller, users, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
     const hashBefore = hashOf(users)
 
@@ -129,7 +129,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
   })
 
   it('turns login back on with the same password still working', async () => {
-    const { caller, users, loginRequired } = harness()
+    const { caller, users, loginRequired } = await harness()
     await caller.auth.setPassword({ next: 'hunter2' })
     await caller.auth.setLoginRequired({
       required: false,

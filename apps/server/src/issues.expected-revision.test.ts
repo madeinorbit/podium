@@ -34,13 +34,13 @@ function callerFor(registry: SessionRegistry) {
   })
 }
 
-function seed(registry: SessionRegistry, title = 'subject') {
-  return registry.issues.create({ repoPath: '/repo', title, startNow: false })
+async function seed(registry: SessionRegistry, title = 'subject') {
+  return await registry.issues.create({ repoPath: '/repo', title, startNow: false })
 }
 
 /** The revision the authority currently holds for `id`. */
-function revisionOf(registry: SessionRegistry, id: string): number | undefined {
-  return registry.issues.get(id)?.revision
+async function revisionOf(registry: SessionRegistry, id: string): Promise<number | undefined> {
+  return (await registry.issues.get(id))?.revision
 }
 
 /** Assert `fn` rejects with the structured CONFLICT, and hand back its detail. */
@@ -58,13 +58,13 @@ async function expectConflict(fn: () => Promise<unknown>) {
 
 describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(a) refuses the second of two concurrent edits and reports the current revision', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
 
       // Both writers read the same truth.
-      const base = revisionOf(registry, issue.id)
+      const base = await revisionOf(registry, issue.id)
       expect(base).toBeGreaterThan(0)
 
       // Writer 1 lands, moving the issue off `base`.
@@ -73,7 +73,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         patch: { title: 'writer one' },
         expectedRevision: base,
       })
-      const afterFirst = revisionOf(registry, issue.id)
+      const afterFirst = await revisionOf(registry, issue.id)
       expect(afterFirst).toBe((base as number) + 1)
 
       // Writer 2 submits against the state it read — now stale. This is the lost
@@ -95,8 +95,8 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
 
       // The refusal is a REFUSAL: writer 1's work survives intact, and the
       // rejected write did not burn a revision on its way out.
-      expect(registry.issues.get(issue.id)?.title).toBe('writer one')
-      expect(revisionOf(registry, issue.id)).toBe(afterFirst)
+      expect((await registry.issues.get(issue.id))?.title).toBe('writer one')
+      expect(await revisionOf(registry, issue.id)).toBe(afterFirst)
     } finally {
       registry.dispose()
     }
@@ -105,11 +105,11 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(a2) applies the second edit once it rebases onto the revision the conflict reported', async () => {
     // The conflict has to be actionable, not just loud — the number it hands back
     // must be the one that works on retry.
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
-      const base = revisionOf(registry, issue.id)
+      const base = await revisionOf(registry, issue.id)
       await caller.issues.update({ id: issue.id, patch: { title: 'one' }, expectedRevision: base })
       const detail = await expectConflict(() =>
         caller.issues.update({ id: issue.id, patch: { title: 'two' }, expectedRevision: base }),
@@ -119,17 +119,17 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         patch: { title: 'two' },
         expectedRevision: detail.actualRevision,
       })
-      expect(registry.issues.get(issue.id)?.title).toBe('two')
+      expect((await registry.issues.get(issue.id))?.title).toBe('two')
     } finally {
       registry.dispose()
     }
   })
 
   it('routes supplied preconditions through the production Authority hook', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
-      const base = revisionOf(registry, issue.id) as number
+      const issue = await seed(registry)
+      const base = await revisionOf(registry, issue.id) as number
       const ledger = (registry as unknown as { ledger: Ledger }).ledger
       const commit = vi.spyOn(ledger.authority, 'commit')
 
@@ -155,16 +155,16 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   })
 
   it('applies a write whose precondition is current', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
       await caller.issues.update({
         id: issue.id,
         patch: { title: 'fresh' },
-        expectedRevision: revisionOf(registry, issue.id),
+        expectedRevision: await revisionOf(registry, issue.id),
       })
-      expect(registry.issues.get(issue.id)?.title).toBe('fresh')
+      expect((await registry.issues.get(issue.id))?.title).toBe('fresh')
     } finally {
       registry.dispose()
     }
@@ -173,13 +173,13 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('leaves a write with no precondition on last-write-wins, as today', async () => {
     // The field is optional until clients carry revisions (POD-795/796). An
     // omitted precondition must keep every shipped CLI/agent/MCP write working.
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
       await caller.issues.update({ id: issue.id, patch: { title: 'one' } })
       await caller.issues.update({ id: issue.id, patch: { title: 'two' } })
-      expect(registry.issues.get(issue.id)?.title).toBe('two')
+      expect((await registry.issues.get(issue.id))?.title).toBe('two')
     } finally {
       registry.dispose()
     }
@@ -188,9 +188,9 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(d) applies an append-only command that carries no expectedRevision', async () => {
     // ADR 1 files comments as an APPEND create: a comment is not based on the
     // issue's prior state, so it must land even when the issue has moved under it.
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
       await caller.issues.update({ id: issue.id, patch: { title: 'moved' } })
       await caller.issues.update({ id: issue.id, patch: { title: 'moved again' } })
@@ -201,7 +201,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         body: 'lands regardless of how far the issue has moved',
       })
       expect(comment).toBeTruthy()
-      expect(registry.issues.comments(issue.id)).toHaveLength(1)
+      expect(await registry.issues.comments(issue.id)).toHaveLength(1)
 
       // And the contract says so, rather than the behaviour being incidental.
       // Main spells the declaration `concurrency: { kind: 'append' }`; this tree
@@ -224,15 +224,15 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
     // arbitration tests, where the input can actually be constructed. This test guards
     // the premise: if a local issue ever loses its revision, the fail-closed arm starts
     // firing on ordinary edits and this goes red first.
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
-      expect(revisionOf(registry, issue.id)).toBeGreaterThan(0)
+      expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
       await caller.issues.update({ id: issue.id, patch: { title: 'edited' } })
-      expect(revisionOf(registry, issue.id)).toBeGreaterThan(0)
+      expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
       await caller.issues.addComment({ id: issue.id, author: 'a', body: 'b' })
-      expect(revisionOf(registry, issue.id)).toBeGreaterThan(0)
+      expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
     } finally {
       registry.dispose()
     }
@@ -241,9 +241,9 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
 
 describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
   it('(b) returns the stored result on replay without re-applying', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
       const mutationId = 'mut-comment-1'
 
@@ -262,18 +262,18 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
 
       // The replay is the RECORDED result, not a second append.
       expect(replay).toEqual(first)
-      expect(registry.issues.comments(issue.id)).toHaveLength(1)
+      expect(await registry.issues.comments(issue.id)).toHaveLength(1)
     } finally {
       registry.dispose()
     }
   })
 
   it('(b1) replays an exp-rev command without re-arbitrating its now-stale token', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
-      const base = revisionOf(registry, issue.id) as number
+      const base = await revisionOf(registry, issue.id) as number
       const input = {
         id: issue.id,
         patch: { title: 'exactly once' },
@@ -284,8 +284,8 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       const replay = await caller.issues.update(input)
 
       expect(replay).toEqual(first)
-      expect(registry.issues.get(issue.id)?.title).toBe('exactly once')
-      expect(revisionOf(registry, issue.id)).toBe(base + 1)
+      expect((await registry.issues.get(issue.id))?.title).toBe('exactly once')
+      expect(await revisionOf(registry, issue.id)).toBe(base + 1)
     } finally {
       registry.dispose()
     }
@@ -336,13 +336,13 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
   })
 
   it('replays under a DIFFERENT mutationId apply again (the id is the dedupe key)', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
+      const issue = await seed(registry)
       const caller = callerFor(registry)
       await caller.issues.addComment({ id: issue.id, author: 'a', body: 'x', mutationId: 'm1' })
       await caller.issues.addComment({ id: issue.id, author: 'a', body: 'x', mutationId: 'm2' })
-      expect(registry.issues.comments(issue.id)).toHaveLength(2)
+      expect(await registry.issues.comments(issue.id)).toHaveLength(2)
     } finally {
       registry.dispose()
     }
@@ -355,10 +355,10 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
     // dispatcher → errorFormatter → JSON. createCaller would skip the formatter,
     // which is exactly the seam where a structured rejection quietly degrades into
     // prose a client has to parse.
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const issue = seed(registry)
-      const base = revisionOf(registry, issue.id) as number
+      const issue = await seed(registry)
+      const base = await revisionOf(registry, issue.id) as number
       await callerFor(registry).issues.update({
         id: issue.id,
         patch: { title: 'landed' },
@@ -403,7 +403,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
       // …and the human-readable half still says what happened.
       expect(body.error.message).toContain('changed since you read it')
 
-      expect(registry.issues.get(issue.id)?.title).toBe('landed')
+      expect((await registry.issues.get(issue.id))?.title).toBe('landed')
     } finally {
       registry.dispose()
     }

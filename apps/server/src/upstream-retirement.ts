@@ -72,14 +72,14 @@ export type ParkedUpstreamSource = Pick<SyncRepository, 'listParkedUpstreamMutat
  * was dropped by hand — the read throws and this reports zero rather than refusing to
  * boot. A retirement notice must never be the reason a server will not start.
  */
-export function reportParkedUpstreamMutations(
+export async function reportParkedUpstreamMutations(
   sync: ParkedUpstreamSource,
   events: RetirementEventSink,
   now: () => number = Date.now,
-): number {
+): Promise<number> {
   let parked: { mutationId: MutationId; proc: string; queuedAt: number }[]
   try {
-    parked = sync.listParkedUpstreamMutations()
+    parked = await sync.listParkedUpstreamMutations()
   } catch {
     return 0
   }

@@ -135,7 +135,7 @@ describe('delta-first: bootstrap is the recovery path, not the normal one', () =
     await bootstrapped(h, 0, [])
 
     for (let seq = 1; seq <= 50; seq += 1) {
-      h.replica.receive(deltaFrame(seq - 1, seq, [session(seq, `s${seq}`, `n${seq}`)]))
+      await h.replica.receive(deltaFrame(seq - 1, seq, [session(seq, `s${seq}`, `n${seq}`)]))
     }
     await h.replica.settled()
 
@@ -152,7 +152,7 @@ describe('D13 watermarks — a suppressed range is a cursor advance, not a gap',
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'one')])
 
-    const outcome = h.replica.receive(watermark(0, 9))
+    const outcome = await h.replica.receive(watermark(0, 9))
 
     expect(outcome.rowId).toBe('D13-WATERMARK')
     expect(outcome.rung).toBe(0)
@@ -166,7 +166,7 @@ describe('D13 watermarks — a suppressed range is a cursor advance, not a gap',
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'one')])
 
-    for (let seq = 1; seq <= 500; seq += 1) h.replica.receive(watermark(seq - 1, seq))
+    for (let seq = 1; seq <= 500; seq += 1) await h.replica.receive(watermark(seq - 1, seq))
     await h.replica.settled()
 
     const stats = h.replica.stats()
@@ -184,9 +184,9 @@ describe('D13 watermarks — a suppressed range is a cursor advance, not a gap',
   it('a visible change after a watermark stretch stays contiguous', async () => {
     const h = harness()
     await bootstrapped(h, 0, [])
-    h.replica.receive(watermark(0, 99))
+    await h.replica.receive(watermark(0, 99))
 
-    const outcome = h.replica.receive(deltaFrame(99, 100, [session(100, 's9', 'nine')]))
+    const outcome = await h.replica.receive(deltaFrame(99, 100, [session(100, 's9', 'nine')]))
 
     expect(outcome.rowId).toBe('D7-0-APPLY')
     expect(h.replica.cursor?.seq).toBe(100)
@@ -201,7 +201,7 @@ describe('D14 the removal family — evict is not remove', () => {
     await bootstrapped(h, 0, [session(0, 's1', 'mine')])
     h.events.length = 0
 
-    const outcome = h.replica.receive(deltaFrame(0, 5, [evictChange(5, 'session', 's1')]))
+    const outcome = await h.replica.receive(deltaFrame(0, 5, [evictChange(5, 'session', 's1')]))
 
     expect(outcome.rowId).toBe('D14-EVICT')
     expect(h.replica.view('session', 's1')).toBeUndefined()
@@ -217,10 +217,10 @@ describe('D14 the removal family — evict is not remove', () => {
 
     // Delivered in separate frames so each row's own transition is observable:
     // a frame carrying both is classified by its most alarming member.
-    expect(h.replica.receive(deltaFrame(0, 5, [removeChange(5, 'session', 'gone')])).rowId).toBe(
+    expect((await h.replica.receive(deltaFrame(0, 5, [removeChange(5, 'session', 'gone')]))).rowId).toBe(
       'D5-REMOVE',
     )
-    expect(h.replica.receive(deltaFrame(5, 6, [evictChange(6, 'session', 'unshared')])).rowId).toBe(
+    expect((await h.replica.receive(deltaFrame(5, 6, [evictChange(6, 'session', 'unshared')]))).rowId).toBe(
       'D14-EVICT',
     )
 
@@ -238,11 +238,11 @@ describe('D14 the removal family — evict is not remove', () => {
   it('re-admission arrives as a plain upsert whose revision has NOT moved', async () => {
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'mine', { revision: 7 })])
-    h.replica.receive(deltaFrame(0, 5, [evictChange(5, 'session', 's1')]))
+    await h.replica.receive(deltaFrame(0, 5, [evictChange(5, 'session', 's1')]))
     h.events.length = 0
 
     // Same revision 7: a grant does not move entity truth (D14 rejected-alternatives).
-    const outcome = h.replica.receive(deltaFrame(5, 9, [session(9, 's1', 'mine', { revision: 7 })]))
+    const outcome = await h.replica.receive(deltaFrame(5, 9, [session(9, 's1', 'mine', { revision: 7 })]))
 
     expect(outcome.rowId).toBe('D14-READMIT')
     expect(h.replica.view('session', 's1')).toEqual({ name: 'mine' })
@@ -257,7 +257,7 @@ describe('D14 the removal family — evict is not remove', () => {
     const h = harness()
     await bootstrapped(h, 0, [])
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(0, 3, [
         upsertChange(3, 'issue', 'i1', { title: 'a' }),
         upsertChange(3, 'issue', 'i2', { title: 'b' }),
@@ -276,7 +276,7 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     await bootstrapped(h, 10, [])
     h.authority.changesSinceQueue = [deltaFrame(10, 14, [session(12, 's1', 'healed')])]
 
-    const outcome = h.replica.receive(deltaFrame(13, 14, [session(14, 's2', 'late')]))
+    const outcome = await h.replica.receive(deltaFrame(13, 14, [session(14, 's2', 'late')]))
 
     expect(outcome.rowId).toBe('D7-1-GAP')
     expect(outcome.rung).toBe(1)
@@ -296,7 +296,7 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     ]
 
     // Deliver 12→14 BEFORE 10→12 exists. This is the real reordering.
-    h.replica.receive(deltaFrame(12, 14, [session(13, 'c', 'C')]))
+    await h.replica.receive(deltaFrame(12, 14, [session(13, 'c', 'C')]))
     await h.replica.settled()
 
     expect(h.replica.posture).toBe('live')
@@ -310,10 +310,10 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     const h = harness()
     await bootstrapped(h, 0, [])
     const frame = deltaFrame(0, 3, [session(3, 's1', 'one')])
-    h.replica.receive(frame)
+    await h.replica.receive(frame)
     h.authority.changesSinceQueue = [deltaFrame(3, 3, [])]
 
-    const outcome = h.replica.receive(frame)
+    const outcome = await h.replica.receive(frame)
     await h.replica.settled()
 
     // D13.1 guarantees contiguous non-overlapping frames per connection, so a
@@ -330,10 +330,10 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
   it('a partially overlapping frame is a GAP too — never truncated and applied', async () => {
     const h = harness()
     await bootstrapped(h, 0, [])
-    h.replica.receive(deltaFrame(0, 3, [session(3, 's1', 'first')]))
+    await h.replica.receive(deltaFrame(0, 3, [session(3, 's1', 'first')]))
     h.authority.changesSinceQueue = [deltaFrame(3, 6, [session(6, 's2', 'tail')])]
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(1, 6, [session(3, 's1', 'STALE-REPLAY'), session(6, 's2', 'tail')]),
     )
     await h.replica.settled()
@@ -353,7 +353,7 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     ]
     h.authority.slice = { snapshotSeq: 900, rows: [session(800, 'fresh', 'y')] }
 
-    h.replica.receive(deltaFrame(500, 501, [session(501, 'z', 'z')]))
+    await h.replica.receive(deltaFrame(500, 501, [session(501, 'z', 'z')]))
     await h.replica.settled()
 
     expect(h.replica.trace).toContain('D7-2-COMPACTED')
@@ -371,7 +371,7 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     h.authority.changesSinceQueue = [deltaFrame(11, 14, [session(12, 's', 'x')])]
     h.authority.slice = { snapshotSeq: 20, rows: [] }
 
-    h.replica.receive(deltaFrame(13, 14, [session(14, 's2', 'y')]))
+    await h.replica.receive(deltaFrame(13, 14, [session(14, 's2', 'y')]))
     await h.replica.settled()
 
     expect(h.replica.trace).toContain('D7-3-REPLY-MALFORMED')
@@ -385,7 +385,7 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     h.authority.changesSinceQueue = [deltaFrame(10, 12, [], { epoch: 'epoch-2' })]
     h.authority.slice = { snapshotSeq: 30, rows: [] }
 
-    h.replica.receive(deltaFrame(13, 14, [session(14, 's', 'x')]))
+    await h.replica.receive(deltaFrame(13, 14, [session(14, 's', 'x')]))
     await h.replica.settled()
 
     expect(h.replica.trace).toContain('D7-4-EPOCH')
@@ -401,7 +401,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
 
     // The authority has pruned everything below 40. A heal from cursor 10 could
     // only ever be answered `bootstrap-required`, and the frame says so up front.
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(44, 45, [session(45, 's1', 'x')], { minAvailableSeq: 40 }),
     )
     await h.replica.settled()
@@ -427,7 +427,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
       deltaFrame(10, 14, [session(12, 's1', 'healed')], { minAvailableSeq: 5 }),
     ]
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(13, 14, [session(14, 's2', 'late')], { minAvailableSeq: 5 }),
     )
     await h.replica.settled()
@@ -447,7 +447,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
     await bootstrapped(h, 10, [])
     h.authority.changesSinceQueue = [deltaFrame(10, 14, [], { minAvailableSeq: 11 })]
 
-    const outcome = h.replica.receive(deltaFrame(13, 14, [], { minAvailableSeq: 11 }))
+    const outcome = await h.replica.receive(deltaFrame(13, 14, [], { minAvailableSeq: 11 }))
     await h.replica.settled()
 
     expect(outcome.rowId).toBe('D7-1-GAP')
@@ -464,7 +464,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
     const h = harness()
     await bootstrapped(h, 10, [])
 
-    h.replica.receive(deltaFrame(10, 12, [session(12, 's1', 'ok')], { minAvailableSeq: 12 }))
+    await h.replica.receive(deltaFrame(10, 12, [session(12, 's1', 'ok')], { minAvailableSeq: 12 }))
     await h.replica.settled()
 
     expect(h.replica.posture).toBe('live')
@@ -481,7 +481,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
     h.replica.disconnect()
     expect(h.replica.posture).toBe('stale')
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(80, 81, [session(81, 's9', 'new')], { minAvailableSeq: 60 }),
     )
     await h.replica.settled()
@@ -496,7 +496,7 @@ describe('D5 minAvailableSeq — the published retention floor short-circuits a 
     const h = harness()
     await bootstrapped(h, 10, [])
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(10, 11, [session(11, 's1', 'x')], { minAvailableSeq: -1 }),
     )
     await h.replica.settled()
@@ -532,7 +532,7 @@ describe('D7 rung 3 — semantic validation is protocol law', () => {
       await bootstrapped(h, 10, [session(1, 'keep', 'v')])
       h.authority.slice = { snapshotSeq: 40, rows: [session(20, 'fresh', 'w')] }
 
-      const outcome = h.replica.receive(frame)
+      const outcome = await h.replica.receive(frame)
 
       expect(outcome.rowId).toBe('D7-3-MALFORMED')
       expect(outcome.rung).toBe(3)
@@ -576,9 +576,9 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     {
       name: 'local corruption (rung 5)',
       rung: 5,
-      drive: (h) => {
+      drive: async (h) => {
         h.store.setCorrupt(true)
-        const outcome = h.replica.receive(watermark(10, 11))
+        const outcome = await h.replica.receive(watermark(10, 11))
         h.store.setCorrupt(false)
         expect(outcome.rowId).toBe('D7-5-CORRUPT')
       },
@@ -634,7 +634,7 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     h.replica.disconnect()
     h.authority.slice = { snapshotSeq: 88, rows: [] }
 
-    const outcome = h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    const outcome = await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     expect(outcome.rowId).toBe('D14-RESCOPE')
@@ -648,10 +648,10 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     h.authority.slice = { snapshotSeq: 11, rows: [] }
     h.events.length = 0
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
     h.authority.slice = { snapshotSeq: 12, rows: [] }
-    h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     const causes = h.events
@@ -672,7 +672,7 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     })
     h.authority.slice = { snapshotSeq: 99, rows: [] }
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     // Deciding a rescope made it moot would be the replica arbitrating.
@@ -705,16 +705,16 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     await bootstrapped(h, 5, [session(1, 'stale-row', 'v')])
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(20, [session(10, 'a', 'A')], false))
     await Promise.resolve()
 
     // Everything that can arrive mid-walk, arrives mid-walk.
-    expect(h.replica.receive(watermark(20, 21)).rowId).toBe('D6-BUFFER')
-    expect(h.replica.receive(deltaFrame(21, 22, [evictChange(22, 'session', 'a')])).rowId).toBe(
+    expect((await h.replica.receive(watermark(20, 21))).rowId).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(21, 22, [evictChange(22, 'session', 'a')]))).rowId).toBe(
       'D6-BUFFER',
     )
-    expect(h.replica.receive(deltaFrame(22, 23, [session(23, 'b', 'B')])).rowId).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(22, 23, [session(23, 'b', 'B')]))).rowId).toBe('D6-BUFFER')
     expect(h.replica.stats().bufferedFrames).toBe(3)
 
     channel.push(bootstrapChunk(20, [session(15, 'c', 'C')], true))
@@ -738,11 +738,11 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     const channel = h.authority.driveManually()
     h.authority.changesSinceQueue = [deltaFrame(30, 35, [session(35, 'tail', 'Z')])]
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [session(10, 'a', 'A')], false))
     await Promise.resolve()
-    h.replica.receive(deltaFrame(5, 20, [session(20, 'covered', 'X')])) // wholly <= 30
-    h.replica.receive(
+    await h.replica.receive(deltaFrame(5, 20, [session(20, 'covered', 'X')])) // wholly <= 30
+    await h.replica.receive(
       deltaFrame(25, 35, [session(28, 'also-covered', 'Y'), session(35, 'tail', 'Z')]),
     )
     channel.push(bootstrapChunk(30, [], true))
@@ -761,11 +761,11 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     const h = harness()
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [session(1, 'a', 'A')], false))
     await Promise.resolve()
-    h.replica.receive(deltaFrame(10, 11, [session(11, 'b', 'B')]))
-    h.replica.receive(deltaFrame(11, 12, [session(12, 'c', 'C')]))
+    await h.replica.receive(deltaFrame(10, 11, [session(11, 'b', 'B')]))
+    await h.replica.receive(deltaFrame(11, 12, [session(12, 'c', 'C')]))
     const before = h.store.transactions
 
     channel.push(bootstrapChunk(10, [], true))
@@ -781,11 +781,11 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     const channel = h.authority.driveManually()
     h.authority.changesSinceQueue = [deltaFrame(11, 40, [session(40, 'healed', 'H')])]
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
     await Promise.resolve()
-    h.replica.receive(deltaFrame(10, 11, [session(11, 'a', 'A')]))
-    h.replica.receive(deltaFrame(30, 31, [session(31, 'b', 'B')])) // a hole at 12..30
+    await h.replica.receive(deltaFrame(10, 11, [session(11, 'a', 'A')]))
+    await h.replica.receive(deltaFrame(30, 31, [session(31, 'b', 'B')])) // a hole at 12..30
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
 
@@ -815,7 +815,7 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     h.authority.slice = null
     h.authority.bootstrapFailures = 99
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     expect(h.replica.trace).toContain('D6-EXHAUSTED')
@@ -896,7 +896,7 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     h.replica.disconnect()
     h.authority.slice = { snapshotSeq: 50, rows: [session(2, 'mine', 'w')] }
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     expect(h.replica.view('session', 'shared')).toBeUndefined()
@@ -910,7 +910,7 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     h.replica.disconnect()
     h.authority.changesSinceQueue = [deltaFrame(10, 12, [session(12, 'missed', 'M')])]
 
-    const outcome = h.replica.receive(deltaFrame(12, 13, [session(13, 'new', 'N')]))
+    const outcome = await h.replica.receive(deltaFrame(12, 13, [session(13, 'new', 'N')]))
     await h.replica.settled()
 
     expect(outcome.rowId).toBe('D7-1-FRAME-WHILE-STALE')
@@ -924,7 +924,7 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     await bootstrapped(h, 5, [session(1, 'original', 'O')])
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [session(10, 'partial', 'P')], false))
     await Promise.resolve()
     h.replica.disconnect()
@@ -951,7 +951,7 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     await bootstrapped(h, 10, [session(1, 's1', 'v')])
     h.authority.changesSinceQueue = [new Error('socket closed')]
 
-    h.replica.receive(deltaFrame(12, 13, [session(13, 'x', 'y')]))
+    await h.replica.receive(deltaFrame(12, 13, [session(13, 'x', 'y')]))
     await h.replica.settled()
 
     expect(h.replica.posture).toBe('stale')
@@ -966,7 +966,7 @@ describe('the replica never arbitrates', () => {
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'first', { revision: 3 })])
 
-    h.replica.receive(deltaFrame(0, 4, [session(4, 's1', 'second', { revision: 3 })]))
+    await h.replica.receive(deltaFrame(0, 4, [session(4, 's1', 'second', { revision: 3 })]))
 
     // Feed order is the only order. A "skip duplicate revisions" optimisation
     // would silently break D14.2 re-admission.
@@ -977,7 +977,7 @@ describe('the replica never arbitrates', () => {
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'high', { revision: 9 })])
 
-    h.replica.receive(deltaFrame(0, 4, [session(4, 's1', 'low', { revision: 2 })]))
+    await h.replica.receive(deltaFrame(0, 4, [session(4, 's1', 'low', { revision: 2 })]))
 
     // Comparing revisions to pick a winner is arbitration, and it is the
     // Authority's job. The replica applies the ordering it was given.
@@ -989,7 +989,7 @@ describe('the replica never arbitrates', () => {
     const h = harness()
     await bootstrapped(h, 0, [])
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 4, [
         session(4, 's1', 'v', {
           originId: 'peer-7',
@@ -1097,7 +1097,7 @@ describe('the optimistic-overlay reducer seam', () => {
       command: { name: 'typed name' },
     })
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 4, [
         session(4, 's1', 'typed name', { causationId: 'cmd-1', mutationId: asMutationId('m1') }),
       ]),
@@ -1118,7 +1118,7 @@ describe('the optimistic-overlay reducer seam', () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 'gone', 'a'), session(0, 'unshared', 'b')])
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 3, [
         removeChange(1, 'session', 'gone', {
           causationId: 'cmd-del',
@@ -1152,7 +1152,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // change with only ONE of the two, which is why key presence was uncovered —
     // with both fields always set, a producer that omitted absent keys is
     // indistinguishable from one that sets them to undefined.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         session(1, 'both', 'x', { causationId: 'cmd-both', mutationId: asMutationId('m-both') }),
         session(2, 'partial', 'y', { causationId: 'cmd-partial' }),
@@ -1198,7 +1198,7 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-b'), 'b')
     const before = h.store.transactions
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         session(1, 'a', 'a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
         session(2, 'b', 'b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
@@ -1229,7 +1229,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // One command, two rows: legal, and anchored per-principal rows may even share
     // a seq (D14.3). Retiring twice is at best noise and at worst a second
     // retirement of an entry the first already removed.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         session(1, 'a', 'first', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
         session(2, 'a', 'second', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
@@ -1254,7 +1254,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // Refuse at the serialized commit point, with both drafts still private.
     h.store.cache.failNextPrepare = 'durable write denied'
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
         session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
@@ -1283,7 +1283,7 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-a'), 'a')
     queued(h, asMutationId('m-b'), 'b')
     h.store.cache.failNextPrepare = 'durable write denied'
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
         session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
@@ -1314,10 +1314,10 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-buffered'), 's1')
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
     await Promise.resolve()
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-buffered') }),
       ]),
@@ -1337,7 +1337,7 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-1'), 's1')
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     // The new slice does NOT contain 'revoked' — that is what a rescope means.
     channel.push(bootstrapChunk(10, [session(2, 'kept', 'still mine')], false))
     await Promise.resolve()
@@ -1345,7 +1345,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // span at all, and the span branch of installSnapshot is a different code path
     // from the autocommit one. Without a queued command the install autocommits and
     // the replacement is never exercised inside a span.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-1') }),
       ]),
@@ -1376,17 +1376,17 @@ describe('the optimistic-overlay reducer seam', () => {
     const channel = h.authority.driveManually()
     const before = h.store.transactions
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
     await Promise.resolve()
     // TWO buffered frames, each confirming one of my commands. The install commits
     // both onto the snapshot in one transaction, so it owes ONE batch of two.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: asMutationId('m-one') }),
       ]),
     )
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(11, 12, [
         session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
       ]),
@@ -1409,7 +1409,7 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-beyond'), 's-beyond')
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
     await Promise.resolve()
 
@@ -1418,7 +1418,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // built from `buffered` instead of from the included set is indistinguishable
     // from a correct one, and that mutation survives the whole suite.
     // 1. wholly covered by the snapshot — dropped (D6-BUFFER-COVERED).
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(3, 4, [
         session(4, 's-covered', 'old', {
           causationId: 'cmd-c',
@@ -1427,7 +1427,7 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
     // 2. chains exactly from the snapshot point — INCLUDED.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's-included', 'mine', {
           causationId: 'cmd-i',
@@ -1436,7 +1436,7 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
     // 3. beyond the install gap — left behind, so it retires nothing.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(20, 21, [
         session(21, 's-beyond', 'later', {
           causationId: 'cmd-b',
@@ -1466,15 +1466,15 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, asMutationId('m-two'), 's2')
     const channel = h.authority.driveManually()
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [session(3, 'fresh', 'new')], false))
     await Promise.resolve()
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: asMutationId('m-one') }),
       ]),
     )
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(11, 12, [
         session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
       ]),
@@ -1509,7 +1509,7 @@ describe('the optimistic-overlay reducer seam', () => {
 
     // Somebody else's change. Single-region write, so it autocommits: enrolling one
     // participant in a span would add a unit of work whose commit is the write's.
-    h.replica.receive(deltaFrame(0, 1, [session(1, 'theirs', 'x')]))
+    await h.replica.receive(deltaFrame(0, 1, [session(1, 'theirs', 'x')]))
 
     expect(h.overlay.handed).toHaveLength(0)
     expect(h.store.transactions - before).toBe(1)
@@ -1527,7 +1527,7 @@ describe('the optimistic-overlay reducer seam', () => {
     })
     h.authority.slice = { snapshotSeq: 40, rows: [session(20, 's1', 'server name v2')] }
 
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     await h.replica.settled()
 
     // The cache was replaced; the user's unsent edit is still on screen.
@@ -1556,7 +1556,7 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.replica.view('session', 's1')).toEqual({ name: 'm1' })
 
     // Somebody unshared it. The row leaves THIS principal's view; it still exists.
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 1, [{ seq: 1, entity: 'session', entityId: 's1', op: 'evict' }]),
     )
 
@@ -1791,7 +1791,7 @@ describe('feed order is the correctness property, including inside one frame', (
     const h = harness()
     await bootstrapped(h, 0, [])
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         removeChange(1, 'session', 's1'),
         upsertChange(2, 'session', 's1', { name: 'recreated' }),
@@ -1808,7 +1808,7 @@ describe('feed order is the correctness property, including inside one frame', (
     const h = harness()
     await bootstrapped(h, 0, [session(0, 's1', 'v', { revision: 4 })])
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [evictChange(1, 'session', 's1'), session(2, 's1', 'v', { revision: 4 })]),
     )
 
@@ -1820,7 +1820,7 @@ describe('feed order is the correctness property, including inside one frame', (
     const h = harness()
     await bootstrapped(h, 0, [])
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(0, 2, [
         upsertChange(1, 'session', 's1', { name: 'brief' }),
         removeChange(2, 'session', 's1'),
@@ -1841,17 +1841,17 @@ describe('feed order is the correctness property, including inside one frame', (
       ]),
     ]
     // A gap drives the heal; the heal reply carries remove-then-upsert in one range.
-    h.replica.receive(deltaFrame(12, 13, [session(13, 'later', 'L')]))
+    await h.replica.receive(deltaFrame(12, 13, [session(13, 'later', 'L')]))
     await h.replica.settled()
     expect(h.replica.view('session', 'healed')).toEqual({ name: 'back' })
     expect(h.replica.view('session', 'later')).toEqual({ name: 'L' })
 
     // ...and through the install path's buffered frames.
     const channel = h.authority.driveManually()
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(50, [], false))
     await Promise.resolve()
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(50, 52, [
         removeChange(51, 'session', 'buf'),
         upsertChange(52, 'session', 'buf', { name: 'survived' }),
@@ -1903,7 +1903,7 @@ describe('batched emissions — one commit is ONE burst through batchEvents', ()
     await bootstrapped(h, 10, [])
     bursts.length = 0
 
-    h.replica.receive(
+    await h.replica.receive(
       deltaFrame(10, 12, [session(11, 's1', 'one'), removeChange(12, 'session', 's2')]),
     )
     await h.replica.settled()
@@ -1921,8 +1921,8 @@ describe('batched emissions — one commit is ONE burst through batchEvents', ()
     h.authority.changesSinceQueue = [deltaFrame(10, 11, [session(11, 'healed', 'h')])]
     bursts.length = 0
 
-    h.replica.receive(deltaFrame(11, 12, [session(12, 'b1', 'x')]))
-    h.replica.receive(deltaFrame(12, 13, [session(13, 'b2', 'y')]))
+    await h.replica.receive(deltaFrame(11, 12, [session(12, 'b1', 'x')]))
+    await h.replica.receive(deltaFrame(12, 13, [session(13, 'b2', 'y')]))
     await h.replica.settled()
 
     expect(bursts.map((burst) => burst.map((event) => event.type))).toEqual([
@@ -1945,9 +1945,9 @@ describe('rung 3 is unavoidable on every route into the store', () => {
     h.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
     h.authority.slice = { snapshotSeq: 60, rows: [] }
 
-    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')])) // gap -> healing
+    await h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')])) // gap -> healing
     expect(h.replica.posture).toBe('healing')
-    const outcome = h.replica.receive(badEvict) // arrives mid-heal
+    const outcome = await h.replica.receive(badEvict) // arrives mid-heal
     await h.replica.settled()
 
     // Buffering first meant this was applied later without ever passing rung 3.
@@ -1959,11 +1959,11 @@ describe('rung 3 is unavoidable on every route into the store', () => {
     const h = harness()
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
-    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [], false))
     await Promise.resolve()
 
-    const outcome = h.replica.receive(badEvict)
+    const outcome = await h.replica.receive(badEvict)
 
     expect(outcome.rowId).toBe('D7-3-MALFORMED')
   })
@@ -1985,7 +1985,7 @@ describe('rung 3 is unavoidable on every route into the store', () => {
     await bootstrapped(h, 10, [])
     h.authority.slice = { snapshotSeq: 99, rows: [] }
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(10, 11, [upsertChange(11, 'session', 's1', { id: 'SOMEONE-ELSE', name: 'x' })]),
     )
     await h.replica.settled()
@@ -2002,7 +2002,7 @@ describe('rung 3 is unavoidable on every route into the store', () => {
     const h = harness({ validator })
     await bootstrapped(h, 10, [])
 
-    const outcome = h.replica.receive(
+    const outcome = await h.replica.receive(
       deltaFrame(10, 11, [upsertChange(11, 'kindFromTheFuture', 'k1', { anything: true })]),
     )
 
@@ -2026,7 +2026,7 @@ describe('the ladder always resolves downward and TERMINATES', () => {
     // A frame far ahead of anything the authority will serve. Re-buffering it
     // across the install kept the ladder open forever: install -> heal ->
     // "re-bootstrap" -> install -> the same frame, with no exit.
-    h.replica.receive(deltaFrame(20, 21, [session(21, 'unreachable', 'U')]))
+    await h.replica.receive(deltaFrame(20, 21, [session(21, 'unreachable', 'U')]))
     await h.replica.settled()
 
     expect(h.authority.bootstrapCalls).toBeLessThanOrEqual(3)
@@ -2052,10 +2052,10 @@ describe('rescope and resync are legal from ANY posture (D14.4 / D9)', () => {
   const rescope = { kind: 'rescope', feedId: FEED_ID, epoch: EPOCH } as const
   const resync = { kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH } as const
 
-  it('rescope from cold', () => {
+  it('rescope from cold', async () => {
     const h = harness()
     expect(h.replica.posture).toBe('cold')
-    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+    expect((await h.replica.receive(rescope)).rowId).toBe('D14-RESCOPE')
   })
 
   it('rescope from bootstrapping, mid-walk', async () => {
@@ -2065,16 +2065,16 @@ describe('rescope and resync are legal from ANY posture (D14.4 / D9)', () => {
     channel.push(bootstrapChunk(5, [], false))
     await Promise.resolve()
     expect(h.replica.posture).toBe('bootstrapping')
-    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+    expect((await h.replica.receive(rescope)).rowId).toBe('D14-RESCOPE')
   })
 
   it('rescope from healing', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
     h.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
-    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    await h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
     expect(h.replica.posture).toBe('healing')
-    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+    expect((await h.replica.receive(rescope)).rowId).toBe('D14-RESCOPE')
   })
 
   it('rescope from stale — a rights change while offline still lands', async () => {
@@ -2082,21 +2082,21 @@ describe('rescope and resync are legal from ANY posture (D14.4 / D9)', () => {
     await bootstrapped(h, 10, [])
     h.replica.disconnect()
     expect(h.replica.posture).toBe('stale')
-    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+    expect((await h.replica.receive(rescope)).rowId).toBe('D14-RESCOPE')
   })
 
   it('resync-required from healing and from stale', async () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
-    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    await a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
     expect(a.replica.posture).toBe('healing')
-    expect(a.replica.receive(resync).rowId).toBe('D7-2-RESYNC')
+    expect((await a.replica.receive(resync)).rowId).toBe('D7-2-RESYNC')
 
     const b = harness()
     await bootstrapped(b, 10, [])
     b.replica.disconnect()
-    expect(b.replica.receive(resync).rowId).toBe('D7-2-RESYNC')
+    expect((await b.replica.receive(resync)).rowId).toBe('D7-2-RESYNC')
   })
 })
 
@@ -2115,23 +2115,23 @@ describe('every declared ADR route is driven, not merely declared', () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.replica.disconnect()
-    expect(a.replica.receive(otherEpoch(10, 11)).rowId).toBe('D7-4-EPOCH')
+    expect((await a.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
 
     const b = harness()
     await bootstrapped(b, 10, [])
     const channel = b.authority.driveManually()
-    b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(20, [], false))
     await Promise.resolve()
     expect(b.replica.posture).toBe('bootstrapping')
-    expect(b.replica.receive(otherEpoch(10, 11)).rowId).toBe('D7-4-EPOCH')
+    expect((await b.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
   })
 
   it('rung 3 fires from stale', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
     h.replica.disconnect()
-    expect(h.replica.receive(bad).rowId).toBe('D7-3-MALFORMED')
+    expect((await h.replica.receive(bad)).rowId).toBe('D7-3-MALFORMED')
   })
 
   it('rung 6 (schema bump) fires from cold and from stale', async () => {
@@ -2156,7 +2156,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.authority.changesSinceQueue = [deltaFrame(10, 12, [session(12, 's', 'v')])]
-    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    await a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
     expect(a.replica.posture).toBe('healing')
     a.store.setCorrupt(true)
     await a.replica.settled().catch(() => undefined)
@@ -2165,7 +2165,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     const b = harness()
     await bootstrapped(b, 10, [])
     const channel = b.authority.driveManually()
-    b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    await b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(20, [], false))
     await Promise.resolve()
     b.store.setCorrupt(true)
@@ -2194,9 +2194,9 @@ describe('every declared ADR route is driven, not merely declared', () => {
     // circuit the walk and the covered frame behind it would never be classified.
     // That is exactly what the previous fixture did, which is why the row this
     // test is named for never fired.
-    h.replica.receive(deltaFrame(12, 15, [session(15, 'x', 'y')]))
+    await h.replica.receive(deltaFrame(12, 15, [session(15, 'x', 'y')]))
     expect(h.replica.posture).toBe('healing')
-    expect(h.replica.receive(deltaFrame(15, 18, [])).rowId).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(15, 18, []))).rowId).toBe('D6-BUFFER')
 
     await h.replica.settled()
 
@@ -2212,7 +2212,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
-    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    await a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
     expect(a.replica.posture).toBe('healing')
     expect(a.replica.disconnect().rowId).toBe('D7-STALE-VISIBLE')
     // Idempotent: disconnecting an already-stale replica is still stale-visible.

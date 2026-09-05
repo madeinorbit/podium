@@ -567,7 +567,7 @@ export class Outbox {
    * Partitions run concurrently; each partition is strictly FIFO and stops at
    * its first unresolved entry (D12).
    */
-  drain(): Promise<void> {
+  async drain(): Promise<void> {
     if (!this.draining) {
       this.draining = this.drainPass().finally(() => {
         this.draining = null
@@ -1380,4 +1380,4 @@ export const toDeadLetterRecord = (record: OutboxRecord): DeadLetterRecord => {
   }
 }
 
-export const openOutbox = (config: OutboxConfig): Promise<Outbox> => Outbox.open(config)
+export const openOutbox = async (config: OutboxConfig): Promise<Outbox> => await Outbox.open(config)

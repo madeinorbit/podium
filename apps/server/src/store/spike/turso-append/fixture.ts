@@ -96,7 +96,7 @@ export async function openSlice(
     dropTables: async () => {
       for (const ddl of resetDdl(prefix)) await counted.client.execute(ddl)
     },
-    close: () => driver.close(),
+    close: async () => await driver.close(),
   }
 }
 

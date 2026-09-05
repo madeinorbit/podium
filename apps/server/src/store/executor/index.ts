@@ -62,7 +62,6 @@ export {
 } from './errors'
 export {
   createStoreExecutor,
-  legacyHandle,
   postCommit,
   type RootStoreExecutor,
   type StoreContext,

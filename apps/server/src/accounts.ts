@@ -145,11 +145,11 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * The third argument accepts an explicit HOME only for legacy unit tests. The
  * production query passes machine records and therefore has no homedir fallback.
  */
-export function accountViews(
+export async function accountViews(
   legacyApiKey: (provider: string) => string | undefined,
   accounts: AccountsRepository,
   machinesOrHome: readonly MachineRecord[] | string = [],
-): AccountView[] {
+): Promise<AccountView[]> {
   const native =
     typeof machinesOrHome === 'string'
       ? [
@@ -160,7 +160,7 @@ export function accountViews(
         ]
       : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
 
-  const stored = new Map(accounts.list().map((a) => [a.id, a]))
+  const stored = new Map((await accounts.list()).map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const id = `managed:${provider}`
     const row = stored.get(asAccountId(id))

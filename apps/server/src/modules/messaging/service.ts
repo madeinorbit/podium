@@ -298,11 +298,11 @@ export class MessagingService implements TelegramNoticePort {
    * otherwise the main chat. Without `sessionId`, thread into the last inbound
    * forum topic (subscription / legacy callers).
    */
-  private sendUserNotice(input: {
+  private async sendUserNotice(input: {
     ownerUserId: UserId
     text: string
     sessionId?: SessionId
-  }): void {
+  }): Promise<void> {
     const botToken = this.deps.telegramBotToken().trim()
     const chatId = this.deps.routing.chatIdForUser(input.ownerUserId)?.trim()
     if (!botToken || !chatId) return
@@ -313,14 +313,14 @@ export class MessagingService implements TelegramNoticePort {
         chatId,
         ...(threadRef ? { threadRef } : {}),
       }
-      void this.adapter.send(target, input.text).catch((err) => {
+      void (await this.adapter.send(target, input.text)).catch((err) => {
         log.warn('Telegram push failed', { err })
       })
       return
     }
     pushTelegramText({ botToken, chatId }, input.text)
   }
-  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): void {
+  async sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): Promise<void> {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
     if (!botToken || !chatId) return
@@ -333,7 +333,7 @@ export class MessagingService implements TelegramNoticePort {
         chatId,
         ...(threadRef ? { threadRef } : {}),
       }
-      void this.adapter.send(target, text).catch((err) => {
+      void (await this.adapter.send(target, text)).catch((err) => {
         log.warn('Telegram push failed', { err })
       })
       return
@@ -417,7 +417,7 @@ export class MessagingService implements TelegramNoticePort {
     return resolution.ok ? resolution.userId : undefined
   }
 
-  private onInbound(msg: InboundChatMessage): void {
+  private async onInbound(msg: InboundChatMessage): Promise<void> {
     // THE GATE, BEFORE ANY EFFECT. Every inbound path below this line — slash
     // commands, callbacks, plain turns — acts on the instance, so the check
     // belongs at the one place all three pass through rather than on each.
@@ -432,16 +432,16 @@ export class MessagingService implements TelegramNoticePort {
 
     this.lastInboundRefByChat.set(msg.source.chatId, msg.source)
     if (msg.callback) {
-      void this.handleCallback(msg, boundUser)
+      void await this.handleCallback(msg, boundUser)
       return
     }
     const slash = parseSlashCommand(msg.text)
     if (slash) {
       const threadId = this.resolveThreadId(msg)
-      void this.handleSlash(boundUser, threadId, msg.source, slash)
+      void await this.handleSlash(boundUser, threadId, msg.source, slash)
       return
     }
-    void this.handleChatMessage(msg, boundUser)
+    void await this.handleChatMessage(msg, boundUser)
   }
 
   /** Plain chat (not slash/callback): optional inactivity recap, then queue. */
@@ -467,7 +467,7 @@ export class MessagingService implements TelegramNoticePort {
       ...(msg.senderLabel ? { senderLabel: msg.senderLabel } : {}),
     })
     this.queues.set(key, queue)
-    this.pump(ownerUserId, threadId)
+    await this.pump(ownerUserId, threadId)
   }
 
   /**
@@ -575,7 +575,7 @@ export class MessagingService implements TelegramNoticePort {
     this.releaseTyping(ambientTypingOwner(sessionId), lease.source)
   }
 
-  private pump(ownerUserId: UserId, threadId: ThreadId): void {
+  private async pump(ownerUserId: UserId, threadId: ThreadId): Promise<void> {
     const key = turnKey(ownerUserId, threadId)
     if (this.awaiting.has(key) || this.dispatching.has(key)) return
     const queue = this.queues.get(key)
@@ -584,25 +584,25 @@ export class MessagingService implements TelegramNoticePort {
     this.dispatching.add(key)
     const turnOwner = turnTypingOwner(key)
     this.acquireTyping(turnOwner, next.source)
-    void this.deps.superagent
+    void (await this.deps.superagent
       .sendTurn({
         ownerUserId: next.ownerUserId,
         threadId: asThreadId(threadId),
         text: this.turnText(next),
-      })
+      }))
       .then(() => {
         this.dispatching.delete(key)
         queue?.shift()
         this.awaiting.set(key, { ownerUserId, source: next.source })
       })
-      .catch((err: unknown) => {
+      .catch(async (err: unknown) => {
         this.dispatching.delete(key)
         this.releaseTyping(turnOwner, next.source)
         const message = err instanceof Error ? err.message : String(err)
         if (message.includes('already running')) return
         queue?.shift()
-        void this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
-        this.pump(ownerUserId, threadId)
+        void await this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
+        await this.pump(ownerUserId, threadId)
       })
   }
 
@@ -665,13 +665,13 @@ export class MessagingService implements TelegramNoticePort {
     return `(Telegram message${sender} — you are replying into a phone chat: be concise, plain text, no markdown tables)\n\n${msg.text}`
   }
 
-  private onTurnEnded(ev: {
+  private async onTurnEnded(ev: {
     ownerUserId?: UserId
     threadId: ThreadId
     ok: boolean
     output?: string
     error?: string
-  }): void {
+  }): Promise<void> {
     const suffix = `\0${ev.threadId}`
     const candidates = ev.ownerUserId
       ? [turnKey(ev.ownerUserId, ev.threadId)]
@@ -688,10 +688,10 @@ export class MessagingService implements TelegramNoticePort {
       const text = ev.ok
         ? ev.output?.trim() || '(the superagent finished without a text reply)'
         : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
-      void this.reply(awaited.source, text)
+      void await this.reply(awaited.source, text)
     }
     const ownerUserId = awaited?.ownerUserId ?? this.queues.get(key)?.[0]?.ownerUserId
-    if (ownerUserId) this.pump(ownerUserId, ev.threadId)
+    if (ownerUserId) await this.pump(ownerUserId, ev.threadId)
   }
 
   private async handleCallback(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {

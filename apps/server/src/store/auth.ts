@@ -27,7 +27,8 @@
 import type { UserId } from '@podium/model'
 import { and, desc, eq, lte, sql } from 'drizzle-orm'
 import { clientSessions } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -51,7 +52,7 @@ export interface ClientSessionRow {
 }
 
 export class AuthRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -64,8 +65,8 @@ export class AuthRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
@@ -75,20 +76,20 @@ export class AuthRepository {
    *  separately revocable (POD-1376): the default 'login' is a browser sign-in,
    *  'upstream' a node⇄hub provisioning token, 'break-glass' a session minted
    *  from local state-dir access. */
-  createClientSession(
+  async createClientSession(
     tokenHash: string,
     userId: UserId,
     expiresAt: string,
     label = 'login',
     metadata: ClientSessionMetadata = {},
-  ): void {
+  ): Promise<void> {
     // `client_sessions` carries a second uniqueness constraint
     // (`idx_client_sessions_session_id`) besides its primary key. `INSERT OR
     // REPLACE` resolves a conflict on EITHER, while drizzle's targeted
     // `onConflictDoUpdate` raises on the other. Rule 31b therefore preserves
     // this atomic statement instead of changing mobile re-pair behaviour on the
     // auth path.
-    this.db.run(
+    await this.db.run(
       // REPLACE-STATEMENT POD-3403 — rule 31b: path + token + SQL shape, all three.
       sql`INSERT OR REPLACE INTO client_sessions
             (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
@@ -100,8 +101,8 @@ export class AuthRepository {
 
   /** Every session row, newest first — the read behind `podium auth sessions`. Returns
    *  hashes, never tokens: the plaintext is not stored and cannot be recovered. */
-  listClientSessions(): ClientSessionRow[] {
-    const rows = this.db
+  async listClientSessions(): Promise<ClientSessionRow[]> {
+    const rows = await this.db
       .select({
         tokenHash: clientSessions.tokenHash,
         userId: clientSessions.userId,
@@ -133,17 +134,17 @@ export class AuthRepository {
 
   /** Revoke every session minted under `label`, leaving the other classes alone.
    *  Returns how many rows went. */
-  deleteClientSessionsByLabel(label: string): number {
+  async deleteClientSessionsByLabel(label: string): Promise<number> {
     // `changes` is number|bigint across the two drivers; the count here is always small.
     return Number(
-      this.db.delete(clientSessions).where(eq(clientSessions.label, label)).run().changes,
+      (await this.db.delete(clientSessions).where(eq(clientSessions.label, label)).run()).changes,
     )
   }
 
-  getClientSession(
+  async getClientSession(
     tokenHash: string,
-  ): Omit<ClientSessionRow, 'tokenHash' | 'createdAt'> | undefined {
-    const row = this.db
+  ): Promise<Omit<ClientSessionRow, 'tokenHash' | 'createdAt'> | undefined> {
+    const row = await this.db
       .select({
         userId: clientSessions.userId,
         expiresAt: clientSessions.expiresAt,
@@ -172,30 +173,30 @@ export class AuthRepository {
   }
 
   /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */
-  extendClientSession(tokenHash: string, expiresAt: string): void {
-    this.db
+  async extendClientSession(tokenHash: string, expiresAt: string): Promise<void> {
+    await this.db
       .update(clientSessions)
       .set({ expiresAt })
       .where(eq(clientSessions.tokenHash, tokenHash))
       .run()
   }
 
-  touchClientSession(tokenHash: string, lastSeenAt: string): void {
-    this.db
+  async touchClientSession(tokenHash: string, lastSeenAt: string): Promise<void> {
+    await this.db
       .update(clientSessions)
       .set({ lastSeenAt })
       .where(eq(clientSessions.tokenHash, tokenHash))
       .run()
   }
 
-  listMobileClientSessions(userId: UserId): ClientSessionRow[] {
-    return this.listClientSessions().filter(
+  async listMobileClientSessions(userId: UserId): Promise<ClientSessionRow[]> {
+    return (await this.listClientSessions()).filter(
       (session) => session.userId === userId && session.label === 'mobile',
     )
   }
 
-  deleteOwnedMobileClientSession(sessionId: string, userId: UserId): string | undefined {
-    const row = this.db
+  async deleteOwnedMobileClientSession(sessionId: string, userId: UserId): Promise<string | undefined> {
+    const row = await this.db
       .select({ tokenHash: clientSessions.tokenHash })
       .from(clientSessions)
       .where(
@@ -207,27 +208,27 @@ export class AuthRepository {
       )
       .get()
     if (!row) return undefined
-    this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, row.tokenHash)).run()
+    await this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, row.tokenHash)).run()
     return row.tokenHash
   }
 
   /** True iff the session exists and has not expired as of `nowIso`. */
-  isClientSessionValid(tokenHash: string, nowIso: string): boolean {
-    const session = this.getClientSession(tokenHash)
+  async isClientSessionValid(tokenHash: string, nowIso: string): Promise<boolean> {
+    const session = await this.getClientSession(tokenHash)
     return Boolean(session && session.expiresAt > nowIso)
   }
 
-  deleteClientSession(tokenHash: string): void {
-    this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, tokenHash)).run()
+  async deleteClientSession(tokenHash: string): Promise<void> {
+    await this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, tokenHash)).run()
   }
 
   /** Revoke every client login session ("sign out everywhere"). */
-  deleteAllClientSessions(): void {
-    this.db.delete(clientSessions).run()
+  async deleteAllClientSessions(): Promise<void> {
+    await this.db.delete(clientSessions).run()
   }
 
   /** Housekeeping: drop sessions whose expiry has passed. */
-  deleteExpiredClientSessions(nowIso: string): void {
-    this.db.delete(clientSessions).where(lte(clientSessions.expiresAt, nowIso)).run()
+  async deleteExpiredClientSessions(nowIso: string): Promise<void> {
+    await this.db.delete(clientSessions).where(lte(clientSessions.expiresAt, nowIso)).run()
   }
 }

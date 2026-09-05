@@ -24,12 +24,12 @@
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Opens the database backing a `SessionStore` at `path` (`:memory:` included). */
-export type StoreDatabaseOpener = (path: string) => SqlDatabase
+export type StoreDatabaseOpener = (path: string) => SqlDatabase | Promise<SqlDatabase>
 
 let installed: StoreDatabaseOpener | undefined
 
 /** Open the store's database — the installed test opener, or the real driver. */
-export function openStoreDatabase(path: string): SqlDatabase {
+export async function openStoreDatabase(path: string): Promise<SqlDatabase> {
   return installed === undefined ? openDatabase(path) : installed(path)
 }
 

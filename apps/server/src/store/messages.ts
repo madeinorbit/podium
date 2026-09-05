@@ -43,7 +43,8 @@ import {
   messageWakeCooldowns,
   sessions as sessionsTable,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
 /** RETAINED EXTERNAL/POLYMORPHIC BRAND CASTS: delivery receipt methods accept
@@ -170,7 +171,7 @@ export class MessagesRepository {
    * This aggregate opens no span today, but both members are retained so adding
    * one later does not change constructor arity or the composition root.
    */
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -184,12 +185,12 @@ export class MessagesRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
-  addMessage(m: MessageRow): void {
-    this.db
+  async addMessage(m: MessageRow): Promise<void> {
+    ;await (this.db
       .insert(messagesTable)
       .values({
         id: m.id,
@@ -228,35 +229,35 @@ export class MessagesRepository {
         expectsResponse: m.expectsResponse,
         factKey: m.factKey ?? null,
         factTarget: m.factTarget ?? null,
-      })
+      }))
       .run()
   }
 
-  getMessage(id: string): MessageRow | null {
-    const r = this.db.select().from(messagesTable).where(eq(messagesTable.id, id)).get()
+  async getMessage(id: string): Promise<MessageRow | null> {
+    const r = await this.db.select().from(messagesTable).where(eq(messagesTable.id, id)).get()
     return r ? mapMessage(r) : null
   }
 
   /** All messages addressed to a principal, oldest first. */
-  listMessagesFor(
+  async listMessagesFor(
     to: MessagePrincipalRef,
     opts?: { status?: MessageStatus; limit?: number },
-  ): MessageRow[] {
+  ): Promise<MessageRow[]> {
     const where = addressedTo(to)
     if (opts?.status) where.push(eq(messagesTable.status, opts.status))
-    return this.db
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
       .orderBy(...DELIVERY_ORDER)
       .limit(boundedLimit(opts?.limit, 200, 500))
-      .all()
+      .all())
       .map(mapMessage)
   }
 
   /** Exact, unbounded safety projection of work still pending for one session. */
-  pendingForSessionProof(sessionId: SessionId, now: string): MessageRow[] {
-    return this.db
+  async pendingForSessionProof(sessionId: SessionId, now: string): Promise<MessageRow[]> {
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(
@@ -278,14 +279,14 @@ export class MessagesRepository {
         ),
       )
       .orderBy(...DELIVERY_ORDER)
-      .all()
+      .all())
       .map(mapMessage)
   }
 
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
-  listLedger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
+  async listLedger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
     const ors: SQL[] = []
     if (q.issueId) {
       ors.push(
@@ -301,13 +302,13 @@ export class MessagesRepository {
       )
     }
     if (ors.length === 0) return []
-    return this.db
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(or(...ors))
       .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
       .limit(boundedLimit(q.limit, 200, 500))
-      .all()
+      .all())
       .map(mapMessage)
   }
 
@@ -322,7 +323,7 @@ export class MessagesRepository {
    * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
    * and its high-water cursors.
    */
-  queuedPositionForSession(sessionId: SessionId, messageId: string): number | undefined {
+  async queuedPositionForSession(sessionId: SessionId, messageId: string): Promise<number | undefined> {
     const target = or(
       and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, sessionId)),
       eq(messagesTable.deliveredTo, sessionId),
@@ -332,13 +333,13 @@ export class MessagesRepository {
       isNull(messagesTable.injectedAt),
       target,
     )
-    const row = this.db
+    const row = await this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
       .where(and(eq(messagesTable.id, messageId), waiting))
       .get()
     if (!row?.createdAt || !row.id) return undefined
-    const ahead = this.db
+    const ahead = await this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(
@@ -355,26 +356,26 @@ export class MessagesRepository {
   }
 
   /** One bounded keyset page of queued rows for a principal. */
-  pendingForPage(
+  async pendingForPage(
     to: MessagePrincipalRef,
     opts: { after?: MessagePageCursor; through?: MessagePageCursor; limit?: number } = {},
-  ): MessageRow[] {
+  ): Promise<MessageRow[]> {
     const where = [...addressedTo(to), eq(messagesTable.status, 'queued')]
     if (opts.after) where.push(afterCursor(opts.after))
     if (opts.through) where.push(throughCursor(opts.through))
-    return this.db
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
       .orderBy(...DELIVERY_ORDER)
       .limit(boundedLimit(opts.limit, 200, 500))
-      .all()
+      .all())
       .map(mapMessage)
   }
 
   /** Last queued row in stable delivery order; captures a finite scan snapshot. */
-  pendingHighWater(to: MessagePrincipalRef): MessagePageCursor | null {
-    const row = this.db
+  async pendingHighWater(to: MessagePrincipalRef): Promise<MessagePageCursor | null> {
+    const row = await this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
       .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
@@ -387,8 +388,8 @@ export class MessagesRepository {
   /** Most recently inserted operator chat send still held for one session.
    * `rowid` resolves sends accepted in the same clock tick; random message ids
    * do not encode creation order. */
-  latestPendingOperatorForSession(sessionId: SessionId): MessageRow | undefined {
-    const row = this.db
+  async latestPendingOperatorForSession(sessionId: SessionId): Promise<MessageRow | undefined> {
+    const row = await this.db
       .select()
       .from(messagesTable)
       .where(
@@ -406,19 +407,19 @@ export class MessagesRepository {
   }
 
   /** Complete queued-sender projection for nag/inbox aggregates. */
-  listPendingSenders(to: MessagePrincipalRef): PendingMessageSender[] {
-    return this.distinctSenders(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
+  async listPendingSenders(to: MessagePrincipalRef): Promise<PendingMessageSender[]> {
+    return await this.distinctSenders(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
   }
 
   /** Count and group one queued slice in one statement for the inbox nag. */
-  pendingSummary(to: MessagePrincipalRef): PendingMessageSummary {
-    return this.pendingSummaryForPredicate(
+  async pendingSummary(to: MessagePrincipalRef): Promise<PendingMessageSummary> {
+    return await this.pendingSummaryForPredicate(
       and(...addressedTo(to), eq(messagesTable.status, 'queued')),
     )
   }
 
-  countQueued(): number {
-    const row = this.db
+  async countQueued(): Promise<number> {
+    const row = await this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(eq(messagesTable.status, 'queued'))
@@ -426,8 +427,8 @@ export class MessagesRepository {
     return Number(row?.n ?? 0)
   }
 
-  countPending(to: MessagePrincipalRef): number {
-    const row = this.db
+  async countPending(to: MessagePrincipalRef): Promise<number> {
+    const row = await this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
@@ -444,10 +445,10 @@ export class MessagesRepository {
   // per-reader ledger the nag counts instead; the delivery ledger is untouched.
 
   /** Record that `sessionId` has now seen `messageId` (idempotent). */
-  recordRead(messageId: string, sessionId: SessionId, readAt: string): void {
-    this.db
+  async recordRead(messageId: string, sessionId: SessionId, readAt: string): Promise<void> {
+    ;await (this.db
       .insert(messageReads)
-      .values({ messageId, sessionId, readAt })
+      .values({ messageId, sessionId, readAt }))
       // DO NOTHING, never DO UPDATE: the FIRST sighting is the one that happened.
       .onConflictDoNothing({ target: [messageReads.messageId, messageReads.sessionId] })
       .run()
@@ -464,13 +465,13 @@ export class MessagesRepository {
    * Existence only. A caller that needs the ROW still wants `getMessage`; this is
    * for the predicate, which is where the one-query-per-row cost was.
    */
-  existingMessageIds(messageIds: string[]): Set<string> {
+  async existingMessageIds(messageIds: string[]): Promise<Set<string>> {
     const unique = [...new Set(messageIds)]
     const out = new Set<string>()
     const CHUNK = 500
     for (let i = 0; i < unique.length; i += CHUNK) {
       const chunk = unique.slice(i, i + CHUNK)
-      for (const r of this.db
+      for (const r of await this.db
         .select({ id: messagesTable.id })
         .from(messagesTable)
         .where(inArray(messagesTable.id, chunk))
@@ -482,9 +483,9 @@ export class MessagesRepository {
   }
 
   /** Which of `messageIds` this session has already seen. */
-  readReceipts(sessionId: SessionId, messageIds: string[]): Set<string> {
+  async readReceipts(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
-    const rows = this.db
+    const rows = await this.db
       .select({ messageId: messageReads.messageId })
       .from(messageReads)
       .where(
@@ -496,9 +497,9 @@ export class MessagesRepository {
 
   /** Which of `messageIds` this session SENT — never its own unread mail
    *  [POD-1379], the same notion of self delivery already applies. */
-  selfSentIds(sessionId: SessionId, messageIds: string[]): Set<string> {
+  async selfSentIds(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
-    const rows = this.db
+    const rows = await this.db
       .select({ id: messagesTable.id })
       .from(messagesTable)
       .where(and(eq(messagesTable.fromSession, sessionId), inArray(messagesTable.id, messageIds)))
@@ -516,7 +517,7 @@ export class MessagesRepository {
    * session must be told about. A session row that is gone (tests, pre-substrate
    * ids) falls back to the message's own timestamp, i.e. counts.
    */
-  private pendingForSession(issueId: IssueId, sessionId: SessionId): SQL {
+  private async pendingForSession(issueId: IssueId, sessionId: SessionId): Promise<SQL> {
     return and(
       eq(messagesTable.toKind, 'issue'),
       eq(messagesTable.toId, issueId),
@@ -549,12 +550,12 @@ export class MessagesRepository {
   }
 
   /** Count and group one reader-scoped pending slice in one statement. */
-  pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): PendingMessageSummary {
-    return this.pendingSummaryForPredicate(this.pendingForSession(issueId, sessionId))
+  async pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSummary> {
+    return await this.pendingSummaryForPredicate(await this.pendingForSession(issueId, sessionId))
   }
 
-  private pendingSummaryForPredicate(predicate: SQL | undefined): PendingMessageSummary {
-    const rows = this.db
+  private async pendingSummaryForPredicate(predicate: SQL | undefined): Promise<PendingMessageSummary> {
+    const rows = await this.db
       .select({
         fromKind: messagesTable.fromKind,
         fromIssue: messagesTable.fromIssue,
@@ -581,8 +582,8 @@ export class MessagesRepository {
   }
 
   /** The DISTINCT sender projection both queued-sender readers share. */
-  private distinctSenders(predicate: SQL | undefined): PendingMessageSender[] {
-    return this.db
+  private async distinctSenders(predicate: SQL | undefined): Promise<PendingMessageSender[]> {
+    return (await this.db
       .selectDistinct({
         fromKind: messagesTable.fromKind,
         fromIssue: messagesTable.fromIssue,
@@ -595,7 +596,7 @@ export class MessagesRepository {
         asc(messagesTable.fromIssue),
         asc(messagesTable.fromSession),
       )
-      .all()
+      .all())
       .map((row) => ({
         fromKind: row.fromKind as MessageRow['fromKind'],
         fromIssue: row.fromIssue,
@@ -603,17 +604,17 @@ export class MessagesRepository {
       }))
   }
 
-  countPendingForSession(issueId: IssueId, sessionId: SessionId): number {
-    const row = this.db
+  async countPendingForSession(issueId: IssueId, sessionId: SessionId): Promise<number> {
+    const row = await this.db
       .select({ n: count() })
       .from(messagesTable)
-      .where(this.pendingForSession(issueId, sessionId))
+      .where(await this.pendingForSession(issueId, sessionId))
       .get()
     return Number(row?.n ?? 0)
   }
 
-  listPendingSendersForSession(issueId: IssueId, sessionId: SessionId): PendingMessageSender[] {
-    return this.distinctSenders(this.pendingForSession(issueId, sessionId))
+  async listPendingSendersForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSender[]> {
+    return await this.distinctSenders(await this.pendingForSession(issueId, sessionId))
   }
 
   /** True if a message FROM `fromIssue` reached `to` at/after `sinceIso` — the
@@ -622,11 +623,11 @@ export class MessagesRepository {
    *  it directly? Existence-only (any status), since even a still-queued row
    *  proves the producer already acted — the steward's notice would just be a
    *  duplicate waiting to happen. */
-  alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): boolean {
+  async alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): Promise<boolean> {
     // EXTERNAL INPUT BRAND DECODE: the steward compatibility port supplies a
     // raw issue id; schema-branded from_issue makes this query narrow it here.
     const brandedFromIssue = asIssueId(fromIssue)
-    const row = this.db
+    const row = await this.db
       .select({ hit: sql<number>`1` })
       .from(messagesTable)
       .where(
@@ -646,8 +647,8 @@ export class MessagesRepository {
    *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
    *  transcript echo. A queued row that was injected but never echoed within the
    *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
-  markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
-    const r = this.db
+  async markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ injectedAt, deliveredTo })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -673,13 +674,13 @@ export class MessagesRepository {
    * second one finds a row that is no longer queued and returns false, which is how
    * the caller emits exactly one transition per turn.
    */
-  markDeliveryAbandoned(
+  async markDeliveryAbandoned(
     id: string,
     deliveredTo: SessionId,
     at: string,
     reason: QueueDrainAbandonedReason,
-  ): boolean {
-    const r = this.db
+  ): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -719,14 +720,14 @@ export class MessagesRepository {
    * A repeat finds the row already `queued` with no `injected_at`, matches
    * nothing and changes nothing.
    */
-  retractOptimisticDelivery(id: string, deliveredTo: SessionId): boolean {
-    const r = this.db
+  async retractOptimisticDelivery(id: string, deliveredTo: SessionId): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ status: 'queued', deliveredAt: null, injectedAt: null })
       .where(restingOnAPush(id, deliveredTo))
       .run()
     if (r.changes !== 1) return false
-    this.db
+    await this.db
       .delete(messageReads)
       .where(and(eq(messageReads.messageId, id), eq(messageReads.sessionId, deliveredTo)))
       .run()
@@ -752,13 +753,13 @@ export class MessagesRepository {
    * {@link retractOptimisticDelivery}, for the same reason — a refusal corrects
    * the push it answers, never a row that has since moved on.
    */
-  markSendRefused(
+  async markSendRefused(
     id: string,
     deliveredTo: SessionId,
     at: string,
     reason: QueueDrainAbandonedReason,
-  ): boolean {
-    const r = this.db
+  ): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -775,26 +776,26 @@ export class MessagesRepository {
    *  as a turn in the target's transcript (transcript echo, [POD-834]). Only now
    *  does the ledger claim the agent has it in context. Guarded on status so a
    *  duplicate/late echo is a no-op (returns false). */
-  markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): boolean {
+  async markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): Promise<boolean> {
     // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
     // supply strings, so narrow once before writing the branded column.
     const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
-    const r = this.db
+    const r = await this.db
       .update(messagesTable)
       .set({ status: 'delivered', deliveredAt, deliveredTo: brandedDeliveredTo })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
       .run()
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
-    if (brandedDeliveredTo) this.recordRead(id, brandedDeliveredTo, deliveredAt)
+    if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
     return r.changes === 1
   }
 
   /** queued → cancelled: the sender retracted work before it reached the
    * recipient. The queued-input drain re-reads this status immediately before
    * touching the PTY, so a cancelled row cannot be applied later. */
-  markCancelled(id: string): boolean {
-    const r = this.db
+  async markCancelled(id: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ status: 'cancelled' })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -810,8 +811,8 @@ export class MessagesRepository {
    *  the row then read as "delivered to nobody" despite having been routed
    *  correctly and landed in a transcript. That erase is why the delivery ledger
    *  could not be trusted to answer "did this reach anyone?". */
-  markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): boolean {
-    const r = this.db
+  async markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({
         status: 'delivered',
@@ -821,15 +822,15 @@ export class MessagesRepository {
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
       .run()
     // The pull proves THIS reader has it, whoever the row was pushed to.
-    if (reader) this.recordRead(id, asSessionId(reader), deliveredAt)
+    if (reader) await this.recordRead(id, asSessionId(reader), deliveredAt)
     return r.changes === 1
   }
 
   /** queued|delivered → read: the recipient opened its inbox and consumed it (the
    *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
    *  agent pulled it. A delivered row can still be marked read if later pulled. */
-  markRead(id: string, deliveredTo: string | null, readAt: string): boolean {
-    const r = this.db
+  async markRead(id: string, deliveredTo: string | null, readAt: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({
         status: 'read',
@@ -841,7 +842,7 @@ export class MessagesRepository {
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
     // guarded UPDATE lost (a peer consumed the shared row first): the receipt is
     // about THIS reader, not about who moved the shared delivery ledger.
-    if (deliveredTo) this.recordRead(id, asSessionId(deliveredTo), readAt)
+    if (deliveredTo) await this.recordRead(id, asSessionId(deliveredTo), readAt)
     return r.changes === 1
   }
 
@@ -856,10 +857,10 @@ export class MessagesRepository {
    *  {@link markDeliveryAbandoned} uses, so both refusal paths — the late one the
    *  daemon reports and the synchronous one answered inside the send — leave a row
    *  a reader can tell apart from a target that disappeared. */
-  markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): boolean {
+  async markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): Promise<boolean> {
     // TWO DIFFERENT WRITES, not one with nulls: without a cause the two
     // `delivery_deferred_*` columns are LEFT ALONE rather than cleared.
-    const r = this.db
+    const r = await this.db
       .update(messagesTable)
       .set(
         cause
@@ -880,8 +881,8 @@ export class MessagesRepository {
    *  it within the window — the push was lost. Clear injected_at so the next
    *  delivery attempt re-pushes. Guarded on status='queued' so a row that raced to
    *  delivered/read in the meantime is left alone. */
-  clearInjected(id: string): boolean {
-    const r = this.db
+  async clearInjected(id: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ injectedAt: null })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -890,35 +891,35 @@ export class MessagesRepository {
   }
 
   /** Every queued (undelivered) row, oldest first — the slow sweep's retry set. */
-  listQueued(limit = 500): MessageRow[] {
-    return this.listQueuedPage({ limit })
+  async listQueued(limit = 500): Promise<MessageRow[]> {
+    return await this.listQueuedPage({ limit })
   }
 
   /** One bounded keyset page of the global queued delivery set. */
-  listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): MessageRow[] {
+  async listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): Promise<MessageRow[]> {
     const where: SQL[] = [eq(messagesTable.status, 'queued')]
     if (opts.after) where.push(afterCursor(opts.after))
-    return this.db
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
       .orderBy(...DELIVERY_ORDER)
       .limit(boundedLimit(opts.limit, 500, 2000))
-      .all()
+      .all())
       .map(mapMessage)
   }
 
   /** Persist a keyed wake attempt before its external side effect. */
-  recordWakeCooldown(key: string, attemptedAt: string): void {
-    this.db
+  async recordWakeCooldown(key: string, attemptedAt: string): Promise<void> {
+    ;await (this.db
       .insert(messageWakeCooldowns)
-      .values({ key, attemptedAt })
+      .values({ key, attemptedAt }))
       .onConflictDoUpdate({ target: messageWakeCooldowns.key, set: { attemptedAt } })
       .run()
   }
 
-  getWakeCooldown(key: string): string | null {
-    const row = this.db
+  async getWakeCooldown(key: string): Promise<string | null> {
+    const row = await this.db
       .select({ attemptedAt: messageWakeCooldowns.attemptedAt })
       .from(messageWakeCooldowns)
       .where(eq(messageWakeCooldowns.key, key))
@@ -929,13 +930,13 @@ export class MessagesRepository {
   /** Apply one janitor-observed expiry only if every observed durable fact is
    * still current. Server time eligibility is checked by MaintenanceService
    * immediately before this conditional write in the same transaction. */
-  expireObserved(input: {
+  async expireObserved(input: {
     id: string
     createdAt: string
     lifecycle: MessageRow['lifecycle']
     expiresAt: string | null
-  }): boolean {
-    const result = this.db
+  }): Promise<boolean> {
+    const result = await this.db
       .update(messagesTable)
       .set({ status: 'expired' })
       .where(
@@ -957,8 +958,8 @@ export class MessagesRepository {
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
-  markAcked(id: string, ackedBy: string): boolean {
-    const r = this.db
+  async markAcked(id: string, ackedBy: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ ackedBy })
       .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy)))
@@ -973,21 +974,21 @@ export class MessagesRepository {
    *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
    *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
    *  both read this set (#237) [spec:SP-34d7 acks]. */
-  listDeliveredUnacked(sessionId: SessionId, now: string): MessageRow[] {
+  async listDeliveredUnacked(sessionId: SessionId, now: string): Promise<MessageRow[]> {
     return (
-      this.db
+      (await this.db
         .select()
         .from(messagesTable)
         // The agent has it either way — pushed (delivered) or pulled (read).
-        .where(and(this.unackedRequest(sessionId, now)))
+        .where(and(await this.unackedRequest(sessionId, now)))
         .orderBy(...DELIVERY_ORDER)
-        .all()
+        .all())
         .map(mapMessage)
     )
   }
 
   /** The shared "still owes a reply" predicate of the two ack readers. */
-  private unackedRequest(sessionId: SessionId, now: string): SQL {
+  private async unackedRequest(sessionId: SessionId, now: string): Promise<SQL> {
     return and(
       inArray(messagesTable.status, ['delivered', 'read']),
       eq(messagesTable.deliveredTo, sessionId),
@@ -1007,14 +1008,14 @@ export class MessagesRepository {
    *  settle notice is a `notification` row whose `in_reply_to` is the original, so
    *  "already notified" == such a row exists. No column needed; the notice itself is
    *  the marker. This is why the notice fires at most ONCE per requested response. */
-  listSettleNotifiable(sessionId: SessionId, now: string): MessageRow[] {
+  async listSettleNotifiable(sessionId: SessionId, now: string): Promise<MessageRow[]> {
     const notice = alias(messagesTable, 'n')
-    return this.db
+    return (await this.db
       .select()
       .from(messagesTable)
       .where(
         and(
-          this.unackedRequest(sessionId, now),
+          await this.unackedRequest(sessionId, now),
           notExists(
             this.db
               .select({ one: sql`1` })
@@ -1024,13 +1025,13 @@ export class MessagesRepository {
         ),
       )
       .orderBy(...DELIVERY_ORDER)
-      .all()
+      .all())
       .map(mapMessage)
   }
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
-  markReminded(id: string, at: string): boolean {
-    const r = this.db
+  async markReminded(id: string, at: string): Promise<boolean> {
+    const r = await this.db
       .update(messagesTable)
       .set({ remindedAt: at })
       .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt)))

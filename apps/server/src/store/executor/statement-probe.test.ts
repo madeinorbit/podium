@@ -148,7 +148,7 @@ describe('parity between the SqlDatabase wrapper and the driver seam', () => {
     const wrapper = costOf(failing.sql)
 
     resetQueryAttribution()
-    await expect(throughDriver(fresh(), failing)).rejects.toThrow()
+    await expect(await throughDriver(fresh(), failing)).rejects.toThrow()
     const seam = costOf(failing.sql)
 
     expect(wrapper).toEqual({ count: 1, rows: 0 })
@@ -241,7 +241,7 @@ describe('what the driver seam observes', () => {
     const driver = instrumentDriver(createBunSqliteDriver({ database: db }), hub)
     const session = await driver.open('write')
     await expect(
-      session.executeBatch([
+      await session.executeBatch([
         {
           sql: 'INSERT INTO t (id, v) VALUES (?, ?)',
           params: [5, 'e'],

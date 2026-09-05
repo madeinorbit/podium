@@ -567,11 +567,11 @@ export class UpdatesService {
    * one promise per channel removes the overlap that makes the ordering question
    * exist at all, so the guard cannot be reintroduced by adding a seventh caller.
    */
-  refreshTarget(channel: UpdateChannel): Promise<boolean> {
+  async refreshTarget(channel: UpdateChannel): Promise<boolean> {
     const inFlight = this.refreshesInFlight.get(channel)
     if (inFlight) return inFlight
 
-    const refresh = this.resolveIntoTarget(channel).finally(() => {
+    const refresh = (await this.resolveIntoTarget(channel)).finally(() => {
       // Identity-checked so a slot re-taken by a later caller is never deleted by
       // an earlier one settling; `finally` also covers the failure path, or one
       // unreachable second would pin the channel shut for the life of the process.

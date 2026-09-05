@@ -96,8 +96,8 @@ describe('repo reads under a projection pass', () => {
   })
 
   it('resolves prefixes for many paths without re-scanning repo_prefixes per path', () => {
-    const prefixes = Array.from({ length: 50 }, (_, i) =>
-      repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`),
+    const prefixes = Array.from({ length: 50 }, async (_, i) =>
+      await repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`),
     )
 
     expect(new Set(prefixes)).toEqual(new Set(['BE']))

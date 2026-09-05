@@ -131,11 +131,11 @@ export class AgentConcurrencyHistory {
     this.unsubscribe()
   }
 
-  capture(): number {
+  async capture(): Promise<number> {
     const count = workingAgentCount(this.deps.sessions(), this.deps.now())
     if (count === this.lastRecordedCount) return count
     try {
-      this.deps.events.appendEvent({
+      await this.deps.events.appendEvent({
         ts: new Date(this.deps.now()).toISOString(),
         kind: AGENT_CONCURRENCY_EVENT,
         subject: 'fleet',
@@ -149,12 +149,12 @@ export class AgentConcurrencyHistory {
     return count
   }
 
-  history(): AgentConcurrencyHistoryResult {
+  async history(): Promise<AgentConcurrencyHistoryResult> {
     const nowMs = this.deps.now()
-    this.capture()
+    await this.capture()
     const since = new Date(nowMs - AGENT_CONCURRENCY_WINDOW_MS).toISOString()
     return buildAgentConcurrencyHistory(
-      this.deps.events.listKindSinceWithPrior(AGENT_CONCURRENCY_EVENT, since),
+      await this.deps.events.listKindSinceWithPrior(AGENT_CONCURRENCY_EVENT, since),
       nowMs,
     )
   }

@@ -57,29 +57,29 @@ afterEach(() => {
 })
 
 describe('SessionRepository volatile capture slices [POD-2322]', () => {
-  it('drains at most 32 candidates and reports deterministic progress', () => {
+  it('drains at most 32 candidates and reports deterministic progress', async () => {
     vi.useFakeTimers()
     const { repo, rows, wire } = fixture(40)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
-    const first = repo.drainVolatileCaptureSlice()
+    const first = await repo.drainVolatileCaptureSlice()
     expect(first.changes).toHaveLength(32)
     expect(first.remaining).toBe(8)
     expect(wire).toHaveBeenCalledTimes(32)
 
-    const second = repo.drainVolatileCaptureSlice()
+    const second = await repo.drainVolatileCaptureSlice()
     expect(second.changes).toHaveLength(8)
     expect(second.remaining).toBe(0)
     expect(wire).toHaveBeenCalledTimes(40)
   })
 
-  it('stops on the CPU budget only between complete candidates', () => {
+  it('stops on the CPU budget only between complete candidates', async () => {
     vi.useFakeTimers()
     const { repo, rows, wire } = fixture(5)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
     const ticks = [0, 5, 10]
 
-    const result = repo.drainVolatileCaptureSlice({
+    const result = await repo.drainVolatileCaptureSlice({
       maxItems: 32,
       maxCpuMs: 8,
       now: () => ticks.shift() ?? 10,
@@ -89,7 +89,7 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
     expect(result.remaining).toBe(3)
   })
 
-  it('keeps a same-slice mutation pending and captures its newest value next', () => {
+  it('keeps a same-slice mutation pending and captures its newest value next', async () => {
     vi.useFakeTimers()
     const { repo, rows, wire } = fixture(1)
     const row = rows[0]!
@@ -105,8 +105,8 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
     })
     repo.markVolatileSessionDirty(row.sessionId)
 
-    expect(repo.drainVolatileCaptureSlice().remaining).toBe(1)
-    expect(repo.drainVolatileCaptureSlice().remaining).toBe(0)
+    expect((await repo.drainVolatileCaptureSlice()).remaining).toBe(1)
+    expect((await repo.drainVolatileCaptureSlice()).remaining).toBe(0)
     expect(wire.mock.results.map((result) => result.value.title)).toEqual(['title-0', 'newest'])
   })
 
@@ -130,12 +130,12 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
     expect(runScheduledBroadcast).toHaveBeenCalledTimes(1)
   })
 
-  it('the synchronous barrier drains the complete backlog', () => {
+  it('the synchronous barrier drains the complete backlog', async () => {
     vi.useFakeTimers()
     const { repo, rows, wire } = fixture(100)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
-    const changes = repo.flushVolatileSessionCaptures()
+    const changes = await repo.flushVolatileSessionCaptures()
 
     expect(changes).toHaveLength(100)
     expect(wire).toHaveBeenCalledTimes(100)

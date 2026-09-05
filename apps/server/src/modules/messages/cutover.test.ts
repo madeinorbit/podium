@@ -382,14 +382,14 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       // ALLOWED first, so the instrument is known to be able to say yes: without
       // this arm a broken fixture and a working ceiling look identical.
       allowed.push(
-        await outcome(() =>
-          h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+        await outcome(async () =>
+          await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
         ),
       )
       hidden.push(theirs.id)
       denied.push(
-        await outcome(() =>
-          h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+        await outcome(async () =>
+          await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
         ),
       )
     }
@@ -412,11 +412,11 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       hidden.push(theirs.id)
       const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
-      const beyond = await outcome(() =>
-        h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+      const beyond = await outcome(async () =>
+        await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
       )
-      const unknown = await outcome(() =>
-        h.gate.dispatch(cap, true, 'send', { to: '#99999', body: 'x' }, transport),
+      const unknown = await outcome(async () =>
+        await h.gate.dispatch(cap, true, 'send', { to: '#99999', body: 'x' }, transport),
       )
       expect(beyond).toEqual(unknown)
       // Non-vacuity: both must actually be the dead-letter answer, not two
@@ -430,10 +430,10 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
     // `pendingReminders` is relay-only (the stop hook). The relay serves it; the
     // tRPC arm must answer "no such proc", which is what an unexposed command
     // is indistinguishable from.
-    expect(h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'relay')).toBeDefined()
-    expect(h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'trpc')).toBeUndefined()
+    expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'relay')).toBeDefined()
+    expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'trpc')).toBeUndefined()
     // The counterfactual: a proc that IS exposed on trpc answers there.
-    expect(h.gate.dispatch(OPERATOR, undefined, 'ledger', {}, 'trpc')).toBeDefined()
+    expect(await h.gate.dispatch(OPERATOR, undefined, 'ledger', {}, 'trpc')).toBeDefined()
   })
 })
 
@@ -560,16 +560,16 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
       },
     )) as { id: string; disposition: string }
     expect(accepted.disposition).toBe('held')
-    expect(h.svc.message(accepted.id)?.status).toBe('queued')
+    expect((await h.svc.message(accepted.id))?.status).toBe('queued')
 
     // The target leaves the delegating human's visibility BETWEEN accept and
     // drain — the one mutation this scenario is about.
     hidden.push(target.id)
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
-    h.svc.sweep()
+    await h.svc.sweep()
 
     // Never applied…
-    expect(h.svc.message(accepted.id)?.status).toBe('dead_letter')
+    expect((await h.svc.message(accepted.id))?.status).toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped (ADR 3 D9). The reason is the one an id that
     // does not exist gives, so the queue is not an existence oracle one step
@@ -597,9 +597,9 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
       },
     )) as { id: string; disposition: string }
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
-    h.svc.sweep()
+    await h.svc.sweep()
 
-    expect(h.svc.message(accepted.id)?.status).not.toBe('dead_letter')
+    expect((await h.svc.message(accepted.id))?.status).not.toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
   })
 })
@@ -671,8 +671,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
         },
       },
     })
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/t',

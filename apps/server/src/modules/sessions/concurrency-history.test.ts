@@ -78,7 +78,7 @@ describe('buildAgentConcurrencyHistory', () => {
 })
 
 describe('AgentConcurrencyHistory', () => {
-  it('records only changes to the working/compacting fleet count', () => {
+  it('records only changes to the working/compacting fleet count', async () => {
     const bus = new EventBus()
     const sessions: FakeSession[] = []
     const rows: PodiumEventRecord[] = []
@@ -122,7 +122,7 @@ describe('AgentConcurrencyHistory', () => {
     expect(rows.map((row) => row.payload)).toEqual([{ count: 1 }, { count: 0 }])
     // The current sentence is zero, while the current half-hour bucket keeps
     // the brief one-agent burst visible as its peak.
-    expect(history.history().buckets.at(-1)?.count).toBe(1)
+    expect((await history.history()).buckets.at(-1)?.count).toBe(1)
     expect(rows).toHaveLength(2)
     history.dispose()
   })
@@ -130,7 +130,7 @@ describe('AgentConcurrencyHistory', () => {
   /** POD-730: the registry keeps every session it ever saw, and their last
    *  observed phase is preserved deliberately. Counting phase alone gave the
    *  skyline a floor that only ratcheted upward. */
-  it('drops an agent from the count the moment its process is gone', () => {
+  it('drops an agent from the count the moment its process is gone', async () => {
     const bus = new EventBus()
     const sessions: FakeSession[] = [live('working')]
     const rows: PodiumEventRecord[] = []
@@ -149,7 +149,7 @@ describe('AgentConcurrencyHistory', () => {
       bus,
       now: () => NOW,
     })
-    expect(history.capture()).toBe(1)
+    expect(await history.capture()).toBe(1)
 
     // A process that dies mid-turn emits no closing state event, so the exit
     // itself has to move the count.

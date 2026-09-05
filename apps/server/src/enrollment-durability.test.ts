@@ -68,17 +68,17 @@ async function makeWorld(stateDir: string, opts: { dbPath?: string } = {}) {
   return { store, machines, enrollment, pairing, stateDir }
 }
 
-function pairRemote(
+async function pairRemote(
   machines: MachinesService,
   opts: { machineId?: string; ownerUserId?: string; hostname?: string } = {},
-): { machineId: string; token: string; name: string } {
+): Promise<{ machineId: string; token: string; name: string }> {
   const machineId = asMachineId(opts.machineId ?? 'remote-box')
   const code = machines.mintPairingCode({
     ...(opts.ownerUserId !== undefined
       ? { ownerUserId: asUserId(opts.ownerUserId) }
       : { ownerUserId: OWNER }),
   })
-  const auth = machines.authenticateDaemon({
+  const auth = await machines.authenticateDaemon({
     type: 'pair',
     code,
     machineId,
@@ -90,13 +90,13 @@ function pairRemote(
   return { machineId: auth.machineId, token: auth.token, name: auth.name }
 }
 
-function hello(
+async function hello(
   machines: MachinesService,
   machineId: string,
   token: string,
   hostname = 'remote.local',
 ) {
-  return machines.authenticateDaemon({
+  return await machines.authenticateDaemon({
     type: 'hello',
     machineId: asMachineId(machineId),
     token,
@@ -168,7 +168,7 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('1. LOSS RECOVERS: missing machines row re-enrols unattended with the same MachineId', async () => {
     const w = await makeWorld(dir)
-    const { machineId, token } = pairRemote(w.machines)
+    const { machineId, token } = await pairRemote(w.machines)
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
 
     // Accidental loss of the row (DB recreate / restore from before pairing).
@@ -179,11 +179,11 @@ describe('D19.4 regression sequences', () => {
     // that has no row (simulates DB loss while state root survives).
     const restarted = await makeWorld(dir)
     // No pair code — only the old token.
-    const auth = hello(restarted.machines, machineId, token)
+    const auth = await hello(restarted.machines, machineId, token)
     expect(auth).toEqual({ ok: true, machineId, name: 'remote.local' })
     expect((await restarted.store.machines.getMachine(machineId))?.id).toBe(machineId)
     // Same MachineId preserved; token still authenticates after re-enrol.
-    expect(hello(restarted.machines, machineId, token).ok).toBe(true)
+    expect((await hello(restarted.machines, machineId, token)).ok).toBe(true)
   })
 
   // ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ describe('D19.4 regression sequences', () => {
   it('2. REVOKE STAYS DENIED: rolling the DB back before the revoke still denies the old token', async () => {
     const dbPath = join(dir, 'podium.db')
     const w = await makeWorld(dir, { dbPath })
-    const { machineId, token } = pairRemote(w.machines)
+    const { machineId, token } = await pairRemote(w.machines)
 
     // Snapshot the row as it was AFTER pair and BEFORE revoke (the "backup").
     const row = await w.store.machines.getMachine(machineId)
@@ -200,9 +200,9 @@ describe('D19.4 regression sequences', () => {
     const tokenHash = sha256(token)
 
     // Intentional revoke — ledger append is the commit point.
-    w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
+    await w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
     expect(await w.store.machines.getMachine(machineId)).toBeUndefined()
-    expect(hello(w.machines, machineId, token).ok).toBe(false)
+    expect((await hello(w.machines, machineId, token)).ok).toBe(false)
 
     // DESTROY / ROLL BACK the DB to before the revoke: re-insert the pre-revoke row.
     // The ledger is NOT restored (D19.4a).
@@ -216,7 +216,7 @@ describe('D19.4 regression sequences', () => {
     expect(await w.store.machines.getMachineByToken(machineId, token)).toBe(true)
 
     // Reconnect with the old token must still DENY — ledger wins.
-    const denied = hello(w.machines, machineId, token)
+    const denied = await hello(w.machines, machineId, token)
     expect(denied).toEqual({ ok: false, reason: 'unknown machine — re-pair' })
 
     // Restart over the same ledger + rolled-back DB: still denied.
@@ -250,7 +250,7 @@ describe('D19.4 regression sequences', () => {
       clients: () => [],
       machinesForPrincipal: () => [],
     })
-    expect(hello(svc, machineId, token).ok).toBe(false)
+    expect((await hello(svc, machineId, token)).ok).toBe(false)
   })
 
   // ---------------------------------------------------------------------------
@@ -261,10 +261,10 @@ describe('D19.4 regression sequences', () => {
     // A live enrollment on this instance (not revoked) so a foreign token for the
     // same MachineId is a re-enrol candidate if the MAC is skipped — that is the
     // mutant that sequence 3 must catch. Revoke-reason bytes come from a sibling.
-    const { machineId, token } = pairRemote(w.machines, { machineId: 'remote-box' })
-    const sibling = pairRemote(w.machines, { machineId: 'sibling-box' })
-    w.machines.revokeMachine(asMachineId(sibling.machineId))
-    const revokeReason = hello(w.machines, sibling.machineId, sibling.token)
+    const { machineId, token } = await pairRemote(w.machines, { machineId: 'remote-box' })
+    const sibling = await pairRemote(w.machines, { machineId: 'sibling-box' })
+    await w.machines.revokeMachine(asMachineId(sibling.machineId))
+    const revokeReason = await hello(w.machines, sibling.machineId, sibling.token)
     expect(revokeReason.ok).toBe(false)
 
     // Row lost without revoke — legitimate token would re-enrol; foreign must not.
@@ -273,16 +273,16 @@ describe('D19.4 regression sequences', () => {
     const otherDir = tempState()
     try {
       const other = await makeWorld(otherDir)
-      const foreign = pairRemote(other.machines, { machineId })
+      const foreign = await pairRemote(other.machines, { machineId })
       // Unit-level witness: this instance's root refuses the foreign MAC.
       expect(verifyPairingToken(w.enrollment.pairingRoot, foreign.token)).toBeNull()
       expect(verifyPairingToken(other.enrollment.pairingRoot, foreign.token)).not.toBeNull()
-      const wrong = hello(w.machines, machineId, foreign.token)
+      const wrong = await hello(w.machines, machineId, foreign.token)
       expect(wrong.ok).toBe(false)
       // Error byte-identical to the revoke case (D19.4 case 3 / D20).
       expect(wrong).toEqual(revokeReason)
       // Counterfactual: the real token still recovers unattended.
-      expect(hello(w.machines, machineId, token).ok).toBe(true)
+      expect((await hello(w.machines, machineId, token)).ok).toBe(true)
     } finally {
       rmSync(otherDir, { recursive: true, force: true })
     }
@@ -293,7 +293,7 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('4. RECOVERED ROW IS NOT AMBIENT: owner from ledger, grants empty, non-owner denied', async () => {
     const w = await makeWorld(dir)
-    const { machineId, token } = pairRemote(w.machines, { ownerUserId: OWNER })
+    const { machineId, token } = await pairRemote(w.machines, { ownerUserId: OWNER })
 
     // Share use with a colleague, then lose the row (grants go with it or are dropped).
     await w.store.grants.upsert({
@@ -314,7 +314,7 @@ describe('D19.4 regression sequences', () => {
     await w.store.grants.removeAllForResource('machine', machineId)
 
     const restarted = await makeWorld(dir)
-    expect(hello(restarted.machines, machineId, token).ok).toBe(true)
+    expect((await hello(restarted.machines, machineId, token)).ok).toBe(true)
 
     const row = await restarted.store.machines.getMachine(machineId)
     expect(row?.ownerUserId).toBe(OWNER)
@@ -333,7 +333,7 @@ describe('D19.4 regression sequences', () => {
   it('4b. owner account deleted → QUARANTINED (admin see, nobody use)', async () => {
     const w = await makeWorld(dir)
     // Pair under OTHER so the ledger records that owner; then the account is gone.
-    const { machineId, token } = pairRemote(w.machines, { ownerUserId: OTHER })
+    const { machineId, token } = await pairRemote(w.machines, { ownerUserId: OTHER })
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
     await w.store.machines.deleteMachine(machineId)
 
@@ -350,7 +350,7 @@ describe('D19.4 regression sequences', () => {
       clients: () => [],
       machinesForPrincipal: () => [],
     })
-    expect(hello(svc, machineId, token).ok).toBe(true)
+    expect((await hello(svc, machineId, token)).ok).toBe(true)
     const row = await store.machines.getMachine(machineId)
     // Quarantine: owner null, not first-admin.
     expect(row?.ownerUserId).toBeNull()
@@ -375,15 +375,15 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('5. CRASH BETWEEN THE WRITES: owner transition append without row update; restart repairs', async () => {
     const w = await makeWorld(dir)
-    const { machineId } = pairRemote(w.machines, { ownerUserId: OWNER })
+    const { machineId } = await pairRemote(w.machines, { ownerUserId: OWNER })
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
 
     // Append owner transition, kill before the machines row is updated.
-    w.machines.transferOwnership(asMachineId(machineId), OTHER, { skipRowUpdate: true })
+    await w.machines.transferOwnership(asMachineId(machineId), OTHER, { skipRowUpdate: true })
     // Row still shows OLD owner — the crash window.
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
     // But the ledger already commits the NEW owner; effectiveOwner reflects it.
-    expect(w.machines.effectiveOwner(asMachineId(machineId))).toBe(OTHER)
+    expect(await w.machines.effectiveOwner(asMachineId(machineId))).toBe(OTHER)
     const ownershipMidCrash = ownershipFromMachines(w.machines)
     const oldP = userCommandPrincipal(asUserId(OWNER), 'admin')
     const newP = userCommandPrincipal(OTHER, 'member')

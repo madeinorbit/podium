@@ -61,8 +61,8 @@ export class IssueAssistantDigestModule {
   async refreshAssistant(id: string): Promise<IssueWire> {
     // `let`, because this draft does NOT survive the awaits below — the status/log
     // probes and the LLM completion — and is re-cut after them (POD-3375).
-    let row = this.store.draftOrThrow(id)
-    if (!row.worktreePath) return this.store.toWire(row)
+    let row = await this.store.draftOrThrow(id)
+    if (!row.worktreePath) return await this.store.toWire(row)
     const settings = this.store.d.getSettings()
     const members = this.store.sessionsFor(row).map((s) => ({
       agentKind: s.agentKind,
@@ -70,10 +70,10 @@ export class IssueAssistantDigestModule {
       tail: '',
     }))
     const [status, log] = await Promise.all([
-      this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
-      this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      (await this.store.d.repoOp('status', row.worktreePath)).catch(() => ({ ok: false, output: '' })),
+      (await this.store.d.repoOp('log', row.worktreePath)).catch(() => ({ ok: false, output: '' })),
     ])
-    const inScope = this.store.repoScopeFilter(row.repoPath)
+    const inScope = await this.store.repoScopeFilter(row.repoPath)
     const others = [...this.store.rows.values()]
       .filter((r) => r.id !== row.id && inScope(r) && !r.archived && !r.deletedAt)
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
@@ -128,8 +128,8 @@ export class IssueAssistantDigestModule {
      * Placed before the `!result` return so the early exit also reports the current
      * row rather than a wire built from a spent draft.
      */
-    row = this.store.draftOrThrow(id)
-    if (!result) return this.store.toWire(row) // leave prior state intact on any LLM/parse failure
+    row = await this.store.draftOrThrow(id)
+    if (!result) return await this.store.toWire(row) // leave prior state intact on any LLM/parse failure
     row.activityNotes = result.activityNotes || row.activityNotes
     row.notesUpdatedAt = this.store.now()
     row.blockedBy = result.blockedBy

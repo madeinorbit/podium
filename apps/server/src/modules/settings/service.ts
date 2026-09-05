@@ -297,8 +297,8 @@ export class SettingsService {
    * pass `FIRST_ADMIN_USER_ID` today are deliberately greppable rather than
    * hidden behind a default.
    */
-  getSettings(): PodiumSettings {
-    return this.store.getSettings()
+  async getSettings(): Promise<PodiumSettings> {
+    return await this.store.getSettings()
   }
 
   /**
@@ -310,8 +310,8 @@ export class SettingsService {
    * the one place a per-user read could silently keep answering for one identity
    * while every call site still compiles.
    */
-  getSettingsFor(userId: UserId): PodiumSettings {
-    return this.store.getSettingsFor(userId)
+  async getSettingsFor(userId: UserId): Promise<PodiumSettings> {
+    return await this.store.getSettingsFor(userId)
   }
 
   /**
@@ -324,14 +324,14 @@ export class SettingsService {
    * run — the reach-through grew the census 18 → 19, which is the ratchet doing
    * its job on a line that was architecturally wrong for an independent reason.
    */
-  recordCommand(input: {
+  async recordCommand(input: {
     command: string
     outcome: SettingsAuditOutcome
     principal: CommandPrincipal
     input: unknown
     error?: string
-  }): void {
-    recordSettingsCommand(this.audit, input)
+  }): Promise<void> {
+    await recordSettingsCommand(this.audit, input)
   }
 
   /**
@@ -403,11 +403,11 @@ export class SettingsService {
    * pair would make those changes invisible; {@link emitSettingsChanged} records
    * the future per-user fan-out boundary explicitly.
    */
-  setSettingsFor(userId: UserId, settings: PodiumSettings): PodiumSettings {
-    const previous = this.store.getSettingsFor(userId)
+  async setSettingsFor(userId: UserId, settings: PodiumSettings): Promise<PodiumSettings> {
+    const previous = await this.store.getSettingsFor(userId)
     this.assertNoSecretChange(previous, settings)
-    this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
-    const next = this.store.getSettingsFor(userId)
+    await this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
+    const next = await this.store.getSettingsFor(userId)
     this.emitSettingsChanged(previous, next)
     // The CALLER is served what it now resolves to, not the shared blob: a client
     // that posted its own preferences must get them back, or the next render
@@ -473,7 +473,7 @@ export class SettingsService {
    * {@link emitSettingsChanged} gives: the subscribers react to leaves that are
    * personal now, and the instance blob does not move when one of those changes.
    */
-  updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): PodiumSettings {
+  async updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): Promise<PodiumSettings> {
     // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
     //
     // POD-420's patch write reached the blob through `setSettings`, so
@@ -493,8 +493,8 @@ export class SettingsService {
           'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
       )
     }
-    const previous = this.store.getSettingsFor(actor)
-    const next = this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
+    const previous = await this.store.getSettingsFor(actor)
+    const next = await this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
     this.emitSettingsChanged(previous, next)
     return next
   }
@@ -517,16 +517,16 @@ export class SettingsService {
    * store. The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
-  setSecret(key: ServerSecretKey, value: string): SecretPresenceWire {
+  async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
     // POD-419: the material lands in the keyed store, never in the blob. The
     // rotation time is now DURABLE — POD-420 could only return it.
     const updatedAt = new Date(this.now()).toISOString()
-    this.secrets.set(key, value, updatedAt)
+    await this.secrets.set(key, value, updatedAt)
     // Still emitted, and still with the blob pair: every subscriber that reacts
     // to a changed credential (the notify replay, the messaging bridge) must
     // react whichever command wrote it, and they read the material through
     // their own dependency rather than off this payload.
-    const settings = this.store.getSettings()
+    const settings = await this.store.getSettings()
     this.bus.emit('settings.changed', { previous: settings, next: settings })
     return secretPresence(key, value, this.fingerprintKey(), updatedAt)
   }
@@ -538,11 +538,11 @@ export class SettingsService {
    * removed at the model and POD-419 removes at rest), so clearing writes it and
    * the presence projection reports `present: false` with both nullables null.
    */
-  clearSecret(key: ServerSecretKey): SecretPresenceWire {
+  async clearSecret(key: ServerSecretKey): Promise<SecretPresenceWire> {
     // In the keyed store absence IS the row being absent (POD-418 removed the
     // `''` spelling at the model; the migration removed it at rest).
-    this.secrets.clear(key)
-    const settings = this.store.getSettings()
+    await this.secrets.clear(key)
+    const settings = await this.store.getSettings()
     this.bus.emit('settings.changed', { previous: settings, next: settings })
     return secretPresence(key, '', this.fingerprintKey())
   }
@@ -555,14 +555,14 @@ export class SettingsService {
    * This is the read POD-421's UI renders. It exists here rather than on the
    * repository because the fingerprint needs the server-held MAC key.
    */
-  secretPresenceList(): SecretPresenceWire[] {
+  async secretPresenceList(): Promise<SecretPresenceWire[]> {
     // The repository answers presence and the rotation time (it is the only
     // thing that knows them); this adds the fingerprint, which needs the
     // server-held MAC key. `secretPresence` returns all-null for an empty value,
     // so an absent row cannot acquire a fingerprint by accident.
     const serverKey = this.fingerprintKey()
-    return this.secrets
-      .presence()
+    return (await this.secrets
+      .presence())
       .map((row) =>
         secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),
       )
@@ -577,21 +577,21 @@ export class SettingsService {
    * caught this on the first run. A router that can read the secret store
    * directly is a router that can grow a second policy for it.
    */
-  apiKeyFor(provider: string): string | undefined {
-    return this.secrets.apiKeyFor(provider)
+  async apiKeyFor(provider: string): Promise<string | undefined> {
+    return await this.secrets.apiKeyFor(provider)
   }
 
   /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,
    *  refreshes in the background). The web merges these over its static catalog.
    *  `machineId` is required: the catalog is a per-machine fact (ADR 1 D13.5). */
-  getModelCatalog(machineId: MachineId): ModelCatalogSnapshot {
-    return this.modelCatalog.get(machineId)
+  async getModelCatalog(machineId: MachineId): Promise<ModelCatalogSnapshot> {
+    return await this.modelCatalog.get(machineId)
   }
 
   /** Force a fresh probe for one machine and return the updated snapshot. */
   async refreshModelCatalog(machineId: MachineId): Promise<ModelCatalogSnapshot> {
     await this.modelCatalog.refresh(machineId)
-    return this.modelCatalog.get(machineId)
+    return await this.modelCatalog.get(machineId)
   }
 
   /** True while a pairing window is open — the messaging bridge pauses its
@@ -620,7 +620,7 @@ export class SettingsService {
    * present is a chat id the sender controls.
    */
   async startTelegramSetup(userId: UserId): Promise<TelegramSetupStartResult> {
-    const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
+    const botToken = (await this.secrets.getOrEmpty('notifications.telegramBotToken')).trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const { username } = await this.telegramSetup.getMe(botToken)
@@ -667,7 +667,7 @@ export class SettingsService {
       return { status: 'expired' }
     }
 
-    const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
+    const botToken = (await this.secrets.getOrEmpty('notifications.telegramBotToken')).trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)
@@ -698,7 +698,7 @@ export class SettingsService {
     // routing address derived from whoever happened to poll would be a second,
     // weaker answer sitting beside it. Both halves of the ceremony now name one
     // user, from one place.
-    const next = this.updatePreferences(setup.mint.userId, {
+    const next = await this.updatePreferences(setup.mint.userId, {
       'notifications.telegramChatId': chatId,
     })
     this.telegramSetups.delete(setupId)

@@ -84,7 +84,7 @@ export const WORKFLOW_QUERIES = {
   runs: query(z.object({ includeTerminal: z.boolean().optional() }), (service, input, caller) =>
     service.runs(input, caller),
   ),
-  prime: query(actorInput, (service, _input, caller) => service.prime(caller)),
+  prime: query(actorInput, async (service, _input, caller) => await service.prime(caller)),
   status: query(z.object({ runId: z.string().optional() }), (service, input, caller) =>
     service.status(input, caller),
   ),

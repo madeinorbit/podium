@@ -108,7 +108,7 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
  * its own — which is exactly the guarantee under test.
  */
 const freshStore = async (): Promise<SessionStore> => {
-  const store = openTestStore(':memory:')
+  const store = await openTestStore(':memory:')
   await Promise.resolve()
   return store
 }
@@ -116,43 +116,43 @@ const freshStore = async (): Promise<SessionStore> => {
 describe('issue frame read cache', () => {
   it('serves a repeat read of the same id from the frame, then re-reads next turn', async () => {
     const store = await freshStore()
-    store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(issue('iss_a'))
     await Promise.resolve()
     const reads = readProbe(store)
 
-    expect(store.issues.getIssue('iss_a')?.title).toBe('A title')
+    expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
     const afterFirst = reads()
     expect(afterFirst).toBeGreaterThan(0)
-    store.issues.getIssue('iss_a')
-    store.issues.getIssue('iss_a')
+    await store.issues.getIssue('iss_a')
+    await store.issues.getIssue('iss_a')
     expect(reads()).toBe(afterFirst)
 
     // The turn ends at the first await: the next read goes back to the table.
     await Promise.resolve()
-    store.issues.getIssue('iss_a')
+    await store.issues.getIssue('iss_a')
     expect(reads()).toBeGreaterThan(afterFirst)
   })
 
   it('hands every caller its own object, so one mutation cannot reach another', async () => {
     const store = await freshStore()
-    store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(issue('iss_a'))
     await Promise.resolve()
-    const first = store.issues.getIssue('iss_a')
+    const first = await store.issues.getIssue('iss_a')
     expect(first).not.toBeNull()
     if (first) first.title = 'Mutated by its reader'
-    expect(store.issues.getIssue('iss_a')?.title).toBe('A title')
+    expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
   })
 
   it('a write inside the frame is visible to the read that follows it', async () => {
     const store = await freshStore()
-    store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(issue('iss_a'))
     await Promise.resolve()
-    expect(store.issues.getIssue('iss_a')?.stage).toBe('backlog')
-    store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
-    expect(store.issues.getIssue('iss_a')?.stage).toBe('in_progress')
+    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
+    await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
     // And a delete is not served from the cache either.
-    store.issues.deleteIssue(asIssueId('iss_a'))
-    expect(store.issues.getIssue('iss_a')).toBeNull()
+    await store.issues.deleteIssue(asIssueId('iss_a'))
+    expect(await store.issues.getIssue('iss_a')).toBeNull()
   })
 
   /**
@@ -170,56 +170,56 @@ describe('issue frame read cache', () => {
    */
   it('does not serve a row a rolled-back transaction put in the cache', async () => {
     const store = await freshStore()
-    store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(issue('iss_a'))
     await Promise.resolve()
-    expect(store.issues.getIssue('iss_a')?.stage).toBe('backlog')
+    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
 
     expect(() =>
-      store.transact(() => {
-        store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+      store.transact(async () => {
+        await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
         // The read that would fill the cache from inside the transaction.
-        expect(store.issues.getIssue('iss_a')?.stage).toBe('in_progress')
+        expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
         throw new Error('rolled back')
       }),
     ).toThrow('rolled back')
 
     // Same turn, so the cache is still the one the transaction touched.
-    expect(store.issues.getIssue('iss_a')?.stage).toBe('backlog')
+    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
   })
 
   it('getIssues serves the frame and still asks for the ids it has not seen', async () => {
     const store = await freshStore()
-    store.issues.upsertIssue(issue('iss_a'))
-    store.issues.upsertIssue(issue('iss_b', { seq: 2, title: 'Second' }))
+    await store.issues.upsertIssue(issue('iss_a'))
+    await store.issues.upsertIssue(issue('iss_b', { seq: 2, title: 'Second' }))
     await Promise.resolve()
     const reads = readProbe(store)
 
-    expect(store.issues.getIssues(['iss_a']).get('iss_a')?.title).toBe('A title')
+    expect((await store.issues.getIssues(['iss_a'])).get('iss_a')?.title).toBe('A title')
     const afterFirst = reads()
     // 'iss_a' is known, 'iss_b' is not — the batch still runs, for the miss.
-    const both = store.issues.getIssues(['iss_a', 'iss_b'])
+    const both = await store.issues.getIssues(['iss_a', 'iss_b'])
     expect(both.get('iss_a')?.title).toBe('A title')
     expect(both.get('iss_b')?.title).toBe('Second')
     expect(reads()).toBeGreaterThan(afterFirst)
 
     // Now both are known: no statement at all.
     const afterSecond = reads()
-    expect(store.issues.getIssues(['iss_a', 'iss_b']).size).toBe(2)
+    expect((await store.issues.getIssues(['iss_a', 'iss_b'])).size).toBe(2)
     expect(reads()).toBe(afterSecond)
   })
 
   it('an absent id is an answer and is not re-asked inside the frame', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
-    expect(store.issues.getIssues(['iss_missing']).size).toBe(0)
+    expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
     const afterFirst = reads()
     // PAIRED WITH THE BOUND BELOW [POD-3407]. `toBe(afterFirst)` is 0 === 0 under
     // an instrument that sees nothing, so on its own it reports a perfect cache
     // for a probe that went dead — which is exactly what POD-3397 found. The miss
     // above DID go to the table, so this number is never legitimately zero.
     expect(afterFirst).toBeGreaterThan(0)
-    expect(store.issues.getIssues(['iss_missing']).size).toBe(0)
-    expect(store.issues.getIssue('iss_missing')).toBeNull()
+    expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
+    expect(await store.issues.getIssue('iss_missing')).toBeNull()
     expect(reads()).toBe(afterFirst)
   })
 })

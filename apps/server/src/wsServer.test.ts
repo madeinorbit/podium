@@ -405,19 +405,19 @@ describe('plane liveness policy', () => {
     // unit lane, with an injected clock and nothing to bind or tear down.
     const unusedRegistry = {} as unknown as Parameters<typeof attachWebSockets>[0]
 
-    it('schedules the client sweep at 15s and the daemon sweep at 10s', () => {
+    it('schedules the client sweep at 15s and the daemon sweep at 10s', async () => {
       const { scheduled, timers } = fakeTimers()
       const handle = attachWebSockets(unusedRegistry, {}, { timers })
       expect(scheduled.map((s) => s.ms)).toEqual([15_000, 10_000])
-      void handle.close()
+      void await handle.close()
     })
 
-    it('close() stops BOTH sweeps', () => {
+    it('close() stops BOTH sweeps', async () => {
       // A leaked sweep keeps terminating sockets on a gateway that is shutting
       // down, and (before `unref`) would hold the process open.
       const { scheduled, timers } = fakeTimers()
       const handle = attachWebSockets(unusedRegistry, {}, { timers })
-      void handle.close()
+      void await handle.close()
       expect(scheduled.map((s) => s.cleared)).toEqual([true, true])
     })
   })

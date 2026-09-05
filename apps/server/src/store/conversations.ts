@@ -38,13 +38,13 @@ export class ConversationsRepository {
    * both repositories report unavailable, which turns search into its LIKE
    * fallback and the transcript indexer into a no-op.
    */
-  ensureFts(enabled: boolean): void {
+  async ensureFts(enabled: boolean): Promise<void> {
     if (enabled) {
-      this.index.enableFts()
-      this.transcriptIndex.enableFts()
+      await this.index.enableFts()
+      await this.transcriptIndex.enableFts()
       return
     }
-    this.index.disableFts()
+    await this.index.disableFts()
     this.transcriptIndex.disableFts()
   }
 }

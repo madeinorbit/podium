@@ -83,7 +83,7 @@ export function sessionCommandCtx(
   })
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
-    stageAttachment: (input) => sessions.runtimeGateway.stageAttachment(input),
+    stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
     runtimeContractActive: (sessionId) => sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
@@ -98,11 +98,11 @@ export function sessionCommandCtx(
     // The non-null assertion is safe by the same argument the router's makes: a
     // `undefined` here would mean `mail.send` does not name this transport, and
     // both transports that build this context are in its exposure set.
-    mailSend: (input) => {
+    mailSend: async (input) => {
       const deliveryMode = sessions.receiptSender.onContract(asSessionId(input.to))
         ? 'confirm'
         : 'immediate'
-      return modules.messageGate.dispatch(
+      return (await modules.messageGate.dispatch(
         capability,
         overrideScope,
         'send',
@@ -110,7 +110,7 @@ export function sessionCommandCtx(
         transport,
         deliveryMode,
         input.correlationId,
-      )!
+      ))!
     },
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       issues.createDraftFor(repoPath, agentKind, issueId, ownership),
@@ -150,11 +150,11 @@ export function sessionCommandCtx(
  * Today's single-account default sees everything and uses everything, so this is
  * behaviour-preserving; it is the seam POD-1079 fills, not a new policy.
  */
-export function visibleMachinesFor(
+export async function visibleMachinesFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
-): ReturnType<RegistryModules['machines']['listMachines']> {
-  return machinesForPrincipal(
+): Promise<ReturnType<RegistryModules['machines']['listMachines']>> {
+  return await machinesForPrincipal(
     modules,
     resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   )
@@ -168,12 +168,12 @@ export function visibleMachinesFor(
  * account — so it is the only way to TEST the scoping rather than merely ship
  * it. The router uses the wrapper; the wrapper is one line over this.
  */
-export function machinesForPrincipal(
+export async function machinesForPrincipal(
   modules: Pick<RegistryModules, 'machines'>,
   principal: CommandPrincipal,
   ownership: MachineOwnershipIndex = ownershipFromMachines(modules.machines),
-): ReturnType<RegistryModules['machines']['listMachines']> {
-  return modules.machines
+): Promise<ReturnType<RegistryModules['machines']['listMachines']>> {
+  return (await modules.machines
     .listMachines(
       (machineId) => machineUseDecision(principal, machineId, ownership),
       // POD-1495: the third viewer-relative answer this projection carries, next
@@ -181,7 +181,7 @@ export function machinesForPrincipal(
       // It is the SAME predicate the transfer gate refuses with, so the settings
       // panel cannot offer a transfer the server would reject.
       (machineId) => isMachineOwner(principal, machineId, ownership),
-    )
+    ))
     .filter((machine) => canSeeMachine(principal, machine.id, ownership))
 }
 
@@ -212,12 +212,12 @@ export interface FleetRepoRow {
  * second scoping rule. Widen the projection and this follows; fork it and the two
  * drift with nobody watching.
  */
-export function fleetViewFor(
+export async function fleetViewFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
   allRepos: FleetRepoRow[],
-): { machines: ReturnType<RegistryModules['machines']['listMachines']>; repos: FleetRepoRow[] } {
-  const machines = visibleMachinesFor(modules, capability)
+): Promise<{ machines: ReturnType<RegistryModules['machines']['listMachines']>; repos: FleetRepoRow[] }> {
+  const machines = await visibleMachinesFor(modules, capability)
   return { machines, repos: usableRepos(machines, allRepos) }
 }
 

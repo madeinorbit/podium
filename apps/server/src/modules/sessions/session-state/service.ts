@@ -200,16 +200,16 @@ export class SessionStateService {
    * change loads here as an ordinary document at rev 0 — nothing has to migrate
    * it, and nothing has to know whether it was written before or after.
    */
-  loadFromStore(): void {
+  async loadFromStore(): Promise<void> {
     this.draftDocs.clear()
     this.draftTimes.clear()
     for (const [rawSessionId, updatedAt] of Object.entries(
-      this.ports.store.sessions.loadDraftTimes(),
+      await this.ports.store.sessions.loadDraftTimes(),
     )) {
       this.draftTimes.set(rawSessionId as SessionId, updatedAt)
     }
     for (const [rawSessionId, stored] of Object.entries(
-      this.ports.store.sessions.loadDraftDocs(),
+      await this.ports.store.sessions.loadDraftDocs(),
     )) {
       const sessionId = rawSessionId as SessionId
       this.draftDocs.set(sessionId, {
@@ -274,15 +274,15 @@ export class SessionStateService {
     return principal.capability.scope.kind === 'all'
   }
 
-  private cachedOverlay(userId: UserId): {
+  private async cachedOverlay(userId: UserId): Promise<{
     readAt: Record<string, string | null>
     snoozes: Record<string, string | null>
-  } {
+  }> {
     let cached = this.overlays.get(userId)
     if (!cached) {
       cached = {
-        readAt: this.ports.store.sessions.listReadAt(userId),
-        snoozes: this.ports.store.sessions.listSnoozes(userId),
+        readAt: await this.ports.store.sessions.listReadAt(userId),
+        snoozes: await this.ports.store.sessions.listSnoozes(userId),
       }
       this.overlays.set(userId, cached)
     }
@@ -290,24 +290,24 @@ export class SessionStateService {
   }
 
   /** Projection overlay for a caller already proven able to see the session. */
-  overlay(userId: UserId, sessionId: SessionId): SessionUserOverlay {
-    const cached = this.cachedOverlay(userId)
+  async overlay(userId: UserId, sessionId: SessionId): Promise<SessionUserOverlay> {
+    const cached = await this.cachedOverlay(userId)
     return {
       readAt: cached.readAt[sessionId] ?? null,
       snoozedUntil: sessionId in cached.snoozes ? cached.snoozes[sessionId] : undefined,
     }
   }
 
-  readOverlay(
+  async readOverlay(
     principal: SessionStatePrincipal,
     sessionId: SessionId,
-  ): SessionStateReadResult<SessionUserOverlay> {
+  ): Promise<SessionStateReadResult<SessionUserOverlay>> {
     if (!this.canReadSession(principal, sessionId)) return { kind: 'absent' }
-    return { kind: 'found', value: this.overlay(principal.userId, sessionId) }
+    return { kind: 'found', value: await this.overlay(principal.userId, sessionId) }
   }
 
-  isSnoozed(userId: UserId, sessionId: SessionId): boolean {
-    return this.overlay(userId, sessionId).snoozedUntil !== undefined
+  async isSnoozed(userId: UserId, sessionId: SessionId): Promise<boolean> {
+    return (await this.overlay(userId, sessionId)).snoozedUntil !== undefined
   }
 
   private invalidateOverlay(userId: UserId): void {
@@ -352,8 +352,8 @@ export class SessionStateService {
     )
   }
 
-  rearmUnreadForAll(sessionId: SessionId): void {
-    this.ports.store.sessions.clearAllReadAt(sessionId)
+  async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
+    await this.ports.store.sessions.clearAllReadAt(sessionId)
     this.invalidateAllOverlays()
   }
 
@@ -372,16 +372,16 @@ export class SessionStateService {
   }
 
   /** Shared session activity invalidates every viewer's snooze independently. */
-  clearAllSnoozes(sessionId: SessionId): void {
+  async clearAllSnoozes(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
-    if (!this.ports.store.sessions.hasAnySnooze(sessionId)) return
+    if (!await this.ports.store.sessions.hasAnySnooze(sessionId)) return
     this.ports.persistSession(sessionId, () => this.ports.store.sessions.clearAllSnoozes(sessionId))
     this.invalidateAllOverlays()
     this.ports.broadcastSessions()
   }
 
-  listSnoozes(principal: SessionStatePrincipal): SnoozeMap {
-    const rows = this.ports.store.sessions.listSnoozes(principal.userId)
+  async listSnoozes(principal: SessionStatePrincipal): Promise<SnoozeMap> {
+    const rows = await this.ports.store.sessions.listSnoozes(principal.userId)
     const visible: SnoozeMap = {}
     for (const [rawId, until] of Object.entries(rows)) {
       const sessionId = rawId as SessionId
@@ -390,8 +390,8 @@ export class SessionStateService {
     return visible
   }
 
-  listPins(principal: SessionStatePrincipal): PinState {
-    const rows = this.ports.store.sessions.listPins(principal.userId)
+  async listPins(principal: SessionStatePrincipal): Promise<PinState> {
+    const rows = await this.ports.store.sessions.listPins(principal.userId)
     return {
       ...rows,
       // Panel ids that name sessions obey session visibility. Non-session panel
@@ -403,18 +403,18 @@ export class SessionStateService {
     }
   }
 
-  setPin(
+  async setPin(
     principal: SessionStatePrincipal,
     kind: Parameters<SessionStore['sessions']['setPin']>[1],
     id: string,
     pinned: boolean,
-  ): PinState {
-    this.ports.store.sessions.setPin(principal.userId, kind, id, pinned)
-    return this.listPins(principal)
+  ): Promise<PinState> {
+    await this.ports.store.sessions.setPin(principal.userId, kind, id, pinned)
+    return await this.listPins(principal)
   }
 
-  listTabOrders(principal: SessionStatePrincipal): Record<string, string[]> {
-    const rows = this.ports.store.sessions.listTabOrders(principal.userId)
+  async listTabOrders(principal: SessionStatePrincipal): Promise<Record<string, string[]>> {
+    const rows = await this.ports.store.sessions.listTabOrders(principal.userId)
     const visible: Record<string, string[]> = {}
     for (const [worktree, ids] of Object.entries(rows)) {
       visible[worktree] = ids.filter((id) => {
@@ -425,16 +425,16 @@ export class SessionStateService {
     return visible
   }
 
-  setTabOrder(
+  async setTabOrder(
     principal: SessionStatePrincipal,
     worktree: string,
     sessionIds: string[],
-  ): Record<string, string[]> {
+  ): Promise<Record<string, string[]>> {
     if (sessionIds.some((id) => !this.canReadSession(principal, id as SessionId))) {
-      return this.listTabOrders(principal)
+      return await this.listTabOrders(principal)
     }
-    this.ports.store.sessions.setTabOrder(principal.userId, worktree, sessionIds)
-    return this.listTabOrders(principal)
+    await this.ports.store.sessions.setTabOrder(principal.userId, worktree, sessionIds)
+    return await this.listTabOrders(principal)
   }
 
   // -------------------------------------------------------------------------
@@ -515,9 +515,9 @@ export class SessionStateService {
    * is precisely the old last-writer-wins behaviour, now expressed inside the
    * one arbitration rather than beside it.
    */
-  setDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void {
+  async setDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): Promise<void> {
     const current = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
-    this.applyVersionedEdit(
+    await this.applyVersionedEdit(
       input.sessionId,
       { baseRev: current.rev, text: input.text, origin: fromClientId ?? 'seed' },
       fromClientId,
@@ -526,19 +526,19 @@ export class SessionStateService {
 
   /** A VERSIONED edit: the sender names the rev it typed against, so a race can
    *  be arbitrated instead of silently resolved in favour of whoever was last. */
-  handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
-    this.applyVersionedEdit(
+  async handleDraftEdit(input: DraftEditMessage, fromClientId: string): Promise<void> {
+    await this.applyVersionedEdit(
       input.sessionId,
       { baseRev: input.baseRev, text: input.text, origin: fromClientId },
       fromClientId,
     )
   }
 
-  handleNativeDraft(sessionId: SessionId, text: string): void {
+  async handleNativeDraft(sessionId: SessionId, text: string): Promise<void> {
     if (!this.draftSyncEnabled_) return
     if (Date.now() < (this.draftSendSuppressUntil.get(sessionId) ?? 0)) return
     const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
-    this.applyVersionedEdit(sessionId, { baseRev: current.rev, text, origin: 'native' }, undefined)
+    await this.applyVersionedEdit(sessionId, { baseRev: current.rev, text, origin: 'native' }, undefined)
   }
 
   suppressNativeDraft(sessionId: SessionId): void {
@@ -572,11 +572,11 @@ export class SessionStateService {
     }
   }
 
-  private applyVersionedEdit(
+  private async applyVersionedEdit(
     sessionId: SessionId,
     edit: { baseRev: number; text: string; origin: string },
     fromClientId?: string,
-  ): void {
+  ): Promise<void> {
     const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
     const result = applyDraftEdit(current, {
       baseRev: edit.baseRev,
@@ -622,7 +622,7 @@ export class SessionStateService {
     // text already equals the document treats it as convergence, not as an
     // instruction to repaint what it is typing into.
     this.ports.broadcastToClients(this.draftWire(doc))
-    this.persistDraftDoc(sessionId, doc)
+    await this.persistDraftDoc(sessionId, doc)
     if (draftNonemptyChanged) this.ports.broadcastSessions()
     // THE NATIVE COMPOSER STAYS BEHIND THE EXPERIMENT. Sequencing a document is
     // bookkeeping; typing into somebody's terminal is not, and `draft-sync` is
@@ -662,12 +662,12 @@ export class SessionStateService {
    * debounce behind, since a stale non-empty row is what holds a session's
    * delivery.
    */
-  private persistDraftDoc(sessionId: SessionId, doc: DraftDoc): void {
+  private async persistDraftDoc(sessionId: SessionId, doc: DraftDoc): Promise<void> {
     if (!doc.text) {
       const pending = this.draftDocWriteTimers.get(sessionId)
       if (pending) clearTimeout(pending)
       this.draftDocWriteTimers.delete(sessionId)
-      this.writeDraftDoc(doc)
+      await this.writeDraftDoc(doc)
       return
     }
     if (this.draftDocWriteTimers.has(sessionId)) return
@@ -679,9 +679,9 @@ export class SessionStateService {
     this.draftDocWriteTimers.set(sessionId, timer)
   }
 
-  private writeDraftDoc(doc: DraftDoc): void {
+  private async writeDraftDoc(doc: DraftDoc): Promise<void> {
     try {
-      this.ports.store.sessions.setDraftDoc(doc.sessionId, {
+      await this.ports.store.sessions.setDraftDoc(doc.sessionId, {
         text: doc.text,
         updatedAt: doc.editedAt,
         rev: doc.rev,

@@ -173,7 +173,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
 
   it('a wake to an empty issue spawns a fresh agent and the message is its first prompt', async () => {
     const { svc, queued } = await harness()
-    const r = svc.send(
+    const r = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'get going', lifecycle: 'wake' },
     )
@@ -188,11 +188,11 @@ describe('wake → spawn → first prompt (service integration)', () => {
 
   it('the spawn unlocks parent-grade clamps: the waker may interrupt its child', async () => {
     const { svc, interrupted } = await harness()
-    svc.send(
+    await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'go', lifecycle: 'wake' },
     )
-    const r = svc.send(
+    const r = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'stop!', urgency: 'interrupt' },
     )
@@ -200,7 +200,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     expect(r.message.clampedFrom).toBeNull()
     expect(interrupted).toHaveLength(1)
     // A PEER (not the parent) is still clamped.
-    const peer = svc.send(
+    const peer = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sOther'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'hey', urgency: 'interrupt' },
     )

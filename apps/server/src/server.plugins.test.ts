@@ -32,8 +32,8 @@ describe('startServer plugin seam', () => {
           register: async (hooks) => {
             seen = hooks
             registered.push('test-cloud')
-            hooks.hono.get('/cloud/ping', (c) =>
-              c.json({ pong: true, sessions: hooks.modules.sessions.listSessions().length }),
+            hooks.hono.get('/cloud/ping', async (c) =>
+              c.json({ pong: true, sessions: (await hooks.modules.sessions.listSessions()).length }),
             )
           },
         },
