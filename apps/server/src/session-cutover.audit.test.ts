@@ -297,7 +297,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     await o.call.sessions.rename({ sessionId, name: 'from the queue', mutationId: 'dup-1' })
     await o.call.sessions.rename({ sessionId, name: 'typed later' })
     await o.call.sessions.rename({ sessionId, name: 'from the queue', mutationId: 'dup-1' })
-    expect(o.meta(sessionId).name).toBe('typed later')
+    expect((await o.meta(sessionId)).name).toBe('typed later')
 
     // COMMAND PLANE. Two identical creates under one id produce ONE session.
     const before = (await o.reg.modules.sessions.listSessions()).length
@@ -343,7 +343,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     o.reg.modules.mutations.once(asMutationId('planted'), 'sessions.rename', () => null)
     await o.call.sessions.rename({ sessionId, name: 'should not apply', mutationId: 'planted' })
 
-    expect(o.meta(sessionId).name).toBe('original')
+    expect((await o.meta(sessionId)).name).toBe('original')
   })
 
   it('authorization precedes dedup: a replay is not served out of the cache', async () => {
@@ -616,7 +616,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
         humanDirect: true,
       },
     )
-    expect(o.meta(sessionId).name).toBe('human choice')
+    expect((await o.meta(sessionId)).name).toBe('human choice')
 
     // …and an AGENT acting for that human does NOT overwrite it, because the
     // agent-naming path enforces [spec:SP-eb60]'s precedence. The distinction is
@@ -640,7 +640,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       },
     )
     expect(result.outcome).toBe('applied')
-    expect(o.meta(sessionId).name).toBe('human choice')
+    expect((await o.meta(sessionId)).name).toBe('human choice')
   })
 
   it('COMMAND PLANE: spawnedBy is stamped from the principal, and a payload spawnedBy is stripped', async () => {
@@ -664,14 +664,14 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       agentKind: 'shell',
       cwd: '/by-agent',
     })
-    expect(o.meta(created.sessionId).spawnedBy).toBe(`session:${agentSession.sessionId}`)
+    expect((await o.meta(created.sessionId)).spawnedBy).toBe(`session:${agentSession.sessionId}`)
 
     const asHuman = ctxFor(o, human(FIRST_ADMIN_USER_ID))
     const byHuman = await dispatchSessionCommand(asHuman, 'create', {
       agentKind: 'shell',
       cwd: '/by-human',
     })
-    expect(o.meta(byHuman.sessionId).spawnedBy).toBe('user')
+    expect((await o.meta(byHuman.sessionId)).spawnedBy).toBe('user')
   })
 
   it('HANDOFF: the durable record carries actor, actorKind and onBehalfOf together', async () => {
@@ -803,7 +803,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     // A session on the host this server runs on, exactly as a single-machine
     // install produces it (no explicit placement).
     const target = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-    expect(o.meta(target.sessionId).machineId).toBe(o.store.hostMachineId)
+    expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
 
