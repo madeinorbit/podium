@@ -598,6 +598,8 @@ export class SessionRegistry {
       fleetLogs,
     )
     const updatesService = new UpdatesService({
+      recovery: this.store.updateRecovery,
+      recoveryOnly,
       machines: () =>
         machines.listMachines().map((machine) => ({
           id: machine.id,

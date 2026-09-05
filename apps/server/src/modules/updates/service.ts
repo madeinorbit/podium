@@ -15,6 +15,7 @@ import {
   type GrantRecord,
   type RecordGrant,
 } from './grant-cause'
+import type { UpdateRecoveryPersistence, UpdateRecoverySnapshot } from './recovery-store'
 import {
   decideWave,
   IN_FLIGHT_STATES,
@@ -44,6 +45,10 @@ const WAVE_CONTINUATION_CAUSE: GrantCause = {
 }
 
 export interface UpdatesDeps {
+  /** Synchronous checkpoint: execution authority must survive before dispatch. */
+  recovery?: UpdateRecoveryPersistence
+  /** A sealed transfer/recovery candidate may project, but never checkpoint or dispatch. */
+  recoveryOnly?: boolean
   approvedTarget?(channel: UpdateChannel): UpdateTarget | undefined
   machines(): readonly WaveMachine[]
   channelFor?(machineId: MachineId): UpdateChannel | undefined
@@ -158,6 +163,8 @@ const CHANNEL_ORDER: readonly UpdateChannel[] = ['dev', 'edge', 'stable']
 const FORCED_CHECK_INTERVAL_MS = 30_000
 
 interface MachineConvergenceState {
+  /** This terminal record has already released its wave slot in projection. */
+  projectedCurrent?: boolean
   /** A supervisor grant keeps its health fence across legacy presence fallback. */
   requiresExecutionConfirmation?: boolean
   channel: UpdateChannel
@@ -341,7 +348,54 @@ export class UpdatesService {
   private readonly waveHistory = new Map<UpdateChannel, WaveRound[]>()
 
   private lastGrantAuthority = 0
-  constructor(private readonly deps: UpdatesDeps) {}
+  private persistenceFailure: unknown
+  private savedRecovery = ''
+
+  constructor(private readonly deps: UpdatesDeps) {
+    const saved = deps.recovery?.read()
+    if (!saved) return
+    this.savedRecovery = JSON.stringify(saved)
+    this.lastGrantAuthority = saved.lastGrantAuthority
+    for (const [channel, target] of saved.targets) this.targets.set(channel, target)
+    for (const [id, state] of saved.machines) this.machineStates.set(id, state)
+    for (const [id, grant] of saved.grants) this.pendingGrants.set(id, grant)
+    // Execution proof is durable; permission to continue a wave is re-earned
+    // by the operation engine. Construction never dispatches or writes.
+    for (const [channel, rollout] of saved.rollouts) {
+      this.rollouts.set(channel, { ...rollout, authorized: false })
+    }
+  }
+
+  private assertPersistence(): void {
+    if (this.persistenceFailure) throw this.persistenceFailure
+  }
+
+  private persistRecovery(): void {
+    this.assertPersistence()
+    if (!this.deps.recovery || this.deps.recoveryOnly) return
+    const snapshot: UpdateRecoverySnapshot = {
+      format: 1,
+      lastGrantAuthority: this.lastGrantAuthority,
+      targets: [...this.targets.entries()],
+      machines: [...this.machineStates.entries()],
+      grants: [...this.pendingGrants.entries()],
+      rollouts: [...this.rollouts.entries()].map(([channel, rollout]) => [
+        channel,
+        { canaryHealthy: rollout.canaryHealthy, halted: rollout.halted },
+      ]),
+    }
+    const bytes = JSON.stringify(snapshot)
+    if (bytes === this.savedRecovery) return
+    try {
+      this.deps.recovery.write(snapshot)
+      this.savedRecovery = bytes
+    } catch (error) {
+      // A caught storage error must not leave usable but uncommitted proof in
+      // memory. Refuse further observations/dispatch until this process restarts.
+      this.persistenceFailure = error instanceof Error ? error : new Error(String(error))
+      throw this.persistenceFailure
+    }
+  }
 
   approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
     return this.deps.approvedTarget?.(channel)
@@ -419,6 +473,7 @@ export class UpdatesService {
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
       })
     }
+    this.persistRecovery()
     this.deps.onTargetChanged?.(channel)
   }
 
@@ -457,7 +512,11 @@ export class UpdatesService {
         return
       }
       this.unavailableReasons.delete(channel)
+      if (standing && updateFingerprint(standing) !== updateFingerprint(target)) {
+        this.rollout(channel).canaryHealthy = false
+      }
       this.targets.set(channel, target)
+      this.persistRecovery()
       this.replayTerminalStatuses(channel, target.version)
       this.deps.onTargetChanged?.(channel)
       return
@@ -483,6 +542,7 @@ export class UpdatesService {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
     this.replayTerminalStatuses(channel, target.version)
+    this.persistRecovery()
     this.deps.onTargetChanged?.(channel)
   }
 
@@ -739,6 +799,7 @@ export class UpdatesService {
   }
 
   onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
+    this.assertPersistence()
     /** What the machine said, for every line below that has to quote it. */
     const reported = {
       state: message.state,
@@ -909,6 +970,9 @@ export class UpdatesService {
     this.machineStates.set(machineId, {
       channel,
       state: effectiveState,
+      ...(previous?.state === 'current' && effectiveState === 'current' && previous.projectedCurrent
+        ? { projectedCurrent: true }
+        : {}),
       requiresExecutionConfirmation,
       version: message.version,
       ...(pendingGrant && recoveredTerminal
@@ -926,6 +990,7 @@ export class UpdatesService {
       this.pendingGrants.delete(machineId)
       if (!rollout.canaryHealthy) rollout.halted = true
     }
+    this.persistRecovery()
   }
 
   /**
@@ -997,6 +1062,7 @@ export class UpdatesService {
       this.machineStates.delete(machineId)
       this.pendingGrants.delete(machineId)
     }
+    this.persistRecovery()
     return cleared
   }
 
@@ -1301,7 +1367,8 @@ export class UpdatesService {
     // The re-read cannot continue anything further: a machine is only ever
     // `continuing` because its directory version and applicable execution verdict
     // proved the target while a convergence record still stood. The projection
-    // above deleted that record. So this is a projection, not a second round of the same question.
+    // above consumed that transition. Retained supervised proof cannot release
+    // the same slot twice. So this is a projection, not another wave round.
     return this.project().machines
   }
 
@@ -1332,7 +1399,8 @@ export class UpdatesService {
    * snapshot that something granted against behind its back.
    *
    * The state it does write is reconciliation, not rollout: the directory proof
-   * makes the canary healthy and forgets the convergence record it supersedes.
+   * makes the canary healthy and consumes that machine's current transition.
+   * Supervised records stay available for exact terminal replay and recovery.
    * Both are idempotent, both require the applicable startup proof, and
    * neither sends anything to a machine.
    */
@@ -1340,6 +1408,7 @@ export class UpdatesService {
     machines: WaveMachine[]
     continuing: Set<UpdateChannel>
   } {
+    this.assertPersistence()
     const channelsReadyToContinue = new Set<UpdateChannel>()
     const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
@@ -1356,6 +1425,9 @@ export class UpdatesService {
         (currentState.state !== 'current' ||
           (pending !== undefined &&
             !this.grantMatchesTarget(pending, channel, this.target(channel))))
+      if (pending && !this.grantMatchesTarget(pending, channel, this.target(channel))) {
+        this.rollout(channel).canaryHealthy = false
+      }
       if (
         targetVersion !== undefined &&
         machine.version === targetVersion &&
@@ -1363,11 +1435,17 @@ export class UpdatesService {
       ) {
         if (currentState) {
           const rollout = this.rollout(channel)
+          if (!currentState.projectedCurrent && rollout.authorized)
+            channelsReadyToContinue.add(channel)
           rollout.canaryHealthy = true
-          if (rollout.authorized) channelsReadyToContinue.add(channel)
+          currentState.projectedCurrent = true
         }
-        this.machineStates.delete(machine.id)
-        this.pendingGrants.delete(machine.id)
+        // Keep supervised terminal proof and exact descriptor correlation for
+        // restart, repeated terminal replay, and same-version replacement.
+        if (!currentState?.requiresExecutionConfirmation) {
+          this.machineStates.delete(machine.id)
+          this.pendingGrants.delete(machine.id)
+        }
         return { ...machine, state: 'current', version: machine.version }
       }
       if (!currentState) return { ...machine }
@@ -1388,6 +1466,7 @@ export class UpdatesService {
       }
     })
 
+    this.persistRecovery()
     return { machines: fleet, continuing: channelsReadyToContinue }
   }
 
@@ -1423,6 +1502,7 @@ export class UpdatesService {
       })
       abandoned.push(machineId)
     }
+    this.persistRecovery()
     return abandoned
   }
 
@@ -1503,6 +1583,7 @@ export class UpdatesService {
 
   /** Running directory proof plus the same execution fence used by fleet reads. */
   machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
+    this.assertPersistence()
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     if (machine?.online !== true || machine.version !== targetVersion) return false
     const channel = this.channelOf(machine)
@@ -1555,6 +1636,9 @@ export class UpdatesService {
     cause: GrantCause,
     repair = false,
   ): string[] {
+    this.assertPersistence()
+    if (this.deps.recoveryOnly)
+      throw new Error('Update grants are disabled during recovery-only startup')
     const issued: string[] = []
     for (const machineId of selected) {
       const grant: UpdateGrantMessage = {
@@ -1601,7 +1685,7 @@ export class UpdatesService {
         channel,
         grantId: grant.grantId,
         targetFingerprint: updateFingerprint(target),
-        issuedAt: this.deps.now(),
+        issuedAt: grant.issuedAt!,
       })
       this.machineStates.set(machineId, {
         channel,
@@ -1609,6 +1693,7 @@ export class UpdatesService {
         requiresExecutionConfirmation: machine?.presenceSource === 'supervisor',
         version: machine?.version ?? '',
       })
+      this.persistRecovery()
       // Register correlation before dispatch: an in-process participant may
       // synchronously report its terminal replay from send().
       this.deps.send(asMachineId(machineId), grant)

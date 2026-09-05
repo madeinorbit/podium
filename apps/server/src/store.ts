@@ -54,6 +54,7 @@ import {
   SnapshotVerifier,
   type SnapshotVerifierDeps,
 } from './migrations/snapshot-verifier'
+import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
@@ -168,6 +169,7 @@ export class SessionStore {
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
+  readonly updateRecovery: UpdateRecoveryStore
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
@@ -281,6 +283,7 @@ export class SessionStore {
     this.maintenance = new MaintenanceRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
     this.shipping = new ShippingRepository(this.db)
+    this.updateRecovery = new UpdateRecoveryStore(this.db)
     this.operations = new OperationStore(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
     this.searchIndexEnabled = options.queryOnly
