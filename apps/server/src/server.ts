@@ -1113,7 +1113,7 @@ export async function startServer(
   // registered BEFORE their handlers so Hono runs them first.
   const requestPrincipal = async (headers: ClientCredentialHeaders) => {
     const userId =
-      requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader) ??
+      (await requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader)) ??
       (!await credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
     if (userId === undefined) return undefined
     const account = await store.users.get(userId)
@@ -1413,8 +1413,8 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        validateClientCredential: (credentialId) =>
-          maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
+        validateClientCredential: async (credentialId) =>
+          (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
           if (
             request.headers.has('authorization') &&
@@ -1430,7 +1430,7 @@ export async function startServer(
             cookieHeader: request.headers.get('cookie') ?? undefined,
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
-          const credential = resolveClientCredential(store.auth, headers)
+          const credential = await resolveClientCredential(store.auth, headers)
           const principal = await requestPrincipal(headers)
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
@@ -1458,7 +1458,7 @@ export async function startServer(
         async fetch(request, nativeServer) {
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade = ws.handleRequest(request, nativeServer as never)
+          const upgrade = await ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)

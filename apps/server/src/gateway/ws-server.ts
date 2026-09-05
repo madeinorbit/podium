@@ -72,7 +72,10 @@ import {
 import { type GatewaySocket, shouldCompressWebSocketFrame, WS_MAX_PAYLOAD_BYTES } from './ws-send'
 
 export interface WsHandle {
-  handleRequest(request: Request, server: NativeServer<SocketData>): Response | null | undefined
+  handleRequest(
+    request: Request,
+    server: NativeServer<SocketData>,
+  ): Promise<Response | null | undefined>
   websocket: NativeWebSocketHandler<SocketData>
   revokeClientCredential(credentialId: string): void
   close(): Promise<void>
@@ -90,6 +93,7 @@ export interface WsAuthOptions {
         credentialId?: string
       }
     | undefined
+    | Promise<{ userId: UserId; userRole: UserRole; credentialId?: string } | undefined>
   validateClientCredential?: (credentialId: string) => boolean
 }
 
@@ -330,7 +334,7 @@ export function attachWebSockets(
 
   return {
     websocket,
-    handleRequest(request, server) {
+    async handleRequest(request, server) {
       const url = new URL(request.url)
       const pathname = url.pathname
       if (pathname !== '/client' && pathname !== '/daemon') return null
@@ -363,7 +367,7 @@ export function attachWebSockets(
             headers: { connection: 'close', 'content-type': 'application/json' },
           })
         }
-        const resolved = auth.principalForClient?.(request)
+        const resolved = await auth.principalForClient?.(request)
         const userId = resolved?.userId ?? auth.userForClient?.(request)
         const userRole = resolved?.userRole ?? auth.roleForClient?.(request)
         if (

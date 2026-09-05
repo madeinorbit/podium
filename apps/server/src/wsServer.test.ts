@@ -77,7 +77,7 @@ describe('native websocket upgrade compatibility', () => {
     const upgrade = vi.fn(() => true)
 
     expect(
-      handle.handleRequest(new Request('http://127.0.0.1/client'), {
+      await handle.handleRequest(new Request('http://127.0.0.1/client'), {
         upgrade,
       } as unknown as Parameters<typeof handle.handleRequest>[1]),
     ).toBeUndefined()

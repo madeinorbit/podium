@@ -62,8 +62,8 @@ async function start(
     port: 0,
     hostname: '127.0.0.1',
     websocket: handle.websocket,
-    fetch(request, nativeServer) {
-      const result = handle?.handleRequest(request, nativeServer)
+    async fetch(request, nativeServer) {
+      const result = await handle?.handleRequest(request, nativeServer)
       return result === null ? new Response('not found', { status: 404 }) : result
     },
   })
@@ -86,8 +86,8 @@ async function startNotReady() {
     port: 0,
     hostname: '127.0.0.1',
     websocket: handle.websocket,
-    fetch(request, nativeServer) {
-      const result = handle?.handleRequest(request, nativeServer)
+    async fetch(request, nativeServer) {
+      const result = await handle?.handleRequest(request, nativeServer)
       return result === null ? new Response('not found', { status: 404 }) : result
     },
   })
