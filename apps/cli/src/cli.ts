@@ -1785,6 +1785,12 @@ export async function main(
             agentExecutionLockout: config.agentExecutionLockout,
             crashOwner: desktopManaged ? 'desktop' : (config.persistence ?? 'foreground'),
           }),
+        acceptAssignment: () => {
+          // The transfer writer can commit before its topology request arrives.
+          // Do not let the old coordinator overwrite that durable assignment.
+          const current = loadConfig()
+          return current.mode === topologyConfig.mode && current.serverUrl === topologyConfig.serverUrl
+        },
         onAssignment: (assignment) => {
           configuredAssignment = reconcileSupervisorAssignment(
             { ...supervisorState, assignment },

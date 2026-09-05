@@ -111,6 +111,24 @@ describe('server transfer lifecycle', () => {
     expect(loadSupervisorState(root).machineId).toBe(state.machineId)
   })
 
+  it('preserves later assignment policy on transfer retries and finalized endpoint cleanup', () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    const state = loadSupervisorState(root)
+    const assignment = { server: false, agentExecution: false }
+    saveSupervisorState(root, { ...state, assignment })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    expect(loadSupervisorState(root).assignment).toEqual(assignment)
+    const promotion = { transferId: TRANSFER_TWO, publicUrl: 'https://promoted.example', bindHost: '0.0.0.0' as const }
+    applyTargetServerPromotion(promotion)
+    saveSupervisorState(root, { ...state, assignment })
+    applyTargetServerPromotion(promotion)
+    finalizeTargetServerPromotion()
+    finalizeTargetServerPromotion()
+    expect(loadConfig().serverUrl).toBeUndefined()
+    expect(loadSupervisorState(root).assignment).toEqual(assignment)
+  })
+
   it('durably creates the target machine identity', () => {
     const machineId = asMachineId('target-machine')
 

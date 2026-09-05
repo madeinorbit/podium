@@ -1382,16 +1382,8 @@ exec "$CANARY_REAL_CLI" "$@"
         }
         await assertTopology()
         for (const spec of [source, target]) await run(spec, ['stop'])
-        // Recreate the old cache/config crash window before restarting both sides.
-        for (const [spec, assignment] of [
-          [source, { server: true, agentExecution: true }],
-          [target, { server: false, agentExecution: true }],
-        ] as const) {
-          writeFileSync(
-            join(spec.stateDir, 'supervisor.json'),
-            JSON.stringify({ ...read(spec, 'supervisor.json'), assignment }),
-          )
-        }
+        // Restart the actual finalized durable state. The focused runtime tests
+        // separately inject the config/assignment atomic-write crash window.
         await run(target, [])
         await run(source, [])
         await assertTopology()

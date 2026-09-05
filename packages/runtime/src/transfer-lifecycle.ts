@@ -45,7 +45,7 @@ import {
 } from './config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
-import { fallbackAssignment, loadSupervisorState, saveSupervisorState } from './machine-supervisor'
+import { loadSupervisorState, prepareTransferAssignment, reconcileSupervisorAssignment } from './machine-supervisor'
 import {
   assertConfigWritable,
   ephemeralTunnelWarning,
@@ -176,28 +176,28 @@ function assertTransferId(transferId: string): void {
  * the new role. The temporary file is validated through saveConfig before its file and parent
  * directory are fsync'd around the atomic rename.
  */
-function saveTransferConfig(config: PodiumConfig): void {
+function saveTransferConfig(config: PodiumConfig, transferAssignment = true): void {
   const path = configPath()
   const tempPath = join(dirname(path), `.config-transfer-${process.pid}-${randomUUID()}.tmp`)
   try {
     saveConfig(config, tempPath)
     syncPath(tempPath)
+    if (transferAssignment) prepareTransferAssignment(loadConfig(tempPath), tempPath)
     renameSync(tempPath, path)
     syncParent(path)
-    saveTransferSupervisorAssignment(config)
+    saveTransferSupervisorAssignment(loadConfig())
   } finally {
     removeTemp(tempPath)
   }
 }
 
 function saveTransferSupervisorAssignment(config: PodiumConfig): void {
-  // Config is committed first. Startup repairs a crash between these two files from
-  // the explicit daemon/server mode, so the cache can never reverse a transfer.
+  // Consume only an unfinished exact-config transaction. Idempotent transfer
+  // retries must preserve a later intentional service assignment.
   const dir = stateDir()
   if (!existsSync(join(dir, 'supervisor.json'))) return
   const state = loadSupervisorState(dir)
-  state.assignment = fallbackAssignment(config.mode ?? 'all-in-one')
-  saveSupervisorState(dir, state)
+  reconcileSupervisorAssignment(state, config, dir)
 }
 
 function saveSourceDaemonIdentity(): void {
@@ -452,7 +452,7 @@ export function finalizeTargetServerPromotion(): void {
     return
   }
   const { serverUrl: _recoveryEndpoint, ...finalConfig } = prev
-  saveTransferConfig(finalConfig)
+  saveTransferConfig(finalConfig, false)
 }
 
 export function targetConfigBackupPath(transferId: string): string {

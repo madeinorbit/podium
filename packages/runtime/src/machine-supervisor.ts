@@ -1,5 +1,6 @@
 import { hostname } from 'node:os'
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { isDeepStrictEqual } from 'node:util'
 import { join } from 'node:path'
 import {
   asMachineId,
@@ -86,41 +87,30 @@ export function fallbackAssignment(
   }
 }
 
-/** Transfer config backups precede the atomic mode write. They make that mode
- * authoritative after a crash without changing ordinary server-assigned policy. */
-function hasTransferConfig(config: PodiumConfig, machineId: MachineId, dir: string): boolean {
-  const prefix =
-    config.mode === 'daemon'
-      ? 'config.json.backup-cutover-'
-      : config.mode === 'server'
-        ? 'config.json.backup-server-promotion-'
-        : undefined
-  if (!prefix) return false
+/** A write-ahead record owns only the unfinished config/assignment transaction.
+ * Backups and completed promotion metadata never override later role policy. */
+export const TRANSFER_ASSIGNMENT_FILE = 'supervisor-transfer-pending.json'
+
+function syncFile(path: string): void {
+  const fd = openSync(path, 'r')
+  try { fsyncSync(fd) } finally { closeSync(fd) }
+}
+
+function configIdentity(path: string): string | undefined {
   try {
-    if (
-      readdirSync(dir).some(
-        (name) => name.startsWith(prefix) && /^[0-9a-f-]{36}$/i.test(name.slice(prefix.length)),
-      )
-    )
-      return true
-  } catch {}
-  // Older target promotion wrote config directly; its durable staging record is
-  // the recovery evidence for upgrades that enter through that previous seam.
-  if (config.mode !== 'server') return false
-  try {
-    const root = join(dir, '.server-transfer')
-    return readdirSync(root).some((name) => {
-      if (!/^[0-9a-f-]{36}$/i.test(name)) return false
-      const raw = readJson(join(root, name, 'state.json')) as Record<string, unknown> | null
-      return (
-        raw?.targetMachineId === machineId &&
-        raw.publicUrl === config.publicUrl &&
-        ['promoting', 'promoted', 'uncertain'].includes(String(raw.state))
-      )
-    })
-  } catch {
-    return false
-  }
+    const stat = statSync(path, { bigint: true })
+    return `${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.size}`
+  } catch { return undefined }
+}
+
+export function prepareTransferAssignment(config: PodiumConfig, preparedPath: string, dir = stateDir()): void {
+  const state = loadSupervisorState(dir)
+  const path = join(dir, TRANSFER_ASSIGNMENT_FILE)
+  const temporary = path + '.tmp-' + process.pid
+  writeFileSync(temporary, JSON.stringify({ machineId: state.machineId, config, configIdentity: configIdentity(preparedPath) }), { mode: 0o600 })
+  syncFile(temporary)
+  renameSync(temporary, path)
+  syncFile(dir)
 }
 
 export function targetTransferRecovery(
@@ -128,11 +118,19 @@ export function targetTransferRecovery(
   config: PodiumConfig,
   dir = stateDir(),
 ): boolean {
-  return (
-    config.mode === 'server' &&
-    config.serverUrl !== undefined &&
-    hasTransferConfig(config, state.machineId, dir)
-  )
+  if (config.mode !== 'server' || !config.serverUrl) return false
+  // Only the newest target stage may retain a recovery daemon. Never search past
+  // a newer aborted/incomplete stage to resurrect an older promotion.
+  try {
+    const root = join(dir, '.server-transfer')
+    const newest = readdirSync(root)
+      .filter((name) => /^[0-9a-f-]{36}$/i.test(name))
+      .map((name) => ({ path: join(root, name, 'state.json'), modified: statSync(join(root, name, 'state.json')).mtimeMs }))
+      .sort((a, b) => b.modified - a.modified)[0]
+    const raw = newest && readJson(newest.path) as Record<string, unknown> | undefined
+    return raw?.targetMachineId === state.machineId && raw.publicUrl === config.publicUrl &&
+      raw.acknowledged !== true && ['promoting', 'promoted', 'uncertain'].includes(String(raw.state))
+  } catch { return false }
 }
 
 export function reconcileSupervisorAssignment(
@@ -140,13 +138,28 @@ export function reconcileSupervisorAssignment(
   config: PodiumConfig,
   dir = stateDir(),
 ): MachineServiceAssignment {
-  const assignment = state.assignment ?? fallbackAssignment(config.mode ?? 'all-in-one')
-  const staleSource = config.mode === 'daemon' && assignment.server
-  const staleTarget = config.mode === 'server' && !assignment.server
-  if ((staleSource || staleTarget) && hasTransferConfig(config, state.machineId, dir)) {
-    return fallbackAssignment(config.mode!)
+  const path = join(dir, TRANSFER_ASSIGNMENT_FILE)
+  const pending = readJson(path) as { machineId?: unknown; config?: unknown; configIdentity?: unknown } | null
+  if (pending?.machineId === state.machineId && pending.configIdentity !== undefined &&
+      pending.configIdentity === configIdentity(join(dir, 'config.json')) &&
+      isDeepStrictEqual(pending.config, config)) {
+    state.assignment = fallbackAssignment(config.mode ?? 'all-in-one')
+    saveSupervisorState(dir, state)
+    syncFile(join(dir, STATE_FILE))
+    syncFile(dir)
+    unlinkSync(path)
+    syncFile(dir)
   }
-  return assignment
+  // A mismatch may be observed before the prepared config rename. Leave it alone;
+  // only that exact file incarnation can consume this record, even if a future
+  // intentional setup returns to byte-identical config contents.
+  if (!state.assignment?.server && targetTransferRecovery(state, config, dir)) {
+    // Upgrade recovery for the previous target writer: active, unacknowledged
+    // promotion evidence owns the temporary server role, not historical backups.
+    state.assignment = fallbackAssignment('server')
+    saveSupervisorState(dir, state)
+  }
+  return state.assignment ?? fallbackAssignment(config.mode ?? 'all-in-one')
 }
 
 export function effectiveAssignment(input: {
@@ -169,6 +182,7 @@ export interface MachineSupervisorConnectionDeps {
   build: PeerBuild
   deliveryCaps: readonly string[]
   report(): MachineServiceReport
+  acceptAssignment?(assignment: MachineServiceAssignment): boolean
   onAssignment?(assignment: MachineServiceAssignment): void
   onGrant(message: Extract<MachineSupervisorControlMessage, { type: 'updateGrant' }>): void
   onConnected?(): void
@@ -321,6 +335,7 @@ export function createMachineSupervisorConnection(
         try {
           const message = MachineSupervisorControlMessage.parse(JSON.parse(step.raw))
           if (message.type === 'serviceAssignment') {
+            if (deps.acceptAssignment?.(message.assignment) === false) return
             deps.state.assignment = message.assignment
             saveSupervisorState(deps.stateDir, deps.state)
             deps.onAssignment?.(message.assignment)
@@ -378,11 +393,8 @@ export function createMachineSupervisorConnection(
     },
     report: sendReport,
     reconfigure() {
-      const nextUrl = resolveServerUrl()
-      if (nextUrl === activeServerUrl && !closed) {
-        sendReport()
-        return
-      }
+      // An unchanged URL can carry a new credential or role assignment.
+      // Always renew the handshake and invalidate every old socket callback.
       const previous = socket
       socket = undefined
       connected = false
