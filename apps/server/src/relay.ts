@@ -480,6 +480,10 @@ export class SessionRegistry {
    * a list in one place rather than three lines in three constructors.
    */
   private async hydrate(): Promise<void> {
+    // The host row must exist before the completed registry can serve a request,
+    // but provisioning it is a store write and therefore belongs in async boot,
+    // after composition and before every other hydration step.
+    await this.modules.machines.ensureHostMachine(hostname())
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
     await this.ledger.reconcile(
@@ -666,14 +670,6 @@ export class SessionRegistry {
           userCommandPrincipal(asUserId(principal.user), principal.role),
         ),
     })
-    // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
-    // this registry mints names a machine (POD-318), and a machine id with no row is
-    // a machine nobody may use — so the row has to exist before the registry can be
-    // asked for anything, and making it a construction invariant is how no
-    // composition gets to forget. The composition root calls `ensureHostMachine`
-    // again with the real hostname and the loopback bootstrap secret; that call is
-    // an idempotent UPDATE of this row, not a rival insert.
-    machines.ensureHostMachine(hostname())
     // The fleet's log-level valve (POD-3156), built after the machine registry
     // it selects over. It reaches the registry through a PORT (online set, name,
     // one send) rather than holding the service: which machines a raise is for
