@@ -28,8 +28,8 @@
  * about what the log retains — `issues.events` still reads the full table, and
  * the log's own retention job is unaffected.
  *
- * The window is rebuilt from the Authority at construction rather than from the
- * events table: the Authority is what the feed actually holds, and seeding from
+ * The window is rebuilt from the Authority during registry hydration rather than
+ * from the events table: the Authority is what the feed actually holds, and seeding from
  * the table would re-publish rows a restart had not lost (and, worse, would
  * disagree with the snapshot a connected replica already has).
  */
@@ -55,25 +55,38 @@ export const FEED_WINDOW = 200
 export interface IssueEventFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `issueEvent`. */
   readonly ledger: Pick<Ledger, 'capture'>
-  /** What the Authority already holds for this kind, at construction. */
-  readonly seed: () => readonly IssueEventWire[]
+  /** What the Authority already holds for this kind when async boot resolves it. */
+  readonly seed: () => readonly IssueEventWire[] | Promise<readonly IssueEventWire[]>
   readonly windowSize?: number
 }
 
 export class IssueEventFeedPublisher {
   /** Row ids currently in the window, oldest first (by durable event id). */
-  private window: string[]
+  private window: string[] = []
   private readonly windowSize: number
+  private resolved = false
+  private resolving: Promise<void> | undefined
 
   constructor(private readonly deps: IssueEventFeedDeps) {
     this.windowSize = deps.windowSize ?? FEED_WINDOW
-    this.window = [...deps.seed()]
-      .sort((a, b) => a.eventId - b.eventId)
-      .map((row) => row.id)
-      // A seed longer than the window (the size was lowered across a restart)
-      // is trimmed on the first publish, not here: a constructor that captured
-      // deletes would publish before the composition root had finished wiring.
-      .slice(-Math.max(this.windowSize, 1) * 2)
+  }
+
+  /** Read the authority's existing window after composition and before serving. */
+  async resolve(): Promise<void> {
+    if (this.resolved) return
+    if (!this.resolving) {
+      this.resolving = (async () => {
+        this.window = [...await this.deps.seed()]
+          .sort((a, b) => a.eventId - b.eventId)
+          .map((row) => row.id)
+          // A seed longer than the window (the size was lowered across a restart)
+          // is trimmed on the first publish, not here: resolving must not capture
+          // deletes before the composition root has finished wiring.
+          .slice(-Math.max(this.windowSize, 1) * 2)
+        this.resolved = true
+      })()
+    }
+    await this.resolving
   }
 
   /**
@@ -85,6 +98,7 @@ export class IssueEventFeedPublisher {
    * back `issues.close` is a lie about the world.
    */
   async publish(eventId: number, record: Omit<PodiumEventRecord, 'id'>): Promise<void> {
+    await this.resolve()
     if (!isFeedEventKind(record.kind)) return
     if (record.subject === '') return
     try {
@@ -119,6 +133,7 @@ export class IssueEventFeedPublisher {
    *  authorization change has to re-scope alongside the issue itself. Answered
    *  from the window, so a grant costs no table read. */
   subjectsFor(issueId: IssueId): { entity: 'issueEvent'; entityId: string }[] {
+    if (!this.resolved) throw new Error('IssueEventFeedPublisher is unresolved')
     const subjects: { entity: 'issueEvent'; entityId: string }[] = []
     for (const id of this.window) {
       try {

@@ -445,6 +445,8 @@ export class SessionRegistry {
   private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   private readonly ledger: Ledger
+  /** Curated issue-event window, resolved during async registry hydration. */
+  private readonly issueEventFeed: IssueEventFeedPublisher
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
@@ -486,6 +488,7 @@ export class SessionRegistry {
     // but provisioning it is a store write and therefore belongs in async boot,
     // after composition and before every other hydration step.
     await this.modules.machines.ensureHostMachine(hostname())
+    await this.issueEventFeed.resolve()
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
     await this.ledger.reconcile(
@@ -888,7 +891,7 @@ export class SessionRegistry {
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
     // from a list of call sites somebody has to keep complete.
-    issueEventFeed = new IssueEventFeedPublisher({
+    this.issueEventFeed = issueEventFeed = new IssueEventFeedPublisher({
       ledger,
       seed: async () => await ledger.authority.snapshot('issueEvent') as IssueEventWire[],
     })
