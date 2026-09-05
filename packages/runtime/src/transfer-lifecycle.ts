@@ -46,6 +46,11 @@ import {
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
 import {
+  loadSupervisorState,
+  prepareTransferAssignment,
+  reconcileSupervisorAssignment,
+} from './machine-supervisor'
+import {
   assertConfigWritable,
   ephemeralTunnelWarning,
   type ServerBindHost,
@@ -133,10 +138,7 @@ export class MachineIdentityConflictError extends Error {
  * accepted the transfer. An existing equal value is an idempotent success; any other value
  * is preserved and refused so promotion can never silently make the target wear a new ID.
  */
-export function establishTargetMachineId(
-  expected: MachineId,
-  dir: string = stateDir(),
-): MachineId {
+export function establishTargetMachineId(expected: MachineId, dir: string = stateDir()): MachineId {
   const path = join(dir, 'machine.id')
   const verifyExisting = (): MachineId => {
     const observed = readFileSync(path, 'utf8').trim()
@@ -178,17 +180,28 @@ function assertTransferId(transferId: string): void {
  * the new role. The temporary file is validated through saveConfig before its file and parent
  * directory are fsync'd around the atomic rename.
  */
-function saveTransferConfig(config: PodiumConfig): void {
+function saveTransferConfig(config: PodiumConfig, transferAssignment = true): void {
   const path = configPath()
   const tempPath = join(dirname(path), `.config-transfer-${process.pid}-${randomUUID()}.tmp`)
   try {
     saveConfig(config, tempPath)
     syncPath(tempPath)
+    if (transferAssignment) prepareTransferAssignment(loadConfig(tempPath), tempPath)
     renameSync(tempPath, path)
     syncParent(path)
+    saveTransferSupervisorAssignment(loadConfig())
   } finally {
     removeTemp(tempPath)
   }
+}
+
+function saveTransferSupervisorAssignment(config: PodiumConfig): void {
+  // Consume only an unfinished exact-config transaction. Idempotent transfer
+  // retries must preserve a later intentional service assignment.
+  const dir = stateDir()
+  if (!existsSync(join(dir, 'supervisor.json'))) return
+  const state = loadSupervisorState(dir)
+  reconcileSupervisorAssignment(state, config, dir)
 }
 
 function saveSourceDaemonIdentity(): void {
@@ -305,6 +318,7 @@ export function applySourceDemotion(input: SourceDemotionInput): SourceDemotionR
     prev.publicUrl === undefined &&
     prev.pairCode === undefined
   ) {
+    saveTransferSupervisorAssignment(cfg)
     const previousConfig = existsSync(backupPath) ? loadConfig(backupPath) : prev
     return {
       changed: false,
@@ -396,6 +410,7 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
     (port === undefined || prev.port === port) &&
     prev.pairCode === undefined
   ) {
+    saveTransferSupervisorAssignment(prev)
     return {
       changed: false,
       config: prev,
@@ -435,9 +450,13 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
 export function finalizeTargetServerPromotion(): void {
   assertConfigWritable()
   const prev = loadConfig()
-  if (prev.mode !== 'server' || prev.serverUrl === undefined) return
+  if (prev.mode !== 'server') return
+  if (prev.serverUrl === undefined) {
+    saveTransferSupervisorAssignment(prev)
+    return
+  }
   const { serverUrl: _recoveryEndpoint, ...finalConfig } = prev
-  saveTransferConfig(finalConfig)
+  saveTransferConfig(finalConfig, false)
 }
 
 export function targetConfigBackupPath(transferId: string): string {

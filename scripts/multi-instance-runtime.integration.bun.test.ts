@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
-import { SESSION_COOKIE } from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
 import {
   ABDUCO_SUN_PATH_MAX,
   abducoSocketDir,
@@ -805,7 +805,7 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(matchingRows).toHaveLength(1)
     expect(matchingRows[0]).toMatchObject({
       serviceAssignment: { server: false, agentExecution: true },
-      deliveryCaps: ['update.delivery.feed'],
+      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
       services: {
         server: { policy: 'disabled', state: 'stopped' },
         agentExecution: { policy: 'enabled', state: 'available' },
@@ -1192,13 +1192,209 @@ exec "$CANARY_REAL_CLI" "$@"
       online: true,
       presenceSource: 'supervisor',
       serviceAssignment: { server: true, agentExecution: false },
-      deliveryCaps: ['update.delivery.feed'],
+      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
       services: {
         server: { policy: 'enabled', state: 'available' },
         agentExecution: { policy: 'disabled', state: 'stopped' },
       },
     })
   }, 120_000)
+
+  for (const interrupted of [false, true]) {
+    it(`transfers compiled supervised machines and restarts both roles${interrupted ? ' after in-flight recovery' : ''}`, async () => {
+      const label = interrupted ? 'transfer-recovery' : 'transfer-live'
+      const source = makeSpec('blue', `${label}-source`)
+      const target = makeSpec('blue', `${label}-target`)
+      const observer = makeSpec('blue', `${label}-observer`)
+      const executable = buildPackagedCli()
+      const specs = [source, target, observer]
+      for (const spec of specs) packagedSpecs.push({ executable, spec })
+      const read = (spec: InstanceSpec, path: string): any =>
+        JSON.parse(readFileSync(join(spec.stateDir, path), 'utf8'))
+      const run = async (spec: InstanceSpec, args: string[], env: Record<string, string> = {}) => {
+        const result = await runPackagedCli(executable, spec, args, env)
+        expect(
+          result.code,
+          `${result.stdout}\n${result.stderr}\n${packagedDiagnostics(spec)}`,
+        ).toBe(0)
+      }
+      const sourceApi = trpc(source)
+      const targetApi = trpc(target)
+      const publicUrl = `http://127.0.0.1:${target.port}`
+      const sourceUrl = `ws://127.0.0.1:${source.port}`
+      const marker = join(TEST_ROOT, `${label}-fault`)
+      mkdirSync(source.stateDir, { recursive: true })
+      writeFileSync(
+        join(source.stateDir, 'config.json'),
+        JSON.stringify({
+          mode: 'all-in-one',
+          persistence: 'detached',
+          port: source.port,
+        }),
+      )
+      try {
+        await run(source, [], {
+          PODIUM_ADOPT_STATE: '1',
+          ...(interrupted
+            ? {
+                PODIUM_SERVER_MOVE_CRASH_POINT: 'after-promote',
+                PODIUM_SERVER_MOVE_FAULT_ONCE_FILE: marker,
+              }
+            : {}),
+        })
+        await waitUntil(
+          async () => (await version(source))?.instanceId === 'blue',
+          `${label} source`,
+        )
+        const sourceId = readFileSync(join(source.stateDir, 'machine.id'), 'utf8').trim()
+        for (const spec of [target, observer]) {
+          const pairing = await sourceApi.machines.pairingCode.mutate()
+          await run(spec, [
+            'setup',
+            '--join',
+            encodeJoin({ v: 1, serverUrl: sourceUrl, pairCode: pairing.code }),
+            '--persist',
+            'detached',
+          ])
+        }
+        const targetId = read(target, 'supervisor.json').machineId
+        const observerId = read(observer, 'supervisor.json').machineId
+        await waitUntil(async () => {
+          const rows = await sourceApi.machines.list.query()
+          return (
+            [sourceId, targetId, observerId].every((id) =>
+              rows.some(
+                (row) =>
+                  row.id === id &&
+                  row.online &&
+                  row.presenceSource === 'supervisor' &&
+                  row.deliveryCaps?.includes(SERVER_MOVE_CAPABILITY),
+              ),
+            ) && rows.find((row) => row.id === targetId)?.serverMoveEligibility?.eligible === true
+          )
+        }, `${label} real transfer eligibility`)
+        const started = await sourceApi.machines.moveServer.mutate({
+          targetMachineId: targetId,
+          publicUrl,
+          bindHost: '127.0.0.1',
+          confirmation: 'TRANSFER SERVER',
+        })
+        expect(started.started).toBe(true)
+        if (interrupted) {
+          await waitUntil(() => existsSync(marker), `${label} source crashed after promotion`)
+          await waitUntil(
+            async () => {
+              try {
+                const operation = await sourceApi.operations.active.query({ group: 'lifecycle' })
+                return (
+                  operation?.awaiting?.some((ask) => ask.id === 'server-move-recovery') === true
+                )
+              } catch {
+                return false
+              }
+            },
+            `${label} fenced recovery surface`,
+            120_000,
+          )
+          // Restart the real target while its daemon still owes the sealed source recovery.
+          await run(target, ['stop'])
+          await run(target, [])
+          await waitUntil(
+            async () => (await version(target)) !== undefined,
+            `${label} restarted target`,
+          )
+          await expect(
+            sourceApi.issues.create.mutate({
+              repoPath: TEST_ROOT,
+              title: 'Must remain fenced',
+              startNow: false,
+            }),
+          ).rejects.toThrow()
+          const recovered = await sourceApi.operations.settleAsk.mutate({
+            id: started.operationId,
+            actionId: 'server-move-recovery',
+          })
+          expect(recovered.handled).toBe(true)
+        }
+        await waitUntil(
+          () => {
+            try {
+              return (
+                read(source, 'config.json').mode === 'daemon' &&
+                read(source, '.server-transfer/journal.json').state === 'committed' &&
+                read(target, 'config.json').mode === 'server' &&
+                read(target, 'config.json').serverUrl === undefined
+              )
+            } catch {
+              return false
+            }
+          },
+          `${label} durable finalization`,
+          120_000,
+        )
+        const assertTopology = async () => {
+          await waitUntil(
+            async () => {
+              try {
+                const rows = await targetApi.machines.list.query()
+                return (
+                  [sourceId, targetId, observerId].every((id) =>
+                    rows.some(
+                      (row) => row.id === id && row.online && row.presenceSource === 'supervisor',
+                    ),
+                  ) &&
+                  rows.find((row) => row.id === targetId)?.services?.agentExecution.state ===
+                    'stopped' &&
+                  rows.find((row) => row.id === sourceId)?.services?.agentExecution.state ===
+                    'available'
+                )
+              } catch {
+                return false
+              }
+            },
+            `${label} rebound supervisor planes`,
+            120_000,
+          )
+          expect(read(source, 'supervisor.json').assignment).toEqual({
+            server: false,
+            agentExecution: true,
+          })
+          expect(read(target, 'supervisor.json').assignment).toEqual({
+            server: true,
+            agentExecution: false,
+          })
+          for (const spec of specs) {
+            expect(read(spec, 'connectivity.json')).toMatchObject({
+              state: 'connected',
+              serverUrl: `ws://127.0.0.1:${target.port}`,
+            })
+          }
+          expect(await version(source)).toBeUndefined()
+          const rows = await targetApi.machines.list.query()
+          expect(rows.find((row) => row.id === sourceId)?.serviceAssignment).toEqual({
+            server: false,
+            agentExecution: true,
+          })
+          expect(rows.find((row) => row.id === targetId)?.serviceAssignment).toEqual({
+            server: true,
+            agentExecution: false,
+          })
+        }
+        await assertTopology()
+        for (const spec of [source, target]) await run(spec, ['stop'])
+        // Restart the actual finalized durable state. The focused runtime tests
+        // separately inject the config/assignment atomic-write crash window.
+        await run(target, [])
+        await run(source, [])
+        await assertTopology()
+        console.log(
+          `PASS ${label}: compiled transfer, three endpoint rebinds, durable assignments, finalized restarts${interrupted ? ', sealed-source refusal and target restart during recovery' : ''}`,
+        )
+      } finally {
+        for (const spec of specs) await runPackagedCli(executable, spec, ['stop']).catch(() => {})
+      }
+    }, 480_000)
+  }
 
   it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')

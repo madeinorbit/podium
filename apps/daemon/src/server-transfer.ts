@@ -32,9 +32,10 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
-import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
+import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
+  applyTargetServerPromotion,
   establishTargetMachineId,
   finalizeTargetServerPromotion,
   MachineIdentityConflictError,
@@ -954,11 +955,12 @@ async function installPortableFile(
 }
 
 async function persistTargetConfig(
+  transferId: string,
   publicUrl: string,
   bindHost: ServerBindHost,
   port: number,
 ): Promise<void> {
-  applySetup({ mode: 'server', publicUrl, bindHost, port, confirmUrlChange: true })
+  applyTargetServerPromotion({ transferId, publicUrl, bindHost, port })
   const path = configPath()
   const handle = await open(path, 'r')
   try {
@@ -1049,7 +1051,7 @@ async function promote(
     await crashPoint(ctx, 'after-install-before-config')
 
     await stopCandidateListener(msg.transferId)
-    await persistTargetConfig(checked.normalized, msg.bindHost, msg.port)
+    await persistTargetConfig(msg.transferId, checked.normalized, msg.bindHost, msg.port)
     await crashPoint(ctx, 'after-config-before-health')
 
     const expected: ServerTransferServingProof = {
