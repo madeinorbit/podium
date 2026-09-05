@@ -1,3 +1,4 @@
+import './machine-update-boot.integration.bun.test'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
