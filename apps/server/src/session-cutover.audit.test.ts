@@ -793,7 +793,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       cwd: '/p',
     })
     expect(created.sessionId).toBeDefined()
-    expect(dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId })).toBeUndefined()
+    expect(await dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId })).toBeUndefined()
   })
 
   it('THE ALL-IN-ONE CASE: a non-owner may not execute on the host daemon', async () => {

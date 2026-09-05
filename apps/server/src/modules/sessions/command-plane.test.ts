@@ -348,7 +348,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     expect(await messageOf(() => dispatchSessionCommand(asColleague, 'kill', { sessionId }))).toBe(
       `unknown machine '${host}'`,
     )
-    expect(dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
+    expect(await dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
   })
 })
 
@@ -543,8 +543,8 @@ describe('invisible fails exactly like nonexistent', () => {
         choices: [{ optionIndices: [1] }],
       }),
     )
-    expect(dispatchSessionCommand(hidden, 'kill', { sessionId })).toEqual(
-      dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
+    expect(await dispatchSessionCommand(hidden, 'kill', { sessionId })).toEqual(
+      await dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
     )
     // And the hidden session is still alive: the refusal refused, it did not act.
     expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
