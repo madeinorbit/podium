@@ -518,6 +518,36 @@ describe('long instance durable sockets', () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('dispatches supervisor lifecycle and progress through the production gateway', async () => {
+    const spec = makeSpec('blue', 'machine-events')
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        '--conditions=@podium/source',
+        join(ROOT, 'scripts/fixtures/machine-events-runtime.ts'),
+      ],
+      {
+        cwd: ROOT,
+        env: instanceEnv(spec),
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    )
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ])
+      expect(code, `${stdout}\n${stderr}`).toBe(0)
+      expect(stdout).toContain('"machineEvents":"passed"')
+      console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))
+    } finally {
+      child.kill()
+      await child.exited
+    }
+  }, 60_000)
+
   it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
     const foreign = makeSpec('blue', 'foreign-blue')
     mkdirSync(foreign.stateDir, { recursive: true })
