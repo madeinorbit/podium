@@ -32,7 +32,7 @@ export interface CompleteForRoleDeps {
    * made to name its source. A provider with no configured secret answers
    * `undefined`, which is a real "not configured" and fails closed.
    */
-  apiKey: (provider: string) => string | undefined
+  apiKey: (provider: string) => string | undefined | Promise<string | undefined>
   /** Injectable client factory (tests / alternate transports). */
   llm?: typeof llmClient
 }
@@ -66,7 +66,7 @@ export async function completeForRole<T>(
 ): Promise<{ text: string; data: T | null | string; label: string }> {
   const backend = resolveOneShotBackend(deps.settings, opts.role)
   const factory = deps.llm ?? llmClient
-  const client: LlmClient = factory(backend, deps.apiKey(backend.provider))
+  const client: LlmClient = factory(backend, await deps.apiKey(backend.provider))
   const resp = await client.complete(opts.messages, [])
   const data = opts.parse ? opts.parse(resp.text) : resp.text
   return { text: resp.text, data, label: client.label }

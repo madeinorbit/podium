@@ -121,7 +121,7 @@ export async function withDevBuildSnapshot<T>(
         )
       } catch (error) {
         await rm(snapshotRoot, { recursive: true, force: true })
-        await (await git(input.sourceRoot, ['worktree', 'prune'])).catch(() => {})
+        await git(input.sourceRoot, ['worktree', 'prune']).catch(() => {})
         if (!failed) throw error
       }
     }

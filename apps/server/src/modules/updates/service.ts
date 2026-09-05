@@ -571,7 +571,7 @@ export class UpdatesService {
     const inFlight = this.refreshesInFlight.get(channel)
     if (inFlight) return inFlight
 
-    const refresh = (await this.resolveIntoTarget(channel)).finally(() => {
+    const refresh = this.resolveIntoTarget(channel).finally(() => {
       // Identity-checked so a slot re-taken by a later caller is never deleted by
       // an earlier one settling; `finally` also covers the failure path, or one
       // unreachable second would pin the channel shut for the life of the process.

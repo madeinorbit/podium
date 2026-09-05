@@ -500,7 +500,7 @@ export class IssueGitWorkflowModule {
       }
       const originId = wire.deps?.find((dep) => dep.type === 'discovered-from')?.id
       if (originId) {
-        void (await this.releaseWorktreeIfIdle(originId, systemPrincipal('start'))).catch(
+        void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
           (err: unknown) => {
             log.warn('could not release vacated origin worktree', {
               err,
@@ -638,8 +638,8 @@ export class IssueGitWorkflowModule {
     // concurrent push moves it mid-merge. Best-effort: a missing sha must not
     // fail a merge that otherwise succeeded, so `landedAt` (the fact) is
     // independent of `landedSha` (the evidence).
-    const tip = await (await this.store.d
-      .repoOp('revParseVerify', repoPath, { ref: branch }, machineId))
+    const tip = await this.store.d
+      .repoOp('revParseVerify', repoPath, { ref: branch }, machineId)
       .catch(() => ({ ok: false, output: '' }))
     const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch })
     if (r.ok) {
@@ -656,7 +656,7 @@ export class IssueGitWorkflowModule {
       // operator who pressed merge sees the "ready to merge" chip go rather than
       // watching it outlive the merge until the next watch tick. Siblings whose
       // own counts moved are the watch's job, not this action's.
-      void (await this.refreshGitState(id)).catch(() => {})
+      void this.refreshGitState(id).catch(() => {})
       return { ...r, issue }
     }
     return { ...r, issue: await issueNow() }
@@ -1375,7 +1375,7 @@ export class IssueGitWorkflowModule {
     }
     if (!row.worktreePath) {
       if (!row.branch) throw new Error('issue not started')
-      return (await this.ensureWorktree(id)).then(async (ensured) => {
+      return this.ensureWorktree(id).then(async (ensured) => {
         if (!ensured.ok || !ensured.worktreePath) {
           throw new Error(ensured.output || 'failed to recreate worktree from branch')
         }
@@ -1515,7 +1515,7 @@ export class IssueGitWorkflowModule {
     sessionId: SessionId,
     activity: { commits?: string[]; touched?: string[] },
   ): Promise<void> {
-    void (await this.captureSessionGitActivity(sessionId, activity))?.catch(() => {})
+    void this.captureSessionGitActivity(sessionId, activity).catch(() => {})
   }
 
   /** Durable runtime projection path: completion is the projector cursor fence. */
@@ -1534,7 +1534,7 @@ export class IssueGitWorkflowModule {
 
   /** Legacy working→idle notification; best-effort by its existing contract. */
   async onSessionTurnEnd(sessionId: SessionId): Promise<void> {
-    void (await this.sessionTurnEndRefresh(sessionId))?.catch(() => {})
+    void this.sessionTurnEndRefresh(sessionId).catch(() => {})
   }
 
   /** Durable runtime turn end: do not advance its oplog cursor before refresh. */
@@ -1550,7 +1550,7 @@ export class IssueGitWorkflowModule {
     const removedCommits = this.gitCommitsBySession.delete(sessionId)
     const removedTouched = this.gitTouchedBySession.delete(sessionId)
     if ((!removedCommits && !removedTouched) || !resolved) return
-    void (await this.refreshGitState(resolved.row.id, resolved.sess.cwd)).catch(() => {})
+    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
   }
 
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
@@ -1584,9 +1584,9 @@ export class IssueGitWorkflowModule {
     const refresh = {
       rerun: false,
       fallbackCwd,
-      promise: await Promise.resolve(),
+      promise: Promise.resolve(),
     }
-    refresh.promise = await (async () => {
+    refresh.promise = (async () => {
       let changed = false
       do {
         // Coalesce rapid daemon messages/turn-end edges before starting four
@@ -1668,7 +1668,7 @@ export class IssueGitWorkflowModule {
 
     await Promise.all(
       [...groups].map(async ([key, group]) => {
-        const res = await (await this.store.d
+        const res = await this.store.d
           .repoOp(
             'revParseVerify',
             group.repoPath,
@@ -1677,7 +1677,7 @@ export class IssueGitWorkflowModule {
             // (= pick by repo affinity). Narrowed here, at the one call, rather
             // than by giving the group its own spelling of the field.
             group.machineId ?? undefined,
-          ))
+          )
           .catch(() => ({ ok: false, output: '' }))
         // An unreadable watched ref (offline machine, ref not there yet) leaves
         // the last known tip intact: the next readable sweep compares against a

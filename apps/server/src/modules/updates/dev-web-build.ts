@@ -288,7 +288,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     const identity = `${headSha}\0${appVersion ?? ''}`
     if (inFlight && inFlight.identity === identity) return inFlight.promise
     state = { state: 'building', headSha, units }
-    const promise = (await build(headSha, appVersion)).then(
+    const promise = build(headSha, appVersion).then(
       () => {
         inFlight = null
         state = { state: 'ready', headSha }

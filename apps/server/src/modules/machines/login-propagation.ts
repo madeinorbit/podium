@@ -64,7 +64,7 @@ export class LoginPropagationService {
 
   /** Fire-and-forget trigger used by spawn, harness failure, and enrollment. */
   async trigger(input: LoginPropagationTrigger): Promise<void> {
-    void (await this.propagate(input)).catch((error: unknown) => {
+    void this.propagate(input).catch((error: unknown) => {
       log.warn('login propagation failed', {
         err: error,
         targetMachineId: input.targetMachineId,

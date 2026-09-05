@@ -232,7 +232,7 @@ export class IssueAttentionModule {
       const from = prevId
       const to = target.id
       afterCommit(async () => {
-        void (await this.maybeTakeOriginWorktree(from, to)).catch((err: unknown) => {
+        void this.maybeTakeOriginWorktree(from, to).catch((err: unknown) => {
           log.warn('hopscotch worktree take-over failed', { err, from, to })
         })
       }, 'hopscotch-worktree-take-over')
@@ -661,8 +661,8 @@ export class IssueAttentionModule {
     // category (mutable process-owned objects), not this one's.
     const issueId = row.id
     afterCommit(async () => {
-      void (await this.gitWorkflow()
-        .releaseWorktreeIfIdle(issueId, systemPrincipal('archive')))
+      void this.gitWorkflow()
+        .releaseWorktreeIfIdle(issueId, systemPrincipal('archive'))
         .catch((err: unknown) => {
           log.warn('archive could not free the worktree', { err, issueId })
         })

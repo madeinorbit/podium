@@ -244,7 +244,7 @@ export class MachineRepoDiscovery {
     const key = `${machineId}\0${opts.atPath ?? ''}\0${opts.deep ? 'deep' : 'shallow'}`
     const inFlight = this.running.get(key)
     if (inFlight) return inFlight
-    const run = (await this.runScan(machineId, opts)).finally(() => this.running.delete(key))
+    const run = this.runScan(machineId, opts).finally(() => this.running.delete(key))
     this.running.set(key, run)
     return run
   }

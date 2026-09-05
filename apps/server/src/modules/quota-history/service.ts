@@ -137,7 +137,7 @@ export class QuotaSampler {
    */
   async sampleNow(): Promise<void> {
     if (this.inFlight) return this.inFlight
-    const flight = (await this.runPass()).finally(() => {
+    const flight = this.runPass().finally(() => {
       if (this.inFlight === flight) this.inFlight = undefined
     })
     this.inFlight = flight

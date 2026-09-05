@@ -63,15 +63,15 @@ export class IssueAssistantDigestModule {
     // probes and the LLM completion — and is re-cut after them (POD-3375).
     let row = await this.store.draftOrThrow(id)
     if (!row.worktreePath) return await this.store.toWire(row)
-    const settings = this.store.d.getSettings()
+    const settings = await this.store.d.getSettings()
     const members = this.store.sessionsFor(row).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
       tail: '',
     }))
     const [status, log] = await Promise.all([
-      (await this.store.d.repoOp('status', row.worktreePath)).catch(() => ({ ok: false, output: '' })),
-      (await this.store.d.repoOp('log', row.worktreePath)).catch(() => ({ ok: false, output: '' })),
+      this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
     const inScope = await this.store.repoScopeFilter(row.repoPath)
     const others = [...this.store.rows.values()]

@@ -125,7 +125,7 @@ export async function probeGitState(
     name: string,
     args?: Record<string, string>,
   ): Promise<{ ok: boolean; output: string }> =>
-    (await io.repoOp(name, target.cwd, args, target.machineId)).catch(() => ({ ok: false, output: '' }))
+    io.repoOp(name, target.cwd, args, target.machineId).catch(() => ({ ok: false, output: '' }))
 
   const [status, head, unpushedRes, aheadRes, refCommitsRes] = await Promise.all([
     await op('statusProbe'),
