@@ -44,6 +44,9 @@ import {
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
+import { readDaemonHealth } from '@podium/runtime/daemon-health'
+import { writeParentRequest, readParentResult } from '@podium/runtime/parent-control'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
@@ -645,9 +648,26 @@ describe('multi-instance runtime isolation', () => {
       state: 'connected',
     })
 
-    const daemonRecord = JSON.parse(
-      readFileSync(join(fleet.stateDir, 'run', 'daemon.pid'), 'utf8'),
-    ) as { pid: number }
+    const record = (name: string): { pid: number; version?: string } =>
+      JSON.parse(readFileSync(join(fleet.stateDir, 'run', name), 'utf8'))
+    await waitUntil(
+      () => existsSync(join(fleet.stateDir, 'run', 'supervisor-ready.json')),
+      'daemon-only production boot health gate',
+    )
+    expect(record('supervisor-ready.json')).toMatchObject({
+      pid: record('parent.pid').pid,
+      version: '9.9.9',
+    })
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+    })
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')).processId,
+    ).toBe(record('parent.pid').pid)
+
+    const daemonRecord = record('daemon.pid')
     process.kill(daemonRecord.pid, 'SIGKILL')
     await waitUntil(async () => {
       const row = (await sourceApi.machines.list.query()).find(
@@ -665,6 +685,86 @@ describe('multi-instance runtime isolation', () => {
           ?.services?.agentExecution.state === 'available',
       'daemon recovery under live supervisor',
     )
+
+    // Exercise the same production daemon restart + health gate used by source
+    // demotion. Topology persistence/endpoint transfer belongs to its own lane.
+    const topologyId = randomUUID()
+    writeParentRequest(
+      {
+        requestId: topologyId,
+        kind: 'topology',
+        expectedVersion: 'topology',
+        requestedAt: new Date().toISOString(),
+        children: ['daemon'],
+        restartDaemon: true,
+        topologyHealth: 'daemon',
+      },
+      fleet.stateDir,
+    )
+    const beforeDemotion = record('daemon.pid').pid
+    process.kill(record('parent.pid').pid, 'SIGUSR1')
+    await waitUntil(
+      () => readParentResult(topologyId, fleet.stateDir) !== undefined,
+      'production demotion daemon health boundary',
+    )
+    expect(readParentResult(topologyId, fleet.stateDir)?.ok).toBe(true)
+    expect(record('daemon.pid').pid).not.toBe(beforeDemotion)
+    expect(readDaemonHealth(fleet.stateDir)?.processId).toBe(record('daemon.pid').pid)
+
+    // Seed only the durable, already-installed update authority. Both parents,
+    // the daemon handshake/convergence callback and all health probes are real.
+    // Same-version handover deliberately does not test download or binary swap.
+    const grant = {
+      type: 'updateGrant',
+      grantId: randomUUID(),
+      issuedAt: Date.now(),
+      target: { version: '9.9.9', critical: false, artifacts: {} },
+    }
+    mkdirSync(join(fleet.stateDir, 'runtime'), { recursive: true })
+    writeFileSync(
+      join(fleet.stateDir, 'runtime', 'machine-update.json'),
+      JSON.stringify({
+        format: 1,
+        grant,
+        fingerprint: updateFingerprint(grant),
+        previousVersion: '9.9.8',
+        phase: 'current',
+        updatedAt: Date.now(),
+        completed: {},
+        authority: grant.issuedAt,
+      }),
+    )
+    const outgoingPid = record('parent.pid').pid
+    writeParentRequest(
+      {
+        requestId: randomUUID(),
+        kind: 'handover',
+        expectedVersion: '9.9.9',
+        requestedAt: new Date().toISOString(),
+        releaseHadMigrations: false,
+      },
+      fleet.stateDir,
+    )
+    process.kill(outgoingPid, 'SIGUSR1')
+    await waitUntil(
+      () => record('supervisor-ready.json').pid !== outgoingPid,
+      'daemon-only successor production health gate',
+    )
+    await waitUntil(() => {
+      try {
+        process.kill(outgoingPid, 0)
+        return false
+      } catch {
+        return true
+      }
+    }, 'outgoing parent commits production handover')
+    expect(record('supervisor-ready.json').pid).toBe(record('parent.pid').pid)
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+      convergedVersion: '9.9.9',
+    })
 
     const stopped = await runPackagedCli(executable, fleet, ['stop'])
     expect(stopped.code, `${stopped.stdout}\n${stopped.stderr}`).toBe(0)
