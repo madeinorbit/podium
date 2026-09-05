@@ -81,7 +81,7 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
 it('reads supervised as a boolean, and an unreported machine is false rather than null', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // NULL until a daemon reports, which the mapper reads as false: the
     // truthful answer, since a supervised daemon re-asserts on every hello.
     expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
@@ -115,16 +115,16 @@ it('reads supervised as a boolean, and an unreported machine is false rather tha
 it('keeps an unowned machine unowned, and never substitutes an owner', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'orphan', { ownerUserId: null })
+    await register(store, 'orphan', { ownerUserId: null })
     // POD-1079: null is MEANINGFUL and refuses `use` to everyone. A conversion
     // that coalesced it to a default would be the fail-open shape the nullable
     // column exists to avoid.
     expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
 
     // A returning hello does NOT transfer ownership, but it does fill a NULL.
-    register(store, 'orphan', { ownerUserId: owner })
+    await register(store, 'orphan', { ownerUserId: owner })
     expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
-    register(store, 'orphan', { ownerUserId: 'user-2' as UserId })
+    await register(store, 'orphan', { ownerUserId: 'user-2' as UserId })
     expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
 
     // The forced projection is the path that DOES move it, and null is quarantine.
@@ -140,7 +140,7 @@ it('keeps an unowned machine unowned, and never substitutes an owner', async () 
 it('reads an unpinned update channel as null and keeps an unreadable one unpinned', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // POD-1882: null means "follow the fleet default", not "no answer".
     expect((await store.machines.getMachine('m1'))?.updateChannelOverride).toBeNull()
 
@@ -156,7 +156,7 @@ it('reads an unpinned update channel as null and keeps an unreadable one unpinne
 it('distinguishes components NOT RECORDED from components recorded as none', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // NULL is distinct from '[]' (POD-2700): a machine that has not said what it
     // runs refuses nothing, where one that runs nothing must refuse.
     expect((await store.machines.getMachine('m1'))?.components).toBeNull()
@@ -180,7 +180,7 @@ it('distinguishes components NOT RECORDED from components recorded as none', asy
 it('finds no retired machine sentinel on a database a supported install can hold', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, asMachineId('11111111-1111-4111-8111-111111111111'))
+    await register(store, asMachineId('11111111-1111-4111-8111-111111111111'))
     // The boot refusal's input. Empty is the only answer a shipped Podium can
     // produce, and the check exists because the alternative to finding out is
     // not finding out.
