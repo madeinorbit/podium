@@ -29,17 +29,17 @@ export interface ApprovalServiceDeps {
   toMachine(machineId: MachineId, msg: ControlMessage): void
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
-  sessionIssueId(sessionId: SessionId): IssueId | null
-  issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null
-  machineName(machineId: MachineId): string | undefined
+  sessionIssueId(sessionId: SessionId): IssueId | null | Promise<IssueId | null>
+  issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null | Promise<{ seq: number; title: string; displayRef?: string } | null>
+  machineName(machineId: MachineId): string | undefined | Promise<string | undefined>
   /** Append to the durable event log (renders in the issue activity feed). */
-  logEvent(kind: string, issueId: IssueId | null, payload: Record<string, unknown>): void
+  logEvent(kind: string, issueId: IssueId | null, payload: Record<string, unknown>): void | Promise<void>
   /** Push the outcome to the requesting agent via issue mail (stop-hook/nudge
    *  delivery) — the agent must not have to poll to learn the decision. */
-  notifyIssue(issueId: IssueId, body: string): void
+  notifyIssue(issueId: IssueId, body: string): void | Promise<void>
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
-  executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null
+  executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null | Promise<string | null>
   /** True when `machineId` has a live daemon socket RIGHT NOW. The stall deadline
    *  below runs only while this is true — see {@link ApprovalService.sweepStalledExecutions}. */
   hasDaemon?(machineId: MachineId): boolean
@@ -110,9 +110,9 @@ export class ApprovalService {
     return this.deps.nowMs?.() ?? Date.now()
   }
 
-  private toWire(row: ApprovalRow): ApprovalWire {
-    const issue = row.issueId ? this.deps.issueInfo(row.issueId) : null
-    const machineName = this.deps.machineName(row.machineId)
+  private async toWire(row: ApprovalRow): Promise<ApprovalWire> {
+    const issue = row.issueId ? await this.deps.issueInfo(row.issueId) : null
+    const machineName = await this.deps.machineName(row.machineId)
     return {
       id: row.id,
       machineId: row.machineId,
@@ -136,7 +136,7 @@ export class ApprovalService {
   }
 
   async listPending(): Promise<ApprovalWire[]> {
-    return (await this.deps.store.listPending()).map((r) => this.toWire(r))
+    return await Promise.all((await this.deps.store.listPending()).map(async (r) => await this.toWire(r)))
   }
 
   private async broadcast(): Promise<void> {
@@ -150,20 +150,20 @@ export class ApprovalService {
    * cases a blocked CLI cannot see — it timed out, its session ended, or the op
    * killed its own daemon mid-flight — so a decision is never lost.
    */
-  private notify(row: ApprovalRow, outcome: string): void {
+  private async notify(row: ApprovalRow, outcome: string): Promise<void> {
     if (!row.issueId) return
     const polled = this.lastPolledAt.get(row.id) ?? 0
     if (Date.now() - polled < ApprovalService.WAITER_LIVE_MS) return // the CLI reports it
     try {
-      this.deps.notifyIssue(
+      await this.deps.notifyIssue(
         row.issueId,
         `approval ${row.id} ("${describeApprovalOp(row.op)}"): ${outcome}`,
       )
     } catch {}
   }
 
-  private log(row: ApprovalRow, kind: string, extra: Record<string, unknown> = {}): void {
-    this.deps.logEvent(kind, row.issueId, {
+  private async log(row: ApprovalRow, kind: string, extra: Record<string, unknown> = {}): Promise<void> {
+    await this.deps.logEvent(kind, row.issueId, {
       approvalId: row.id,
       machineId: row.machineId,
       sessionId: row.sessionId,
@@ -197,7 +197,7 @@ export class ApprovalService {
       id: `apr_${randomUUID()}`,
       machineId,
       sessionId,
-      issueId: this.deps.sessionIssueId(sessionId),
+      issueId: await this.deps.sessionIssueId(sessionId),
       op,
       status: 'pending',
       createdAt: this.deps.now(),
@@ -205,7 +205,7 @@ export class ApprovalService {
       resultText: null,
     }
     await this.deps.store.insert(row)
-    this.log(row, 'issue.approval_requested')
+    await this.log(row, 'issue.approval_requested')
     await this.broadcast()
     return {
       id: row.id,
@@ -219,7 +219,7 @@ export class ApprovalService {
     const id = String((input as Record<string, unknown> | undefined)?.id ?? '')
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
-    return this.toWire(row)
+    return await this.toWire(row)
   }
 
   /** RELAY entry for `get`: same read, but it also marks the caller as a live
@@ -240,23 +240,23 @@ export class ApprovalService {
     if (!await this.deps.store.transition(id, 'pending', 'executing')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
-    this.log(row, 'issue.approval_approved')
+    await this.log(row, 'issue.approval_approved')
     try {
-      const serverResult = this.deps.executeServerOp?.(row.op, row.sessionId) ?? null
+      const serverResult = await this.deps.executeServerOp?.(row.op, row.sessionId) ?? null
       if (serverResult !== null) {
         await this.deps.store.transition(id, 'executing', 'succeeded', serverResult)
-        this.log(row, 'issue.approval_succeeded')
-        this.notify(row, `succeeded — ${serverResult}`)
+        await this.log(row, 'issue.approval_succeeded')
+        await this.notify(row, `succeeded — ${serverResult}`)
         await this.broadcast()
-        return this.toWire(await this.row(id))
+        return await this.toWire(await this.row(id))
       }
     } catch (error) {
       const result = error instanceof Error ? error.message : String(error)
       await this.deps.store.transition(id, 'executing', 'failed', result)
-      this.log(row, 'issue.approval_failed')
-      this.notify(row, `FAILED — ${result}`)
+      await this.log(row, 'issue.approval_failed')
+      await this.notify(row, `FAILED — ${result}`)
       await this.broadcast()
-      return this.toWire(await this.row(id))
+      return await this.toWire(await this.row(id))
     }
     this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
     // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
@@ -264,9 +264,9 @@ export class ApprovalService {
     if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
     // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
     // decision itself is the last thing we can reliably deliver.
-    if (row.op.kind === 'stop') this.notify(row, 'approved — executing')
+    if (row.op.kind === 'stop') await this.notify(row, 'approved — executing')
     await this.broadcast()
-    return this.toWire(await this.row(id))
+    return await this.toWire(await this.row(id))
   }
 
   /** Operator: deny. Terminal. */
@@ -276,10 +276,10 @@ export class ApprovalService {
     if (!await this.deps.store.transition(id, 'pending', 'denied', 'denied by the operator')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
-    this.log(row, 'issue.approval_denied')
-    this.notify(row, 'denied by the operator')
+    await this.log(row, 'issue.approval_denied')
+    await this.notify(row, 'denied by the operator')
     await this.broadcast()
-    return this.toWire(await this.row(id))
+    return await this.toWire(await this.row(id))
   }
 
   /** Daemon reply: execution finished. A `stop` op may never report (the daemon
@@ -299,12 +299,12 @@ export class ApprovalService {
       !await this.deps.store.transition(msg.requestId, from, msg.ok ? 'succeeded' : 'failed', text)
     )
       return
-    this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
+    await this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
       exitCode: msg.exitCode,
       ...(late ? { late: true } : {}),
     })
     const prefix = late ? 'reported LATE, after the server had given up — ' : ''
-    this.notify(row, `${prefix}${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
+    await this.notify(row, `${prefix}${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
     await this.broadcast()
   }
 
@@ -384,15 +384,15 @@ export class ApprovalService {
     // its reply, so this must NOT claim nothing happened — it must name the one thing
     // that is certainly true and the one thing the operator can do about it.
     const text =
-      `no result from ${this.deps.machineName(row.machineId) ?? row.machineId} after ${minutes} minutes. ` +
+      `no result from ${(await this.deps.machineName(row.machineId)) ?? row.machineId} after ${minutes} minutes. ` +
       `Its daemon was connected and did not answer, which usually means that machine's podium ` +
       `predates this operation and dropped the request — check its version, update it, then ask again. ` +
       `The operation may or may not have run; \`podium fleet\` shows what that machine is actually on.`
     if (!await this.deps.store.transition(row.id, 'executing', 'failed', text)) return false
     this.stallClock.delete(row.id)
     this.stalled.add(row.id)
-    this.log(row, 'issue.approval_failed', { stalled: true, waitedMs })
-    this.notify(row, `FAILED — ${text}`)
+    await this.log(row, 'issue.approval_failed', { stalled: true, waitedMs })
+    await this.notify(row, `FAILED — ${text}`)
     return true
   }
 }
