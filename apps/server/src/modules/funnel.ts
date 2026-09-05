@@ -52,9 +52,11 @@ export interface FeedServingPort {
   flushPending(): void
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
-  identity(): Promise<{ readonly feedId: string; readonly epoch: string }>
+  identity():
+    | { readonly feedId: string; readonly epoch: string }
+    | Promise<{ readonly feedId: string; readonly epoch: string }>
   /** ADR 2 D5's floor, from the SAME source every published frame reads it from. */
-  retentionFloor(): Promise<number>
+  retentionFloor(): number | Promise<number>
 }
 
 /**
@@ -229,7 +231,7 @@ export class WriteFunnel {
     cursor: FeedCursorField | null,
     principal: import('@podium/protocol').Principal,
   ): Promise<FeedChangesSinceReply> {
-    const identity = this.deps.serving.identity()
+    const identity = await this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
     }
@@ -284,7 +286,7 @@ export class WriteFunnel {
     throughSeq: number
     rows: { entity: string; entityId: string }[]
   }> {
-    const identity = this.deps.serving.identity()
+    const identity = await this.deps.serving.identity()
     const world = await this.deps.authority.bootstrap(principal)
     return {
       feedId: identity.feedId,
