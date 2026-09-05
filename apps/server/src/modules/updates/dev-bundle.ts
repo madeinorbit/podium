@@ -432,8 +432,8 @@ export async function defaultReadIgnoredSourceInputs(root: string): Promise<stri
   return files.join('\0')
 }
 
-async function defaultReadSourceStatus(root: string): Promise<string> {
-  return await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+function defaultReadSourceStatus(root: string): Promise<string> {
+  return git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
 }
 
 /**
@@ -758,7 +758,7 @@ export interface DevBundleFs {
 }
 
 export const nodeDevBundleFs: DevBundleFs = {
-  list: async (dir) => await readdir(dir).catch(() => []),
+  list: (dir) => readdir(dir).catch(() => []),
   digest: (path) =>
     new Promise((resolve, reject) => {
       const hash = createHash('sha256')
@@ -771,7 +771,7 @@ export const nodeDevBundleFs: DevBundleFs = {
       stream.once('error', reject)
       stream.once('end', () => resolve({ digest: `sha256-${hash.digest('base64')}`, size }))
     }),
-  readText: async (path) => await readFileAsync(path, 'utf8'),
+  readText: (path) => readFileAsync(path, 'utf8'),
   // ENSURE THE PARENT, because nothing else does any more.
   //
   // `dist-bun/` used to be created as a side effect of the build writing its tarballs
@@ -784,7 +784,7 @@ export const nodeDevBundleFs: DevBundleFs = {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, contents)
   },
-  remove: async (path) => await rm(path, { force: true }),
+  remove: (path) => rm(path, { force: true }),
 }
 
 /**
@@ -1381,11 +1381,11 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   const acquired = await lock.acquire()
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
 
-  let renewal = await Promise.resolve()
+  let renewal = Promise.resolve()
   let renewalError: unknown
-  const renewTimer = setInterval(async () => {
-    renewal = await renewal
-      .then(async () => await lock.renew())
+  const renewTimer = setInterval(() => {
+    renewal = renewal
+      .then(() => lock.renew())
       .catch((error) => {
         renewalError ??= error
       })
@@ -2032,7 +2032,7 @@ export class DevArtifactIntegrityError extends Error {
   override readonly name = 'DevArtifactIntegrityError'
 }
 
-export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Promise<{
+export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(
     explicit?: boolean,
     approved?: Pick<ReleaseProposal, 'headSha' | 'version'>,
@@ -2087,7 +2087,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
    * server log; `readiness().publicReason` is the half a client may see.
    */
   unavailable(): string | undefined
-}> {
+} {
   let current: BuiltDevBundle | null = null
   let builtSha: string | null = null
   let lastAttemptAt: number | null = null
@@ -2111,7 +2111,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
   /** Probe only — publication goes through {@link requireDefinedMigrations}. */
   const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
     const read =
-      deps.migrationsAt ?? (async (at: string) => await migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
+      deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
     try {
       return await read(sha)
     } catch {
@@ -2169,7 +2169,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
         debounceMs,
         explicit,
       })
-      if (!decision.build) return { result: await Promise.resolve(inFlight ?? current) }
+      if (!decision.build) return { result: Promise.resolve(inFlight ?? current) }
 
       lastAttemptAt = now()
       // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
@@ -2187,8 +2187,8 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
           ...(approved?.version ? { version: approved.version } : {}),
           sourceSha: headSha,
         },
-        async () =>
-          await assertSourceMatchesHead(
+        () =>
+          assertSourceMatchesHead(
             deps.root ?? SOURCE_ROOT,
             headSha,
             deps.readSourceStatus,
@@ -2216,8 +2216,8 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
         // five commits it was not running. The release build touches the live dist not
         // at all, so a poll has nothing to refuse. The Update panel's explicit "rebuild
         // the website" still owns live-dist rebuilds, through `createDevWebBuilder`.
-        const build = async () =>
-          await buildDevBundle({
+        const build = () =>
+          buildDevBundle({
             ...deps,
             root: buildRoot,
             headSha,
@@ -2226,7 +2226,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
           })
         return current === null
           ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
-              if (!existing || (approved && existing.version !== approved.version)) return await build()
+              if (!existing || (approved && existing.version !== approved.version)) return build()
               const statePath = deps.publisherStateDir ?? stateDir()
               // Restoring still counts as publishing that build. Seed from the record
               // when state was lost, so the counter cannot rewind under a fleet that
@@ -2253,12 +2253,12 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
               })
               return existing
             })
-          : await build()
+          : build()
       }
       const snapshotBuild =
         deps.snapshotBuild ??
-        (async <T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
-          await withDevBuildSnapshot(
+        (<T>(approvedSha: string, build: (snapshotRoot: string) => Promise<T>) =>
+          withDevBuildSnapshot(
             {
               sourceRoot: liveRoot,
               approvedSha,
@@ -2278,15 +2278,15 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
                   ...(approved?.version ? { version: approved.version } : {}),
                   sourceSha: approvedSha,
                 },
-                async () => await assertSourceMatchesHead(snapshotRoot, approvedSha),
+                () => assertSourceMatchesHead(snapshotRoot, approvedSha),
                 deps.timing,
               )
               return result
             },
           ))
       let approvedBuilt: BuiltDevBundle | null | undefined
-      const buildApproved = async () =>
-        await snapshotBuild(headSha, async (snapshotRoot) => {
+      const buildApproved = () =>
+        snapshotBuild(headSha, async (snapshotRoot) => {
           approvedBuilt = await buildFrom(snapshotRoot)
           return approvedBuilt
         }).catch(async (error: unknown) => {
@@ -2295,10 +2295,10 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
           // Its bytes, signature and server-authored metadata all go.
           if (approvedBuilt) {
             await Promise.all(
-              approvedBuilt.artifacts.flatMap(async (artifact) => [
-                await fs.remove(artifact.path),
-                await fs.remove(artifact.path + DEV_BUNDLE_SIGNATURE_SUFFIX),
-                await fs.remove(artifact.path + DEV_BUNDLE_METADATA_SUFFIX),
+              approvedBuilt.artifacts.flatMap((artifact) => [
+                fs.remove(artifact.path),
+                fs.remove(artifact.path + DEV_BUNDLE_SIGNATURE_SUFFIX),
+                fs.remove(artifact.path + DEV_BUNDLE_METADATA_SUFFIX),
               ]),
             )
             // And the ledger stops calling it signed. A record naming bytes that have
@@ -2319,7 +2319,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
           }
           throw error
         })
-      const requested = (approved ? await buildApproved() : await buildFrom(liveRoot)).then(
+      const requested = (approved ? buildApproved() : buildFrom(liveRoot)).then(
         (built) => {
           current = built
           builtSha = headSha
@@ -2363,7 +2363,7 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
    * as soon as a request has decided, so a poll arriving during a build still
    * gets its answer immediately rather than waiting out the minute.
    */
-  let admissions: Promise<unknown> = await Promise.resolve()
+  let admissions: Promise<unknown> = Promise.resolve()
 
   /**
    * The two facts every publication needs about the current commit, or nothing
@@ -2597,11 +2597,11 @@ export async function createDevBundlePublisher(deps: DevBundlePublisherDeps): Pr
   }
 
   return {
-    async requestBuild(explicit = false, approved) {
-      const admitted = await admissions.then(async () => await admit(explicit, approved))
-      admissions = await admitted.catch(() => undefined)
-      return await admitted.then(async (admission) =>
-        'error' in admission ? await Promise.reject(admission.error) : admission.result,
+    requestBuild(explicit = false, approved) {
+      const admitted = admissions.then(() => admit(explicit, approved))
+      admissions = admitted.catch(() => undefined)
+      return admitted.then((admission) =>
+        'error' in admission ? Promise.reject(admission.error) : admission.result,
       )
     },
     current: () => current,
