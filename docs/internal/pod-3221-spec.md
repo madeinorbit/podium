@@ -1420,6 +1420,32 @@ Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a spa
 self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
 construction lines in `store.ts` do NOT change — they still pass the one capability object.
 
+### Rule 49 — a cached RETENTION bound resolves PER PASS, and its fail-closed answer is re-bootstrap
+
+[Ruling on POD-3263's fifth boundary, 2026-09-05. Refines rule 47, which covers a synchronous reader
+over an async store. `FeedRetentionPort.minAvailableSeq` and `authorizationRevision` look like the
+same shape as feed identity. They are not, and caching them the identity way is unsafe.]
+
+IDENTITY IS EFFECTIVELY IMMUTABLE; A RETENTION BOUND ONLY RISES. `minAvailableSeq` increases every
+time retention prunes, so a cached copy is not merely possibly-stale — it is stale in ONE direction,
+and that direction is the dangerous one. `change-log.ts` states the servability rule: a cursor is
+servable iff `cursor + 1 >= minAvailableSeq`. With a stale-LOW cached bound the server computes
+servable for a cursor whose changes it has already pruned, and serves a gap. The same file already
+warns of the identical failure for the degenerate value: "a 0 would claim it can serve a cursor it
+cannot."
+
+SO: RESOLVE PER SERVING PASS, not once at boot. Rule 47's resolve-once is correct for identity and
+wrong here.
+
+AND THE FAIL-CLOSED ANSWER IS ALREADY WRITTEN DOWN. When the bound is unresolved or in doubt, answer
+RE-BOOTSTRAP, because `change-log.ts` certifies that direction as always safe: "the authority's answer
+is authoritative either way; a needless bootstrap is always legal". Never default to serving. The
+same reasoning gives `authorizationRevision` its default: an unresolved revision means re-check or
+refuse, never authorize on a cached one.
+
+GENERALLY: before caching a value behind a synchronous reader, ask which way it drifts. If it drifts
+toward permitting more, it may not be cached across the operation it permits.
+
 ### Rule 48 — an exact-error capture helper goes async; the expected strings transfer VERBATIM
 
 [Ruling on POD-3263's fourth assertion boundary, 2026-09-05. The site is
