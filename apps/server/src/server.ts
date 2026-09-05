@@ -1516,7 +1516,7 @@ export async function startServer(
     await superagent.setMcpEndpoint(
       `http://127.0.0.1:${server.port}/mcp`,
       mcpToken,
-      superagent.mcpToolSpecs().map((s) => s.name),
+      (await superagent.mcpToolSpecs()).map((s) => s.name),
     )
     // Server-side stall reporter (POD-600): a lightweight analog of the
     // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,

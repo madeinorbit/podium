@@ -907,7 +907,7 @@ export async function buildSuperagentTools(
   // advertises them.
   if (opts?.issueBelt && deps.issueTools) {
     const issueProvider = deps.issueTools
-    for (const spec of issueProvider.mcpToolSpecs()) {
+    for (const spec of await issueProvider.mcpToolSpecs()) {
       tools.push({
         spec: {
           name: spec.name,
