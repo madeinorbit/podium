@@ -40,7 +40,7 @@ function sink(): RetirementEventSink & { events: AppendedEvent[] } {
 const source = (
   rows: { mutationId: string; proc: string; queuedAt: number }[],
 ): ParkedUpstreamSource => ({
-  listParkedUpstreamMutations: () =>
+  listParkedUpstreamMutations: async () =>
     rows.map((row) => ({ ...row, mutationId: asMutationId(row.mutationId) })),
 })
 

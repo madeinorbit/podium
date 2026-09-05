@@ -946,8 +946,8 @@ describe('durable runtime observation gate', () => {
     gate = new RuntimeEventGate({
       events,
       session: () => undefined,
-      persist: () => {},
-      write: () => {},
+      persist: async () => {},
+      write: async () => {},
       board: () => {},
       now: () => 0,
     })

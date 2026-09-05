@@ -106,7 +106,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
   it('checkpoint advances a real run through the derived mutation, and status reads it back', async () => {
     const registry = server.registry
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
-    const created = registry.modules.workflows.execute(operator, 'create', {
+    const created = await registry.modules.workflows.execute(operator, 'create', {
       // Unique per attempt: the integration lane retries, and workflow names are
       // unique per scope (`workflows_scope_name_active`).
       name: `Advance smoke ${Math.random()}`,

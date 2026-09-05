@@ -79,7 +79,7 @@ export interface SuperagentTool {
 
 export interface SuperagentToolDeps {
   modules: RegistryModules
-  repos: { list(): string[] }
+  repos: { list(): Promise<string[]> }
   store: SessionStore
   /** How often wait_for_session re-checks the event log. */
   waitPollMs: number
@@ -157,7 +157,7 @@ export async function buildSuperagentTools(
         parameters: { type: 'object', properties: {} },
       },
       run: async () => {
-        const r = await rpc.scanRepos(repos.list(), { includeHome: false, maxDepth: 0 })
+        const r = await rpc.scanRepos(await repos.list(), { includeHome: false, maxDepth: 0 })
         return JSON.stringify(
           r.repositories.map((repo) => ({
             path: repo.path,

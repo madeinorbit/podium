@@ -258,7 +258,7 @@ export class SuperagentService {
    */
   private constructor(
     private readonly modules: RegistryModules,
-    private readonly repos: { list(): string[] },
+    private readonly repos: { list(): Promise<string[]> },
     private readonly store: SessionStore,
     opts?: { waitPollMs?: number; eventReadLimit?: number; reapIntervalMs?: number },
   ) {
@@ -278,7 +278,7 @@ export class SuperagentService {
    */
   static async create(
     modules: RegistryModules,
-    repos: { list(): string[] },
+    repos: { list(): Promise<string[]> },
     store: SessionStore,
     opts?: { waitPollMs?: number; eventReadLimit?: number; reapIntervalMs?: number },
   ): Promise<SuperagentService> {
@@ -1211,7 +1211,7 @@ export class SuperagentService {
     text: string
     focus?: SuperagentUserFocus
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
-    if (!this.repos.list().includes(repoPath)) {
+    if (!(await this.repos.list()).includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
     const baseThreadId = conciergeThreadId(repoPath)
@@ -1485,7 +1485,7 @@ export class SuperagentService {
     maxEventId: number,
   ): Promise<Omit<Parameters<typeof buildGlobalSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
-    const repoPaths = this.repos.list()
+    const repoPaths = await this.repos.list()
     const repos: GlobalRepoDigest[] = []
     const questions: GlobalQuestion[] = []
     const issueByWorktree = new Map<string, IssueWire>()
@@ -1543,7 +1543,7 @@ export class SuperagentService {
 
   /** An issue by id, across every registered repo (ids are globally unique). */
   private async issueById(issueId: IssueId): Promise<IssueWire | undefined> {
-    for (const repoPath of this.repos.list()) {
+    for (const repoPath of await this.repos.list()) {
       const found = (await this.modules.issues.list(repoPath)).find((i) => i.id === issueId)
       if (found) return found
     }

@@ -378,11 +378,11 @@ describe('durable terminal hibernation proof', () => {
         livePollSequence: generation,
         confirmedAt: at(40 + generation),
       })
-    message(1)
+    await message(1)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
-    message(1)
+    await message(1)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
-    message(2)
+    await message(2)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
   })
 
@@ -396,7 +396,7 @@ describe('durable terminal hibernation proof', () => {
       }
     ).autoContinue
     const gone = vi.spyOn(autoContinue, 'onSessionGone')
-    vi.spyOn(store.observationCheckpoints, 'consumeTerminalCandidate').mockReturnValue(false)
+    vi.spyOn(store.observationCheckpoints, 'consumeTerminalCandidate').mockResolvedValue(false)
     const beforeKills = daemon.filter((message) => message.type === 'kill').length
 
     expect(
