@@ -221,7 +221,7 @@ async function makeHarness(
      *  for nobody (POD-1080). */
     bindings?: TelegramChatBinding[]
   } = {},
-): Harness {
+): Promise<Harness> {
   const bus = new EventBus()
   const sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }> = []
   const typingCalls: Array<{ chatId: string; threadRef?: string }> = []
@@ -364,7 +364,19 @@ async function makeHarness(
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
-const flushMicro = () => Promise.resolve()
+/**
+ * Drain the MICROTASK queue only — these cases run on fake timers, so the
+ * `flush` above (a real `setTimeout`) never fires here.
+ *
+ * It drains a bounded number of ticks rather than one because the paths under
+ * test now await the store: resolving a session's bound forum topic is several
+ * awaits deep, and a single `Promise.resolve()` stopped short of it. Draining
+ * does not weaken the ordering these cases assert — a turn parked on a promise
+ * the case has not resolved yet stays parked however many microtasks run.
+ */
+const flushMicro = async () => {
+  for (let tick = 0; tick < 16; tick += 1) await Promise.resolve()
+}
 
 describe('MessagingService', () => {
   it('dispatches an inbound message as a global-thread turn and relays the reply', async () => {
@@ -886,7 +898,7 @@ describe('MessagingService', () => {
     h.inbound('status in topic', { threadRef: '9001' })
     await flush()
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('btw_sess_1')
-    expect(h.topics.getByThreadRef('42', '9001')?.superagentThreadId).toBe('btw_sess_1')
+    expect((await h.topics.getByThreadRef('42', '9001'))?.superagentThreadId).toBe('btw_sess_1')
   })
 
   it('posts a transcript recap when creating an issue topic [spec:SP-62c3]', async () => {

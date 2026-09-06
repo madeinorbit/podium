@@ -226,8 +226,12 @@ export class MessagingService implements TelegramNoticePort {
     deps.bus.on('superagent.turnEnded', async (ev) => await this.onTurnEnded(ev))
     deps.bus.on('notification.telegramRequested', async (request) => await this.sendUserNotice(request))
     deps.bus.on('settings.changed', async () => await this.configure())
-    deps.bus.on('session.stateChanged', ({ sessionId, ownerUserId, next }) => {
-      this.onSessionStateChanged(sessionId, ownerUserId, next)
+    // Rule 51b: the typing indicator SCHEDULES, it does not answer. Resolving
+    // the topic moved into this already-deferred best-effort body, alongside the
+    // three sibling handlers that are async on this same bus — not into the
+    // producer, which must not wait on a cosmetic indicator.
+    deps.bus.on('session.stateChanged', async ({ sessionId, ownerUserId, next }) => {
+      await this.onSessionStateChanged(sessionId, ownerUserId, next)
     })
     deps.bus.on('session.exited', ({ sessionId }) => {
       this.stopAmbientTyping(sessionId)
@@ -355,7 +359,7 @@ export class MessagingService implements TelegramNoticePort {
     const chatId = chatIdValue?.trim()
     if (!botToken || !chatId) return
     if (this.adapter) {
-      const threadRef = this.noticeThreadRef(chatId, input.sessionId)
+      const threadRef = await this.noticeThreadRef(chatId, input.sessionId)
       const target: ConversationRef = {
         channel: 'telegram',
         chatId,
@@ -375,7 +379,7 @@ export class MessagingService implements TelegramNoticePort {
     const key = `${botToken}\n${chatId}`
 
     if (this.adapter && key === this.adapterKey) {
-      const threadRef = this.noticeThreadRef(chatId, opts?.sessionId)
+      const threadRef = await this.noticeThreadRef(chatId, opts?.sessionId)
       const target: ConversationRef = {
         channel: 'telegram',
         chatId,
@@ -389,12 +393,26 @@ export class MessagingService implements TelegramNoticePort {
     pushTelegramText(config, text)
   }
 
-  /** Resolve the forum topic for an outbound notice. */
-  private noticeThreadRef(chatId: string, sessionId?: SessionId): string | undefined {
+  /**
+   * Resolve the forum topic for an outbound notice.
+   *
+   * The DURABLE binding is asked first and the in-memory map is the fallback,
+   * which is the order this has always used: `messaging_issue_topics` is where a
+   * binding survives a process bounce, and the map only holds what THIS process
+   * has seen since it started. Dropping the store read because it had become
+   * async would have made every notice after a restart land in the main chat
+   * instead of its issue topic — silently, since a missing thread is a legal
+   * send. Rule 51 CASE 1: every caller may yield, so the port is widened and
+   * awaited rather than the read being removed.
+   */
+  private async noticeThreadRef(chatId: string, sessionId?: SessionId): Promise<string | undefined> {
     if (sessionId) {
       const issueId = this.deps.sessionIssueId?.(sessionId)
       if (!issueId) return undefined
-      return this.topicRefByIssue.get(topicKey(chatId, issueId))
+      return (
+        (await this.deps.topics?.getByIssue(chatId, issueId))?.threadRef ??
+        this.topicRefByIssue.get(topicKey(chatId, issueId))
+      )
     }
     const lastInbound = this.lastInboundRefByChat.get(chatId)
     if (lastInbound?.threadRef) {
@@ -588,23 +606,30 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
-  private onSessionStateChanged(
+  private async onSessionStateChanged(
     sessionId: SessionId,
     ownerUserId: UserId | undefined,
     next: AgentRuntimeState,
-  ): void {
-    if (next.phase === 'working' && ownerUserId) this.startAmbientTyping(sessionId, ownerUserId)
+  ): Promise<void> {
+    if (next.phase === 'working' && ownerUserId) await this.startAmbientTyping(sessionId, ownerUserId)
     else this.stopAmbientTyping(sessionId)
   }
 
-  private startAmbientTyping(sessionId: SessionId, ownerUserId: UserId): void {
+  private async startAmbientTyping(sessionId: SessionId, ownerUserId: UserId): Promise<void> {
     if (this.ambientTypingBySession.has(sessionId)) return
     if (!this.adapter) return
     const chatId = this.configuredChatIdByUser.get(ownerUserId)?.trim() ?? ''
     if (!chatId) return
-    const threadRef = this.noticeThreadRef(chatId, sessionId)
+    const threadRef = await this.noticeThreadRef(chatId, sessionId)
     // Only indicate for sessions with a bound issue topic — never main chat.
     if (!threadRef) return
+    // THE GUARD IS RE-READ, because the await above is a window the sync version
+    // did not have: two `working` transitions close enough together both passed
+    // the entry check before either registered, and the second would acquire a
+    // SECOND lease on the same topic — two refresh intervals, and only one of
+    // them reachable by `stopAmbientTyping`. Re-reading closes the window at the
+    // only point where the answer can have changed.
+    if (this.ambientTypingBySession.has(sessionId)) return
     const source: ConversationRef = {
       channel: 'telegram',
       chatId,
