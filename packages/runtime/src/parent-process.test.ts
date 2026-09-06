@@ -12,12 +12,13 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveLoggingMode } from './config'
 import { configureProcessLogging } from './logging'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
+  PARENT_HANDOVER_DEADLINE_ENV,
   PARENT_HAS_SERVER_ENV,
   PARENT_POST_UPDATE_ENV,
   PARENT_RELEASE_MIGRATIONS_ENV,
@@ -80,6 +81,7 @@ afterEach(async () => {
     await parent.stop()
   }
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  vi.useRealTimers()
 })
 
 /**
@@ -1133,5 +1135,215 @@ describe('ParentProcess', () => {
     )
     expect(parent.snapshot().phase).toBe('handover_incoming')
     expect(parent.snapshot().expectedVersion).toBe('2.0.0')
+  })
+})
+
+describe('delayed successor boot ownership', () => {
+  it('hands over to the exact successor becoming healthy at 61 seconds within the shared 90-second budget', async () => {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const { install, state } = installDirs('1.0.0')
+    let incoming: ParentProcess | undefined
+    let incomingStart: Promise<void> | undefined
+    let readyAt = Infinity
+    let updating = false
+    const predecessorExit = vi.fn()
+    const confirmed = vi.fn()
+    const claims = vi.fn()
+    const successorProcess = new FakeChild(process.pid)
+    const probe = async () => healthy(updating && clock.now() >= readyAt ? '2.0.0' : '1.0.0')
+    const outgoing = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        runningIdentity: { version: '1.0.0', digest: 'old' },
+        spawn: ((_cmd, args, options) => {
+          if (args[0] !== 'parent') return new FakeChild(111) as unknown as ReturnType<SpawnChildFn>
+          expect(Number(options.env?.[PARENT_HANDOVER_DEADLINE_ENV])).toBe(91_000)
+          incoming = track(
+            new ParentProcess({
+              port: 19099,
+              installDir: install,
+              stateDir: state,
+              installBinary: '/unused/podium',
+              children: ['server'],
+              env: options.env,
+              runningIdentity: { version: '2.0.0', digest: 'new' },
+              spawn: (() =>
+                new FakeChild(222) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+              probeHealth: probe,
+              now: clock.now,
+              sleep: async (ms) => clock.advance(ms),
+              notify: () => {},
+              claimRole: claims,
+              exit: () => {},
+            }),
+          )
+          incomingStart = incoming.start(confirmed)
+          return successorProcess as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: probe,
+        now: clock.now,
+        sleep: async (ms) => {
+          await incomingStart
+          clock.advance(ms)
+          await vi.advanceTimersByTimeAsync(ms)
+        },
+        notify: () => {},
+        exit: predecessorExit,
+      }),
+    )
+    await outgoing.start()
+    updating = true
+    readyAt = clock.now() + 61_000
+    writeFileSync(join(install, 'ARTIFACT.sha256'), 'new')
+    retainBackup(install, '1.0.0')
+    await outgoing.handover('2.0.0')
+    expect(clock.now()).toBeGreaterThanOrEqual(62_000)
+    expect(clock.now()).toBeLessThan(91_000)
+    expect(incoming?.isBootHealthy()).toBe(true)
+    expect(claims).toHaveBeenCalledTimes(1)
+    expect(confirmed).toHaveBeenCalledTimes(1)
+    expect(predecessorExit).toHaveBeenCalledWith(0)
+    expect(successorProcess.signalsReceived).toEqual([])
+    expect(existsSync(`${install}.old`)).toBe(false)
+  })
+
+  it('retains daemon convergence proof after the initial timeout and refuses proof after the inherited deadline', async () => {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const { install, state } = installDirs('2.0.0')
+    let connected = false
+    let converged = false
+    const claim = vi.fn()
+    const confirmed = vi.fn()
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['daemon'],
+        env: {
+          [PARENT_SUCCESSOR_ENV]: '1',
+          [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: '2.0.0',
+          [PARENT_HANDOVER_DEADLINE_ENV]: '91000',
+        },
+        runningIdentity: { version: '2.0.0', digest: 'new' },
+        spawn: (() => new FakeChild(123) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeDaemonHealth: async () => ({
+          connected,
+          appVersion: '2.0.0',
+          convergedVersion: converged ? '2.0.0' : null,
+        }),
+        probeHealth: async () => healthy('2.0.0'),
+        now: clock.now,
+        sleep: async (ms) => clock.advance(ms),
+        notify: () => {},
+        claimRole: claim,
+        exit: () => {},
+      }),
+    )
+    await parent.start(confirmed)
+    connected = true
+    clock.advance(500)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(parent.isBootHealthy()).toBe(false)
+    expect(claim).not.toHaveBeenCalled()
+    converged = true
+    clock.advance(30_000)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(parent.isBootHealthy()).toBe(false)
+    expect(claim).not.toHaveBeenCalled()
+    expect(confirmed).not.toHaveBeenCalled()
+    expect(existsSync(join(state, 'run/supervisor-ready.json'))).toBe(false)
+  })
+
+  it('does not publish readiness or finalize after termination during the role claim', async () => {
+    const { install, state } = installDirs('2.0.0')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const claimed = vi.fn(() => held)
+    const finalize = vi.fn()
+    const notify = vi.fn()
+    const confirmed = vi.fn()
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        children: [],
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        runningIdentity: { version: '2.0.0', digest: 'new' },
+        claimRole: claimed,
+        finalizePendingGrant: finalize,
+        notify,
+        exit: () => {},
+      }),
+    )
+    const starting = parent.start(confirmed)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    expect(claimed).toHaveBeenCalledTimes(1)
+    await parent.stop()
+    release()
+    await starting
+    expect(parent.isBootHealthy()).toBe(false)
+    expect(finalize).not.toHaveBeenCalled()
+    expect(notify).not.toHaveBeenCalled()
+    expect(confirmed).not.toHaveBeenCalled()
+    expect(existsSync(join(state, 'run/supervisor-ready.json'))).toBe(false)
+  })
+
+  it.each([
+    'pid',
+    'digest',
+  ])('refuses healthy handover with a mismatched successor %s witness', async (mismatch) => {
+    const clock = fakeClock()
+    const { install, state } = installDirs('2.0.0')
+    let spawned: FakeChild | undefined
+    const exit = vi.fn()
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: '/unused/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        runningIdentity: { version: '2.0.0', digest: 'new' },
+        spawn: ((_cmd, args) => {
+          const child = new FakeChild(123)
+          if (args[0] === 'parent') {
+            spawned = child
+            writeFileSync(
+              join(state, 'run/supervisor-ready.json'),
+              JSON.stringify({
+                pid: mismatch === 'pid' ? 456 : 123,
+                version: '2.0.0',
+                digest: mismatch === 'digest' ? 'wrong' : 'new',
+              }),
+            )
+          }
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        handoverTimeoutMs: 1_000,
+        now: clock.now,
+        sleep: async (ms) => clock.advance(ms),
+        notify: () => {},
+        exit,
+      }),
+    )
+    await parent.start()
+    writeFileSync(join(install, 'ARTIFACT.sha256'), 'new')
+    await expect(parent.handover('2.0.0')).rejects.toThrow('timed out')
+    expect(spawned?.signalsReceived).toContain('SIGTERM')
+    expect(exit).not.toHaveBeenCalled()
   })
 })

@@ -69,6 +69,9 @@ const log = createLogger('runtime:parent')
 
 export const PARENT_SUCCESSOR_PID_ENV = 'PODIUM_PARENT_SUCCESSOR_PID'
 export const PARENT_HANDOVER_EXPECTED_VERSION_ENV = 'PODIUM_HANDOVER_EXPECTED_VERSION'
+/** Absolute predecessor-owned deadline; startup and later recovery share this budget. */
+export const PARENT_HANDOVER_DEADLINE_ENV = 'PODIUM_HANDOVER_DEADLINE'
+const HANDOVER_HEALTH_TIMEOUT_MS = 90_000
 export const PARENT_POST_UPDATE_ENV = 'PODIUM_PARENT_POST_UPDATE'
 /**
  * Set on a daemon child only when this parent also supervises its sibling
@@ -263,7 +266,9 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
     daemonConnected: false,
   }
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/version`)
+    const res = await fetch(`http://127.0.0.1:${port}/version`, {
+      signal: AbortSignal.timeout(2_000),
+    })
     if (!res.ok) return down
     const body = (await res.json()) as {
       appVersion?: string
@@ -347,6 +352,17 @@ export class ParentProcess {
   private lastPetMs = 0
   private readonly petIntervalMs: number
   private bootHealthy = false
+  private bootExpected: string | undefined
+  private bootObservation: Promise<void> | undefined
+  private onBootHealthy: ((signal: AbortSignal) => Promise<void> | void) | undefined
+  private readonly bootAbort = new AbortController()
+  private readonly incomingDeadline: number | undefined
+  private bootDeadlineTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** Cancels queued boot confirmation when this parent stops owning startup. */
+  get bootHealthSignal(): AbortSignal {
+    return this.bootAbort.signal
+  }
 
   constructor(deps: ParentProcessDeps) {
     this.env = { ...(deps.env ?? process.env) }
@@ -371,6 +387,13 @@ export class ParentProcess {
     if (deps.releaseHadMigrations === undefined) {
       const carried = this.env[PARENT_RELEASE_MIGRATIONS_ENV]
       if (carried === '1' || carried === '0') this.deps.releaseHadMigrations = carried === '1'
+    }
+    if (this.isSuccessor()) {
+      const carried = this.env[PARENT_HANDOVER_DEADLINE_ENV]
+      const deadline =
+        carried === undefined ? this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS : Number(carried)
+      // A malformed inherited budget must not authorize unbounded recovery.
+      this.incomingDeadline = Number.isFinite(deadline) && deadline > 0 ? deadline : 0
     }
     const incoming = this.env[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     this.snap = incoming
@@ -721,20 +744,29 @@ export class ParentProcess {
   }
 
   /** Boot children in priority order and signal READY only when the health gate passes. */
-  async start(): Promise<void> {
+  async start(onBootHealthy?: (signal: AbortSignal) => Promise<void> | void): Promise<void> {
+    if (this.stopping || this.terminating || this.bootAbort.signal.aborted) return
+    this.onBootHealthy = onBootHealthy
+    if (this.incomingDeadline !== undefined) {
+      this.bootDeadlineTimer = setTimeout(
+        () => this.bootAbort.abort(),
+        Math.max(0, this.incomingDeadline - this.deps.now()),
+      )
+      this.bootDeadlineTimer.unref?.()
+    }
     // BEFORE the first spawn. See invariant 1.
     this.installSignalHandlers()
     for (const child of this.childOrder) {
-      if (this.terminating) return
+      if (this.stopping || this.terminating) return
       await this.spawnChild(child)
     }
     const expected =
       this.snap.expectedVersion ??
       this.env.PODIUM_APP_VERSION ??
       (await this.readInstalledVersion())
+    this.bootExpected = expected
     const healthy = await this.waitForHealthy(expected, 60_000)
-    this.bootHealthy = healthy
-    if (this.terminating) return
+    if (this.stopping || this.terminating) return
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
       // This is deliberately degraded rather than fatal. During the one-unit
@@ -747,24 +779,59 @@ export class ParentProcess {
       this.startSupervisionLoop()
       return
     }
+    await this.completeBoot(expected)
+    if (!this.stopping && !this.terminating) this.startSupervisionLoop()
+  }
+
+  private canCompleteBoot(): boolean {
+    if (this.incomingDeadline !== undefined && this.deps.now() >= this.incomingDeadline) {
+      this.bootAbort.abort()
+    }
+    return (
+      !this.bootAbort.signal.aborted &&
+      !this.stopping &&
+      !this.terminating &&
+      this.snap.phase !== 'handover_outgoing' &&
+      this.snap.phase !== 'rolling_back'
+    )
+  }
+
+  /** One ownership/READY/confirmation transition, including recovery after the first timeout. */
+  private async completeBoot(expected: string): Promise<void> {
+    if (this.bootHealthy || !this.canCompleteBoot()) return
+    // A successor must never reclaim its predecessor; this hook only writes its own role.
+    await this.deps.claimRole?.()
+    if (!this.canCompleteBoot()) return
+    this.bootHealthy = true
     this.finalizePendingGrant(expected)
     this.snap = {
       ...this.snap,
       phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
     }
     this.publish()
-    // Only now does this process own the `parent` role: a successor that claimed
-    // it at spawn time would have reclaimed — that is, SIGTERMed — the parent
-    // still supervising the serving stack.
-    await this.deps.claimRole?.()
     this.publishReady()
-    this.pruneStaleOldBundle(healthy)
+    this.pruneStaleOldBundle(true)
     this.deps.notify('READY=1')
-    // First pet immediately, so a stall right after boot has the full
-    // WatchdogSec budget rather than that minus one pet interval.
     this.deps.notify('WATCHDOG=1')
     this.lastPetMs = this.deps.now()
-    this.startSupervisionLoop()
+    await this.onBootHealthy?.(this.bootAbort.signal)
+  }
+
+  private async observeBootHealth(): Promise<void> {
+    if (this.bootHealthy || this.bootExpected === undefined || !this.canCompleteBoot()) return
+    if (this.bootObservation) return
+    this.bootObservation = (async () => {
+      const expected = this.bootExpected!
+      const { healthy } = await this.probeBootHealth(expected)
+      if (healthy && this.canCompleteBoot()) await this.completeBoot(expected)
+    })()
+    try {
+      await this.bootObservation
+    } catch (error) {
+      log.error('later boot health observation failed', { err: error })
+    } finally {
+      this.bootObservation = undefined
+    }
   }
 
   private startSupervisionLoop(): void {
@@ -839,39 +906,51 @@ export class ParentProcess {
       else log.warn('parent health gate timed out', { ...fields, budgetMs })
       return ok
     }
-    if (!wantsServer && !wantsDaemon) return true
     while (this.deps.now() < deadline) {
-      if (this.terminating) return settle(false, 'terminating')
-      if (!wantsServer && wantsDaemon) {
-        const probe = await this.deps.probeDaemonHealth()
-        const versionOk =
-          expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
-        last = { connected: probe.connected, appVersion: probe.appVersion, versionOk }
-        const ok =
-          this.snap.phase === 'handover_incoming'
-            ? isDaemonHandoverHealthy(probe, expectedVersion)
-            : probe.connected && versionOk
-        if (ok) return settle(true, 'healthy')
-        await this.deps.sleep(200)
-        continue
-      }
-      const probe = await this.deps.probeHealth(this.deps.port)
+      if (!this.canCompleteBoot()) return settle(false, 'terminating')
+      const result = await this.probeBootHealth(expectedVersion)
+      last = result.detail
+      if (!this.canCompleteBoot()) return settle(false, 'terminating')
+      if (result.healthy) return settle(true, 'healthy')
+      await this.deps.sleep(200)
+    }
+    return settle(false, 'timed-out')
+  }
+
+  /** Both initial and later checks use the same role-specific health proof. */
+  private async probeBootHealth(expectedVersion: string): Promise<{
+    healthy: boolean
+    detail: Record<string, unknown>
+  }> {
+    const wantsDaemon = this.requiresDaemon()
+    if (!this.childOrder.includes('server')) {
+      if (!wantsDaemon) return { healthy: true, detail: {} }
+      const probe = await this.deps.probeDaemonHealth()
       const versionOk =
-        expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
-      last = {
+        expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
+      return {
+        // Phase becomes degraded at the first timeout. Successor ownership does not.
+        healthy: this.isSuccessor()
+          ? isDaemonHandoverHealthy(probe, expectedVersion)
+          : probe.connected && versionOk,
+        detail: { connected: probe.connected, appVersion: probe.appVersion, versionOk },
+      }
+    }
+    const probe = await this.deps.probeHealth(this.deps.port)
+    const versionOk =
+      expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
+    return {
+      healthy: wantsDaemon
+        ? isHandoverHealthy(probe, expectedVersion) ||
+          (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
+        : probe.serverRunning && versionOk,
+      detail: {
         serverRunning: probe.serverRunning,
         serverVersion: probe.serverVersion,
         daemonConnected: probe.daemonConnected,
         versionOk,
-      }
-      const ok = wantsDaemon
-        ? isHandoverHealthy(probe, expectedVersion) ||
-          (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
-        : probe.serverRunning && versionOk
-      if (ok) return settle(true, 'healthy')
-      await this.deps.sleep(200)
+      },
     }
-    return settle(false, 'timed-out')
   }
 
   /**
@@ -963,6 +1042,9 @@ export class ParentProcess {
   private async tick(): Promise<void> {
     if (this.stopping || this.terminating) return
     await this.pollComponents()
+    if (this.stopping || this.terminating) return
+    await this.observeBootHealth()
+    if (this.stopping || this.terminating) return
     // A failed boot stays supervised for topology rollback, but it never pets a
     // watchdog it did not arm with READY. Otherwise the first timer tick would
     // erase the distinction this boot gate establishes.
@@ -1078,6 +1160,7 @@ export class ParentProcess {
 
   /** Restore `.old`, restart children on it, clear post-update arming, report. */
   async rollback(because = 'a post-update crash loop'): Promise<void> {
+    this.bootAbort.abort()
     this.snap = { ...this.snap, phase: 'rolling_back' }
     this.publish()
     log.warn('rolling back to .old bundle', { because })
@@ -1129,6 +1212,9 @@ export class ParentProcess {
    * process that might never become healthy, and nothing ever pointed it back.
    */
   async handover(expectedVersion: string): Promise<void> {
+    if (this.stopping || this.terminating) return
+    this.bootAbort.abort()
+    const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS)
     const priorPhase = this.snap.phase
     this.snap = beginHandoverOutgoing(markPostUpdate(this.snap, this.deps.now()), expectedVersion)
     this.publish()
@@ -1143,6 +1229,7 @@ export class ParentProcess {
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       [PARENT_SUCCESSOR_ENV]: '1',
+      [PARENT_HANDOVER_DEADLINE_ENV]: String(deadline),
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',
       // The migration fact travels WITH the successor, or the successor guesses
@@ -1182,7 +1269,6 @@ export class ParentProcess {
     }
 
     try {
-      const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
       const wantsServer = this.childOrder.includes('server')
       const wantsDaemon = this.requiresDaemon()
       while (this.deps.now() < deadline) {
@@ -1197,9 +1283,11 @@ export class ParentProcess {
           : wantsDaemon
             ? isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
             : liveRecord('parent')?.pid === successorPid
+        if (this.stopping || this.terminating) return
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
+        if (this.deps.now() >= deadline) break
         if (healthy && this.successorReady(successorPid, expectedVersion)) {
           // The gate has passed: NOW tell systemd where its main process moved.
           // nginx-reload pattern, but strictly after health, never before.
@@ -1220,6 +1308,7 @@ export class ParentProcess {
         }
         await this.deps.sleep(250)
       }
+      if (this.stopping || this.terminating) return
       await this.abortHandover(successor, expectedVersion, priorPhase)
       throw new Error(
         `handover timed out waiting for healthy successor (expected version ${expectedVersion})`,
@@ -1387,6 +1476,8 @@ export class ParentProcess {
   }
 
   async stop(): Promise<void> {
+    this.bootAbort.abort()
+    if (this.bootDeadlineTimer) clearTimeout(this.bootDeadlineTimer)
     if (this.tickTimer) {
       clearInterval(this.tickTimer)
       this.tickTimer = undefined
