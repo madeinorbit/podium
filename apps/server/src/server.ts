@@ -1622,7 +1622,7 @@ export async function startServer(
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
         })
-        const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
+        const outcome = await receiveDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
           const reply =
             outcome.kind === 'rejected'

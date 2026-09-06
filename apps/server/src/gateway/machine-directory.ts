@@ -44,7 +44,7 @@ export interface MachineAuthenticator {
     token?: string
     hostname: string
     name?: string
-  }):
+  }): Promise<
     | {
         ok: true
         machineId: MachineId
@@ -58,6 +58,7 @@ export interface MachineAuthenticator {
         ok: false
         reason: string
       }
+  >
 }
 
 const resolved = (
@@ -87,8 +88,8 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
    * split-mode daemon presenting the id it read from the same state dir and the
    * server checking the credential are talking about the same row by construction.
    */
-  verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
-    const auth = machines.authenticateDaemon({
+  async verifyDaemonSecret(secret: string, observed?: PeerObservations): Promise<ResolvedMachine | null> {
+    const auth = await machines.authenticateDaemon({
       type: 'hello',
       machineId: machines.hostMachineId,
       token: secret,
@@ -107,13 +108,13 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
    * a hint naming another machine does not move it, because the token would not
    * verify against that row.
    */
-  verifyMachineToken(
+  async verifyMachineToken(
     token: string,
     machineHint?: string,
     observed?: PeerObservations,
-  ): ResolvedMachine | null {
+  ): Promise<ResolvedMachine | null> {
     if (machineHint === undefined) return null
-    const auth = machines.authenticateDaemon({
+    const auth = await machines.authenticateDaemon({
       type: 'hello',
       machineId: asMachineId(machineHint),
       token,
@@ -132,12 +133,12 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
    * (POD-1125). A null return covers invalid codes, disabled pairing, and that
    * collision — the strategy maps all of them to auth-failed.
    */
-  redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null {
+  async redeemPairCode(code: string, request?: PairingRequest): Promise<PairedMachine | null> {
     // A brand-new machine has no prior identity to authenticate, so it proposes
     // one. `MachinesService` decides what row results; this adapter passes the
     // proposal through and reports back whatever came out (or null on refuse).
     if (request?.machineId === undefined) return null
-    const auth = machines.authenticateDaemon({
+    const auth = await machines.authenticateDaemon({
       type: 'pair',
       code,
       machineId: request.machineId,

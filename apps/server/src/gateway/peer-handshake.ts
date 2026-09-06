@@ -122,12 +122,12 @@ export type DaemonFrameOutcome =
  * into what the socket must do, including the legacy reply shape when the peer
  * spoke legacy frames.
  */
-export const receiveDaemonFrame = (
+export const receiveDaemonFrame = async (
   acceptor: HandshakeAcceptor,
   raw: string,
-): DaemonFrameOutcome => {
+): Promise<DaemonFrameOutcome> => {
   const legacy = asLegacyFrame(raw)
-  const step: AcceptorStep = acceptor.receive(
+  const step: AcceptorStep = await acceptor.receive(
     legacy === null ? raw : JSON.stringify(helloFromLegacyDaemonFrame(legacy)),
   )
   const reply = (envelope: PeerHelloReply): DaemonHandshakeReply | PeerHelloReply =>

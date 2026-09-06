@@ -198,7 +198,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       return
     }
     if (principal === undefined) {
-      const outcome = receiveDaemonFrame(acceptor, raw)
+      const outcome = await receiveDaemonFrame(acceptor, raw)
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
       if (outcome.kind === 'ignored') return
@@ -323,7 +323,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     // Post-handshake: the acceptor is asked FIRST, so a hello arriving on a live
     // connection is refused as an ordering violation rather than being parsed as
     // application traffic (a re-handshake would be a principal-swap primitive).
-    const routed = receiveDaemonFrame(acceptor, raw)
+    const routed = await receiveDaemonFrame(acceptor, raw)
     if (routed.kind === 'rejected') {
       reply(routed.reply)
       return

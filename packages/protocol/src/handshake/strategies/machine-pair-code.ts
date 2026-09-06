@@ -47,8 +47,8 @@ export const createMachinePairCodeStrategy = (
   role: 'machine',
   credentialKind: 'pairCode',
   name: 'machine-pair-code',
-  authenticate({ credential, hello, transport }: AuthInput<Credential>): AuthOutcome {
-    const paired = deps.machines.redeemPairCode(credential.code, {
+  async authenticate({ credential, hello, transport }: AuthInput<Credential>): Promise<AuthOutcome> {
+    const paired = await deps.machines.redeemPairCode(credential.code, {
       // A brand-new machine has no prior identity to authenticate, so these are
       // its REQUEST. The directory decides what row results (see PairingRequest).
       ...(hello.claims?.machineId === undefined

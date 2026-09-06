@@ -124,7 +124,7 @@ export interface AcceptorDeps {
 export interface HandshakeAcceptor {
   readonly state: HandshakeState
   readonly peer: EstablishedPeer | null
-  receive(raw: string): AcceptorStep
+  receive(raw: string): Promise<AcceptorStep>
 }
 
 const reject = (
@@ -149,7 +149,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
     get peer() {
       return peer
     },
-    receive(raw: string): AcceptorStep {
+    async receive(raw: string): Promise<AcceptorStep> {
       if (state === 'closed')
         return reject('unexpected-frame', 'frame after the connection was refused')
 
@@ -215,7 +215,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
         )
       }
 
-      const outcome = strategy.authenticate({
+      const outcome = await strategy.authenticate({
         credential: hello.credential,
         hello,
         transport: deps.transport,
