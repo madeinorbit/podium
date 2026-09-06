@@ -490,6 +490,8 @@ async function packagedCoordinator(): Promise<RunningInstance> {
   return packagedSource
 }
 
+// Several isolated parents drain their roles sequentially through the CLI.
+// Bun's default five-second hook budget can interrupt this cleanup halfway.
 afterAll(async () => {
   for (const { executable, spec } of packagedSpecs) {
     await runPackagedCli(executable, spec, ['stop']).catch(() => {})
@@ -511,7 +513,7 @@ afterAll(async () => {
     }
   }
   rmSync(TEST_ROOT, { recursive: true, force: true })
-})
+}, 120_000)
 
 describe('long instance durable sockets', () => {
   it('arms the old overflow, starts a real bounded session, and refuses an impossible override', async () => {
