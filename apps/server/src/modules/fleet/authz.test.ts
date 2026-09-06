@@ -192,7 +192,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // only member of the family that is.
     expect(MACHINE_COMMANDS).toContain('machines.adopt')
     expect(OWNER_ADMITTING).toHaveLength(MACHINE_COMMANDS.length - 1)
-    expect(await fleetAuthzFailure('machines.adopt', anyInput, deps(user(OWNER)))?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.adopt', anyInput, deps(user(OWNER))))?.code).toBe('FORBIDDEN')
   })
 
   it('a `see` grant is not enough for a `manage` command, and IS enough to be told forbidden', async () => {
@@ -212,15 +212,15 @@ describe('the machine verb is read from the contract, per command', () => {
     // `discovery.scanMachine` walks the target's filesystem through its daemon —
     // POD-384 classified it `use` for exactly this reason, and a manage grant
     // must not carry it.
-    expect(await fleetAuthzFailure('discovery.scanMachine', anyInput, manage)?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('discovery.scanMachine', anyInput, manage))?.code).toBe('FORBIDDEN')
   })
 
   it('a manage grantee cannot re-delegate machine access', async () => {
     const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
     const input = { id: 'laptop', grantee: 'another-user', verb: 'use' }
 
-    expect(await fleetAuthzFailure('machines.share', input, manage)?.code).toBe('FORBIDDEN')
-    expect(await fleetAuthzFailure('machines.unshare', input, manage)?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.share', input, manage))?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.unshare', input, manage))?.code).toBe('FORBIDDEN')
     expect(await fleetAuthzFailure('machines.share', input, deps(user(OWNER)))).toBeUndefined()
   })
 
@@ -247,8 +247,8 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(await fleetAuthzFailure('machines.rename', anyInput, manage)).toBeUndefined()
     // …and still may not give the machine away. Delegated manage is not
     // authority over the root of the delegation.
-    expect(await fleetAuthzFailure('machines.transferOwnership', input, manage)?.code).toBe('FORBIDDEN')
-    expect(await fleetAuthzFailure('machines.transferOwnership', input, manage)?.message).toBe(
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, manage))?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, manage))?.message).toBe(
       'only the machine owner may change sharing',
     )
 
@@ -257,7 +257,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // the floor, so this refusal is the owner rule and not the floor.
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
 
-    expect(await fleetAuthzFailure('machines.transferOwnership', input, admin)?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, admin))?.code).toBe('NOT_FOUND')
   })
 
   it('requires an admin-grade caller with manage authority on the named target', async () => {
@@ -272,7 +272,7 @@ describe('the machine verb is read from the contract, per command', () => {
       role: 'member',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(await fleetAuthzFailure('machines.transferServer', input, memberManage)?.code).toBe(
+    expect((await fleetAuthzFailure('machines.transferServer', input, memberManage))?.code).toBe(
       'FORBIDDEN',
     )
 
@@ -283,7 +283,7 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(await fleetAuthzFailure('machines.transferServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
-    expect(await fleetAuthzFailure('machines.transferServer', input, admin)?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('machines.transferServer', input, admin))?.code).toBe('NOT_FOUND')
   })
 
   it('naming yourself as the recipient does not make you the owner', async () => {
@@ -295,11 +295,11 @@ describe('the machine verb is read from the contract, per command', () => {
       owner: COLLEAGUE,
     })
     expect(
-      await fleetAuthzFailure(
+      (await fleetAuthzFailure(
         'machines.transferOwnership',
         { id: 'laptop', newOwnerUserId: COLLEAGUE },
         deps(user(COLLEAGUE)),
-      )?.code,
+      ))?.code,
     ).toBe('NOT_FOUND')
     // Non-vacuity: the same principal IS admitted on a machine it owns.
     expect(
@@ -319,7 +319,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // Both arms refuse; adoption is a separate act with separate authority.
     const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
     const unownedAdmin = deps(user(OWNER), { owner: null, role: 'admin' })
-    expect(await fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin)?.code).toBe(
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin))?.code).toBe(
       'FORBIDDEN',
     )
     // A genuine non-admin. Two different roles are in play and only one decides
@@ -333,7 +333,7 @@ describe('the machine verb is read from the contract, per command', () => {
       capability: { role: 'worker', scope: { kind: 'all' } },
     }
     const unownedMember = deps(memberPrincipal, { owner: null, role: 'member' })
-    expect(await fleetAuthzFailure('machines.transferOwnership', input, unownedMember)?.code).toBe(
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, unownedMember))?.code).toBe(
       'NOT_FOUND',
     )
     // Non-vacuity: the SAME command on an owned machine admits its owner.
@@ -440,7 +440,7 @@ describe('the machine verb is read from the contract, per command', () => {
       owner: null,
       effectiveOwner: COLLEAGUE,
     })
-    expect(await fleetAuthzFailure('machines.adopt', input, staleNullRow)?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.adopt', input, staleNullRow))?.code).toBe('FORBIDDEN')
 
     // ROW still shows a departed owner, LEDGER has none — the machine is
     // adoptable and reading the row would refuse a legitimate adoption. Note the
@@ -462,7 +462,7 @@ describe('the machine verb is read from the contract, per command', () => {
     ).toBeUndefined()
     // And an unknown TARGET is refused however good the recipient is.
     expect(
-      await fleetAuthzFailure('machines.adopt', { id: 'ghost', newOwnerUserId: COLLEAGUE }, admin)?.code,
+      (await fleetAuthzFailure('machines.adopt', { id: 'ghost', newOwnerUserId: COLLEAGUE }, admin))?.code,
     ).toBe('NOT_FOUND')
   })
 
@@ -470,7 +470,7 @@ describe('the machine verb is read from the contract, per command', () => {
     const use = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'use' }] })
 
     expect(await fleetAuthzFailure('discovery.scanMachine', anyInput, use)).toBeUndefined()
-    expect(await fleetAuthzFailure('machines.revoke', anyInput, use)?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.revoke', anyInput, use))?.code).toBe('FORBIDDEN')
   })
 
   it('an omitted machine selector is gated against the DEFAULT machine, not waved through', async () => {
@@ -478,7 +478,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // handler. If the gate treated "no selector" as "no machine", the whole repo
     // family would be ungated by simply leaving the field out.
     const colleague = deps(user(COLLEAGUE))
-    expect(await fleetAuthzFailure('repos.add', { path: '/repo' }, colleague)?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('repos.add', { path: '/repo' }, colleague))?.code).toBe('NOT_FOUND')
     expect(await fleetAuthzFailure('repos.add', { path: '/repo' }, deps(user(OWNER)))).toBeUndefined()
   })
 
@@ -502,7 +502,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // …and is refused when it can reach none, rather than silently scanning
     // everybody's machines.
     const none = deps(user(COLLEAGUE), two)
-    expect(await fleetAuthzFailure('discovery.refreshRepos', undefined, none)?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('discovery.refreshRepos', undefined, none))?.code).toBe('NOT_FOUND')
   })
 })
 
@@ -875,11 +875,11 @@ describe('a paired machine belongs to whoever minted its code', () => {
     // Admins hold `see` (D19.4b quarantine) so rename is FORBIDDEN rather than
     // NOT_FOUND — the machine is visible to the people who must assign an owner.
     expect(
-      await fleetAuthzFailure(
+      (await fleetAuthzFailure(
         'machines.rename',
         { id: 'joiner' },
         deps(user(OWNER), { owner: null, machines: ['joiner'] }),
-      )?.code,
+      ))?.code,
     ).toBe('FORBIDDEN')
   })
 })
