@@ -134,3 +134,56 @@ B1 is the long pole and still working. Do NOT ask it to drop commits and rebase 
 4. AFTER the merge, re-verify the pre-auth bound is still present and still `1`, and re-run POD-3469's
    TS2322 substitution probe. Both are the properties that decided this; a merge that silently loses
    either has taken B1's design by the back door.
+
+### 4a. THE MERGE WOULD HAVE SILENTLY LANDED THE REJECTED DESIGN — and a live admission race with it
+
+Found while verifying POD-3469's measurement, 2026-09-06. This is the most important line in this file.
+
+Resolving the twelve conflicted files in favour of POD-3469 IS NOT SUFFICIENT. B1 modified SIXTEEN files
+under `packages/protocol`, including `handshake/acceptor.ts` and the three machine strategies.
+POD-3469 modified exactly ONE, `packages/protocol/src/messages/local-link.ts`, which is not a handshake
+file. So fifteen of B1's protocol files — the whole async handshake layer — merge WITH NO CONFLICT AND
+NO MARKER. The result would be POD-3469's `apps/server` over B1's async protocol: a hybrid neither
+author reasoned about, carrying the defect below, and nothing in the merge output would say so.
+
+THE DEFECT IT CARRIES, measured by POD-3469 with a byte-identical test on both trees (node_modules
+verified inside each, so neither measured another branch):
+
+    POD-3263 tip 46e2975c1   attachDaemon called 2 TIMES   FAIL
+    POD-3469 branch          attachDaemon called 1 time    pass
+
+Two hello frames delivered in ONE tick admit the daemon TWICE. Verified directly in
+`packages/protocol/src/handshake/acceptor.ts` on B1's tip:
+
+    :156   if (state === 'established') …      <- the guard that refuses a second hello
+    :218   const outcome = await strategy.authenticate({…})
+    :242   state = 'established'               <- set only AFTER the await
+
+Check at 156, yield at 218, act at 242. A second hello arriving inside that window still sees
+`awaiting-hello` and proceeds. `daemon-socket.ts` repeats the shape one level up —
+`if (principal === undefined)` → `await receiveDaemonFrame` → `principal = outcome.principal`. The
+handler is async with no serialization, so both frames enter. It is REACHABLE BY THE PEER: an attacker
+writes two hellos back to back. Beyond the double attach it permits concurrent unbounded credential
+lookups on an unauthenticated socket — the same exposure the pre-auth bound exists to stop, arriving
+through a different door.
+
+WHY NO TEST CAUGHT IT: the existing case, "refuses a second handshake on a live connection", AWAITS its
+first hello before sending the second. It is sequential by construction, so it cannot express two
+frames in flight, and it passes on both branches. The assertion was never wrong; the DELIVERY could not
+see the bug.
+
+MERGE INSTRUCTION, therefore:
+
+1. Resolve the twelve conflicted files in favour of POD-3469.
+2. **Additionally restore `packages/protocol/src/handshake/**` to its state at the merge-base
+   `f37110d11`** — the synchronous acceptor and synchronous strategies. That IS POD-3469's design; its
+   shape requires the acceptor to stay sync. Do not carry B1's async versions across.
+3. Keep `packages/protocol/src/messages/local-link.ts` from POD-3469 — its one legitimate change there.
+4. Then re-verify all three properties that decided this: `MAX_QUEUED_PREAUTH_FRAMES` still present and
+   still 1; POD-3469's TS2322 substitution probe still refuses; and the two-hellos-in-one-tick case in
+   `daemon-fail-closed.test.ts` (`d33784354`) still passes. POD-3469 mutation-checked that last one —
+   replacing `preAuthSerial` with `Promise.resolve()` reproduces "called 2 times" exactly.
+
+IF B1'S DESIGN HAD BEEN CHOSEN INSTEAD, the pre-auth bound alone would NOT have fixed this. The
+admission must be single-flight per connection: mark the connection handshaking SYNCHRONOUSLY before
+the first await, or serialize at the socket. A frame cap still leaves two frames in one read racing.
