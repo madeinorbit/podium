@@ -41,7 +41,7 @@ import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principa
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
@@ -273,8 +273,14 @@ export class MailAccess {
    * rather than by two error strings kept in sync.
    */
   async resolveRecipient(to: string): Promise<AddressResolution> {
+    // RESOLVED IN FRONT OF resolveAddress, which calls `isKnownSession` exactly
+    // once and with this same `to`. The session lookup is a durable read now,
+    // and an async predicate here would be truthy for every ref — turning "is
+    // this a live session?" into "yes", which is the permissive direction on an
+    // address that then decides what the caller may see.
+    const knownSession = (await findSessionByIdAsync(this.deps, asSessionId(to))) !== undefined
     return await resolveAddress(to, {
-      isKnownSession: (ref) => findSessionById(this.deps, asSessionId(ref)) !== undefined,
+      isKnownSession: () => knownSession,
       resolveIssueRef: async (ref) => await this.deps.issues.resolveRef(ref),
       issueExists: async (id) => await this.deps.issues.has(id),
       ceiling: this.ceiling,
@@ -306,7 +312,7 @@ export class MailAccess {
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
   async assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): Promise<void> {
-    const target = findSessionById(this.deps, sessionId)
+    const target = await findSessionByIdAsync(this.deps, sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues
     const targetIssueId = target.issueId ?? await issues.issueForCwd(target.cwd)

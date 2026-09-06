@@ -1862,12 +1862,45 @@ export class SessionRegistry {
          * re-running". The workflow key namespaces it by command and run, so a
          * mutation id replayed against another run is a different delivery.
          */
-        ownership: {
-          ownerOf: async (entity) => await this.store.workflows.ownerOf(entity.kind, entity.id),
-          hasGrant: async (user, entity, verb) =>
-            (await this.store.grants
-              .listForResource(entity.kind, entity.id))
-              .some((grant) => grant.grantee === user && grant.verb === verb),
+        /**
+         * RESOLVED IN FRONT OF THE DECISION, NOT INSIDE IT (POD-3221 ruling on
+         * rule 51 case 2). `ownerOf` and `hasGrant` are durable reads now, and
+         * widening WorkflowOwnershipPort is the one conversion that must not
+         * happen: `workflowDecision` asks both in boolean positions, where a
+         * promise makes the owner arm silently DENY (`Promise === string` is
+         * false) and the grant arm silently ALLOW EVERYONE (a promise is
+         * truthy). Two halves failing in opposite directions on an authorization
+         * predicate. Keeping the decision synchronous makes that impossible.
+         *
+         * So this reads the facts for the entities one pass is about to decide
+         * on, and hands back a plain synchronous view. It is called per command
+         * and never cached across commands: a stale owner or a stale grant
+         * PERMITS MORE — it would authorize a principal whose ownership moved or
+         * whose grant was revoked — and that is the direction rule 49 forbids
+         * failing in.
+         *
+         * ABSENCE IS DENIAL, deliberately. An entity that resolved no row is
+         * `null` here, which is exactly what ADR 9 D4 already means by an
+         * unowned row: nobody's, not everyone's, admin-only. So a miss, a
+         * partial load, or an entity nobody remembered to name all land on the
+         * closed side rather than the open one.
+         */
+        resolveOwnership: async (entities) => {
+          const owners = new Map<string, string | null>()
+          const grants = new Set<string>()
+          const key = (entity: { kind: string; id: string }) => `${entity.kind}\u0000${entity.id}`
+          for (const entity of entities) {
+            const entityKey = key(entity)
+            if (owners.has(entityKey)) continue
+            owners.set(entityKey, await this.store.workflows.ownerOf(entity.kind, entity.id))
+            for (const grant of await this.store.grants.listForResource(entity.kind, entity.id)) {
+              grants.add(`${grant.grantee}\u0000${entityKey}\u0000${grant.verb}`)
+            }
+          }
+          return {
+            ownerOf: (entity) => owners.get(key(entity)) ?? null,
+            hasGrant: (user, entity, verb) => grants.has(`${user}\u0000${key(entity)}\u0000${verb}`),
+          }
         },
         machinesFor: async (workflowPrincipal) => {
           let principal: CommandPrincipal | undefined

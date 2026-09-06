@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort } from '@podium/commands'
+import type { AdvanceIdempotencyPort, WorkflowOwnershipPort } from '@podium/commands'
 import {
   asUserId,
   asIssueId,
@@ -222,14 +222,21 @@ export class WorkflowService implements WorkflowEngine {
     return await this.access.assertWorkflowRead(caller, workflowId)
   }
 
-  canReadWorkflow(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
-    return this.access.canReadWorkflow(caller, workflow)
+  canReadWorkflow(
+    caller: WorkflowCaller,
+    workflow: WorkflowWire,
+    ownership: WorkflowOwnershipPort,
+  ): boolean {
+    return this.access.canReadWorkflow(caller, workflow, ownership)
   }
 
   async list(input: WorkflowListInput, caller: WorkflowCaller) {
-    return (await this.deps.store.listWorkflows(input)).filter((workflow) =>
-      this.canReadWorkflow(caller, workflow),
-    )
+    const workflows = await this.deps.store.listWorkflows(input)
+    // Resolved ONCE for the whole page, in front of the filter, so the predicate
+    // stays synchronous (rule 52) and every row is decided against the same
+    // per-pass view rather than N separate reads.
+    const ownership = await this.access.ownershipFor(this.access.workflowEntities(workflows))
+    return workflows.filter((workflow) => this.canReadWorkflow(caller, workflow, ownership))
   }
 
   async get(input: { id: string }, caller: WorkflowCaller) {
@@ -251,13 +258,23 @@ export class WorkflowService implements WorkflowEngine {
    *  only because the table gave every entry an input schema, and a parameter no
    *  body reads is a parameter a future caller will believe is honoured. */
   async bindings(caller: WorkflowCaller) {
-    return this.access.visibleBindings(caller, await this.deps.store.listBindings())
+    const all = await this.deps.store.listBindings()
+    return this.access.visibleBindings(
+      caller,
+      all,
+      await this.access.ownershipFor(this.access.bindingEntities(all)),
+    )
   }
 
   /** QUERY. Had NO gate at all and listed every profile — with its
    *  `accountId`, which names managed credentials — to any caller. */
   async profiles(caller: WorkflowCaller) {
-    return this.access.visibleProfiles(caller, await this.deps.store.listProfiles())
+    const all = await this.deps.store.listProfiles()
+    return this.access.visibleProfiles(
+      caller,
+      all,
+      await this.access.ownershipFor(this.access.profileEntities(all)),
+    )
   }
 
   /**
@@ -304,7 +321,7 @@ export class WorkflowService implements WorkflowEngine {
     // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
     // the current grants, every time work is actually placed.
     if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
-    this.access.assertMayPlaceOn(input.caller, profile.machineId)
+    await this.access.assertMayPlaceOn(input.caller, profile.machineId)
     const harness = AgentKind.safeParse(profile.harness)
     if (!harness.success) {
       throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
@@ -336,15 +353,18 @@ export class WorkflowService implements WorkflowEngine {
       const live = await this.liveRunForSession(caller.actor.id)
       if (!live) return []
       const run = await this.toRun(live)
-      return this.access.canSeeRun(caller, run) ? [run] : []
+      const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
+      return this.access.canSeeRun(caller, run, ownership) ? [run] : []
     }
+    const runs = await Promise.all(
+      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(
+        async (row) => await this.toRun(row),
+      ),
+    )
     return this.access.visibleRuns(
       caller,
-      await Promise.all(
-        (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(
-          async (row) => await this.toRun(row),
-        ),
-      ),
+      runs,
+      await this.access.ownershipFor(this.access.runEntities(runs)),
     )
   }
 
@@ -574,7 +594,8 @@ export class WorkflowService implements WorkflowEngine {
     // There is now one site and one string, so they cannot drift back apart.
     if (!row) throw new Error(NO_RUN)
     const run = await this.toRun(row)
-    if (!this.access.canSeeRun(caller, run)) throw new Error(NO_RUN)
+    const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
+    if (!this.access.canSeeRun(caller, run, ownership)) throw new Error(NO_RUN)
     return run
   }
 

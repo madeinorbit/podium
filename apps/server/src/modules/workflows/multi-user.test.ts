@@ -117,6 +117,8 @@ function twoUserPolicy() {
     own: (id: string, user: WorkflowUserRef) => owners.set(id, user),
     grant: (user: WorkflowUserRef, id: string, verb: 'read' | 'write') =>
       grants.add(`${user}|${id}|${verb}`),
+    revokeGrant: (user: WorkflowUserRef, id: string, verb: 'read' | 'write') =>
+      grants.delete(`${user}|${id}|${verb}`),
     revoke: (user: WorkflowUserRef) => revoked.add(user),
     setActing: (user: WorkflowUserRef) => {
       acting = user
@@ -181,6 +183,141 @@ const thrown = async (fn: () => unknown): Promise<string> => {
     return (error as Error).message
   }
 }
+
+/**
+ * THE RESOLVED-OWNERSHIP PATH (POD-3263, POD-3221 ruling on rule 51 case 2).
+ *
+ * The tests above wire the SYNCHRONOUS `ownership` port, which is what a fixture
+ * supplies and what {@link WorkflowPolicyPorts} still accepts. Production does
+ * not: `ownerOf` and `hasGrant` are durable reads there, so `relay.ts` supplies
+ * `resolveOwnership`, which reads the facts for one pass and hands back a plain
+ * synchronous view.
+ *
+ * That difference is exactly where an authorization bug could hide, so it is
+ * pinned here rather than left to the shape of the composition root. What must
+ * hold: the view is rebuilt for EVERY pass, and anything missing from it is
+ * DENIED.
+ */
+describe('ownership resolved per pass', () => {
+  let policy: Policy
+  let resolves: number
+  let asked: string[][]
+  let h: Awaited<ReturnType<typeof makeHarness>>
+
+  const harnessWithResolver = async (
+    p: Policy,
+    view: (entities: readonly { kind: string; id: string }[]) => WorkflowOwnershipPort,
+  ) => {
+    const store = await openTestStore(':memory:')
+    const service = new WorkflowService(
+      {
+        store: store.workflows,
+        now: () => NOW,
+        session: (id) => SESSIONS.get(id),
+        issue: () => undefined,
+        repoIdForPath: () => null,
+      },
+      {
+        machines: p.machines,
+        resolveOwnership: async (entities) => {
+          resolves += 1
+          asked.push(entities.map((entity) => entity.id))
+          return view(entities)
+        },
+      },
+    )
+    return { store, service: driveWorkflows(service) }
+  }
+
+  beforeEach(() => {
+    policy = twoUserPolicy()
+    resolves = 0
+    asked = []
+  })
+
+  it('rebuilds the view on every pass, so a revoked grant stops working immediately', async () => {
+    // The view is built from the LIVE policy each time it is asked, which is
+    // what a per-command resolve means. Nothing is remembered between calls.
+    h = await harnessWithResolver(policy, () => policy.ownership)
+    const created = await h.service.create(
+      {
+        name: 'Alice work',
+        description: '',
+        scope: 'task',
+        scopeRef: 'issue-a',
+        instructions: 'hers',
+        steps: [],
+      },
+      policy.caller(asSessionId('a1'), ALICE),
+    )
+    policy.own(created.workflow.id, ALICE)
+    policy.grant(BOB, created.workflow.id, 'read')
+
+    expect((await h.service.get({ id: created.workflow.id }, policy.caller(null, BOB))).workflow.id).toBe(
+      created.workflow.id,
+    )
+    const afterFirstRead = resolves
+
+    // THE DRIFT DIRECTION THAT MATTERS (rule 49): a remembered grant PERMITS
+    // MORE. Revoking it must take effect on the very next pass, which it can
+    // only do if the next pass resolves again.
+    policy.revokeGrant(BOB, created.workflow.id, 'read')
+    expect(
+      await thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(null, BOB))),
+    ).toBe(`unknown workflow: ${created.workflow.id}`)
+    expect(resolves).toBeGreaterThan(afterFirstRead)
+  })
+
+  it('DENIES an entity the resolved view does not carry', async () => {
+    // A view that answers for nothing — a partial load, a miss, an entity
+    // nobody named. ADR 9 D4 already says an unowned row is nobody's rather
+    // than everyone's, and the resolved view must preserve that rather than
+    // turn absence into permission.
+    h = await harnessWithResolver(policy, () => ({ ownerOf: () => null, hasGrant: () => false }))
+    const created = await h.service.create(
+      {
+        name: 'Alice work',
+        description: '',
+        scope: 'task',
+        scopeRef: 'issue-a',
+        instructions: 'hers',
+        steps: [],
+      },
+      policy.caller(asSessionId('a1'), ALICE),
+    )
+    policy.own(created.workflow.id, ALICE)
+
+    // Even the OWNER is refused, because the view does not say she owns it.
+    // Fail-closed, not fail-useful.
+    expect(
+      await thrown(() => h.service.get({ id: created.workflow.id }, policy.caller(null, ALICE))),
+    ).toBe(`unknown workflow: ${created.workflow.id}`)
+    expect((await h.service.list({}, policy.caller(null, ALICE)))).toEqual([])
+  })
+
+  it('asks for the entities the pass is about to decide on', async () => {
+    h = await harnessWithResolver(policy, () => policy.ownership)
+    const created = await h.service.create(
+      {
+        name: 'Alice work',
+        description: '',
+        scope: 'task',
+        scopeRef: 'issue-a',
+        instructions: 'hers',
+        steps: [],
+      },
+      policy.caller(asSessionId('a1'), ALICE),
+    )
+    policy.own(created.workflow.id, ALICE)
+    asked = []
+
+    await h.service.list({}, policy.caller(null, ALICE))
+
+    // ONE resolve for the whole page, naming the rows on it — not one read per
+    // row inside a filter, and not a resolve that names nothing.
+    expect(asked).toEqual([[created.workflow.id]])
+  })
+})
 
 describe('workflows under two humans', () => {
   let policy: Policy

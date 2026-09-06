@@ -32,11 +32,11 @@ import type {
 } from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
-import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
+import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { IssueService } from '../issues/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   type MachineAccess,
   MailAccess,
@@ -51,12 +51,12 @@ import type { MessageDeliveryService } from './service'
 export interface MessageGateDeps {
   messages: MessageDeliveryService
   issues: IssueService
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
@@ -278,10 +278,17 @@ export class MessageGate {
   ): Promise<unknown> {
     const principal =
       (await this.principalForCapability?.(capability)) ??
-      resolvePrincipal(capability, {
-        parentSessionOf: (sessionId) =>
-          spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
-      })
+      // THE ASYNC TWIN, not a widened sync resolver. `resolvePrincipalAsync` is
+      // the existing sanctioned shape for a delegation walk whose parent lookup
+      // is a durable read; the composition root supplies
+      // `principalForCapability` and this fallback is what a fixture that does
+      // not gets. Using it here keeps `resolvePrincipal` — the synchronous
+      // delegation resolver — untouched, which is the boundary the ruling on
+      // rule 51 case 2 protects.
+      (await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy),
+      }))
     const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {

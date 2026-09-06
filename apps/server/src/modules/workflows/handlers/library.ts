@@ -189,7 +189,7 @@ export async function assignHandler(
     // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
     // the other arm), so the brand is recovered INSIDE the narrowed branch — the
     // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
-    access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
+    await access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
   }
   const now = deps.now()
   const binding = await deps.store.setBinding({
@@ -214,12 +214,16 @@ export async function profileSaveHandler(
   input: ContractInput<typeof workflowProfileSaveContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  access.assertProfileWrite(caller, input.id)
+  access.assertProfileWrite(
+    caller,
+    input.id,
+    await access.ownershipFor(input.id ? [{ kind: 'execution-profile', id: input.id }] : []),
+  )
   // The machine a profile PINS is the machine its runs will execute on, so the
   // `use` grant is checked when the pin is written as well as when it is used.
   // Checking only at launch would let a principal stage a binding it may not
   // run and hand it to someone who can.
-  access.assertMayPlaceOn(caller, input.machineId)
+  await access.assertMayPlaceOn(caller, input.machineId)
   const now = deps.now()
   return await deps.store.upsertProfile({
     id: input.id ?? `wfp_${randomUUID()}`,
