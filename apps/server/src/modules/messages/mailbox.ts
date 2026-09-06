@@ -36,7 +36,7 @@ import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '
 import type { MessagesRepository } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import type {
   MessageSender,
   MessageSendInput,
@@ -84,8 +84,8 @@ export interface MessageMailboxDeps {
   >
   issues: Pick<IssueService, 'resolveRef' | 'has'>
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
-  listSessions(): SessionMeta[]
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   now(): string
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
@@ -115,7 +115,7 @@ export class MessageMailbox {
   async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     if (original.fromKind === 'agent') {
       const fromSession = original.fromSession ? asSessionId(original.fromSession) : undefined
-      const known = fromSession ? findSessionById(this.deps, fromSession) !== undefined : false
+      const known = fromSession ? await findSessionByIdAsync(this.deps, fromSession) !== undefined : false
       if (original.fromSession && known) {
         return { kind: 'session', id: original.fromSession }
       }

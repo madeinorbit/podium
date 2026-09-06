@@ -72,7 +72,7 @@ import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { SessionRoutingFacts } from '../sessions/lifecycle'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
@@ -185,7 +185,7 @@ export interface MessageDeliveryDeps {
   events: EventsRepository
   issues: IssueService
   sessions: {
-    listSessions(): SessionMeta[]
+    listSessions(): SessionMeta[] | Promise<SessionMeta[]>
     /** The two NARROW reads delivery actually needs [POD-1653]. `listSessions()`
      *  is not an accessor — it is a reader-scoped projection that runs an
      *  authorization check (one issue row + one grants read) and a display-ref
@@ -196,8 +196,11 @@ export interface MessageDeliveryDeps {
      *  `listSessions` and nothing else, and the fallback computes the identical
      *  answer — the same predicate applied after the pass rather than instead of
      *  it — so an unwired fixture is slow, never wrong. */
-    sessionById?(sessionId: SessionId): SessionMeta | undefined
-    listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
+    sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
+    listSessionsForIssue?(
+      worktreePath: string | null,
+      issueId: IssueId,
+    ): SessionMeta[] | Promise<SessionMeta[]>
     sessionRoutingFacts?(): SessionRoutingFacts[]
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
@@ -557,7 +560,7 @@ export class MessageDeliveryService {
       issues: deps.issues,
       notificationArbiter: this.notificationArbiter,
       listSessions: () => deps.sessions.listSessions(),
-      sessionById: (id) => findSessionById(deps.sessions, id),
+      sessionById: async (id) => await findSessionByIdAsync(deps.sessions, id),
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
@@ -577,7 +580,7 @@ export class MessageDeliveryService {
     this.render = new MessageRenderer({
       issues: deps.issues,
       listSessions: () => deps.sessions.listSessions(),
-      sessionById: (id) => findSessionById(deps.sessions, id),
+      sessionById: async (id) => await findSessionByIdAsync(deps.sessions, id),
       ...(deps.machineName ? { machineName: (id: string) => deps.machineName!(id) } : {}),
     })
   }
@@ -601,7 +604,7 @@ export class MessageDeliveryService {
       boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
     },
   ): Promise<void> {
-    const session = changed ?? findSessionById(this.deps.sessions, sessionId)
+    const session = changed ?? await findSessionByIdAsync(this.deps.sessions, sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
     if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
@@ -650,7 +653,7 @@ export class MessageDeliveryService {
     if (!messageIds) return
     this.liveQueuedForExit.delete(sessionId)
 
-    const session = this.targetOf(sessionId)
+    const session = await this.targetOf(sessionId)
     if (
       !session ||
       session.status !== 'exited' ||
@@ -709,7 +712,7 @@ export class MessageDeliveryService {
     if (!session) return undefined
     const coordinatorId = (await this.deps.issues.get(issueId))?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinator = findSessionById(this.deps.sessions, asSessionId(coordinatorId))
+    const coordinator = await findSessionByIdAsync(this.deps.sessions, asSessionId(coordinatorId))
     const coordinatorOwns =
       coordinator !== undefined &&
       coordinator.agentKind !== 'shell' &&
@@ -745,7 +748,7 @@ export class MessageDeliveryService {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
     for (const issueId of changed) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? this.deps.sessions.listSessions()
+    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? await this.deps.sessions.listSessions()
     for (const session of sessions) {
       const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
       const nextIssueId = this.issueForSession(session)
@@ -813,7 +816,7 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. The session→issue before-state is this
    *  service's to restore; the walk itself is the scheduler's. */
   async reconcileQueued(): Promise<void> {
-    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? this.deps.sessions.listSessions()
+    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? await this.deps.sessions.listSessions()
     if (await this.scheduler.queueIsEmpty()) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
@@ -941,7 +944,7 @@ export class MessageDeliveryService {
 
     const targetSession =
       input.to.kind === 'session'
-        ? findSessionById(this.deps.sessions, asSessionId(toId!))
+        ? await findSessionByIdAsync(this.deps.sessions, asSessionId(toId!))
         : undefined
 
     // v1 defaults: mail stays fyi+wait; session sends declare next-turn.
@@ -1215,7 +1218,7 @@ export class MessageDeliveryService {
       if (message.fromSession && message.toId === message.fromSession) {
         return await this.suppressSelf(message)
       }
-      target = message.toId ? findSessionById(sessions, asSessionId(message.toId)) : undefined
+      target = message.toId ? await findSessionByIdAsync(sessions, asSessionId(message.toId)) : undefined
       if (!target) {
         // The session row is GONE (not merely parked — parked sessions still
         // list). A session-addressed row records no issue to re-route to, so
@@ -1246,9 +1249,10 @@ export class MessageDeliveryService {
       // projection is built (POD-1639); `sessionsForIssue` applies the SAME
       // predicate after it. Filtering the narrow result again is therefore a
       // no-op that keeps one spelling of membership on both paths.
-      const candidates =
+      const candidates = await (
         sessions.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
         sessions.listSessions()
+      )
       const allMembers = sessionsForIssue(issue.worktreePath ?? null, candidates, issue.id)
       // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
@@ -1792,7 +1796,7 @@ export class MessageDeliveryService {
    *  re-delivered [POD-834]: a pointer nudge waits for the inbox read (never
    *  re-nudged); an echo-mode push waits for its transcript echo until the window
    *  passes (after which the sweep re-pushes it as a lost push). */
-  private awaitingConfirmation(m: MessageRow, nowMs: number): boolean {
+  private async awaitingConfirmation(m: MessageRow, nowMs: number): Promise<boolean> {
     if (!m.injectedAt) return false
     if (this.render.isPointer(m)) return true
     // STILL IN THE PHYSICAL QUEUE IS NOT A LOST PUSH (POD-1703). `injectAndMark`
@@ -1818,7 +1822,7 @@ export class MessageDeliveryService {
     // how one offer click reached an agent eight times: MAX_ECHO_REQUEUES capped
     // the damage but the requeues themselves were never the right reading of a
     // busy target. While it is computing, the copy it is holding IS the push.
-    const target = sessionId ? this.targetOf(sessionId) : undefined
+    const target = sessionId ? await this.targetOf(sessionId) : undefined
     if (target && isAgentComputing(target)) return true
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
   }
@@ -1852,8 +1856,8 @@ export class MessageDeliveryService {
 
   /** One recipient's live meta, through the narrow read when the composition
    *  root wired it [POD-1653]. Undefined for a session this service cannot see. */
-  private targetOf(sessionId: SessionId): SessionMeta | undefined {
-    return findSessionById(this.deps.sessions, sessionId)
+  private async targetOf(sessionId: SessionId): Promise<SessionMeta | undefined> {
+    return await findSessionByIdAsync(this.deps.sessions, sessionId)
   }
 
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
@@ -1862,7 +1866,7 @@ export class MessageDeliveryService {
   private async prepareQueuedAttempt(message: MessageRow, nowMs: number): Promise<boolean> {
     if (message.toKind === 'operator') return false
     if (message.injectedAt) {
-      if (this.awaitingConfirmation(message, nowMs)) return false
+      if (await this.awaitingConfirmation(message, nowMs)) return false
       const requeues = await this.requeueCountFor(message.id)
       if (requeues >= MAX_ECHO_REQUEUES && message.deliveredTo) {
         await this.emitTransition(message, 'message.echo_capped')
@@ -1875,7 +1879,7 @@ export class MessageDeliveryService {
       }
     }
     if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
-      const key = this.wakeKeyOfRow(message)
+      const key = await this.wakeKeyOfRow(message)
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
         return false
@@ -1890,7 +1894,7 @@ export class MessageDeliveryService {
     if (message.lifecycle !== 'wake' || message.fromKind === 'operator') return
     const current = await this.deps.messages.getMessage(message.id)
     if (!current || current.status !== 'queued' || current.injectedAt) return
-    const key = this.wakeKeyOfRow(current)
+    const key = await this.wakeKeyOfRow(current)
     if (await this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
   }
 
@@ -2290,11 +2294,11 @@ export class MessageDeliveryService {
    *  targets resolve to their issue. Derived HERE, never inside the brake: this
    *  service owns the session→issue resolution, and a key written by one
    *  derivation and checked by another silently disables the brake. */
-  private wakeKeyOfRow(m: MessageRow): string {
+  private async wakeKeyOfRow(m: MessageRow): Promise<string> {
     // By-id, not a full pass [POD-1653]: this runs per stored row on the sweep.
     const target =
       m.toKind === 'session' && m.toId
-        ? findSessionById(this.deps.sessions, asSessionId(m.toId))
+        ? await findSessionByIdAsync(this.deps.sessions, asSessionId(m.toId))
         : undefined
     const issueKey = m.toKind === 'issue' ? m.toId : this.issueForSession(target)
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
