@@ -1635,6 +1635,55 @@ GENERALLY: when case 2 has no earlier async boundary, look DOWNSTREAM before esc
 queue drain, a retry loop and a debouncer all have a later boundary that already tolerates an await,
 and using it keeps the change inside one file instead of spreading it across an ownership line.
 
+### Rule 51c — a provider that also MAINTAINS state cannot be snapshotted: split the ANSWER from the MAINTENANCE
+
+[Raised by POD-3469 on the websocket credential path, 2026-09-06. It proposed the ordinary case-2 fix,
+resolving credential validity once at the HTTP upgrade, then followed `auth-route.ts`, proved the fix
+was NOT behaviour-preserving, and reverted it in `a381218b2` before anyone reviewed it. That is the
+right order of operations and the reason this rule exists rather than a bug.]
+
+WHY THE SNAPSHOT WAS WRONG. `maintainClientCredentialByHash` is not a query. Besides answering "is this
+credential still valid", it RENEWS an active login or mobile session and touches mobile `lastSeenAt`.
+Resolving it once at upgrade answers the question correctly and then never performs the maintenance
+again — so a healthy long-lived socket dies at the 30-day expiry it should have been renewing all
+along, and mobile activity tracking silently stops. The snapshot preserves the boolean and destroys the
+side effect.
+
+RULE 51'S DECISION PROCEDURE ASSUMES A PURE PROVIDER. Cases 1, 2 and 3 all ask only WHERE the await may
+happen. That is a complete question when the async call is a read. When the provider also WRITES, moving
+the await also moves WHEN the write happens — and a write that must RECUR cannot be hoisted to a
+one-shot boundary at all. Neither earlier (51/case 2) nor later (51b) is available.
+
+SO SPLIT THE TWO RESPONSIBILITIES, and keep both:
+
+1. THE ANSWER the synchronous path consumes becomes a resolved value it can read without yielding —
+   for the pong handler, a resolved validity. The port stays synchronous. Nothing on the frame or pong
+   path yields.
+2. THE MAINTENANCE moves to a serialized async producer on its own cadence — a heartbeat — which
+   performs the renew and the touch and refreshes the resolved value the sync path reads.
+
+Rule 51b's condition 2 does NOT apply here and POD-3469 was right to say so: the existing timer body was
+synchronous, so there is no already-fire-and-forget deferred body to move the await into. 51b is for
+deferring a resolution; this is for separating a read from a write.
+
+NOW THE RULE 49 OBLIGATION, WHICH IS SHARPER HERE THAN ANYWHERE ELSE IN THIS EPIC. The resolved validity
+is a cache on an AUTHENTICATION path, so ask which way it drifts. A stale "valid" keeps alive a socket
+whose credential has been revoked. That permits MORE, and it is the unsafe direction. Therefore:
+
+- The cached validity carries a BOUNDED staleness, and the bound is stated in the code, not implied by
+  the heartbeat interval.
+- If the heartbeat is OVERDUE — it failed, or was never scheduled — the answer is INVALID and the socket
+  closes. Fail closed. An authentication cache whose refresher has died must not keep answering "yes".
+- Explicit revocation invalidates IMMEDIATELY and does not wait for the next heartbeat. POD-3469's
+  existing revoke producer already covers deletion; it does NOT cover renewal or touch, which is exactly
+  why the maintenance half must survive as its own producer.
+
+STATE THE INTERVAL, THE STALENESS BOUND AND THE OVERDUE BEHAVIOUR in the handoff. A credential cache
+that outlives its refresher is a login that cannot be revoked.
+
+GENERALLY: before applying rule 51 to any provider, ask whether it WRITES. If it does, 51's three cases
+do not decide it — split the answer from the maintenance and apply 49 to whatever you cached.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,

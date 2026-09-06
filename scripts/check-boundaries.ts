@@ -2395,12 +2395,82 @@ export function checkFlipUndeleted(
  * arbitrate, a kernel that must not name a database, a UI that must not touch
  * storage directly), and no tag on a workspace could express them.
  */
+/**
+ * A PROMISE IS ALWAYS TRUTHY, so an async callback handed to an array method
+ * that CONSUMES A BOOLEAN silently disables the test it looks like it performs.
+ * `.filter(async …)` keeps every element; `.find(async …)` returns the first
+ * one; `.some` is always true, `.every` vacuously true, and a `.sort` comparator
+ * returning a promise orders nothing.
+ *
+ * This is not hypothetical and it is why the rule exists. POD-3221's async flip
+ * turned `acceptedSpinoff`'s predicate in `attention.ts` async while propagating
+ * store reads; the filter then matched EVERY issue regardless of title, repo or
+ * parent, so a spinoff could re-home onto an unrelated issue. Six sites acquired
+ * the defect and NOT ONE TEST FAILED — the filter still returns a non-empty
+ * array, so every assertion about "some result" still holds. Only the compiler
+ * can catch this class, and only if something tells it to look.
+ *
+ * `.map(async …)` is DELIBERATELY NOT LISTED: it yields promises for a
+ * `Promise.all`, which is the correct idiom, and flagging it would bury this
+ * rule in false positives.
+ */
+const BOOLEAN_CONSUMING_ARRAY_METHODS = new Set([
+  'filter',
+  'find',
+  'findIndex',
+  'findLast',
+  'findLastIndex',
+  'some',
+  'every',
+  'sort',
+])
+
+export function checkAsyncBooleanPredicate(file: string, source: string): Violation[] {
+  if (!/\.(?:filter|find|findIndex|findLast|findLastIndex|some|every|sort)\s*\(/.test(source)) {
+    return []
+  }
+  const violations: Violation[] = []
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const isAsync = (node: ts.Node): boolean =>
+    (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) === true
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      BOOLEAN_CONSUMING_ARRAY_METHODS.has(node.expression.name.text) &&
+      node.arguments.length > 0 &&
+      isAsync(node.arguments[0] as ts.Node)
+    ) {
+      const method = node.expression.name.text
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+      violations.push({
+        file,
+        specifier: method,
+        rule: 'async-boolean-predicate',
+        message: `${file}:${line}: '.${method}()' is given an ASYNC callback — it returns a Promise, which is always truthy, so the predicate never actually decides anything (.filter keeps everything, .find returns the first element, .some/.every are vacuous, .sort orders nothing). No test catches this because the call still returns a plausible non-empty result. Resolve the async work BEFORE the loop and keep the predicate synchronous (POD-3221 spec rule 51/49).`,
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 export function checkFile(file: string, source: string): Violation[] {
   return [
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
     ...checkRepositoryDbCapture(file, source),
     ...checkProjectionSqlIdentifiers(file, source),
+    ...checkAsyncBooleanPredicate(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
