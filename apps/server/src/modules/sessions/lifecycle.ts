@@ -105,6 +105,7 @@ import {
   harnessSupportsInitialPrompt,
 } from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
+import type { MachineListing } from '../machines/service'
 import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
@@ -517,11 +518,11 @@ export class SessionLifecycle {
   // here: authority/feed identity (packages/sync/src/feed), the change envelope's
   // origin/causation/mutation identity (packages/model/src/provenance), and the
   // reserved node-peer capabilities (packages/protocol/src/handshake).
-  setSnooze(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setSnooze(...args)
+  setSnooze(input: { userId: UserId; sessionId: SessionId; until: string | null }): Promise<void> {
+    return this.sessionMetaOps.setSnooze(input)
   }
-  clearSnooze(...args: any[]): void {
-    ;(this.sessionMetaOps as any).clearSnooze(...args)
+  clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.clearSnooze(userId, sessionId)
   }
   /**
    * SPELLED OUT, NOT `(...args: any[]): any` [POD-3507].
@@ -635,11 +636,11 @@ export class SessionLifecycle {
   tryAutoArchiveStoppedObserved(...args: any[]): any {
     return (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args)
   }
-  markSessionRead(...args: any[]): void {
-    ;(this.sessionMetaOps as any).markSessionRead(...args)
+  markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.markSessionRead(userId, sessionId)
   }
-  markSessionUnread(...args: any[]): void {
-    ;(this.sessionMetaOps as any).markSessionUnread(...args)
+  markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.markSessionUnread(userId, sessionId)
   }
   private async rearmUnread(sessionId: SessionId): Promise<void> {
     await this.state.rearmUnreadForAll(sessionId)
@@ -789,8 +790,12 @@ export class SessionLifecycle {
   settingsViewer(...args: any[]): any {
     return (this.sessionAuthz as any).settingsViewer(...args)
   }
-  onClientAttached(...args: any[]): void {
-    ;(this.sessionClientPlane as any).onClientAttached(...args)
+  onClientAttached(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    machines: readonly MachineListing[],
+  ): Promise<void> {
+    return this.sessionClientPlane.onClientAttached(principal, client, machines)
   }
   onRoomJoined(...args: any[]): void {
     ;(this.sessionClientPlane as any).onRoomJoined(...args)

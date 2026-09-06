@@ -38,7 +38,7 @@ export interface SessionsClientPort {
     principal: ClientPrincipal,
     conn: ClientConn,
     machines: readonly MachineWire[],
-  ): void
+  ): Promise<void>
   /** Move controller roles from a reconnecting user's stale connection before
    * the gateway evicts it. Both principals were authenticated by the gateway. */
   onClientReclaim(prior: ClientConn, next: ClientConn): void

@@ -437,7 +437,7 @@ export async function buildSuperagentTools(
         // is its human's row, not an instance-wide one. SOLE_USER_ID until POD-1075
         // gives the superagent thread a real owner to read the identity from.
         if (!ownerUserId) return 'unknown superagent thread'
-        sessions.setSnooze({ userId: ownerUserId, sessionId, until: value })
+        await sessions.setSnooze({ userId: ownerUserId, sessionId, until: value })
         return JSON.stringify({ snoozedUntil: value })
       },
     },
@@ -455,7 +455,7 @@ export async function buildSuperagentTools(
         const sessionId = sessionIdArg(args.sessionId)
         if (!await getSession(sessionId)) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
-        sessions.clearSnooze(ownerUserId, sessionId)
+        await sessions.clearSnooze(ownerUserId, sessionId)
         return 'snooze cleared'
       },
     },

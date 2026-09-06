@@ -319,20 +319,20 @@ const REGISTRATIONS: Record<string, Registration> = {
     // POD-1077's scoped feed) — but the POLICY is already self-scoped, so the
     // move is storage-only and needs no contract or wire change.
     target: ownPerUserSessionRow,
-    handler: (input, principal, deps) => {
-      deps.state.markRead(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps) => {
+      await deps.state.markRead(principal, sessionIdOf(input.sessionId))
     },
   },
   'sessions.markUnread': {
     target: ownPerUserSessionRow,
-    handler: (input, principal, deps) => {
-      deps.state.markUnread(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps) => {
+      await deps.state.markUnread(principal, sessionIdOf(input.sessionId))
     },
   },
   'snoozes.set': {
     target: ownPerUserSessionRow,
     handler: async (input, principal, deps) => {
-      deps.state.setSnooze(
+      await deps.state.setSnooze(
         principal,
         sessionIdOf(input.sessionId),
         typeof input.until === 'string' ? input.until : null,
@@ -343,7 +343,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   'snoozes.clear': {
     target: ownPerUserSessionRow,
     handler: async (input, principal, deps) => {
-      deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
+      await deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
       return await deps.state.listSnoozes(principal)
     },
   },

@@ -184,19 +184,18 @@ export class SessionMetaOps {
     userId: UserId
     sessionId: SessionId
     until: string | null
-  }): void {
-    this.ports.state.setSnooze(
+  }): Promise<void> {
+    return this.ports.state.setSnooze(
       this.ports.view.principalForTrustedUser(asUserId(userId)),
       sessionId,
       until,
-    )
+    ).then(() => undefined)
   }
 
-  clearSnooze(userId: UserId, sessionId: SessionId): void {
-    this.ports.state.clearSnooze(
-      this.ports.view.principalForTrustedUser(asUserId(userId)),
-      sessionId,
-    )
+  clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.ports.state
+      .clearSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .then(() => undefined)
   }
 
   /**
@@ -211,19 +210,20 @@ export class SessionMetaOps {
    * in eleven handlers.
    */
 
-  markSessionRead(userId: UserId, sessionId: SessionId): void {
-    this.ports.state.markRead(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+  markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.ports.state
+      .markRead(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .then(() => undefined)
   }
 
   /** Mark this session UNREAD again (issue #138, the email-style inverse of
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-  markSessionUnread(userId: UserId, sessionId: SessionId): void {
-    this.ports.state.markUnread(
-      this.ports.view.principalForTrustedUser(asUserId(userId)),
-      sessionId,
-    )
+  markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.ports.state
+      .markUnread(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .then(() => undefined)
   }
 
   /**

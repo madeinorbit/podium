@@ -188,12 +188,12 @@ export class SessionClientPlane {
    * (POD-390). Entity bootstrap belongs exclusively to FeedServing; this hook
    * replays only session draft state and the machine list.
    */
-  onClientAttached(
+  async onClientAttached(
     principal: ClientPrincipal,
     client: ClientConn,
     machines: readonly MachineListing[],
-  ): void {
-    this.ports.clientControl.onAttached(principal, client, machines)
+  ): Promise<void> {
+    await this.ports.clientControl.onAttached(principal, client, machines)
   }
 
   /** Feature-owned consequence of a successful stream-room join. */
