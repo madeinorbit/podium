@@ -371,12 +371,52 @@ describe('oracle: resurrect', () => {
     })
   })
 
-  it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {
+  /**
+   * THE REFUSAL IS KEYED TO PROOF, NOT TO THE ABSENCE OF A REF (POD-2392,
+   * re-pinned here by POD-3351).
+   *
+   * This case used to read "an exited AGENT with no resume ref cannot be
+   * resurrected". POD-2392 narrowed that rule — "no ref" was two opposite
+   * situations wearing one answer — and the case went red the day that commit
+   * landed instead of being decided here. The pin is not dropped: the shape it
+   * exists for is a session that comes back EMPTY while still presenting as
+   * itself, and that shape is the first arm below. What the narrower rule adds
+   * is that an agent which provably never opened a conversation has nothing to
+   * come back empty from, so refusing it left deletion as the panel's only
+   * remaining action.
+   *
+   * All three arms are stated together because the distinction IS the claim:
+   *
+   *   had a conversation, no way back  → refuses ('no resume ref')
+   *   proven never bound               → starts over, with no ref on the wire
+   *   shell                            → starts over (a fresh spawn IS recovery)
+   */
+  it(`${MUST_NOT_CHANGE}: resurrect refuses an exited agent whose conversation has no way back, and starts over one that never had a conversation — as it does a shell`, async () => {
     const o = await makeOracle()
-    const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    // A transcript item is a conversation, whether or not any `sessionResumeRef`
+    // frame ever told us its native id — so this row is bound and ref-less, the
+    // case where a relaunch would silently discard the conversation.
+    const bound = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: bound.sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    confirmUserTurn(o, bound.sessionId, 'a real turn')
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
-      sessionId: agent.sessionId,
+      sessionId: bound.sessionId,
+      code: 1,
+    })
+    // Created and dead without ever binding a thread: the server minted the
+    // 'never' claim itself, so a fresh start discards nothing.
+    const neverBound = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId: neverBound.sessionId,
       code: 1,
     })
     const shell = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
@@ -385,12 +425,30 @@ describe('oracle: resurrect', () => {
       sessionId: shell.sessionId,
       code: 1,
     })
+    expect(await o.meta(bound.sessionId)).toMatchObject({ status: 'exited' })
+    expect((await o.meta(bound.sessionId)).neverBound).toBeUndefined()
+    expect(await o.meta(neverBound.sessionId)).toMatchObject({ neverBound: true })
+    o.daemon.length = 0
 
-    expect(await o.call.sessions.resurrect({ sessionId: agent.sessionId })).toEqual({
+    expect(await o.call.sessions.resurrect({ sessionId: bound.sessionId })).toEqual({
       ok: false,
       reason: 'no resume ref',
     })
+    expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
+    expect(await o.meta(bound.sessionId)).toMatchObject({ status: 'exited' })
+
+    expect(await o.call.sessions.resurrect({ sessionId: neverBound.sessionId })).toEqual({
+      ok: true,
+    })
     expect(await o.call.sessions.resurrect({ sessionId: shell.sessionId })).toEqual({ ok: true })
+    // The relaunch goes out WITHOUT a ref — this is a start over, not a resume
+    // over a conversation the row never had.
+    const relaunch = o.daemon.find(
+      (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+        m.type === 'spawn' && m.sessionId === neverBound.sessionId,
+    )
+    expect(relaunch).toMatchObject({ agentKind: 'claude-code', cwd: '/p' })
+    expect(relaunch && 'resume' in relaunch ? relaunch.resume : undefined).toBeUndefined()
   })
 })
 
