@@ -623,13 +623,13 @@ export class MessagingService implements TelegramNoticePort {
     const threadRef = await this.noticeThreadRef(chatId, sessionId)
     // Only indicate for sessions with a bound issue topic — never main chat.
     if (!threadRef) return
-    // THE GUARD IS RE-READ, because the await above is a window the sync version
-    // did not have: two `working` transitions close enough together both passed
-    // the entry check before either registered, and the second would acquire a
-    // SECOND lease on the same topic — two refresh intervals, and only one of
-    // them reachable by `stopAmbientTyping`. Re-reading closes the window at the
-    // only point where the answer can have changed.
-    if (this.ambientTypingBySession.has(sessionId)) return
+    // NO SECOND GUARD HERE, deliberately. The await above IS a window the sync
+    // version did not have — two `working` transitions can both pass the entry
+    // check before either registers — but `acquireTyping` is idempotent per
+    // conversation: the second call joins the existing lease's owner set and
+    // starts no second interval. Re-checking here was written first and removed
+    // once a mutation showed it killed nothing that `acquireTyping`'s own dedup
+    // does not already kill.
     const source: ConversationRef = {
       channel: 'telegram',
       chatId,

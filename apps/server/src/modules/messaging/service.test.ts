@@ -605,6 +605,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
     })
 
@@ -619,6 +620,7 @@ describe('MessagingService', () => {
         prev: agentState('idle'),
         next: agentState('compacting'),
       })
+      await flushMicro()
       expect(h.typingCalls).toEqual([])
     })
 
@@ -634,6 +636,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       expect(h.typingCalls).toHaveLength(1)
       vi.advanceTimersByTime(TYPING_REFRESH_MS)
       expect(h.typingCalls).toHaveLength(2)
@@ -659,6 +662,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       const countWhileWorking = h.typingCalls.length
       h.bus.emit('session.stateChanged', {
         sessionId,
@@ -666,6 +670,7 @@ describe('MessagingService', () => {
         prev: agentState('working'),
         next: agentState(phase),
       })
+      await flushMicro()
       vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
       expect(h.typingCalls).toHaveLength(countWhileWorking)
     })
@@ -682,6 +687,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       const countWhileWorking = h.typingCalls.length
       h.bus.emit('session.exited', { sessionId, code: 0 })
       vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
@@ -699,6 +705,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       vi.advanceTimersByTime(TYPING_REFRESH_MS * 2)
       expect(h.typingCalls).toEqual([])
     })
@@ -727,6 +734,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       expect(h.typingCalls).toHaveLength(1)
       vi.advanceTimersByTime(TYPING_REFRESH_MS)
       expect(h.typingCalls).toHaveLength(2)
@@ -755,6 +763,7 @@ describe('MessagingService', () => {
         prev: undefined,
         next: agentState('working'),
       })
+      await flushMicro()
       expect(h.typingCalls).toHaveLength(1)
       h.inbound('status in topic', { threadRef })
       await flushMicro()
@@ -1205,6 +1214,10 @@ describe('MessagingService', () => {
       source: { channel: 'telegram', chatId: '42', threadRef: '77' },
       text: 'in topic',
     })
+    // The inbound handler records the last conversation ref, and it reaches the
+    // store to do it. Let it settle before asking for a notice that reads what
+    // it wrote.
+    await flush()
     await service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
