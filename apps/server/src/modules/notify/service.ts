@@ -62,7 +62,7 @@ export interface SessionNoticeInfo {
 }
 
 export interface NotifyDeps {
-  getSettings(ownerUserId?: UserId): PodiumSettings
+  getSettings(ownerUserId?: UserId): PodiumSettings | Promise<PodiumSettings>
   /**
    * The Telegram bot token out of the server-only secret store (POD-419) —
    * `''` when none is configured.
@@ -73,7 +73,7 @@ export interface NotifyDeps {
    * reports as a bug. A composition root must name where the material comes
    * from.
    */
-  telegramBotToken(): string
+  telegramBotToken(): string | Promise<string>
   /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
   notificationsEnabled?(): boolean
   /** store.appendEvent — the durable podium_events log. */
@@ -96,7 +96,7 @@ export interface NotifyDeps {
     ownerUserId?: UserId
   }>
   /** Per-user route lookup and asynchronous delivery request. */
-  telegramRouteAvailable?(ownerUserId: UserId): boolean
+  telegramRouteAvailable?(ownerUserId: UserId): boolean | Promise<boolean>
   requestTelegram?(input: { ownerUserId: UserId; text: string; sessionId?: SessionId }): void
 }
 
@@ -122,7 +122,7 @@ export class NotifyService {
       // No ambient operator fallback: unresolved ownership means no recipient.
       if (!ownerUserId) return
       const info = this.deps.sessionInfo(sessionId)
-      if (info) this.notifyAttention(ownerUserId, info, prev, next, observation)
+      if (info) return this.notifyAttention(ownerUserId, info, prev, next, observation)
     })
     bus.on('attention.raised', ({ sessionId, ownerUserId, title, body }) => {
       const info = this.deps.sessionInfo(sessionId)
@@ -130,10 +130,10 @@ export class NotifyService {
       // The session wiring persists the failure before raising this live-only
       // attention event. Keeping persistence out of this listener means an
       // ownerless or disconnected session still has the same durable record.
-      this.notifyNotice(ownerUserId, info, { title, body })
+      return this.notifyNotice(ownerUserId, info, { title, body })
     })
     bus.on('settings.changed', ({ previous, next }) => {
-      this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
+      return this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
     })
   }
 
@@ -158,20 +158,20 @@ export class NotifyService {
     this.pushers.telegram(config, notice)
   }
 
-  private telegramEnabled(
+  private async telegramEnabled(
     ownerUserId: UserId,
     settings: NotificationSettings,
     botToken: string,
-  ): boolean {
+  ): Promise<boolean> {
     if (!botToken.trim()) return false
     return this.deps.telegramRouteAvailable
-      ? this.deps.telegramRouteAvailable(ownerUserId)
+      ? await this.deps.telegramRouteAvailable(ownerUserId)
       : isTelegramEnabled(settings, botToken)
   }
-  private notifyAttentionForNewExternalTargets(
+  private async notifyAttentionForNewExternalTargets(
     previous: NotificationSettings,
     next: NotificationSettings,
-  ): void {
+  ): Promise<void> {
     const previousNtfy = previous.ntfyTopic.trim()
     if (this.deps.notificationsEnabled?.() === false) return
     const nextNtfy = next.ntfyTopic.trim()
@@ -183,7 +183,7 @@ export class NotifyService {
     // the token was in the blob and one comparison caught both; keeping only the
     // blob comparison would silently stop replaying blocked states on the write
     // that most needs it — the first time a bot token is configured.
-    const botToken = this.deps.telegramBotToken()
+    const botToken = await this.deps.telegramBotToken()
     const nextKey = normalizedTelegramKey(next, botToken)
     const previousKey = this.lastTelegramKey ?? normalizedTelegramKey(previous, botToken)
     const previouslyEnabled = telegramKeyEnabled(previousKey)
@@ -199,7 +199,7 @@ export class NotifyService {
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
-      if (sendTelegram && this.telegramEnabled(ownerUserId, next, botToken))
+      if (sendTelegram && (await this.telegramEnabled(ownerUserId, next, botToken)))
         this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
     }
   }
@@ -218,14 +218,14 @@ export class NotifyService {
    *  - No in-app `attentionEvent`. That message is keyed on a session; a
    *    subscription's subscriber may be an issue.
    */
-  notifyExternal(notice: AttentionNotice, ownerUserId?: UserId): void {
-    const settings = this.deps.getSettings().notifications
+  async notifyExternal(notice: AttentionNotice, ownerUserId?: UserId): Promise<void> {
+    const settings = (await this.deps.getSettings()).notifications
     if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-    const botToken = this.deps.telegramBotToken()
+    const botToken = await this.deps.telegramBotToken()
     if (
       ownerUserId
-        ? this.telegramEnabled(ownerUserId, settings, botToken)
+        ? await this.telegramEnabled(ownerUserId, settings, botToken)
         : isTelegramEnabled(settings, botToken)
     )
       this.sendTelegram(ownerUserId, telegramConfig(settings, botToken), notice)
@@ -237,13 +237,13 @@ export class NotifyService {
    * NO Podium window is visible anywhere — if you're looking at a desktop, the
    * phone stays quiet.
    */
-  private notifyAttention(
+  private async notifyAttention(
     ownerUserId: UserId,
     info: SessionNoticeInfo,
     prev: AgentRuntimeState | undefined,
     next: AgentRuntimeState,
     observation?: AgentObservation,
-  ): void {
+  ): Promise<void> {
     // Durable event log: one row per REAL phase transition (the caller fires on
     // every agentState message, including same-phase refreshes). prev==null is the
     // first seed after a server restart (agentState isn't restored from the DB) —
@@ -286,15 +286,15 @@ export class NotifyService {
     const name = this.attentionNoticeName(info)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return
-    this.notifyNotice(ownerUserId, info, notice)
+    await this.notifyNotice(ownerUserId, info, notice)
   }
 
-  private notifyNotice(
+  private async notifyNotice(
     ownerUserId: UserId,
     info: SessionNoticeInfo,
     notice: AttentionNotice,
-  ): void {
-    const settings = this.deps.getSettings(ownerUserId).notifications
+  ): Promise<void> {
+    const settings = (await this.deps.getSettings(ownerUserId)).notifications
     if (this.deps.notificationsEnabled?.() === false) return
     if (settings.web) {
       const event: LiveServerMessage = {
@@ -305,9 +305,9 @@ export class NotifyService {
       }
       for (const c of this.deps.clients(ownerUserId)) c.send(event)
     }
-    const botToken = this.deps.telegramBotToken()
+    const botToken = await this.deps.telegramBotToken()
     const telegram = telegramConfig(settings, botToken)
-    const telegramEnabled = this.telegramEnabled(ownerUserId, settings, botToken)
+    const telegramEnabled = await this.telegramEnabled(ownerUserId, settings, botToken)
     if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.deps.clients(ownerUserId)].some((c) => c.visible)
       if (!someoneWatching) {

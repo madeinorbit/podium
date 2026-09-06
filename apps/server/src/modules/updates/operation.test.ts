@@ -2681,7 +2681,7 @@ describe('a version published mid-operation', () => {
     running = true
     await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     running = false
-    expect(updates.publishNextTargets()).toEqual(['dev'])
+    expect(await updates.publishNextTargets()).toEqual(['dev'])
 
     expect(updates.target('dev')?.version).toBe('0.4.4')
     expect(updates.nextTarget('dev')).toBeUndefined()
