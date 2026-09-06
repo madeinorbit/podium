@@ -173,14 +173,14 @@ export class TelegramChannel implements ChannelAdapter {
      *  getUpdates for its pairing window (concurrent polls 409). */
     private readonly paused: () => boolean = () => false,
     /** Live fail-closed chat binding predicate; absent preserves the legacy configured chat. */
-    private readonly acceptChat?: (chatId: string) => boolean,
+    private readonly acceptChat?: (chatId: string) => boolean | Promise<boolean>,
   ) {}
 
   private api(method: string): string {
     return `https://api.telegram.org/bot${this.config.botToken.trim()}/${method}`
   }
-  private accepts(chatId: string): boolean {
-    return this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim()
+  private async accepts(chatId: string): Promise<boolean> {
+    return await (this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim())
   }
 
   private async call(
@@ -248,7 +248,7 @@ export class TelegramChannel implements ChannelAdapter {
         const { messages, callbacks, lastUpdateId } = parseTelegramUpdates(body.result)
         if (lastUpdateId !== undefined) this.offset = lastUpdateId + 1
         for (const msg of messages) {
-          if (!this.accepts(msg.chatId)) continue
+          if (!await this.accepts(msg.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,
@@ -260,7 +260,7 @@ export class TelegramChannel implements ChannelAdapter {
           })
         }
         for (const cb of callbacks) {
-          if (!this.accepts(cb.chatId)) continue
+          if (!await this.accepts(cb.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,
