@@ -6,7 +6,7 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit, BaselineFoldPort, PostCommitEffectPort } from './authority/ports'
+import type { AuthorityCommit, BaselineFoldPort, PostCommitFollowUpPort } from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -120,7 +120,7 @@ export interface LedgerDeps {
    * boundary that matters. Unset means immediate, which is what the tests and
    * every client adapter want.
    */
-  postCommit?: PostCommitEffectPort
+  postCommit?: PostCommitFollowUpPort
   /**
    * Where the baseline fold waits for the OUTERMOST commit [POD-3328]. Passed
    * straight to the Authority — see `AuthorityDeps.applyCommit`. Unset means the

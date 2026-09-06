@@ -27,7 +27,6 @@
 
 import {
   asIssueId,
-  asSessionId,
   asUserId,
   parseIssueDepId,
   parseIssueEventRowId,
@@ -72,7 +71,7 @@ interface BootstrapReadTrace {
 
 /**
  * Rows the bootstrap pass already fetched in bulk. Present only on the state
- * built by `forBootstrap`; the root port has none and reads row by row.
+ * built for one serving pass; the root port has none and fails closed.
  */
 type BootstrapVisibilityPrefetch = {
   readonly issueIds: ReadonlySet<string>
@@ -99,43 +98,19 @@ type BootstrapVisibilityPrefetch = {
    *
    * The ID SETS are what say "looked at and found nothing" — a resource with no
    * edges has no entry in the map, so the set is the only thing that separates
-   * an empty answer from an unprepared ref. A ref outside the set falls through
-   * to the live point read, which is the contract `VisibilityStatePort.forBatch`
-   * states.
+   * an empty answer from an unprepared ref. A ref outside the set is denied: the
+   * synchronous decision loop may consume only answers resolved for this pass.
    *
-   * THE READ IS LAZY, AND THAT IS NOT AN OPTIMISATION DETAIL — it is what makes
-   * this monotonic. The grant question is only reached when the OWNER check
-   * misses, and on a corpus with no sharing it never is: a pass over rows the
-   * asking principal owns asked ZERO grant queries before this existed, so an
-   * eager prefetch would make that pass cost one or two MORE. Measured on the
-   * hot-path fixture, that is exactly what it did — feed bootstrap 44 → 46.
-   * Deferring to the first grant question makes the prepared form cost nothing
-   * where the point reads cost nothing, and one query where they cost one per
-   * row, which is the only shape that cannot lose.
-   *
-   * Deferring does not move the read out of the pass: the thunk is called from
-   * inside `decide`, under the same lease, and the map is discarded with the
-   * pass. If anything it is the more conservative reading of spec §3.5 — the
-   * rights are read at the first decision that needs them rather than before any
-   * decision has been taken.
+   * Every answer is resolved before `decide` starts and the snapshot is
+   * discarded with the pass. A failed preparation emits nothing, which is the
+   * fail-closed direction for visibility.
    */
-  readonly issueGrantIds: ReadonlySet<string>
-  readonly issueGrants: () => Promise<ReadonlyMap<string, readonly GrantRow[]>>
-  readonly sessionGrantIds: ReadonlySet<string>
-  readonly sessionGrants: () => Promise<ReadonlyMap<string, readonly GrantRow[]>>
-}
-
-/** Run `load` at most once, on the first ask. See the grant-list note above. */
-function onFirstAsk<T>(load: () => T): () => T {
-  let held: T | undefined
-  let loaded = false
-  return () => {
-    if (!loaded) {
-      held = load()
-      loaded = true
-    }
-    return held as T
-  }
+  readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
+  readonly sessionGrants: ReadonlyMap<string, readonly GrantRow[]>
+  readonly automationIds: ReadonlySet<string>
+  readonly automationOwners: ReadonlyMap<string, UserId | undefined>
+  readonly automationRunIds: ReadonlySet<string>
+  readonly automationRunOwners: ReadonlyMap<string, UserId | undefined>
 }
 
 type IssueDepSubject = {
@@ -224,12 +199,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const { store } = deps
 
   const traces: BootstrapReadTrace[] = []
-  const measure = <T>(phase: BootstrapReadPhase, fn: () => T): T => {
+  const measure = async <T>(
+    phase: BootstrapReadPhase,
+    fn: () => T | Promise<T>,
+  ): Promise<T> => {
     const trace = traces[traces.length - 1]
-    if (trace === undefined) return fn()
+    if (trace === undefined) return await fn()
     const startedAt = performance.now()
     try {
-      return fn()
+      return await fn()
     } finally {
       trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
     }
@@ -246,90 +224,39 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
   }
 
-  const readIssue = async (issueId: IssueId, prefetch?: BootstrapVisibilityPrefetch): Promise<IssueRow | null> => {
-    if (prefetch?.issueIds.has(issueId)) return prefetch.issues.get(issueId) ?? null
-    return await measure('visibility.issue.getIssue', async () => await store.issues.getIssue(issueId))
-  }
-
-  const readSession = async (
-    sessionId: SessionId,
-    prefetch?: BootstrapVisibilityPrefetch,
-  ): Promise<SessionRow | undefined> => {
-    if (prefetch?.sessionIds.has(sessionId)) return prefetch.sessions.get(sessionId)
-    return await measure('visibility.session.getSession', async () =>
-      await store.sessions.getSession(asSessionId(sessionId)),
-    )
-  }
-
-  const readShipOrderIssueId = async (
-    orderId: string,
-    prefetch?: BootstrapVisibilityPrefetch,
-  ): Promise<string | null> => {
-    if (prefetch?.shipOrderIds.has(orderId)) {
-      return prefetch.issueIdsByShipOrder.get(orderId) ?? null
-    }
-    return await measure('visibility.shipOrder.issueIdForOrder', async () =>
-      await store.shipping.issueIdForOrder(orderId),
-    )
-  }
-
-  const readConversationSession = async (
-    resumeValue: string,
-    prefetch?: BootstrapVisibilityPrefetch,
-  ): Promise<SessionRow | undefined> => {
-    if (prefetch?.resumeValues.has(resumeValue)) {
-      return prefetch.sessionsByResumeValue.get(resumeValue)
-    }
-    return await measure('visibility.conversation.findSessionByResumeValue', async () =>
-      await store.sessions.findSessionByResumeValue(resumeValue),
-    )
-  }
-
-  /**
-   * A session read grant, from the prefetch when the pass prepared one.
-   *
-   * ONE FUNCTION FOR TWO ARMS, and that is the point: `session` and
-   * `conversation` ask the same question about the same resource kind, and two
-   * copies of a visibility rule is one copy that eventually says yes when the
-   * other says no (the argument `maySeeSession` was extracted under, POD-2020).
-   * The perf phase stays per arm, because the two are separately attributable
-   * series and renaming one renames a chart.
-   */
-  const sessionGrantAdmits = async (
-    sessionId: string,
-    userId: string,
-    prefetch: BootstrapVisibilityPrefetch | undefined,
-    arm: 'session' | 'conversation' = 'session',
-  ): Promise<boolean> => {
-    const admits = (edge: GrantRow): boolean => edge.grantee === userId && edge.verb === 'read'
-    if (prefetch?.sessionGrantIds.has(sessionId)) {
-      return ((await prefetch.sessionGrants()).get(sessionId) ?? []).some(admits)
-    }
-    const phase =
-      arm === 'session'
-        ? ('visibility.session.grants.listForResource' as const)
-        : ('visibility.conversation.grants.listForResource' as const)
-    return await measure(phase, async () => (await store.grants.listForResource('session', sessionId)).some(admits))
-  }
-
+  const issueGrantAdmits = (edge: GrantRow, userId: string): boolean =>
+    edge.grantee === userId &&
+    (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+  const sessionGrantAdmits = (edge: GrantRow, userId: string): boolean =>
+    edge.grantee === userId && edge.verb === 'read'
   const mayReadIssue = async (
     userId: UserId,
     issueId: IssueId,
-    prefetch?: BootstrapVisibilityPrefetch,
   ): Promise<boolean> => {
     // Authority publishes after the transaction commits but before IssueService
     // installs a newly-created row in its live map. Read the durable row here so
     // the creation frame is scoped from the same committed truth catch-up sees.
-    const row = await readIssue(issueId, prefetch)
+    const row = await measure('visibility.issue.getIssue', async () =>
+      await store.issues.getIssue(issueId),
+    )
     if (row?.ownerUserId === userId) return true
-    const admits = (edge: GrantRow): boolean =>
-      edge.grantee === userId &&
-      (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-    if (prefetch?.issueGrantIds.has(issueId)) {
-      return ((await prefetch.issueGrants()).get(issueId) ?? []).some(admits)
-    }
     return await measure('visibility.issue.grants.listForResource', async () =>
-      (await store.grants.listForResource('issue', issueId)).some(admits),
+      (await store.grants.listForResource('issue', issueId)).some((edge) =>
+        issueGrantAdmits(edge, userId),
+      ),
+    )
+  }
+
+  const mayReadIssueFromSnapshot = (
+    userId: string,
+    issueId: string,
+    snapshot: BootstrapVisibilityPrefetch,
+  ): boolean => {
+    if (!snapshot.issueIds.has(issueId)) return false
+    if (snapshot.issues.get(issueId)?.ownerUserId === userId) return true
+
+    return (snapshot.issueGrants.get(issueId) ?? []).some((edge) =>
+      issueGrantAdmits(edge, userId),
     )
   }
 
@@ -340,10 +267,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
      *  about the session named in its row id, and two copies of a visibility rule
      *  is one copy that eventually says yes when the other says no. The body is
      *  the `session` arm's, unchanged, perf label included. */
-    const maySeeSession = async (userId: string, sessionId: string): Promise<boolean> => {
-      const row = await readSession(asSessionId(sessionId), prefetch)
-      if (row?.ownerUserId === userId) return true
-      return await sessionGrantAdmits(sessionId, userId, prefetch)
+    const maySeeSession = (userId: string, sessionId: string): boolean => {
+      if (!prefetch?.sessionIds.has(sessionId)) return false
+      if (prefetch.sessions.get(sessionId)?.ownerUserId === userId) return true
+      return (prefetch.sessionGrants.get(sessionId) ?? []).some((edge) =>
+        sessionGrantAdmits(edge, userId),
+      )
     }
     return {
       classOf: (entity) => {
@@ -378,92 +307,64 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           return 'personal'
         return null
       },
-      mayRead: async (userId, ref) => {
+      mayRead: (userId, ref) => {
         if (userId === 'device:shared-instance-password') return true
+        // An unresolved root policy, or a ref outside this pass, denies. The
+        // producer must prepare every ref before entering the synchronous loop.
+        if (!prefetch) return false
         if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-          return await mayReadIssue(asUserId(userId), asIssueId(ref.entityId), prefetch)
+          return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
           const dep = parseIssueDepId(ref.entityId)
-          return (
-            dep !== null &&
-            (await mayReadIssue(asUserId(userId), asIssueId(dep.fromId), prefetch))
-          )
+          return dep !== null && mayReadIssueFromSnapshot(userId, dep.fromId, prefetch)
         }
         if (ref.entity === 'issueEvent') {
-          // THE SUBJECT IS IN THE ID (POD-1772), so this decision needs no read of
-          // the event itself — which is what lets a `delete` be scoped after the
-          // row is gone, exactly like the tombstone arms below.
           try {
-            return await mayReadIssue(
-              asUserId(userId),
-              asIssueId(parseIssueEventRowId(ref.entityId).subject),
+            return mayReadIssueFromSnapshot(
+              userId,
+              parseIssueEventRowId(ref.entityId).subject,
               prefetch,
             )
           } catch {
-            // An unparseable id is not a row anyone may read.
             return false
           }
         }
         if (ref.entity === 'shipOrder') {
-          const issueId = await readShipOrderIssueId(ref.entityId, prefetch)
-          return (
-            issueId !== null &&
-            (await mayReadIssue(asUserId(userId), asIssueId(issueId), prefetch))
-          )
+          if (!prefetch.shipOrderIds.has(ref.entityId)) return false
+          const issueId = prefetch.issueIdsByShipOrder.get(ref.entityId)
+          return issueId !== undefined && mayReadIssueFromSnapshot(userId, issueId, prefetch)
         }
         if (ref.entity === 'pendingInteraction') {
-          // THE SUBJECT SESSION IS IN THE ID (POD-2020), so this needs no read of
-          // the interaction itself — which is what lets a `remove` be scoped after
-          // the row is gone, exactly like the `issueEvent` arm above.
-          let sessionId: string
           try {
-            sessionId = parseInteractionRowId(ref.entityId).sessionId
+            return maySeeSession(userId, parseInteractionRowId(ref.entityId).sessionId)
           } catch {
-            // An unparseable id is not a row anyone may read.
             return false
           }
-          return await maySeeSession(userId, sessionId)
         }
-        if (ref.entity === 'session') {
-          return await maySeeSession(userId, ref.entityId)
-        }
+        if (ref.entity === 'session') return maySeeSession(userId, ref.entityId)
         if (ref.entity === 'conversation') {
-          // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
-          // conversation row of a bootstrap, so a `loadSessions().find(…)` here
-          // made the read O(conversation rows x sessions) — 18.9 s of blocked
-          // event loop on the live corpus, which is what force-closed the
-          // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
-          // and two dropped sockets to become usable.
-          const row = await readConversationSession(ref.entityId, prefetch)
+          if (!prefetch.resumeValues.has(ref.entityId)) return false
+          const row = prefetch.sessionsByResumeValue.get(ref.entityId)
           if (!row) return false
           if (row.ownerUserId === userId) return true
-          return await sessionGrantAdmits(row.id, userId, prefetch, 'conversation')
+          return (prefetch.sessionGrants.get(row.id) ?? []).some((edge) =>
+            sessionGrantAdmits(edge, userId),
+          )
         }
-        // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
-        // commit writes before it scopes, so when a `remove` reaches this
-        // decision the row is already deleted. `get()` would answer `undefined`,
-        // the policy would refuse the row as `personal-not-granted`, and the
-        // deletion would leave as an empty watermark — certified as delivered
-        // and never sent. `ownerOf`/`runOwnerOf` read past the tombstone, which
-        // is the only state from which a removal's audience is answerable.
         if (ref.entity === 'automation') {
           return (
-            await measure('visibility.automation.ownerOf', async () =>
-              await store.automations.ownerOf(ref.entityId),
-            ) === userId
+            prefetch.automationIds.has(ref.entityId) &&
+            prefetch.automationOwners.get(ref.entityId) === userId
           )
         }
         if (ref.entity === 'automationRun') {
           return (
-            await measure('visibility.automationRun.runOwnerOf', async () =>
-              await store.automations.runOwnerOf(ref.entityId),
-            ) === userId
+            prefetch.automationRunIds.has(ref.entityId) &&
+            prefetch.automationRunOwners.get(ref.entityId) === userId
           )
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
-        if (ref.entity === 'userLayout') return false
-        if (ref.entity === 'userReadPosition') return false
         return false
       },
       keyedUserOf: (ref) => {
@@ -507,15 +408,17 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    * ORDER IS LOAD-BEARING. Ship orders resolve to issue ids and conversations
    * resolve to session ids, so both must land before the grant read: a grant
    * list fetched for the ids known at the top of this function would miss
-   * exactly the resources the indirection introduced, and those refs would fall
-   * through to a live point read — correct, but the fall-through is the thing
-   * this exists to avoid.
+   * exactly the resources the indirection introduced. The synchronous decision
+   * pass cannot recover with a live read, so an omitted resource would be denied
+   * even when it should be visible.
    */
   const prepareOver = async (refs: readonly EntityRef[]): Promise<VisibilityStatePort> => {
     const issueIds = new Set<string>()
     const shipOrderIds = new Set<string>()
     const sessionIds = new Set<string>()
     const resumeValues = new Set<string>()
+    const automationIds = new Set<string>()
+    const automationRunIds = new Set<string>()
     for (const ref of refs) {
       if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
         issueIds.add(ref.entityId)
@@ -537,6 +440,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         sessionIds.add(ref.entityId)
       } else if (ref.entity === 'conversation') {
         resumeValues.add(ref.entityId)
+      } else if (ref.entity === 'automation') {
+        automationIds.add(ref.entityId)
+      } else if (ref.entity === 'automationRun') {
+        automationRunIds.add(ref.entityId)
       }
     }
     const issueIdsByShipOrder =
@@ -566,20 +473,36 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // directly, plus the ones a conversation resolved to.
     const grantedSessionIds = new Set<string>(sessionIds)
     for (const row of sessionsByResumeValue.values()) grantedSessionIds.add(row.id)
-    const issueGrants = onFirstAsk(async () =>
+    const automationOwners = new Map<string, UserId | undefined>()
+    for (const id of automationIds) {
+      automationOwners.set(
+        id,
+        await measure('visibility.automation.ownerOf', async () =>
+          await store.automations.ownerOf(id),
+        ),
+      )
+    }
+    const automationRunOwners = new Map<string, UserId | undefined>()
+    for (const id of automationRunIds) {
+      automationRunOwners.set(
+        id,
+        await measure('visibility.automationRun.runOwnerOf', async () =>
+          await store.automations.runOwnerOf(id),
+        ),
+      )
+    }
+    const issueGrants =
       issueIds.size === 0
         ? new Map<string, GrantRow[]>()
         : await measure('visibility.issue.grants.listForResource', async () =>
             await store.grants.listForResources('issue', [...issueIds]),
-          ),
-    )
-    const sessionGrants = onFirstAsk(async () =>
+          )
+    const sessionGrants =
       grantedSessionIds.size === 0
         ? new Map<string, GrantRow[]>()
         : await measure('visibility.session.grants.listForResource', async () =>
             await store.grants.listForResources('session', [...grantedSessionIds]),
-          ),
-    )
+          )
     return makeVisibilityState({
       issueIds,
       issues,
@@ -589,10 +512,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       sessions,
       resumeValues,
       sessionsByResumeValue,
-      issueGrantIds: issueIds,
       issueGrants,
-      sessionGrantIds: grantedSessionIds,
       sessionGrants,
+      automationIds,
+      automationOwners,
+      automationRunIds,
+      automationRunOwners,
     })
   }
 
