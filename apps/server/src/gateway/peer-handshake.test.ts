@@ -24,10 +24,33 @@ import { PairingManager } from '../hub/pairing'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
 import { wireDaemonSocket } from './daemon-socket'
-import { createMachineDirectory } from './machine-directory'
+import {
+  createMachineDirectory,
+  type MachineAuthenticator,
+  type ResolvedMachineAuthenticator,
+} from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
+
+/**
+ * THE SPLIT IS A SAFETY PROPERTY, SO THE COMPILER GUARDS IT (POD-3469).
+ *
+ * The protocol acceptor is SYNCHRONOUS and decides admission with `if (machine)`
+ * on the directory's answer. A promise is always truthy, so if the async
+ * authenticator could ever satisfy the resolved slot, that `if` would admit
+ * every caller. The whole probe/replay design exists to keep those two apart:
+ * `MachineAuthenticator` is awaited once, before the acceptor is entered, and
+ * only `ResolvedMachineAuthenticator` is handed to the acceptor.
+ *
+ * This line fails the TYPECHECK, not a test run, if that ever collapses — if the
+ * assignment becomes legal the directive reports as unused. It is deliberately
+ * an assertion about the types alone, because a merge that quietly widened the
+ * resolved interface would leave every runtime test passing.
+ */
+// @ts-expect-error an async authenticator must never satisfy the resolved slot
+const RESOLVED_SLOT_REFUSES_ASYNC: ResolvedMachineAuthenticator = {} as MachineAuthenticator
+void RESOLVED_SLOT_REFUSES_ASYNC
 
 function fakeWs() {
   const binarySent: Uint8Array[] = []
