@@ -2780,3 +2780,62 @@ amendments. The three markers come off when the sites opt in; that is R3-side wo
 REVERSIBLE. If the operator prefers per-decision, keep those reads outside slots and name the amended
 rule at each site — POD-3365 established that both shapes are supported, so this is a choice rather
 than a constraint.
+
+### Rule 56 — a port declared `void` HIDES an async implementation completely: widen it, or nothing will ever see it
+
+Rule 52a said widen the port because a sync port is the window where promise-truthiness is silent.
+This is the harder version of that, found live on the integration tip at **0 apps/server errors**.
+
+A port declared to return `void`:
+
+```ts
+requireMachineForRepo?(machineId: MachineId, repoPath: string): void
+```
+
+wired in production to an async implementation:
+
+```ts
+requireMachineForRepo: async (machineId, repoPath) => …
+```
+
+is **legal TypeScript**. Assigning `(args) => Promise<void>` to `(args) => void` is a deliberate,
+long-standing allowance — the return value is being discarded, and discarding is what `void` means.
+So the compiler says nothing, at any strictness. And because no call site ever READS the returned
+value, `TS2801`, `lint:promise-truthiness` and `check-boundaries`' async-boolean-predicate rule are
+all silent too. Every instrument this epic built is blind to this shape.
+
+**WHY IT IS WORSE THAN A UNION PORT.** Rule 52b's complaint about `T | Promise<T>` was that it
+manufactures a blind spot. A `void` port does not manufacture one — it *is* one, and it is invisible
+in both directions: the implementer sees a port that wants nothing back and writes `async` freely;
+the caller sees a port that returns nothing and correctly does not await. Neither is wrong locally.
+The defect exists only in the pair, and only a human reading the declaration against its wiring
+finds it.
+
+**THE CONSEQUENCE HAS A NAME.** When the `void` port is a GUARD, the unawaited call cannot refuse.
+Its rejection becomes an unhandled rejection on some later tick, and the caller has already proceeded
+on the assumption that the guard passed. This is the third time this epic has produced that exact
+shape — the mail ceiling (POD-3487), the union port (rule 52b), and now `requireMachineForRepo` and
+`requireIssueHomeMachine` (POD-3500), whose own doc comment says it must be "still able to say NO".
+When it is a WRITE, as with `setParentForUpdate`, the caller is told the write happened and it has not.
+
+**THE PROCEDURE.** Rule 51 case 1 applies, but the ORDER is not optional:
+
+1. Widen the port to `Promise<void>` (rule 52b: `Promise<T>`, never a union).
+2. Let the compiler name the call sites.
+3. Await them.
+
+Never add the await first. An await under a `void` port typechecks identically with or without it,
+so it is invisible to the next reader and the compiler will not keep it — a later edit removes it
+silently. Widening is what makes the fix load-bearing.
+
+**FINDING THE REST.** These do not surface from any existing check, so the search is a derived set,
+not a grep for `await`: enumerate every port member declared `: void` (or `=> void`), resolve each to
+its wired implementation, and flag every pair where the implementation is `async` or returns a
+thenable. That census is the deliverable, not a fix list — a `void` port that is *correctly* sync
+today is one refactor away from this bug, and the census is what tells you where to look next time.
+
+**BREAK-TESTING A GUARD OF THIS SHAPE.** "A test goes red" is not evidence here, because before the
+fix the test passes for the wrong reason — nobody waited, so nobody saw the refusal. The isolating
+probe is: make the wired implementation REJECT, and show a named test failing with **the guard's own
+refusal message**. A kill that reports a timeout, an unhandled rejection, or a generic assertion is
+not the same claim (mutation: read the reason code, not the red).
