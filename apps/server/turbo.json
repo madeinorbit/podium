@@ -894,6 +894,7 @@
         "src/modules/issues/service/index.ts",
         "src/modules/issues/service/integration.ts",
         "src/modules/issues/service/issue-registry-model.test.ts",
+        "src/modules/issues/service/lifecycle-event-ordering.test.ts",
         "src/modules/issues/service/mail-pending.test.ts",
         "src/modules/issues/service/mail-pending.ts",
         "src/modules/issues/service/mail.ts",

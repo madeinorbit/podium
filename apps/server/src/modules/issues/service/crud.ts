@@ -127,6 +127,14 @@ export interface IssueLifecyclePlan {
   wire(): IssueWire
   write(): Promise<void>
   changes(): EntityChangeSpec[]
+  /** In-memory install, run from the ledger's SYNCHRONOUS commit-application
+   *  callback. It must not yield, and the `void` here is a contract rather than
+   *  an omission: an implementation returning a promise would have that promise
+   *  dropped by the caller, and whatever it awaited would land on a later tick,
+   *  outside the commit it is supposed to be part of. Durable work belongs in
+   *  {@link write} (it rolls back with the row); external effects belong in
+   *  {@link publish} or an `afterCommit` registration. POD-3505 moved the
+   *  delete/restore event append out of here for exactly that reason. */
   apply(): void
   publish(): Promise<void>
 }
@@ -1435,12 +1443,33 @@ export class IssueCrudModule {
         await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
+        // THE EVENT APPEND IS A DURABLE WRITE, SO IT RIDES THIS TRANSACTION
+        // [POD-3505]. It used to sit in `apply()` behind an `await`, and
+        // `apply()` is called from a SYNCHRONOUS commit-application callback
+        // that cannot wait for it — so the append escaped onto a later tick and
+        // was not ordered with respect to the commit whose success it reports.
+        // A rolled-back span could still leave `issue.deleted` in the log.
+        // `persistManyWith` already appends inside its span for exactly this
+        // reason, and `purgeEmptyDraft` says it in as many words: a durable
+        // write belongs where it rolls back with the transaction. Only the
+        // ANNOUNCEMENT is mechanism 3, and `appendEvent` defers that itself.
+        //
+        // NOT `emitEvent`: its `catch {}` is best-effort, which is the wrong
+        // contract in here — a swallow inside the span would leave the row
+        // committed with no event and report nothing anywhere. Here the append
+        // is all-or-nothing with the row, so a failure must reach the caller.
+        await this.store.deps.store.events.appendEvent({
+          ts: this.store.now(),
+          kind: 'issue.deleted',
+          subject: row.id,
+          repoPath: row.repoPath ?? null,
+          payload: { seq: row.seq, deletedAt },
+        })
         committed = await this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
-      apply: async () => {
+      apply: () => {
         this.store.installRow(row.id, row)
-        await this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
       },
       publish: async () => await this.store.broadcastList(),
     }
@@ -1549,12 +1578,20 @@ export class IssueCrudModule {
         await this.store.deps.store.issues.upsertIssue(row, {
           expectedRevision: current.revision ?? null,
         })
+        // Same as prepareSoftDelete, in the other direction: the append is a
+        // durable write and belongs inside the span [POD-3505].
+        await this.store.deps.store.events.appendEvent({
+          ts: this.store.now(),
+          kind: 'issue.restored',
+          subject: row.id,
+          repoPath: row.repoPath ?? null,
+          payload: { seq: row.seq, restoredAt },
+        })
         committed = await this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
-      apply: async () => {
+      apply: () => {
         this.store.installRow(row.id, row)
-        await this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
       },
       publish: async () => await this.store.broadcastList(),
     }
