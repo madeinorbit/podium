@@ -178,10 +178,9 @@ export class MessageGate {
   private readonly principalForCapability?: (
     capability: Capability,
   ) => CommandPrincipal | Promise<CommandPrincipal>
-  private readonly policyFor?: (principal: CommandPrincipal) => {
-    ceiling: HumanCeiling
-    machines: MachineAccess
-  }
+  private readonly policyFor?: (principal: CommandPrincipal) =>
+    | { ceiling: HumanCeiling; machines: MachineAccess }
+    | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 
   constructor(
     private readonly deps: MessageGateDeps,
@@ -191,10 +190,9 @@ export class MessageGate {
       principalForCapability?: (
         capability: Capability,
       ) => CommandPrincipal | Promise<CommandPrincipal>
-      policyFor?: (principal: CommandPrincipal) => {
-        ceiling: HumanCeiling
-        machines: MachineAccess
-      }
+      policyFor?: (principal: CommandPrincipal) =>
+        | { ceiling: HumanCeiling; machines: MachineAccess }
+        | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
     },
   ) {
     this.principalForCapability = opts?.principalForCapability
@@ -284,7 +282,7 @@ export class MessageGate {
         parentSessionOf: (sessionId) =>
           spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
       })
-    const policy = this.policyFor?.(principal)
+    const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {
       capability,

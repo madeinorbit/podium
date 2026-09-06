@@ -143,7 +143,7 @@ export interface PrincipalMailPolicy {
   principalForMessage(
     message: MessageRow,
   ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
-  policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+  policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess } | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 }
 
 export function principalMailPolicy(opts: PrincipalMailPolicy): {
@@ -151,7 +151,7 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
   placementAtWake: WakePlacementPort
   gateOptions: {
     principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
-    policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+    policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess } | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }> | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   }
 } {
   const authorizeAtApply = Object.assign(
@@ -160,7 +160,8 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
       const principal = await opts.principalForMessage(message)
       if (!principal)
         return { ok: false, reason: 'sender authorization is no longer valid' } as const
-      if (await opts.policyFor(principal).ceiling.canSee({ kind: 'issue', id: message.toId })) {
+      const policy = await opts.policyFor(principal)
+      if (await policy.ceiling.canSee({ kind: 'issue', id: message.toId })) {
         return { ok: true } as const
       }
       return { ok: false, reason: 'issue no longer exists' } as const
@@ -174,7 +175,7 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
       // single-user default only applies when the port is ABSENT, not when the
       // sender cannot be found.
       if (!principal) return 'unauthorized'
-      return placementDecision(machineId, opts.policyFor(principal).machines)
+      return placementDecision(machineId, (await opts.policyFor(principal)).machines)
     })
   return {
     authorizeAtApply,

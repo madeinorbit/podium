@@ -1189,7 +1189,8 @@ export class SessionRegistry {
         const role = await this.store.users.roleOf(userId)
         return role ? userCommandPrincipal(userId, role) : undefined
       },
-      policyFor: (principal) => {
+      policyFor: async (principal) => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
         const userId = onBehalfOfUser(principal)
         return {
           ceiling: {
@@ -1211,7 +1212,7 @@ export class SessionRegistry {
             // apply opens a new scope and therefore re-reads revoked grants.
             mayUse: (machineId) =>
               principal.kind === 'system' ||
-              checkMachineUse(principal, machineId, ownershipFromMachinesPerPass(machines)) ===
+              checkMachineUse(principal, machineId, ownership) ===
                 undefined,
             isReachable: (machineId) => machines.hasDaemon(machineId),
           },

@@ -139,23 +139,23 @@ describe('rule 46 grant snapshots at relay composition', () => {
     const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
     revokeAfterFirstGrantRead()
     const gate = reg.modules.messageGate as unknown as {
-      policyFor?: (principal: typeof TEST_PRINCIPAL) => {
+      policyFor?: (principal: typeof TEST_PRINCIPAL) => Promise<{
         machines: { mayUse(machineId: typeof SHARED_MACHINE): boolean }
-      }
+      }>
     }
     const policyFor = gate.policyFor
     expect(policyFor).toBeTypeOf('function')
     if (!policyFor) throw new Error('dynamic relay policy is not wired')
 
-    withReadScope(() => {
-      const access = policyFor(TEST_PRINCIPAL).machines
+    await withReadScope(async () => {
+      const access = (await policyFor(TEST_PRINCIPAL)).machines
       expect(access.mayUse(SHARED_MACHINE)).toBe(true)
       expect(access.mayUse(SHARED_MACHINE)).toBe(true)
     })
     expect(grantReads()).toBe(1)
 
-    withReadScope(() => {
-      expect(policyFor(TEST_PRINCIPAL).machines.mayUse(SHARED_MACHINE)).toBe(false)
+    await withReadScope(async () => {
+      expect((await policyFor(TEST_PRINCIPAL)).machines.mayUse(SHARED_MACHINE)).toBe(false)
     })
     expect(grantReads()).toBe(2)
   })
