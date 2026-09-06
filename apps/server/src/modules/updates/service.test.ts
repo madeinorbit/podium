@@ -229,13 +229,144 @@ describe('UpdatesService', () => {
         svc.releaseInFlightGrants('Canceled')
       } else svc.onStatus(asMachineId('a'), { ...confirmed, state: verdict })
       const boot = make(machines, { recovery })
-      boot.svc.onStatus(asMachineId('a'), confirmed)
+      boot.svc.onStatus(asMachineId('a'), { ...confirmed, grantId: undefined })
       expect(boot.svc.fleet()[0]?.state).toBe(verdict === 'cancel' ? 'stuck' : verdict)
+      boot.svc.onStatus(asMachineId('a'), confirmed)
+      expect(boot.svc.fleet()[0]?.state).toBe('current')
       // Cancellation withdraws read-driven continuation; tick is an explicit
       // planning entry point and deliberately does not require authorization.
       if (verdict !== 'cancel') boot.svc.tick()
       boot.svc.fleet()
       expect(boot.send).not.toHaveBeenCalled()
+    })
+
+    describe('retired supervised grants', () => {
+      it.each(['abandon', 'release', 'stuck', 'rejected'] as const)(
+        'records late exact completion after %s, live and after reconstruction, without widening',
+        (retirement) => {
+          for (const reboot of [false, true]) {
+            const recovery = memoryRecovery()
+            const h = start({ recovery })
+            if (retirement === 'abandon') h.svc.abandonWait(['a'], 'Deadline expired')
+            else if (retirement === 'release') {
+              h.svc.withdrawAuthorization()
+              h.svc.releaseInFlightGrants('Canceled')
+            } else h.svc.onStatus(asMachineId('a'), { ...confirmed, state: retirement })
+            expect(recovery.read()?.grants).toEqual([])
+            expect(recovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe('g1')
+            const { svc, send } = reboot ? make(h.machines, { recovery }) : h
+            const sentBefore = send.mock.calls.length
+            expect(svc.operationActive('dev')).toBe(false)
+            expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+            svc.onStatus(asMachineId('a'), confirmed)
+            expect(recovery.read()?.machines[0]?.[1]).toMatchObject({
+              state: 'current', grantId: 'g1', projectedCurrent: true,
+            })
+            for (let replay = 0; replay < 3; replay++) {
+              svc.onStatus(asMachineId('a'), confirmed)
+              expect(svc.fleet()[0]?.state).toBe('current')
+              expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+              expect(svc.operationActive('dev')).toBe(false)
+            }
+            expect(send).toHaveBeenCalledTimes(sentBefore)
+            const boot = make(h.machines, { recovery })
+            expect(boot.svc.fleet()[0]?.state).toBe('current')
+            expect(boot.svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+            expect(boot.send).not.toHaveBeenCalled()
+          }
+        },
+      )
+
+      it.each([
+        { grantId: undefined },
+        { grantId: 'unrelated' },
+        { targetVersion: undefined },
+        { targetVersion: 'other-target' },
+        { version: '0.4.1' },
+        { phaseDetail: undefined },
+        { phaseDetail: 'restarting' },
+        { state: 'restarting' as const },
+        { state: 'downloading' as const, grantId: undefined },
+      ])('ignores incomplete or unrelated retired evidence: %j', (override) => {
+        const { svc, send } = start()
+        svc.abandonWait(['a'], 'Deadline expired')
+        svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
+        expect(svc.fleet()[0]?.state).toBe('stuck')
+        expect(svc.operationActive('dev')).toBe(false)
+        expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+        expect(send).toHaveBeenCalledTimes(1)
+      })
+
+      it.each(['publication', 'approval', 'approval-version', 'channel'] as const)(
+        'fences retired proof when %s changes, before or after confirmation',
+        (replacement) => {
+          for (const confirmFirst of [false, true]) {
+            const recovery = memoryRecovery()
+            const h = start({ recovery })
+            h.svc.abandonWait(['a'], 'Deadline expired')
+            if (confirmFirst) {
+              h.svc.onStatus(asMachineId('a'), confirmed)
+              h.svc.fleet()
+            }
+            const changed = {
+              ...h.svc.target()!,
+              ...(replacement === 'approval-version' ? { version: '0.4.3' } : {}),
+              artifacts: { headless: { delivery: 'feed' as const, platforms: {
+                'linux-x64': { url: 'https://example.test/replaced', digest: 'different-bytes', signature: 'signature' },
+              } } },
+            }
+            const { svc, send } = make(h.machines, {
+              recovery,
+              ...(replacement.startsWith('approval') ? { approvedTarget: () => changed } : {}),
+            })
+            if (replacement === 'publication') svc.setTarget(changed)
+            if (replacement === 'channel') {
+              Object.assign(h.machines[0]!, { channel: 'edge' })
+              svc.setTarget('edge', h.svc.target()!)
+            }
+            svc.onStatus(asMachineId('a'), confirmed)
+            // A channel change must not consume dev proof, even if edge offers
+            // the same version. Observe the durable execution record directly.
+            if (replacement === 'channel') {
+              expect(recovery.read()?.machines[0]?.[1].channel).toBe('dev')
+            }
+            expect(svc.fleet()[0]?.state).not.toBe('current')
+            expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+            expect(svc.operationActive('dev')).toBe(false)
+            expect(send).not.toHaveBeenCalled()
+          }
+        },
+      )
+
+      it('supersedes retired correlation with a new repair grant', () => {
+        const recovery = memoryRecovery()
+        const { svc, send } = start({ recovery })
+        svc.abandonWait(['a'], 'Deadline expired')
+        expect(svc.repairMachine(asMachineId('a'), TEST_REPAIR).result).toBe('granted')
+        expect(recovery.read()?.retiredGrants).toEqual([])
+        svc.onStatus(asMachineId('a'), confirmed)
+        expect(svc.fleet()[0]?.state).not.toBe('current')
+        expect(send).toHaveBeenCalledTimes(2)
+      })
+
+      it.each(['retirement', 'confirmation'] as const)(
+        'refuses observations after a retired %s checkpoint fails', (failure) => {
+          const recovery = memoryRecovery()
+          const { svc, send } = start({ recovery })
+          if (failure === 'confirmation') svc.abandonWait(['a'], 'Deadline expired')
+          recovery.write = () => { throw new Error('disk full') }
+          expect(() => failure === 'retirement'
+            ? svc.abandonWait(['a'], 'Deadline expired')
+            : svc.onStatus(asMachineId('a'), confirmed)).toThrow('disk full')
+          expect(() => svc.fleet()).toThrow('disk full')
+          expect(() => svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toThrow('disk full')
+          expect(() => svc.tick()).toThrow('disk full')
+          expect(recovery.read()?.machines[0]?.[1].state).toBe(
+            failure === 'retirement' ? 'granted' : 'stuck',
+          )
+          expect(send).toHaveBeenCalledTimes(1)
+        },
+      )
     })
 
     it('refuses dispatch when the authority checkpoint fails, including subsequent calls', () => {

@@ -170,7 +170,7 @@ interface MachineConvergenceState {
   channel: UpdateChannel
   state: ConvergenceState
   version: string
-  /** Present only when this state was correlated with the active grant. */
+  /** Present only when this state was correlated with an issued grant. */
   grantId?: string
   detail?: string
   /** Last reported progress within the phase, when the daemon reports one. */
@@ -321,6 +321,9 @@ export class UpdatesService {
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  // Outcome correlation only: retired grants own neither a wait nor a wave slot.
+  // Keep at most the last supervised grant per machine, until superseded.
+  private readonly retiredGrants = new Map<string, PendingGrant>()
   // Keep only target-named terminal boot reports until the feed resolves.
   // Uncorrelated progress remains discarded so rollback fencing is unchanged.
   private readonly terminalStatusesBeforeTarget = new Map<
@@ -359,6 +362,7 @@ export class UpdatesService {
     for (const [channel, target] of saved.targets) this.targets.set(channel, target)
     for (const [id, state] of saved.machines) this.machineStates.set(id, state)
     for (const [id, grant] of saved.grants) this.pendingGrants.set(id, grant)
+    for (const [id, grant] of saved.retiredGrants ?? []) this.retiredGrants.set(id, grant)
     // Execution proof is durable; permission to continue a wave is re-earned
     // by the operation engine. Construction never dispatches or writes.
     for (const [channel, rollout] of saved.rollouts) {
@@ -379,6 +383,7 @@ export class UpdatesService {
       targets: [...this.targets.entries()],
       machines: [...this.machineStates.entries()],
       grants: [...this.pendingGrants.entries()],
+      retiredGrants: [...this.retiredGrants.entries()],
       rollouts: [...this.rollouts.entries()].map(([channel, rollout]) => [
         channel,
         { canaryHealthy: rollout.canaryHealthy, halted: rollout.halted },
@@ -449,6 +454,7 @@ export class UpdatesService {
   setTargetUnavailable(channel: UpdateChannel, reason: string): void {
     this.unavailableReasons.set(channel, reason)
     this.targets.delete(channel)
+    this.clearRetiredGrants(channel)
     this.rollouts.delete(channel)
     // A queued version on a channel that can no longer advertise anything is not
     // waiting its turn, it is stale. Publishing it later would offer an update
@@ -514,6 +520,7 @@ export class UpdatesService {
       this.unavailableReasons.delete(channel)
       if (standing && updateFingerprint(standing) !== updateFingerprint(target)) {
         this.rollout(channel).canaryHealthy = false
+        this.clearRetiredGrants(channel)
       }
       this.targets.set(channel, target)
       this.persistRecovery()
@@ -535,6 +542,7 @@ export class UpdatesService {
     this.unavailableReasons.delete(channel)
     this.targets.set(channel, target)
     this.rollouts.set(channel, freshRollout())
+    this.clearRetiredGrants(channel)
     for (const [machineId, state] of this.machineStates) {
       if (state.channel === channel) this.machineStates.delete(machineId)
     }
@@ -865,6 +873,29 @@ export class UpdatesService {
 
     const pending = this.pendingGrants.get(machineId)
     const pendingGrant = pending?.channel === channel ? pending : undefined
+    const retired = this.retiredGrants.get(machineId)
+    const retiredGrant =
+      pending === undefined &&
+      retired?.channel === channel &&
+      message.grantId === retired.grantId &&
+      this.retiredGrantMatchesTarget(retired, channel, target)
+        ? retired
+        : undefined
+    const executionGrant = pendingGrant ?? retiredGrant
+    const requiresExecutionConfirmation =
+      machine.presenceSource === 'supervisor' ||
+      this.machineStates.get(machineId)?.requiresExecutionConfirmation === true
+    // Retirement accepts only the executor's exact healthy result. Late progress
+    // must not resurrect a wait, and no report may release a retired wave slot.
+    const confirmedExecution =
+      requiresExecutionConfirmation &&
+      executionGrant !== undefined &&
+      message.grantId === executionGrant.grantId &&
+      message.targetVersion === target.version &&
+      message.version === target.version &&
+      message.state === 'current' &&
+      message.phaseDetail === 'current' &&
+      this.grantMatchesTarget(executionGrant, channel, target)
     // Ordinary progress carrying a grant id must belong to the current grant.
     // A packaged process can, however, be DOWN while the coordinator spends its
     // one retry and replaces that id. Its durable boot report is still the
@@ -884,7 +915,7 @@ export class UpdatesService {
      * waiting on. Dropping the frame is still right; doing it without a trace
      * was not.
      */
-    if (grantMismatch && !recoveredTerminal) {
+    if (grantMismatch && !recoveredTerminal && !confirmedExecution) {
       log.warn('update status dropped', {
         machineId,
         machine: machine.name,
@@ -896,21 +927,11 @@ export class UpdatesService {
       return
     }
 
+    if (retired && !pending && !terminal && !confirmedExecution) return
+
     // The supervisor connects before parent.start(). Only the executor's terminal
     // report proves that this exact grant ran and all required roles passed boot
     // health; the hello's version and ordinary current heartbeats do not.
-    const requiresExecutionConfirmation =
-      machine.presenceSource === 'supervisor' ||
-      this.machineStates.get(machineId)?.requiresExecutionConfirmation === true
-    const confirmedExecution =
-      requiresExecutionConfirmation &&
-      pendingGrant !== undefined &&
-      message.grantId === pendingGrant.grantId &&
-      message.targetVersion === target.version &&
-      message.version === target.version &&
-      message.state === 'current' &&
-      message.phaseDetail === 'current' &&
-      this.grantMatchesTarget(pendingGrant, channel, target)
     // Once accepted, ordinary heartbeats cannot undo the execution verdict while
     // the directory catches up. A terminal failure can still supersede it.
     if (
@@ -923,7 +944,7 @@ export class UpdatesService {
     }
     // An unsolicited current heartbeat cannot erase a supervised failure after
     // its pending grant has been retired.
-    if (requiresExecutionConfirmation && message.state === 'current' && !pendingGrant) return
+    if (requiresExecutionConfirmation && message.state === 'current' && !executionGrant) return
     const effectiveState =
       message.state === 'current' && pendingGrant !== undefined && !confirmedExecution
         ? message.version === target.version
@@ -982,7 +1003,8 @@ export class UpdatesService {
     this.machineStates.set(machineId, {
       channel,
       state: effectiveState,
-      ...(previous?.state === 'current' && effectiveState === 'current' && previous.projectedCurrent
+      ...((retiredGrant && confirmedExecution) ||
+      (previous?.state === 'current' && effectiveState === 'current' && previous.projectedCurrent)
         ? { projectedCurrent: true }
         : {}),
       requiresExecutionConfirmation,
@@ -999,7 +1021,7 @@ export class UpdatesService {
 
     const rollout = this.rollout(channel)
     if (pendingGrant !== undefined && (message.state === 'rejected' || message.state === 'stuck')) {
-      this.pendingGrants.delete(machineId)
+      this.retireGrant(machineId)
       if (!rollout.canaryHealthy) rollout.halted = true
     }
     this.persistRecovery()
@@ -1393,11 +1415,46 @@ export class UpdatesService {
     const approved = this.approvedTarget(channel)
     return (
       target !== undefined &&
+      pending.channel === channel &&
       pending.targetFingerprint === updateFingerprint(target) &&
       (approved === undefined ||
         approved.version !== target.version ||
         pending.targetFingerprint === updateFingerprint(approved))
     )
+  }
+
+  private retiredGrantMatchesTarget(
+    grant: PendingGrant,
+    channel: UpdateChannel,
+    target: UpdateTarget | undefined,
+  ): boolean {
+    const approved = this.approvedTarget(channel)
+    return (
+      this.grantMatchesTarget(grant, channel, target) &&
+      (approved === undefined || grant.targetFingerprint === updateFingerprint(approved))
+    )
+  }
+
+  private executionMatchesTarget(machineId: string, channel: UpdateChannel): boolean {
+    const grant = this.pendingGrants.get(machineId) ?? this.retiredGrants.get(machineId)
+    if (!grant || this.machineStates.get(machineId)?.grantId !== grant.grantId) return false
+    return this.pendingGrants.has(machineId)
+      ? this.grantMatchesTarget(grant, channel, this.target(channel))
+      : this.retiredGrantMatchesTarget(grant, channel, this.target(channel))
+  }
+
+  private retireGrant(machineId: string): void {
+    const grant = this.pendingGrants.get(machineId)
+    if (grant && this.machineStates.get(machineId)?.requiresExecutionConfirmation) {
+      this.retiredGrants.set(machineId, grant)
+    }
+    this.pendingGrants.delete(machineId)
+  }
+
+  private clearRetiredGrants(channel: UpdateChannel): void {
+    for (const [machineId, grant] of this.retiredGrants) {
+      if (grant.channel === channel) this.retiredGrants.delete(machineId)
+    }
   }
 
   /**
@@ -1427,6 +1484,11 @@ export class UpdatesService {
       const targetVersion = this.target(channel)?.version
       const state = this.machineStates.get(machine.id)
       const currentState = state?.channel === channel ? state : undefined
+      // A channel switch cannot reuse another authority's execution proof,
+      // even when both channels publish the same version label.
+      if (state?.requiresExecutionConfirmation && !currentState) {
+        return { ...machine, state: 'stuck', detail: 'Update confirmation belongs to another channel.' }
+      }
       // Legacy daemons announce after startup. A supervisor announces BEFORE
       // children start: preserve its grant (and failures) until onStatus accepts
       // exact healthy execution. Never let an early hello erase that fence.
@@ -1434,10 +1496,12 @@ export class UpdatesService {
       const awaitingSupervisorExecution =
         (machine.presenceSource === 'supervisor' || currentState?.requiresExecutionConfirmation) &&
         currentState !== undefined &&
-        (currentState.state !== 'current' ||
-          (pending !== undefined &&
-            !this.grantMatchesTarget(pending, channel, this.target(channel))))
-      if (pending && !this.grantMatchesTarget(pending, channel, this.target(channel))) {
+        (currentState.state !== 'current' || !this.executionMatchesTarget(machine.id, channel))
+      const retired = this.retiredGrants.get(machine.id)
+      if (
+        (pending && !this.grantMatchesTarget(pending, channel, this.target(channel))) ||
+        (retired && !this.retiredGrantMatchesTarget(retired, channel, this.target(channel)))
+      ) {
         this.rollout(channel).canaryHealthy = false
       }
       if (
@@ -1502,7 +1566,7 @@ export class UpdatesService {
       const machine = machines.find((candidate) => candidate.id === machineId)
       if (!machine || !IN_FLIGHT_STATES.has(machine.state)) continue
       const channel = this.channelOf(machine)
-      this.pendingGrants.delete(machineId)
+      this.retireGrant(machineId)
       this.machineStates.set(machineId, {
         channel,
         state: 'stuck',
@@ -1600,13 +1664,9 @@ export class UpdatesService {
     if (machine?.online !== true || machine.version !== targetVersion) return false
     const channel = this.channelOf(machine)
     const state = this.machineStates.get(machineId)
-    if (state?.channel !== channel) return true
+    if (state?.channel !== channel) return !state?.requiresExecutionConfirmation
     if (machine.presenceSource !== 'supervisor' && !state.requiresExecutionConfirmation) return true
-    const pending = this.pendingGrants.get(machineId)
-    return (
-      state.state === 'current' &&
-      (pending === undefined || this.grantMatchesTarget(pending, channel, this.target(channel)))
-    )
+    return state.state === 'current' && this.executionMatchesTarget(machineId, channel)
   }
 
   /**
@@ -1693,6 +1753,7 @@ export class UpdatesService {
         // itself. The planner holds this machine last for the same fact.
         handover: machine?.coordinator === true,
       })
+      this.retiredGrants.delete(machineId)
       this.pendingGrants.set(machineId, {
         channel,
         grantId: grant.grantId,
