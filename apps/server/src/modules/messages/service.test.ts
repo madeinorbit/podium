@@ -186,7 +186,10 @@ interface HarnessOpts {
   /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
   queuedSourceIds?: Set<string>
   /** Current physical FIFO ordinal for an injected message-ledger row. */
-  queuedMessagePosition?: (sessionId: SessionId, sourceMessageId: string) => number | undefined
+  queuedMessagePosition?: (
+    sessionId: SessionId,
+    sourceMessageId: string,
+  ) => Promise<number | undefined>
   /** Whether a draft is typed into the agent's prompt line here [POD-1204].
    *  Unset = unwired, which the guard reads as "assume it is". */
   draftInjectionActive?: () => boolean
@@ -239,16 +242,16 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         narrowCalls.byIssue += 1
         return sessionsForIssue(worktreePath, sessions, issueId)
       },
-      sendText: (i) => {
+      sendText: async (i) => {
         sent.push(i)
         return opts?.sendText?.(i) ?? { ok: true }
       },
-      queueText: (i) => {
+      queueText: async (i) => {
         queued.push(i)
         return opts?.queueText?.(i) ?? { ok: true, queued: true }
       },
       ...(opts?.queuedMessagePosition ? { queuedMessagePosition: opts.queuedMessagePosition } : {}),
-      hasQueuedMessage: (_sessionId, sourceMessageId) =>
+      hasQueuedMessage: async (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
       interruptText: (i) => {
         interrupted.push(i)
@@ -486,7 +489,7 @@ describe('MessageDeliveryService.send', () => {
           physicalQueue.push(input.sourceMessageId)
           return { ok: true, queued: true }
         },
-        queuedMessagePosition: (_sessionId, sourceMessageId) => {
+        queuedMessagePosition: async (_sessionId, sourceMessageId) => {
           const index = physicalQueue.indexOf(sourceMessageId)
           return index < 0 ? undefined : index + 1
         },

@@ -44,7 +44,7 @@ const recorder = (result: { ok: boolean; reason?: string } = { ok: true }) => {
   const typed: AnswerChoice[][] = []
   return {
     typed,
-    answer: (input: { choices: AnswerChoice[] }) => {
+    answer: async (input: { choices: AnswerChoice[] }) => {
       typed.push(input.choices)
       return result
     },
@@ -99,9 +99,9 @@ describe('nativeMenuChoices', () => {
 })
 
 describe('deliverToNativeMenu', () => {
-  it('types at a menu that is on screen', () => {
+  it('types at a menu that is on screen', async () => {
     const rec = recorder()
-    const out = deliverToNativeMenu(
+    const out = await deliverToNativeMenu(
       { getState: () => menuUp(), answer: rec.answer },
       {
         sessionId: S,
@@ -114,9 +114,9 @@ describe('deliverToNativeMenu', () => {
     expect(rec.typed).toEqual([[{ optionIndices: [1] }]])
   })
 
-  it('types NOTHING when no menu is drawn', () => {
+  it('types NOTHING when no menu is drawn', async () => {
     const rec = recorder()
-    const out = deliverToNativeMenu(
+    const out = await deliverToNativeMenu(
       { getState: () => menuUp({ phase: 'working', need: undefined }), answer: rec.answer },
       {
         sessionId: S,
@@ -129,9 +129,9 @@ describe('deliverToNativeMenu', () => {
     expect(rec.typed).toEqual([])
   })
 
-  it('types NOTHING for an idle textual question, where digits become message text', () => {
+  it('types NOTHING for an idle textual question, where digits become message text', async () => {
     const rec = recorder()
-    const out = deliverToNativeMenu(
+    const out = await deliverToNativeMenu(
       {
         getState: () => menuUp({ phase: 'idle', need: undefined, idle: { kind: 'question' } }),
         answer: rec.answer,
@@ -147,9 +147,9 @@ describe('deliverToNativeMenu', () => {
     expect(rec.typed).toEqual([])
   })
 
-  it('types NOTHING when the mapping refuses', () => {
+  it('types NOTHING when the mapping refuses', async () => {
     const rec = recorder()
-    const out = deliverToNativeMenu(
+    const out = await deliverToNativeMenu(
       { getState: () => menuUp(), answer: rec.answer },
       {
         sessionId: S,
@@ -162,9 +162,9 @@ describe('deliverToNativeMenu', () => {
     expect(rec.typed).toEqual([])
   })
 
-  it('reports the keystroke path’s own refusal verbatim', () => {
+  it('reports the keystroke path’s own refusal verbatim', async () => {
     const rec = recorder({ ok: false, reason: 'session not running' })
-    const out = deliverToNativeMenu(
+    const out = await deliverToNativeMenu(
       { getState: () => menuUp(), answer: rec.answer },
       {
         sessionId: S,

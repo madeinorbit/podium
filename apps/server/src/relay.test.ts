@@ -3280,7 +3280,10 @@ describe('sendText (chat send path)', () => {
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       const before = daemon.length
-      const r = reg.modules.sessions.sendText({ sessionId, text: 'this must NOT submit the menu' })
+      const r = await reg.modules.sessions.sendText({
+        sessionId,
+        text: 'this must NOT submit the menu',
+      })
       vi.advanceTimersByTime(100)
       // The submitting CR would answer the highlighted default — so nothing at all
       // reaches the PTY. The primitive is the airtight backstop.
@@ -3350,7 +3353,7 @@ describe('sendText (chat send path)', () => {
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'held' }).ok).toBe(false)
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'held' })).ok).toBe(false)
       // Human answers the menu → phase → idle.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
       const before = daemon.length

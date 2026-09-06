@@ -62,10 +62,7 @@ export class AutoContinueController {
 
   /** Master switch flipped. On enable, arm any already-errored live sessions; on
    *  disable, cancel every running loop. */
-  async onSettingsChanged(
-    enabled: boolean,
-    retryableErroredLiveIds: SessionId[],
-  ): Promise<void> {
+  async onSettingsChanged(enabled: boolean, retryableErroredLiveIds: SessionId[]): Promise<void> {
     if (!enabled) {
       this.stopAll()
       return

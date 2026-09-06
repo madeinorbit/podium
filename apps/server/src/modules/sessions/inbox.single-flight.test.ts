@@ -29,12 +29,12 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       // the enumeration and nothing downstream of it.
       getSession: () => undefined,
       queue: {
-        enqueue: () => true,
-        list: () => [],
-        bumpAttempts: () => {},
-        resetAttempts: () => {},
-        delete: () => {},
-        sessionsWithPending: () => {
+        enqueue: async () => true,
+        list: async () => [],
+        bumpAttempts: async () => {},
+        resetAttempts: async () => {},
+        delete: async () => {},
+        sessionsWithPending: async () => {
           sessionsWithPendingCalls += 1
           onEnumerate()
           return [asSessionId('session-a'), asSessionId('session-b')]

@@ -22,7 +22,7 @@ function harness(initial: { live?: boolean; state?: AgentRuntimeState; enabled?:
   let state = initial.state
   let enabled = initial.enabled ?? true
   const deps: AutoContinueDeps = {
-    isEnabled: () => enabled,
+    isEnabled: async () => enabled,
     sendContinue: (id) => sent.push(id),
     getSession: (id) => (id === sessionId ? { live, state } : undefined),
   }

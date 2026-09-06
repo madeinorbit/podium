@@ -520,7 +520,10 @@ describe('durable terminal hibernation proof', () => {
 
     const stale = await harness()
     expect(
-      stale.registry.modules.sessions.sendText({ sessionId: stale.sessionId, text: 'again' }).ok,
+      (await stale.registry.modules.sessions.sendText({
+        sessionId: stale.sessionId,
+        text: 'again',
+      })).ok,
     ).toBe(true)
     stale.registry.gateway.routeDaemonFrame(stale.registry.sessionStore.hostMachineId, {
       type: 'agentExit',

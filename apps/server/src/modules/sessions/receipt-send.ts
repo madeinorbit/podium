@@ -101,7 +101,8 @@ export interface ReceiptSendResult {
 export interface ReceiptSendLegacyPort {
   sendText(input: ReceiptSendInput): Promise<ReceiptSendResult>
   queueText(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
-  interruptText(input: ReceiptSendInput): Promise<ReceiptSendResult>
+  /** Sync by contract — see MessageDeliveryDeps.interruptText (POD-3515). */
+  interruptText(input: ReceiptSendInput): ReceiptSendResult
   resumeAndSend(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
 }
 

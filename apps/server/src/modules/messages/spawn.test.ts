@@ -138,8 +138,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
       issues: fakeIssues(),
       sessions: {
         listSessions: () => sessions,
-        sendText: () => ({ ok: true }),
-        queueText: (i) => {
+        sendText: async () => ({ ok: true }),
+        queueText: async (i) => {
           queued.push(i)
           return { ok: true, queued: true }
         },

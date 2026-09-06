@@ -117,8 +117,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     checkpoints: store.observationCheckpoints,
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
-    pendingForProof: (sessionId, atIso) =>
-      store.messages.pendingForSessionProof(sessionId, atIso),
+    pendingForProof: (sessionId, atIso) => store.messages.pendingForSessionProof(sessionId, atIso),
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })

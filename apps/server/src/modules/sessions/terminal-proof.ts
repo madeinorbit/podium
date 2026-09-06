@@ -131,7 +131,8 @@ export class SessionTerminalProof {
     if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
     const addressedMessages = (
       await this.ports.pendingForProof(session.sessionId, new Date(this.ports.now()).toISOString())
-    ).map((message) => ({
+    )
+      .map((message) => ({
         id: message.id,
         status: message.status,
         deliveredAt: message.deliveredAt,

@@ -101,11 +101,11 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const legacy: string[] = []
     const s = new ReceiptSender({
       legacy: {
-        sendText: () => {
+        sendText: async () => {
           legacy.push('now')
           return { ok: true }
         },
-        queueText: () => {
+        queueText: async () => {
           legacy.push('queue')
           return { ok: true, queued: true }
         },
@@ -113,7 +113,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
           legacy.push('interrupt')
           return { ok: true }
         },
-        resumeAndSend: () => {
+        resumeAndSend: async () => {
           legacy.push('wake')
           return { ok: true }
         },
@@ -132,7 +132,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
         },
       },
       queue: {
-        enqueue: (input) => {
+        enqueue: async (input) => {
           enqueued.push(input.text)
           return { ok: true, position: 1 }
         },
@@ -308,14 +308,14 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const rows: Record<string, unknown>[] = []
     const s = new ReceiptSender({
       legacy: {
-        sendText: () => ({ ok: true }),
-        queueText: () => ({ ok: true, queued: true }),
+        sendText: async () => ({ ok: true }),
+        queueText: async () => ({ ok: true, queued: true }),
         interruptText: () => ({ ok: true }),
-        resumeAndSend: () => ({ ok: true }),
+        resumeAndSend: async () => ({ ok: true }),
       },
       contract: { send: async () => ({ outcome: 'refused', refusal: { reason: 'not_running' } }) },
       queue: {
-        enqueue: (input) => {
+        enqueue: async (input) => {
           rows.push(input as unknown as Record<string, unknown>)
           return { ok: true, position: 1 }
         },
@@ -390,13 +390,13 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const seen: string[] = []
     const s = new ReceiptSender({
       legacy: {
-        sendText: () => ({ ok: true }),
-        queueText: () => ({ ok: true, queued: true }),
+        sendText: async () => ({ ok: true }),
+        queueText: async () => ({ ok: true, queued: true }),
         interruptText: () => ({ ok: true }),
-        resumeAndSend: () => ({ ok: true }),
+        resumeAndSend: async () => ({ ok: true }),
       },
       contract: { send: () => Promise.reject(new Error('daemon went away')) },
-      queue: { enqueue: () => ({ ok: true, position: 1 }) },
+      queue: { enqueue: async () => ({ ok: true, position: 1 }) },
       onContract: () => true,
       liveWithEmptyQueue: () => true,
       queueNotEmpty: () => false,

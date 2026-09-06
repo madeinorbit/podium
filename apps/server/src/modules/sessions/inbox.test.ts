@@ -170,26 +170,26 @@ function harness(
   const inbox = new SessionInbox({
     getSession: (id) => (id === SID ? session : undefined),
     queue: {
-      enqueue: (row) => {
+      enqueue: async (row) => {
         if (rows.some((existing) => existing.id === row.id)) return false
         rows.push({ ...row, attempts: 0 })
         return true
       },
-      list: (id) =>
+      list: async (id) =>
         rows.filter((row) => row.sessionId === id).sort((a, b) => a.queuedAt - b.queuedAt),
-      bumpAttempts: (id) => {
+      bumpAttempts: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts += 1
       },
-      resetAttempts: (id) => {
+      resetAttempts: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts = 0
       },
-      delete: (id) => {
+      delete: async (id) => {
         const index = rows.findIndex((row) => row.id === id)
         if (index >= 0) rows.splice(index, 1)
       },
-      sessionsWithPending: () => [...new Set(rows.map((row) => row.sessionId))],
+      sessionsWithPending: async () => [...new Set(rows.map((row) => row.sessionId))],
     },
     daemon: { sendInput: (_machineId, message) => sent.push(message) },
     authorization: {
@@ -203,7 +203,9 @@ function harness(
     },
     attention: {
       stateChanged: vi.fn(),
-      answered: (input) => answered.push(input),
+      answered: async (input) => {
+        answered.push(input)
+      },
       promptFailed,
     },
     nativeViewActive: () => nativeView,
