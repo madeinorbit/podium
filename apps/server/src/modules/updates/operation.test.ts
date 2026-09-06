@@ -1,3 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'node:http'
+import { MachineUpdateExecutor } from '@podium/runtime/machine-update'
+import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
+import { createInstalledCoordinatorUpdate } from './installed-restart'
+import { UpdateRecoveryStore } from './recovery-store'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import {
@@ -687,7 +695,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([])
   })
 
-  it('recognises a desktop-supervised server with no local daemon row', () => {
+  it('plans the coordinator server step after the fleet when its desktop host is absent', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'desktop-server',
@@ -695,7 +703,7 @@ describe('planUpdateOperation', () => {
         fleet: [machine({ id: 'linux-a', name: 'linux-a' })],
       }),
     )
-    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER])
     expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a'])
     expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
@@ -1298,14 +1306,16 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  approvedTarget?: () => UpdateTarget | undefined
+  durableRecovery?: boolean
   machines?: WaveMachine[]
   target?: UpdateTarget
   appVersion?: string
   servedWebDigest?: () => string | undefined
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
-  requestCoordinatorRestart?: () => void
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  requestCoordinatorRestart?: UpdateOperationContext['requestCoordinatorRestart']
+  prepareCoordinatorUpdate?: UpdateOperationContext['prepareCoordinatorUpdate']
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
@@ -1333,6 +1343,7 @@ function harness(options: HarnessOptions = {}) {
    * `setTarget`, which now asks the engine what is running, and `relay.ts` has
    * the same shape — `operations?.engine` is optional there for the same reason.
    */
+  let issuedGrants = 0
   let engine: OperationEngine | undefined
   let targetChanged: ((channel: UpdateChannel) => void) | undefined
   const requireEngine = (): OperationEngine => {
@@ -1358,8 +1369,10 @@ function harness(options: HarnessOptions = {}) {
       machines: () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
       now: () => clock.clock.now(),
-      nextGrantId: () => `grant_${sent.length + 1}`,
+      nextGrantId: () => `grant_${++issuedGrants}`,
       concurrency: 3,
+      ...(options.approvedTarget ? { approvedTarget: options.approvedTarget } : {}),
+      ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
       fleetChannel: () => 'dev',
       exclusiveOperationActive: () => driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
       exclusiveOperationVersion: (channel) =>
@@ -4447,5 +4460,227 @@ describe('the wave rounds an update writes down', () => {
     // rewriting the same value on every pass of the step.
     const written = { ...operation, details: { ...operation.details, waveRounds: [mine] } }
     expect(mergedWaveRounds(written as Operation, updates)).toBeUndefined()
+  })
+})
+
+/** H1: real operation/store/service and authenticated local executor transport. */
+describe('coordinator snapshot activation boundary', () => {
+  function latch<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((done) => { resolve = done })
+    return { promise, resolve }
+  }
+
+  async function fixture(online = true) {
+    const runtimeDir = mkdtempSync(join(tmpdir(), 'coordinator-barrier-'))
+    const target = releaseFor(['linux-x64'])
+    let approved: UpdateTarget | undefined = target
+    let transfer = false
+    const preparing = latch<void>()
+    const releasePreparation = latch<void>()
+    const snapshotting = latch<void>()
+    const releaseSnapshot = latch<void>()
+    const activated = latch<void>()
+    const receiptSettled = latch<void>()
+    const fleet = online ? [machine({
+      id: 'host', coordinator: true, presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS, platform: 'linux-x64',
+    })] : []
+    let failSnapshot = false
+    const snapshotPath = join(runtimeDir, 'verified.db')
+    const snapshot = vi.fn(async () => {
+      snapshotting.resolve()
+      await releaseSnapshot.promise
+      if (failSnapshot) return { ok: false as const, code: 'timeout' as const, detail: 'verification timed out' }
+      return { ok: true as const, path: snapshotPath }
+    })
+    const fallbackRestart = vi.fn()
+    const prepare = createInstalledCoordinatorUpdate({
+      runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
+    })!
+    const h = harness({
+      machines: fleet, target, hostMachineId: 'host', durableRecovery: true,
+      approvedTarget: () => approved, servedWebDigest: () => WEB_DIGEST,
+      legacyTransferActive: () => transfer,
+      prepareCoordinatorUpdate: async (target, grant) => {
+        const receipt = await prepare(target, grant)
+        if (!receipt) throw new Error('Expected a supervisor preparation receipt')
+        return {
+          committed: receipt.committed,
+          activate: async () => { await receipt.activate(); receiptSettled.resolve() },
+          cancel: async () => { await receipt.cancel(); receiptSettled.resolve() },
+        }
+      },
+      requestCoordinatorRestart: fallbackRestart,
+      prepareVerifiedDatabaseSnapshot: snapshot,
+    })
+    const adapter = {
+      runningVersion: () => '0.4.1',
+      prepare: vi.fn(async () => {
+        preparing.resolve()
+        await releasePreparation.promise
+        return { digest: 'verified-artifact' }
+      }),
+      activate: vi.fn(async (grant: UpdateGrantMessage) => {
+        // Read the actual SQLite operation row at the external activation boundary.
+        expect(h.read().details?.databaseSnapshotPath).toBe(snapshotPath)
+        expect(h.read().details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
+        activated.resolve()
+      }),
+      discard: vi.fn(async () => {}),
+      restart: vi.fn(async () => 'handover-pending' as const),
+    }
+    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: () => {} })
+    const control = await startMachineUpdateControl(runtimeDir, executor)
+    // Observable old-coordinator availability, separate from the control endpoint.
+    const serving = createServer((_req, res) => res.end('old coordinator serving'))
+    await new Promise<void>((resolve) => serving.listen(0, '127.0.0.1', resolve))
+    const address = serving.address() as { port: number }
+    const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
+    const start = async () => {
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+      await preparing.promise
+    }
+    const repeat = () => {
+      const operation = h.read()
+      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
+      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
+    }
+    return {
+      h, target, executor, adapter, snapshot, snapshotting, preparing, activated, receiptSettled,
+      releasePreparation, releaseSnapshot, fallbackRestart, start, repeat, oldServer, runtimeDir,
+      failSnapshot: () => { failSnapshot = true },
+      transfer: () => { transfer = true },
+      supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
+      async close() {
+        releasePreparation.resolve()
+        releaseSnapshot.resolve()
+        h.engine.stop()
+        await control.close()
+        await new Promise<void>((resolve) => serving.close(() => resolve()))
+        rmSync(runtimeDir, { recursive: true, force: true })
+      },
+    }
+  }
+
+  it.each([true, false])('joins repeated ensures while preparing, snapshotting and committed (online=%s)', async (online) => {
+    const f = await fixture(online)
+    try {
+      await f.start()
+      const grant = f.executor.snapshot()!.grant
+      const repeats = [f.repeat(), f.repeat()]
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      repeats.push(f.repeat())
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.h.read().details?.databaseSnapshotPath).toBeUndefined()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+      f.releaseSnapshot.resolve()
+      await f.activated.promise
+      await f.receiptSettled.promise
+      await Promise.all(repeats)
+      await f.h.engine.whenSettled('op_1')
+      await f.repeat()
+      expect(f.executor.snapshot()!.grant).toEqual(grant)
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).toHaveBeenCalledTimes(1)
+      expect(f.h.sent).toEqual([])
+      expect(f.fallbackRestart).not.toHaveBeenCalled()
+    } finally { await f.close() }
+  })
+
+  it.each(['verification', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
+    'keeps the old coordinator serving after %s while the grant is held', async (failure) => {
+      const f = await fixture()
+      try {
+        await f.start()
+        f.releasePreparation.resolve()
+        await f.snapshotting.promise
+        if (failure === 'verification') f.failSnapshot()
+        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetails').mockImplementation(() => { throw new Error('snapshot receipt disk full') })
+        if (failure === 'transfer') f.transfer()
+        if (failure === 'approval') f.supersede()
+        if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
+        if (failure === 'activation-refusal') await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
+        f.releaseSnapshot.resolve()
+        await f.receiptSettled.promise
+        // The machines runner reports its asynchronous coordinator failure to the engine.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await f.h.engine.whenSettled('op_1')
+        expect(f.adapter.activate).not.toHaveBeenCalled()
+        expect(f.fallbackRestart).not.toHaveBeenCalled()
+        expect(await f.oldServer()).toBe('old coordinator serving')
+        expect(f.executor.snapshot()!.phase).toBe('canceled')
+        if (failure !== 'cancellation') expect(f.h.read().state).toBe('failed')
+      } finally { vi.restoreAllMocks(); await f.close() }
+    },
+  )
+
+  it('never cancels a replacement grant after authority changes during snapshot verification', async () => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      const old = f.executor.snapshot()!.grant
+      const replacement = { ...old, grantId: 'separate-owner', issuedAt: old.issuedAt! + 1 }
+      await requestMachineUpdate(f.runtimeDir, '/prepare', replacement)
+      f.releaseSnapshot.resolve()
+      await f.receiptSettled.promise
+      await f.repeat()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await f.h.engine.whenSettled('op_1')
+      expect(f.executor.snapshot()!.grant.grantId).toBe('separate-owner')
+      expect(f.executor.snapshot()!.phase).toBe('prepared')
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(f.h.read().state).toBe('failed')
+    } finally { await f.close() }
+  })
+
+  it('restores the exact committed grant and snapshot receipt through the production recovery store', async () => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      f.releaseSnapshot.resolve()
+      await f.activated.promise
+      await f.receiptSettled.promise
+      await f.repeat()
+      const grant = f.executor.snapshot()!.grant
+      f.h.engine.stop()
+      resetUpdateOperationState()
+      const boot = f.h.reboot()
+      await boot.engine.adoptOnBoot(() => ({
+        appVersion: '0.4.1', servedWebDigest: WEB_DIGEST,
+        machineDirectory: [], now: f.h.clock.clock.now(),
+      }), () => boot.context())
+      await boot.engine.whenSettled('op_1')
+      expect(f.executor.snapshot()!.grant).toEqual(grant)
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).toHaveBeenCalledTimes(1)
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.h.sent).toEqual([])
+      boot.engine.stop()
+    } finally { await f.close() }
+  })
+
+  it('holds boot and reconnect auto-grants before any plan or handler exists', () => {
+    const target = releaseFor(['linux-x64'])
+    const fleet: WaveMachine[] = []
+    const send = vi.fn()
+    const service = new UpdatesService({ machines: () => fleet, send, now: () => 1,
+      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: () => target })
+    service.setTarget('dev', target)
+    service.markAuthorized('dev')
+    service.tick('dev')
+    fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))
+    service.tick('dev')
+    service.fleet()
+    expect(send).not.toHaveBeenCalled()
   })
 })

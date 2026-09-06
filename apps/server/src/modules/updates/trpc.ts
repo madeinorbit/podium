@@ -1,3 +1,4 @@
+import type { PrepareCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
@@ -291,12 +292,12 @@ export function updateOperationContext(input: {
   retryOf?: string
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
-  requestCoordinatorRestart?: () => void
+  requestCoordinatorRestart?: () => void | Promise<void>
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
   preparation?: () => {
@@ -755,14 +756,14 @@ export function updateProcedures() {
         }
         return { outcome, fleet: updateFleet(ctx) }
       }),
-    repairCompatibility: t.procedure.mutation(({ ctx }) => {
+    repairCompatibility: t.procedure.mutation(async ({ ctx }) => {
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: 'This Podium installation cannot rebuild its web app automatically.',
         })
       }
-      ctx.requestCoordinatorRestart()
+      await ctx.requestCoordinatorRestart()
       return { state: 'in-progress' as const, version: serverBuildVersion() }
     }),
     /**

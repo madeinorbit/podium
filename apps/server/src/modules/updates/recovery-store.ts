@@ -1,5 +1,5 @@
 import { UpdateChannel } from '@podium/model'
-import { CONVERGENCE_STATES, UpdateTarget } from '@podium/protocol'
+import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { z } from 'zod'
 
@@ -19,6 +19,7 @@ const RecoveryGrant = z.object({
   channel: UpdateChannel,
   grantId: z.string(),
   issuedAt: z.number(),
+  coordinatorGrant: UpdateGrantMessage.optional(),
 })
 const RecoverySnapshot = z.object({
   format: z.literal(1),

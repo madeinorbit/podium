@@ -1,3 +1,4 @@
+import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
@@ -8,6 +9,7 @@ import type {
   OperationError,
   OperationStep,
   StepPlace,
+  UpdateGrantMessage,
   UpdateTarget,
   UpdateTrustRoot,
 } from '@podium/protocol'
@@ -619,6 +621,7 @@ export interface UpdateOperationDetails {
   fromVersion?: string
   /** Verified restore point available when this attempt began or created by it. */
   databaseSnapshotPath?: string
+  coordinatorSnapshotGrantId?: string
   /**
    * EVERY ROUND OF GRANTS THIS OPERATION'S WAVE ISSUED (POD-2754), oldest
    * first — see {@link WaveRound} for why a record and not an observation.
@@ -1069,8 +1072,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   if (
-    !desktopHosted &&
     !hostUpdatesThroughFleet &&
+    (input.onlyMachines === undefined || (input.hostMachineId !== undefined && input.onlyMachines.includes(input.hostMachineId))) &&
     input.serverInstallKind !== 'source' &&
     serverDiffers &&
     input.canRestartServer
@@ -1394,10 +1397,10 @@ export interface UpdateOperationContext {
   /** The served website's commit, both dists (see `websiteDigestReader`). */
   servedWebDigest?: () => string | undefined
   /** Installed coordinator-only: place and verify the exact target before restart. */
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
-  requestCoordinatorRestart?: () => void
+  requestCoordinatorRestart?: () => void | Promise<void>
   /** The dev publisher's readiness, for naming a failed website build. */
   preparation?: () => {
     webReady: boolean
@@ -1552,6 +1555,9 @@ export const UPDATE_STEP_DEADLINES: Record<string, StepDeadlines> = {
 
 /** In-flight preparation, per operation: `ensure()` twice must be one build. */
 const preparing = new Map<string, Promise<unknown>>()
+const heldCoordinatorUpdates = new Map<string, PreparedCoordinatorUpdate>()
+let coordinatorRuns = new WeakMap<UpdatesService, Map<string, Promise<StepOutcome>>>()
+const canceledCoordinatorUpdates = new Set<string>()
 
 /**
  * Watch something this process handed off, reporting when it ends — and saying
@@ -1762,6 +1768,34 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
 }) => {
   const details = updateOperationDetails(operation)
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+  if (context.legacyTransferActive?.()) {
+    return { state: 'failed', error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }) }
+  }
+  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    const hostId = context.hostMachineId
+    // A host absent at plan time belongs to the later server step. Holding it
+    // here prevents auto-ticks on attach from racing that step's snapshot.
+    if ((step.places ?? []).some((place) => place.id === hostId)) {
+      context.updates.handleCoordinatorUpdate(hostId, {
+        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, step.id) !== false &&
+          context.legacyTransferActive?.() !== true,
+        dispatch: (grant) => {
+          void ensureCoordinatorReplacement(operation, context, step.id, grant).then(
+            (outcome) => {
+              if (outcome.state === 'failed') context.report?.(operation.id, step.id, outcome)
+            },
+            (error: unknown) => context.report?.(operation.id, step.id, {
+              state: 'failed',
+              error: describeUpdateOperationFailure({
+                code: 'preparation-failed',
+                detail: error instanceof Error ? error.message : String(error),
+              }),
+            }),
+          )
+        },
+      })
+    }
+  }
 
   /**
    * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
@@ -2118,46 +2152,111 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
   reversible: false,
   ensure: async ({ operation, context }) => {
     const details = updateOperationDetails(operation)
-    if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
-    if (context.appVersion() === details.target.version) {
-      return { state: 'done', detail: 'The server is on the new version.' }
+    if (context.hostMachineId && context.prepareCoordinatorUpdate && details &&
+        context.appVersion() !== details.target.version) {
+      const hostId = context.hostMachineId
+      let replacement: Promise<StepOutcome> | undefined
+      context.updates.handleCoordinatorUpdate(hostId, {
+        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, UPDATE_STEP_SERVER) !== false &&
+          context.legacyTransferActive?.() !== true,
+        dispatch: (grant) => {
+          replacement = ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER, grant)
+        },
+      })
+      context.updates.grantCoordinatorUpdate(hostId, details.channel, details.target, {
+        initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_SERVER },
+        eligibility: 'the operation reached its coordinator replacement step after the fleet',
+      })
+      const run = replacement ?? Promise.resolve({ state: 'failed', error: { code: 'coordinator-update-inactive' } } as StepOutcome)
+      return run
     }
-    if (!context.requestCoordinatorRestart) {
+    return ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER)
+  },
+}
+
+/** Re-entry joins the same preparation, snapshot and activation, even after it resolves. */
+function ensureCoordinatorReplacement(
+  operation: Operation,
+  context: UpdateOperationContext,
+  stepId: string,
+  grant?: UpdateGrantMessage,
+): Promise<StepOutcome> {
+  let runs = coordinatorRuns.get(context.updates)
+  if (!runs) coordinatorRuns.set(context.updates, runs = new Map())
+  const key = JSON.stringify([operation.id, stepId, grant?.grantId])
+  const existing = runs.get(key)
+  if (existing) return existing
+  // Register before any preparation can synchronously report progress and re-enter.
+  const run = Promise.resolve().then(() => runCoordinatorReplacement(operation, context, stepId, grant))
+  runs.set(key, run)
+  return run
+}
+
+/** Both grant routes cross the same durable barrier; only the grant's issuer differs. */
+async function runCoordinatorReplacement(
+  operation: Operation,
+  context: UpdateOperationContext,
+  stepId: string,
+  grant?: UpdateGrantMessage,
+): Promise<StepOutcome> {
+  const originalDetails = updateOperationDetails(operation)
+  const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
+  const active = () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, stepId) !== false &&
+    context.legacyTransferActive?.() !== true &&
+    (!grant || (context.hostMachineId !== undefined &&
+      context.updates.coordinatorGrantActive(context.hostMachineId, grant)))
+  if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+  if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+  if (grant && grant.target.version !== originalDetails?.target.version)
+    return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+  if (!grant && context.appVersion() === details.target.version) {
+    return { state: 'done', detail: 'The server is on the new version.' }
+  }
+  if (!context.requestCoordinatorRestart) {
+    return {
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'server-did-not-reach-target',
+        observedVersion: context.appVersion(),
+        targetVersion: details.target.version,
+      }),
+    }
+  }
+  if (
+    (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
+    !context.recordOperationDetails
+  ) {
+    return {
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'preparation-failed',
+        detail: 'Database snapshot support is unavailable; the server was not restarted.',
+      }),
+    }
+  }
+  let prepared: PreparedCoordinatorUpdate | void = undefined
+  if (context.prepareCoordinatorUpdate) {
+    try {
+      prepared = await context.prepareCoordinatorUpdate(details.target, grant)
+      if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const classified = classifyMachineFailure(detail)
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
-          code: 'server-did-not-reach-target',
-          observedVersion: context.appVersion(),
-          targetVersion: details.target.version,
+          code: classified === 'artifact-unreachable' ? classified : 'download-failed',
+          detail,
         }),
       }
     }
-    if (
-      (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
-      !context.recordOperationDetails
-    ) {
-      return {
-        state: 'failed',
-        error: describeUpdateOperationFailure({
-          code: 'preparation-failed',
-          detail: 'Database snapshot support is unavailable; the server was not restarted.',
-        }),
-      }
-    }
-    if (context.prepareCoordinatorUpdate) {
-      try {
-        await context.prepareCoordinatorUpdate(details.target)
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        const classified = classifyMachineFailure(detail)
-        return {
-          state: 'failed',
-          error: describeUpdateOperationFailure({
-            code: classified === 'artifact-unreachable' ? classified : 'download-failed',
-            detail,
-          }),
-        }
-      }
+  }
+  let activated = false
+  try {
+    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (prepared?.committed &&
+        (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
+      return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
     }
     // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
     // request path, not the restart path: a timeout, a corrupt file or an
@@ -2171,8 +2270,11 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         detail: `Database snapshot failed; the server was not restarted: ${detail}`,
       }),
     })
-    let databaseSnapshotPath: string | undefined
-    if (context.prepareVerifiedDatabaseSnapshot) {
+    let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
+      ? details.databaseSnapshotPath : undefined
+    if (databaseSnapshotPath) {
+      // Adoption reuses only this exact grant's already durable verification.
+    } else if (context.prepareVerifiedDatabaseSnapshot) {
       let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
       try {
         verification = await context.prepareVerifiedDatabaseSnapshot(
@@ -2184,22 +2286,50 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       }
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
-      context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+      try {
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
+      }
     } else if (context.createDatabaseSnapshot) {
       try {
         databaseSnapshotPath = context.createDatabaseSnapshot(fromVersion, details.target.version)
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
-        context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     }
-    context.requestCoordinatorRestart()
+    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    try {
+      if (prepared) await prepared.activate()
+      else await context.requestCoordinatorRestart()
+      activated = true
+    } catch (error) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({
+          code: 'preparation-failed',
+          detail: `Coordinator activation refused: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+      }
+    }
     return {
       state: 'running',
       detail: `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`,
     }
-  },
+  } finally {
+    if (prepared && heldCoordinatorUpdates.get(operation.id) === prepared) {
+      heldCoordinatorUpdates.delete(operation.id)
+    }
+    if (!activated && prepared) {
+      try {
+        await prepared.cancel()
+      } catch (error) {
+        log.warn('could not cancel held coordinator preparation', { operationId: operation.id, err: error })
+      }
+    }
+  }
 }
 
 /**
@@ -2318,6 +2448,11 @@ export function updateOperationKind(): OperationKindDefinition<
       [UPDATE_STEP_MACHINES]: machinesRunner,
       [UPDATE_STEP_SERVER]: serverRunner,
       [UPDATE_STEP_WEB]: webRunner,
+    },
+    onCancel: async ({ operation }) => {
+      canceledCoordinatorUpdates.add(operation.id)
+      await heldCoordinatorUpdates.get(operation.id)?.cancel()
+      return { cleanup: 'complete' }
     },
     deadlines: UPDATE_STEP_DEADLINES,
     describeStall: describeUpdateStall,
@@ -2704,6 +2839,9 @@ export function supersededDeferredPlaces(
  * never shown as an error).
  */
 export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput {
+  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    context.updates.reserveCoordinatorUpdate(context.hostMachineId)
+  }
   const target = context.updates.target(context.channel)
   if (!target) throw new Error(`no ${context.channel} update target is published`)
   return {
@@ -2730,4 +2868,7 @@ export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput 
 /** Reset the module-level in-flight preparation map. Tests only. */
 export function resetUpdateOperationState(): void {
   preparing.clear()
+  heldCoordinatorUpdates.clear()
+  coordinatorRuns = new WeakMap()
+  canceledCoordinatorUpdates.clear()
 }
