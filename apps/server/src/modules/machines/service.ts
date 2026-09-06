@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type AgentKind,
@@ -215,6 +216,8 @@ export interface MachinesDeps {
  * daemon sockets + offline queueing, pairing/auth, the machines table admin, and
  * machine routing/selection (name cache, online set, repo affinity).
  */
+const log = createLogger('server:machines')
+
 export class MachinesService {
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
@@ -1161,6 +1164,18 @@ export class MachinesService {
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     return id
+  }
+
+  /**
+   * The fan-out for a caller that cannot yield (rule 51b): a socket attach/detach
+   * and the deps bridge below hand this over and move on. Nothing waits for a
+   * live-only push to land — but the rejection still has to go somewhere, or a
+   * failed projection read is an unhandled rejection with no machine on it.
+   */
+  scheduleBroadcastMachines(): void {
+    void this.broadcastMachines().catch((err: unknown) => {
+      log.warn('machines broadcast failed', { err })
+    })
   }
 
   async broadcastMachines(): Promise<void> {
