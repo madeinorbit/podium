@@ -132,20 +132,33 @@ export interface PreparedBatch {
    *  can prefetch, the ordinary policy where it cannot. */
   readonly policy: FeedVisibilityPolicy
   /** `visibilityEdge` per change, positionally. `null` is the common answer. */
-  readonly edges: readonly (ReturnType<VisibilityAnchorPort['visibilityEdge']>)[]
+  readonly edges: readonly (Awaited<ReturnType<VisibilityAnchorPort['visibilityEdge']>>)[]
+  /** Current values per edge subject, aligned with `edges`; resolved before the
+   * synchronous per-principal loop starts. */
+  readonly currentValues: readonly (readonly unknown[])[]
 }
 
-export function prepareBatch(
+export async function prepareBatch(
   deps: Pick<ScopingDeps, 'policy' | 'anchors'>,
   changes: readonly SequencedChange[],
-): PreparedBatch {
-  const edges = changes.map((change) => deps.anchors.visibilityEdge(change))
+): Promise<PreparedBatch> {
+  const edges = await Promise.all(changes.map((change) => deps.anchors.visibilityEdge(change)))
   const refs: EntityRef[] = changes.map(({ entity, entityId }) => ({ entity, entityId }))
   for (const edge of edges) {
     if (edge === null) continue
     for (const subject of edge.subjects) refs.push(subject)
   }
-  return { policy: deps.policy.forBatch?.(refs) ?? deps.policy, edges }
+  const prepared = deps.policy.forBatch?.(refs)
+  const policy = prepared === undefined ? deps.policy : await prepared
+  const currentValues: unknown[][] = []
+  for (const edge of edges) {
+    const values: unknown[] = []
+    if (edge !== null) {
+      for (const subject of edge.subjects) values.push(await deps.anchors.currentValueOf(subject))
+    }
+    currentValues.push(values)
+  }
+  return { policy, edges, currentValues }
 }
 
 /**
@@ -161,19 +174,20 @@ export function prepareBatch(
  * subscriber loop by the caller that owns the loop. Absent, it is computed here
  * for this one principal — same answers, one principal's worth of batching.
  */
-export function scopeBatch(
+export async function scopeBatch(
   deps: ScopingDeps,
   principal: Principal,
   changes: readonly SequencedChange[],
   throughSeq: number,
-  prepared: PreparedBatch = prepareBatch(deps, changes),
-): ScopedDelivery {
+  prepared?: PreparedBatch,
+): Promise<ScopedDelivery> {
+  const resolved = prepared ?? (await prepareBatch(deps, changes))
   const visible: ScopedChange[] = []
   const anchored: ScopedChange[] = []
   const human = humanOf(principal)
   // Every decision in this pass — the ordinary rows and the anchored ones — goes
   // through the prepared policy, or the two halves would answer from two states.
-  const scoped: ScopingDeps = { ...deps, policy: prepared.policy }
+  const scoped: ScopingDeps = { ...deps, policy: resolved.policy }
 
   for (const [index, change] of changes.entries()) {
     // 1. The ordinary path: is this row in this principal's slice right now?
@@ -183,13 +197,21 @@ export function scopeBatch(
     //    owns the tables, never inferred from the payload — a payload-shaped
     //    check would classify by content, and content is exactly what a caller
     //    controls.
-    const edge = prepared.edges[index] ?? null
+    const edge = resolved.edges[index] ?? null
     if (edge === null) continue
     // A principal with no human (machine/system) is in nobody's audience by
     // construction — `audience` names HUMANS whose view moved (D14.3).
     if (human === null || !edge.audience.includes(human)) continue
-    for (const subject of edge.subjects) {
-      anchored.push(anchorFor(scoped, principal, subject, change.seq))
+    for (const [subjectIndex, subject] of edge.subjects.entries()) {
+      anchored.push(
+        anchorFor(
+          scoped,
+          principal,
+          subject,
+          change.seq,
+          resolved.currentValues[index]?.[subjectIndex],
+        ),
+      )
     }
   }
 
@@ -246,18 +268,19 @@ export interface ScopedBootstrap {
  * principal see this row" in the kernel. `authority.scoped.test.ts` pins that a
  * row suppressed on the live path is suppressed here too.
  */
-export function scopeBootstrap(
+export async function scopeBootstrap(
   deps: Pick<ScopingDeps, 'policy'>,
   principal: Principal,
   state: readonly SequencedChange[],
   throughSeq: number,
-): ScopedBootstrap {
+): Promise<ScopedBootstrap> {
   // The state list is the complete world this pass will evaluate. Give a policy
   // that supports it one chance to build request-scoped batch maps before the
   // per-row decisions start; policies without that seam retain the same path.
-  const policy =
-    deps.policy.forBootstrap?.(state.map(({ entity, entityId }) => ({ entity, entityId }))) ??
-    deps.policy
+  const prepared = deps.policy.forBootstrap?.(
+    state.map(({ entity, entityId }) => ({ entity, entityId })),
+  )
+  const policy = prepared === undefined ? deps.policy : await prepared
   const changes: ScopedChange[] = []
   for (const row of state) {
     // Positive state ONLY (D15): a bootstrap installs what exists. A `remove` or
@@ -287,11 +310,11 @@ function anchorFor(
   principal: Principal,
   subject: EntityRef,
   seq: number,
+  currentValue: unknown,
 ): ScopedChange {
   const base = { seq, entity: subject.entity, entityId: subject.entityId }
   if (deps.policy.decide(principal, subject).visible) {
-    const value = deps.anchors.currentValueOf(subject)
-    if (value !== undefined) return { ...base, op: 'upsert', value }
+    if (currentValue !== undefined) return { ...base, op: 'upsert', value: currentValue }
   }
   return { ...base, op: 'evict' }
 }

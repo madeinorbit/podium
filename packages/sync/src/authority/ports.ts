@@ -106,27 +106,24 @@ export type { ChangeLogReadRow, ChangeLogWriteRow }
 export type TransactPort = <T>(fn: () => Promise<T>) => Promise<T>
 
 /**
- * Runs an EXTERNAL EFFECT once the outermost unit of work has committed
- * (spec §3.3 mechanism 3, POD-3260) — injected for the same reason
+ * Runs an AWAITED FOLLOW-UP once the outermost unit of work has committed
+ * (spec §3.3 mechanism 2, POD-3260) — injected for the same reason
  * {@link TransactPort} is: the kernel states the ordering, the adapter owns the
  * span it is ordered against.
  *
- * The step is synchronous and returns nothing, because that is all this port is
- * for: an effect nobody waits for and whose failure is isolated by the adapter,
- * never reported to the caller as a rollback. An adapter with no notion of a
- * commit boundary — every client replica — simply leaves it unset and the effect
- * runs at once.
+ * Visibility preparation may yield, so the transaction's ordered follow-up
+ * drain awaits the step under the writer lease until the synchronous subscriber
+ * pass has consumed the resolved snapshot.
  */
-export type PostCommitEffectPort = (step: () => void, label: string) => void
+export type PostCommitFollowUpPort = (step: () => Promise<void>, label: string) => void
 
 /**
  * The seam the BASELINE FOLD hangs off [POD-3328, spec §3.3 mechanism 1].
  *
- * Separate from {@link PostCommitEffectPort} because the two are different
- * mechanisms with different failure contracts: a broadcast is an external
- * effect nobody waits for, while the fold is a commit application — not
- * skippable, and a failure means the in-memory projection no longer matches the
- * database.
+ * Separate from {@link PostCommitFollowUpPort} because the two are different
+ * mechanisms with different timing contracts: the broadcast is an awaited
+ * post-commit follow-up, while the fold is a commit application — not skippable,
+ * and a failure means the in-memory projection no longer matches the database.
  *
  * `spanOpen` is asked BEFORE anything is staged, because the honest answer
  * differs: with no enclosing unit of work a commit IS the outermost commit and
