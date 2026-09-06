@@ -24,7 +24,7 @@ import {
   asThreadId,
   shipRepairRef,
 } from '@podium/model'
-import type { PodiumSettings } from '@podium/runtime'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { ShippingJobClassification, ShippingValidationProfile } from '@podium/protocol/daemon'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 import { jsonSchema } from '../../llm-roles'
@@ -44,14 +44,16 @@ export interface ShipwrightDeps {
     HeadlessService,
     'createHeadlessSession' | 'headlessSession' | 'headlessTurn' | 'headlessTurnAck'
   >
-  settingsFor(userId: UserId): PodiumSettings
-  modelCatalog(machineId: ShipAttempt['machineId']): ModelCatalogSnapshot
+  settingsFor(userId: UserId): PodiumSettings | Promise<PodiumSettings>
+  modelCatalog(machineId: ShipAttempt['machineId']):
+    | ModelCatalogSnapshot
+    | Promise<ModelCatalogSnapshot>
   quota(machineId: ShipAttempt['machineId']): Promise<AgentQuotaWire[]>
   nativeAccountId(
     machineId: ShipAttempt['machineId'],
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
-  ): AccountId | null
+  ): AccountId | null | Promise<AccountId | null>
   validationProfile(issue: IssueWire): ShippingValidationProfile
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
@@ -857,15 +859,25 @@ export class ShipwrightService {
         accountId: existing.accountId,
       }
     } else {
-      const quota = await this.deps.quota(input.attempt.machineId)
+      const [quota, settings, catalog] = await Promise.all([
+        this.deps.quota(input.attempt.machineId),
+        this.deps.settingsFor(owner),
+        this.deps.modelCatalog(input.attempt.machineId),
+      ])
+      const preferred = resolveRole(settings, 'shipwright')
+      const accountId = await this.deps.nativeAccountId(
+        input.attempt.machineId,
+        preferred.harness,
+        preferred.accountId,
+      )
       const selected = routeShipwright({
-        settings: this.deps.settingsFor(owner),
-        catalog: this.deps.modelCatalog(input.attempt.machineId),
+        settings,
+        catalog,
         quota,
         level: input.level,
         priorFamilies: input.priorFamilies,
         resolveAccount: (agent, requested) =>
-          this.deps.nativeAccountId(input.attempt.machineId, agent, requested),
+          agent === preferred.harness && requested === preferred.accountId ? accountId : null,
       })
       route = selected
     }
