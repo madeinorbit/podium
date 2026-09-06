@@ -280,7 +280,15 @@ export interface ResourceLease {
   lost: boolean
   expiresAt?: number
   ttlMs?: number
-  renew?: () => boolean | Promise<boolean>
+  /**
+   * ALWAYS ASYNC, and the union it replaces is the bug this port carries a
+   * comment about (POD-3488). `renew?: () => boolean | Promise<boolean>` let a
+   * caller write `if (!lease.renew())` and typecheck: the only implementation
+   * returns a promise, `!promise` is always false, and a lease whose renewal had
+   * FAILED was reported as still held. A port that states one thing makes the
+   * missing `await` a type error at every reader instead of a silent pass.
+   */
+  renew?: () => Promise<boolean>
   timer?: ReturnType<typeof setInterval>
   /** True while this lease's renew tick is running — its single-flight fence. */
   renewing?: boolean
@@ -2468,7 +2476,7 @@ export class ShippingService {
       if (this.isEffectCustodyRefusal(error)) return null
       throw error
     }
-    if (!this.renewResourceLease(resourceLease)) {
+    if (!(await this.renewResourceLease(resourceLease))) {
       this.audit('shipping.resource_lease_lost', order.issueId, {
         orderId: order.id,
         attemptId: attempt.id,
@@ -2481,7 +2489,7 @@ export class ShippingService {
     const request = await this.jobInput(order, attempt, issue, operation, 'start')
     const result = await this.deps.daemon.shippingJob(request, attempt.machineId)
     await this.assertJobResultFence(order, attempt, operation, result)
-    if (!this.renewResourceLease(resourceLease)) {
+    if (!(await this.renewResourceLease(resourceLease))) {
       this.audit('shipping.resource_lease_lost', order.issueId, {
         orderId: order.id,
         attemptId: attempt.id,
@@ -2616,7 +2624,7 @@ export class ShippingService {
     const isolation = await isolateShippingTrain(
       members,
       async (subset) => {
-        if (!this.renewResourceLease(resourceLease)) {
+        if (!(await this.renewResourceLease(resourceLease))) {
           return { passed: false, summary: 'validation resource lease expired' }
         }
         const memberOrderIds = subset.map((candidate) => candidate.id)
@@ -3529,11 +3537,23 @@ export class ShippingService {
     return true
   }
 
-  private renewResourceLease(lease?: ResourceLease): boolean {
+  /**
+   * Re-check that this incarnation still holds `lease` at a boundary that is
+   * about to commit or dispatch — the synchronous liveness check plus a real
+   * renewal round-trip.
+   *
+   * ASYNC, AND PUBLIC FOR THE SAME REASON THE TICK IS (POD-3488). `renew`
+   * resolves to a promise, so the refusal arm can only be reached by awaiting
+   * it; the method that used to read the promise as a boolean never marked a
+   * failed lease `lost` and returned `true` to every boundary that asked. Named
+   * and reachable so the refusal itself has a unit test, rather than only being
+   * observable through a full order run.
+   */
+  async renewResourceLease(lease?: ResourceLease): Promise<boolean> {
     if (!lease?.renew) return this.resourceLeaseLive(lease)
     if (!this.resourceLeaseLive(lease)) return false
     try {
-      if (!lease.renew()) {
+      if (!(await lease.renew())) {
         lease.lost = true
         return false
       }
