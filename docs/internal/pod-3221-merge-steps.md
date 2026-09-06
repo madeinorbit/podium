@@ -85,3 +85,52 @@ rather than silently.
 AFTER GRAFTING, RE-RUN THE CENSUS. A conversion dropped in this merge is exactly the shape rule 52
 warns about: the call still compiles, and the promise is used as a value. `messaging/service.ts` must
 be at zero errors on the merged tree before the flip is called green.
+
+## 4. DESIGN DECISION: the gateway handshake — POD-3469's shape lands, B1's is dropped
+
+Raised by POD-3469, 2026-09-06, which stopped and asked rather than merging. `git merge-tree` reports
+TWELVE conflicted files between the two branches, and the cause is not drift: B1 and POD-3469 built two
+incompatible designs for the same sites. Both are correct in isolation — POD-3469 checked B1's for the
+rule 52 defect specifically and it is clean. They cannot coexist.
+
+**POD-3469's design wins.** Three reasons, the first two verified directly:
+
+1. **It carries a security property B1's lacks.** `daemon-socket.ts` on POD-3469's branch declares
+   `MAX_QUEUED_PREAUTH_FRAMES = 1` with connection-drop on overflow. B1's has no bound. Making the
+   authentication path async is exactly what creates the hazard: an unauthenticated socket can flood
+   frames that are buffered before any credential check. This is a memory-exhaustion vector, not a
+   stylistic difference, and it is absent from B1's shape today.
+2. **It confines the blast radius to `apps/server`.** B1 made the `packages/protocol` handshake
+   strategies async (`async authenticate(): Promise<AuthOutcome>`, `await verifyDaemonSecret`).
+   POD-3469 left `packages/protocol` untouched. Widening a shared protocol library to satisfy one
+   server's storage change is the larger commitment and the harder one to walk back.
+3. **It is compiler-enforced against substitution.** Two interfaces — `MachineAuthenticator` (async)
+   and `ResolvedMachineAuthenticator` (sync) — and POD-3469 PROVED the split holds by assigning one to
+   the other's slot and watching tsgo refuse it (TS2322). B1's single async interface cannot make that
+   guarantee.
+
+It is also the shape this coordinator specified in POD-3469's brief after the rule 51 case-2 analysis:
+the frame router may not yield, so resolve the credential at an async boundary that already precedes
+frame handling and keep the acceptor synchronous over the resolved value.
+
+### HOW THIS HAPPENED — coordinator error, recorded so it is not repeated
+
+B1's gateway work lives in `332ff8f44`, which is a commit I MADE from B1's uncommitted tree while
+recovering its wedged session. I then handed that same commit to POD-3469 telling it to "read it first
+and build on it", and separately specified a different shape in its brief. I never told B1 to stop. Two
+workers then built two designs in one area, one of them following instructions I gave and the other
+following work I had preserved for it. The duplication is mine, not theirs.
+
+### MECHANICS — no history surgery on a live branch
+
+B1 is the long pole and still working. Do NOT ask it to drop commits and rebase mid-flight.
+
+1. B1 stops NOW on `gateway/**`, `packages/protocol/**`, `modules/machines/**`, `modules/updates/**`.
+   Its remaining job is `relay.ts` alone (11 errors).
+2. At merge, resolve all twelve conflicted files in favour of POD-3469's content; take B1's content
+   everywhere else. B1's `332ff8f44` and `46e2975c1` are superseded in those paths.
+3. `46e2975c1` ("widen machinesForPrincipal and the machines fan-out") duplicates a port fenced to
+   POD-3469 alone. POD-3469's implementation is the one that lands.
+4. AFTER the merge, re-verify the pre-auth bound is still present and still `1`, and re-run POD-3469's
+   TS2322 substitution probe. Both are the properties that decided this; a merge that silently loses
+   either has taken B1's design by the back door.
