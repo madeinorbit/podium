@@ -731,7 +731,7 @@ export class SessionLifecycle {
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<Promise<{ ok: boolean; reason?: string }>> {
+  ): Promise<{ ok: boolean; reason?: string }> {
     return await this.sessionRevival.resurrectSession(input, issues)
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {

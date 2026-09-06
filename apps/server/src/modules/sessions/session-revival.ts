@@ -286,7 +286,7 @@ export class SessionRevival {
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<Promise<{ ok: boolean; reason?: string }>> {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return await Promise.resolve({ ok: false, reason: 'unknown session' })
     if (session.archived) return await Promise.resolve({ ok: false, reason: 'session is archived' })
