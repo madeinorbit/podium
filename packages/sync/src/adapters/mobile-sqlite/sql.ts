@@ -145,10 +145,18 @@ export function fromExpoSqlite(db: ExpoSqliteDatabaseLike): SqlDatabaseLike {
  * because a driver that only sets the message would otherwise degrade nothing.
  */
 export function isQuotaError(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false
-  const code = (error as { code?: unknown }).code
+  let original = error
+  const seen = new Set<unknown>()
+  while (original !== null && typeof original === 'object' && !seen.has(original)) {
+    seen.add(original)
+    const cause = (original as { cause?: unknown }).cause
+    if (cause === undefined) break
+    original = cause
+  }
+  if (original === null || typeof original !== 'object') return false
+  const code = (original as { code?: unknown }).code
   if (code === 'SQLITE_FULL' || code === 'SQLITE_IOERR_WRITE') return true
-  const message = (error as { message?: unknown }).message
+  const message = (original as { message?: unknown }).message
   if (typeof message !== 'string') return false
   return /SQLITE_FULL|database or disk is full|disk I\/O error/i.test(message)
 }

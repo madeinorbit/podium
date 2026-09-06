@@ -24,7 +24,10 @@ import {
 
 const NOW = Date.parse('2026-08-31T12:00:00.000Z')
 
-function session(id: string, over: Record<string, unknown> = {}): SessionMeta {
+function session(
+  id: string,
+  over: Record<string, unknown> & { status?: SessionMeta['status'] } = {},
+): SessionMeta {
   return {
     sessionId: id,
     title: id,
@@ -141,7 +144,7 @@ describe('waterfall viewport', () => {
 
   it('follows current work without flattening it against old history', () => {
     const old = session('old', {
-      status: 'stopped',
+      status: 'exited',
       createdAt: '2026-08-29T10:00:00.000Z',
       stoppedAt: '2026-08-29T10:10:00.000Z',
     })
@@ -162,7 +165,7 @@ describe('waterfall viewport', () => {
   it('parks a completed crew on its latest work instead of an empty present-day gap', () => {
     const latestEnd = NOW - 6 * 60 * 60_000
     const finished = session('finished', {
-      status: 'stopped',
+      status: 'exited',
       createdAt: new Date(latestEnd - 10 * 60_000).toISOString(),
       stoppedAt: new Date(latestEnd).toISOString(),
     })

@@ -105,6 +105,9 @@
  *     is the same mechanically visible condition as Stage A's: the ledger is
  *     empty.
  *
+ * 19. A hand-written `sql` fragment used in a select projection may not carry an
+ *     outer-table Column into its own FROM scope; use `sql.identifier`.
+ *
  * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
  * definition) sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
@@ -1470,6 +1473,169 @@ export function checkRepositoryDbCapture(file: string, source: string): Violatio
   return violations
 }
 
+function sqlTaggedTemplate(expression: ts.Expression): ts.TaggedTemplateExpression | null {
+  let current = unwrapTransparentExpression(expression)
+  while (
+    ts.isCallExpression(current) &&
+    ts.isPropertyAccessExpression(current.expression) &&
+    (current.expression.name.text === 'as' || current.expression.name.text === 'mapWith')
+  ) {
+    current = unwrapTransparentExpression(current.expression.expression)
+  }
+  return ts.isTaggedTemplateExpression(current) &&
+    ts.isIdentifier(current.tag) &&
+    current.tag.text === 'sql'
+    ? current
+    : null
+}
+
+function directTemplateExpressions(template: ts.TemplateLiteral): readonly ts.Expression[] {
+  return ts.isNoSubstitutionTemplateLiteral(template)
+    ? []
+    : template.templateSpans.map((span) => span.expression)
+}
+
+function directColumnReference(
+  expression: ts.Expression,
+): { table: string; column: string; node: ts.PropertyAccessExpression } | null {
+  const current = unwrapTransparentExpression(expression)
+  if (!ts.isPropertyAccessExpression(current)) return null
+  const table = unwrapTransparentExpression(current.expression)
+  return ts.isIdentifier(table)
+    ? { table: table.text, column: current.name.text, node: current }
+    : null
+}
+
+/**
+ * Rule 19 — a hand-written projection fragment with its own FROM must spell an
+ * outer identifier explicitly.
+ *
+ * drizzle's single-table `buildSelection` rewrites every TOP-LEVEL Column chunk
+ * in a projected SQL fragment to a bare identifier. Inside the fragment's own
+ * FROM scope that bare name binds to the inner table first. Adding a same-named
+ * inner column can therefore change a correct count to zero without changing
+ * this query and without producing an error.
+ *
+ * The check follows locally named projection objects and fragments, because
+ * both real sites use those readable shapes. It deliberately inspects only the
+ * fragment selected by `.select(...)`: a fragment in WHERE is rendered by a
+ * different drizzle path, and a fragment composed one level inside another is
+ * not a top-level Column chunk. Standalone identifiers interpolated into the
+ * fragment are its inner drizzle tables; their columns are safe. A Column from
+ * any other table is an outer reference and must instead be expressed through
+ * `sql.identifier`, which is not a Column chunk and survives the rewrite.
+ */
+export function checkProjectionSqlIdentifiers(file: string, source: string): Violation[] {
+  if (!inStoreBoundary(file) || isTestFile(file)) return []
+  if (!source.includes('sql') || !/\bFROM\b/i.test(source)) return []
+
+  const code = stripComments(source)
+  const sourceFile = ts.createSourceFile(
+    file,
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const declarations = new Map<string, ts.Expression>()
+  const tableBindings = new Set<string>()
+  const selectedFragments = new Map<number, ts.TaggedTemplateExpression>()
+
+  const collectBindings = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      /(?:^|\/)(?:schema|server-tables)$/.test(node.moduleSpecifier.text) &&
+      node.importClause?.namedBindings !== undefined &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const element of node.importClause.namedBindings.elements) {
+        if (!element.isTypeOnly) tableBindings.add(element.name.text)
+      }
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined
+    ) {
+      declarations.set(node.name.text, node.initializer)
+      const initializer = unwrapTransparentExpression(node.initializer)
+      if (
+        ts.isCallExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) &&
+        ['alias', 'sqliteTable', 'sqliteView'].includes(initializer.expression.text)
+      ) {
+        tableBindings.add(node.name.text)
+      }
+    }
+    ts.forEachChild(node, collectBindings)
+  }
+  collectBindings(sourceFile)
+
+  const collectProjection = (expression: ts.Expression, seen: ReadonlySet<string>): void => {
+    const current = unwrapTransparentExpression(expression)
+    const fragment = sqlTaggedTemplate(current)
+    if (fragment !== null) {
+      selectedFragments.set(fragment.getStart(sourceFile), fragment)
+      return
+    }
+    if (ts.isIdentifier(current)) {
+      if (seen.has(current.text)) return
+      const initializer = declarations.get(current.text)
+      if (initializer === undefined) return
+      collectProjection(initializer, new Set([...seen, current.text]))
+      return
+    }
+    if (!ts.isObjectLiteralExpression(current)) return
+    for (const property of current.properties) {
+      if (ts.isPropertyAssignment(property)) collectProjection(property.initializer, seen)
+      else if (ts.isShorthandPropertyAssignment(property)) collectProjection(property.name, seen)
+      else if (ts.isSpreadAssignment(property)) collectProjection(property.expression, seen)
+    }
+  }
+
+  const collectSelects = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'select' &&
+      node.arguments.length === 1
+    ) {
+      collectProjection(node.arguments[0] as ts.Expression, new Set())
+    }
+    ts.forEachChild(node, collectSelects)
+  }
+  collectSelects(sourceFile)
+
+  const violations: Violation[] = []
+  for (const fragment of selectedFragments.values()) {
+    const literalText = fragment.template.getText(sourceFile)
+    if (!/\bFROM\b/i.test(literalText)) continue
+    const expressions = directTemplateExpressions(fragment.template)
+    const innerTables = new Set(
+      expressions.flatMap((expression) => {
+        const current = unwrapTransparentExpression(expression)
+        return ts.isIdentifier(current) && tableBindings.has(current.text) ? [current.text] : []
+      }),
+    )
+    for (const expression of expressions) {
+      const column = directColumnReference(expression)
+      if (column === null || !tableBindings.has(column.table) || innerTables.has(column.table))
+        continue
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(column.node.getStart(sourceFile)).line + 1
+      const specifier = `${column.table}.${column.column}`
+      violations.push({
+        file,
+        specifier,
+        rule: 'projection-sql-identifier',
+        message: `${file}:${line}: projected hand-written SQL has its own FROM but interpolates outer column \`${specifier}\` as a Column. drizzle emits that identifier bare in a join-free query, so an inner table with a same-named \`${column.column}\` column silently captures it. Spell the outer table and column with \`sql.identifier\` (POD-3221 spec §6 rule 36b).`,
+      })
+    }
+  }
+  return violations
+}
+
 /**
  * The bodies of `sql` tagged templates, so that a rule can read what a
  * statement SAYS rather than only which module it came from — the brief's
@@ -2184,11 +2350,82 @@ export function checkFlipUndeleted(
  * arbitrate, a kernel that must not name a database, a UI that must not touch
  * storage directly), and no tag on a workspace could express them.
  */
+/**
+ * A PROMISE IS ALWAYS TRUTHY, so an async callback handed to an array method
+ * that CONSUMES A BOOLEAN silently disables the test it looks like it performs.
+ * `.filter(async …)` keeps every element; `.find(async …)` returns the first
+ * one; `.some` is always true, `.every` vacuously true, and a `.sort` comparator
+ * returning a promise orders nothing.
+ *
+ * This is not hypothetical and it is why the rule exists. POD-3221's async flip
+ * turned `acceptedSpinoff`'s predicate in `attention.ts` async while propagating
+ * store reads; the filter then matched EVERY issue regardless of title, repo or
+ * parent, so a spinoff could re-home onto an unrelated issue. Six sites acquired
+ * the defect and NOT ONE TEST FAILED — the filter still returns a non-empty
+ * array, so every assertion about "some result" still holds. Only the compiler
+ * can catch this class, and only if something tells it to look.
+ *
+ * `.map(async …)` is DELIBERATELY NOT LISTED: it yields promises for a
+ * `Promise.all`, which is the correct idiom, and flagging it would bury this
+ * rule in false positives.
+ */
+const BOOLEAN_CONSUMING_ARRAY_METHODS = new Set([
+  'filter',
+  'find',
+  'findIndex',
+  'findLast',
+  'findLastIndex',
+  'some',
+  'every',
+  'sort',
+])
+
+export function checkAsyncBooleanPredicate(file: string, source: string): Violation[] {
+  if (!/\.(?:filter|find|findIndex|findLast|findLastIndex|some|every|sort)\s*\(/.test(source)) {
+    return []
+  }
+  const violations: Violation[] = []
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const isAsync = (node: ts.Node): boolean =>
+    (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) === true
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      BOOLEAN_CONSUMING_ARRAY_METHODS.has(node.expression.name.text) &&
+      node.arguments.length > 0 &&
+      isAsync(node.arguments[0] as ts.Node)
+    ) {
+      const method = node.expression.name.text
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+      violations.push({
+        file,
+        specifier: method,
+        rule: 'async-boolean-predicate',
+        message: `${file}:${line}: '.${method}()' is given an ASYNC callback — it returns a Promise, which is always truthy, so the predicate never actually decides anything (.filter keeps everything, .find returns the first element, .some/.every are vacuous, .sort orders nothing). No test catches this because the call still returns a plausible non-empty result. Resolve the async work BEFORE the loop and keep the predicate synchronous (POD-3221 spec rule 51/49).`,
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 export function checkFile(file: string, source: string): Violation[] {
   return [
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
     ...checkRepositoryDbCapture(file, source),
+    ...checkProjectionSqlIdentifiers(file, source),
+    ...checkAsyncBooleanPredicate(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),

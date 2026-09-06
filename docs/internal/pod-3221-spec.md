@@ -1420,6 +1420,645 @@ Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a spa
 self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
 construction lines in `store.ts` do NOT change — they still pass the one capability object.
 
+### Rule 35b — drizzle's savepoints are NOT namespaced, and rule 35a loses a defence because of it
+
+[Found by following POD-3263's question about which transaction-spec assertions may die with the
+`podium_sp_` deletion, 2026-09-05. This is a regression in MY rule 35a, not in the worker's work.]
+
+`transaction-spec.ts:176` pins a real safety property, not a mechanism detail: *a callback-created
+savepoint cannot hijack the helper boundary*. Callback code that runs `SAVEPOINT sp_1` — "a name the
+helper once used at depth 1" — must not be able to steal the helper's rollback boundary, and today it
+cannot, because our savepoints are namespaced `podium_sp_${depth}`.
+
+DRIZZLE'S ARE NOT NAMESPACED. Its sessions emit ``const savepointName = `sp${this.nestedIndex}` ``,
+so nesting produces `sp1`, `sp2`, … Callback code inside a transaction that runs `RELEASE SAVEPOINT
+sp1` would release DRIZZLE's savepoint at that depth and collapse the boundary the outer arm depends
+on. Rule 35a hands the nested arm to drizzle, so it hands away this defence with it.
+
+**MEASURED 2026-09-05, AND I WAS WRONG. THE DEFENCE HOLDS.** POD-3263 ported the test to
+`executor.test.ts` and it PASSES, with the callback running `SAVEPOINT sp1` inside the span. I ran it
+myself, varied the colliding name across `sp0`/`sp1`/`sp2`/`sp3` — all pass — and confirmed the
+assertion is live rather than vacuous by flipping its expectation, which reds it with
+`expected [ 'outer' ] to deeply equal [ 'outer', 'inner' ]`.
+
+WHY I WAS WRONG, and it is a premise error worth keeping. Drizzle emits `sp${nestedIndex}` in ITS OWN
+session implementations (`d1`, `tursodatabase-sync`). The bun executor does not take that path: it
+names its own boundaries in `bun-driver.ts` as ``const boundary = `podium_batch_${nextBatchBoundary++}` ``
+— monotonic, per session, and namespaced. So the namespacing defence was never drizzle's to lose; it
+moved from `podium_sp_<depth>` to `podium_batch_<n>` and still holds. I reasoned from a grep of
+node_modules instead of from the path that actually issues the savepoint.
+
+The rule below stands as a WARNING for the driver paths that DO use drizzle's own transaction
+implementation — Turso in E.5 — where `sp<n>` is what gets emitted and the collision is real. Re-run
+that ported test against the libsql/Turso driver before enabling it.
+
+ORIGINAL TEXT, kept for the record:
+
+THIS IS A MEASUREMENT, NOT YET A DECISION. Port that exact test to the executor's transaction path and
+RUN it. I expect it to fail. Report the result before deleting anything:
+
+- If it PASSES, the property survived by some other means and the assertion transfers as-is.
+- If it FAILS, we have narrowed a safety contract and must choose deliberately — either document that
+  raw savepoint statements inside a transaction callback are out of contract (and add a lint that
+  says so), or keep a thin namespacing wrapper on the nested arm. That choice is mine, not the
+  worker's; bring me the failure.
+
+WHAT DIES AND WHAT TRANSFERS, for the rest of that spec file. The assertions naming
+`podium_sp_${depth}` or the `depths` WeakMap are MECHANISM and die with the implementation. The
+assertions on OBSERVABLE behaviour transfer to the executor's transaction tests unchanged: commits at
+depth 0 returning the callback result, rollback at depth 0 rethrowing the original error, nested
+savepoints committing when everything succeeds, and — the load-bearing one — rolling back ONLY the
+inner savepoint when the outer catches the throw.
+
+### Rule 48a — the sync-to-rejects spelling is authorized GLOBALLY; stop asking per site
+
+[POD-3263 has now raised this class three times — the awaitify ledger, `engine.test.ts`'s capture
+helper, and `relay.issue-session-delete.test.ts`'s rollback canaries. Standing authorization,
+2026-09-05, so the flip is not serialized behind a coordinator round-trip per file.]
+
+`expect(() => fn()).toThrow(X)` becoming `await expect(fn()).rejects.toThrow(X)` is NOT a change to
+what is asserted. Same matcher, same expectation, async spelling — it is `await` plus the call moving
+inside, which is exactly what the flip's mechanical rule permits. **Apply it wherever the callee
+became async. No further permission needed.**
+
+TWO CONDITIONS, and they are the whole reason this is a rule rather than a shrug:
+
+1. THE AWAIT IS MANDATORY AND ITS ABSENCE IS SILENT. `expect(p).rejects.toThrow()` without `await`
+   asserts nothing and passes forever. Canary each batch: break the subject, watch a named case red.
+   This is the opposite hazard to rule 48's capture helper, where a missed await leaves
+   `expect(Promise).toBe(string)` and fails LOUDLY. Same flip, inverted risk — do not carry the
+   confidence from one to the other.
+
+2. WHATEVER FOLLOWS THE THROW IS THE REAL GUARD AND TRANSFERS UNTOUCHED. At the
+   `relay.issue-session-delete.test.ts` sites the `toThrow` is only the trigger; each is followed by
+   four awaited state assertions — `deletedAt` still unset, the session still listed, the row still
+   present — which are what actually prove the rollback happened. Those do not change. And note the
+   second reason the await is mandatory there: without it the operation may not have SETTLED when
+   those state assertions run, so dropping it buys a flaky pass rather than an honest one.
+
+IF A SITE HAS NO POST-THROW ASSERTIONS, say so in the handoff rather than adding some. A bare
+converted `rejects.toThrow` is acceptable where that is all the original pinned; inventing new
+assertions mid-flip is a different change and needs its own ruling.
+
+### Rule 51 — a SYNC CALLBACK PORT handed an async provider: decide by the CALLER, and here is the procedure
+
+[Standing rule, 2026-09-05. `relay.ts` alone has ~92 of the flip's remaining errors and about 60 are
+this one shape: `(userId) => Promise<boolean>` handed to a port typed `(userId) => boolean`. Rules 47
+and 49 each answered one instance. This is the general procedure so the flip stops stalling once per
+site.]
+
+THE QUESTION IS NEVER "can I make the port async". It is: **may the CALLER yield at the moment it
+invokes the callback?** Three answers, and the site tells you which:
+
+1. **THE CALLER MAY YIELD** — it is already async, or is only reached from async paths. Then WIDEN THE
+   PORT to return a promise and await it. This is the default and most sites are here. No permission
+   needed.
+
+2. **THE CALLER MAY NOT YIELD** — it runs inside a transport drain, a synchronous frame handler, a
+   comparator, or anything §2.5 covers. Then the port STAYS SYNC and you move the await EARLIER:
+   resolve the value at an async boundary that already precedes the call, and hand the callback a
+   value or a resolved lookup rather than a promise. This is rule 47's shape, and rule 49's if the
+   value can go stale in an unsafe direction.
+
+3. **YOU CANNOT TELL.** Then it is a real boundary — mail me. But say which of the two you suspect
+   and why; "I could not tell" without a hypothesis is not a question I can answer faster than you.
+
+HOW TO TELL, mechanically, rather than by feel: walk up from the callback's invocation site. If every
+frame to the nearest entry point is already `async`, you are in case 1. If you cross a drain loop, a
+frame router, an event handler that returns void, or a comparator, you are in case 2. If the same
+port is invoked from BOTH, that is case 3 and it is genuinely interesting — do not silently pick one.
+
+WHAT YOU MAY NOT DO, in any case: make the non-yielding path yield, or paper over it by caching the
+async result behind a sync reader without asking which way that cache drifts (rule 49). Those are the
+two failure modes this rule exists to prevent.
+
+### Rule 48b — the NO-THROW counterfactual keeps its matcher: `await expect(fn()).resolves.not.toThrow()`
+
+[POD-3463 found the gap: rule 48a covers the positive rejection assertion and says nothing about
+`.not.toThrow()`. 2026-09-05.]
+
+    expect(() => fn()).not.toThrow()        becomes        await expect(fn()).resolves.not.toThrow()
+
+That is `await` plus `.resolves`, with the MATCHER UNCHANGED, so it satisfies the mechanical rule
+literally. Apply it wherever the callee went async; standing authorization, no need to ask.
+
+I VERIFIED IT IS ARMED rather than assuming, because a no-throw assertion that cannot fail is worth
+nothing: against a resolving promise it passes, and against a rejecting one it FAILS. Both directions
+measured on this repo's vitest before this rule was written.
+
+DO NOT COLLAPSE IT TO A BARE `await fn()`. An unhandled rejection does fail the test, so the coverage
+is similar — but it deletes the `expect` and with it the test's statement of its own property, which
+is more than `await`/`async`/rename and therefore outside the mechanical rule. These counterfactuals
+exist precisely to say "this path stays alive"; a bare call says nothing, and the next person to touch
+it cannot tell an intentional assertion from an incidental call.
+
+KNOWN SITE TO REPAIR: `relay.test.ts`, "keeps registry boot alive when the recovery job throws",
+where `expect(() => { registry = SessionRegistry.create(...) }).not.toThrow()` was collapsed to a bare
+`registry = await SessionRegistry.create(...)` during the flip. Restore the matcher form.
+
+### Rule 51a — case 3 resolved: move the await to the PRODUCER, never fire-and-forget from the handler
+
+[First genuine rule 51 case 3, raised by POD-3263 on `SuperagentDefaultSeeder`, 2026-09-05. Its
+`seed()` is invoked from an awaited boot path AND from the synchronous void-returning
+`machine.metadataChanged` bus handler.]
+
+THE ANSWER IS THE PRODUCER, and POD-3263's own instinct was right. Await the seed at the async
+boundary that PRODUCES the event — `recordInventory`, which already writes and is already async —
+rather than inside the subscriber. Every other subscriber then observes an already-seeded state,
+failure surfaces on the write path instead of vanishing, and no non-yielding handler is made to yield.
+
+TWO SHAPES REFUSED, and the second is the trap:
+
+1. **Fire-and-forget from the handler** (`void seed()`), even with `seed` made async. It preserves
+   non-blocking emission and loses everything else: the failure is unobserved, and nothing orders the
+   seed against the next event. An unobserved rejection in an event handler is the silent-failure
+   shape this epic has now been bitten by twice.
+
+2. **Boot hydrate ALONE.** This one looks tidy and CONTRADICTS THE DOCUMENTED REASON THE HANDLER
+   EXISTS. `relay.ts` says it in as many words: *"An inventory report is the ONLY moment new
+   availability becomes known, and a daemon that connects minutes after boot is the ordinary case —
+   so the seed runs on the report rather than once at startup."* Seeding only at boot silently drops
+   every daemon that connects afterwards, which is the NORMAL case, not an edge one.
+
+SO BOTH HALVES ARE REQUIRED: awaited at the producer for each inventory report, AND awaited once at
+boot hydrate for the install whose daemon reported before this process started. The existing code has
+exactly that pair for exactly that reason; keep the pair.
+
+PRESERVE THE GUARD AND THE IDEMPOTENCE. The `inventory` flag exists so a rename or a machine-name
+change does not re-run the seed, and the seed is idempotent because its guard reads the fields its own
+write fills. Neither property may be lost in the move.
+
+AND CHECK THE PROPERTY IS PINNED. If no test asserts that a daemon connecting AFTER boot gets seeded,
+say so — that is the behaviour this whole shape exists to protect, and moving it without a test
+watching is how it disappears in the next refactor.
+
+### Rule 51b — case 2 may resolve LATER, not only earlier: a DEBOUNCER's boundary is its own timer
+
+[Raised by POD-3468 on `IssueAssistantDigestModule.onSessionActivity`
+(`apps/server/src/modules/issues/service/assistant.ts:40`), 2026-09-06. It classified the site as case
+2 correctly and then concluded the await had to move UPSTREAM to a relay-owned producer, and so
+proposed to leave the site untouched. The classification was right; the direction was not.]
+
+CASE 2 SAYS "MOVE THE AWAIT OFF THE SYNCHRONOUS PATH". It does not say the only direction is earlier.
+Later is equally valid whenever the path is ALREADY deferred and ALREADY best-effort — and a debouncer
+is exactly that shape.
+
+THE TEST for this variant, all three required:
+
+1. The function has NO observable effect at call time — it schedules, it does not answer.
+2. The deferred body is already fire-and-forget in the code as it stands (a `void ...catch(() => {})`
+   inside a timer or a queue drain), so no NEW unobserved rejection is introduced.
+3. The async read is needed only by the deferred body, not by the scheduling decision.
+
+`onSessionActivity` passes all three: its four callers are void (the `issue.sessionDerived` bus handler
+at `relay.ts:1553`, and `daemon-lifecycle.ts` at 263, 794 and 901), it arms a 120-second timer, and
+that timer's body is already `void this.refreshAssistant(row.id).catch(() => {})`. The resolution moves
+INTO the timer body. Nothing upstream changes and `relay.ts` is not touched — which matters during the
+flip, because `relay.ts` is single-owner and every site pushed onto it serialises behind one worker.
+
+WHAT THIS VARIANT COSTS, AND IT IS INVISIBLE. Deferring a resolution loses whatever the resolved value
+was used for AT SCHEDULING TIME. Here the resolved value is the debounce KEY:
+
+    this.assistantTimers.set(row.id, ...)   // row.id is the ISSUE, not the session
+
+That key is the point of the function: a burst across N member sessions of ONE issue coalesces into ONE
+digest — one LLM call. Defer the resolution naively and the timer keys by `sessionId` instead, so the
+same burst arms N timers and fires N digests for one issue. N times the cost, and NOT ONE TEST FAILS,
+because nothing asserts the call count.
+
+SO THE RULE HAS AN OBLIGATION ATTACHED. Before deferring, name what the pre-resolution value was used
+for — a key, a guard, an early return, an ordering — and say how it is preserved. State the
+before/after count of the deferred effect for a burst that the coalescing exists to collapse. Equal
+counts, or the site comes back to the coordinator.
+
+GENERALLY: when case 2 has no earlier async boundary, look DOWNSTREAM before escalating. A scheduler, a
+queue drain, a retry loop and a debouncer all have a later boundary that already tolerates an await,
+and using it keeps the change inside one file instead of spreading it across an ownership line.
+
+### Rule 51c — a provider that also MAINTAINS state cannot be snapshotted: split the ANSWER from the MAINTENANCE
+
+[Raised by POD-3469 on the websocket credential path, 2026-09-06. It proposed the ordinary case-2 fix,
+resolving credential validity once at the HTTP upgrade, then followed `auth-route.ts`, proved the fix
+was NOT behaviour-preserving, and reverted it in `a381218b2` before anyone reviewed it. That is the
+right order of operations and the reason this rule exists rather than a bug.]
+
+WHY THE SNAPSHOT WAS WRONG. `maintainClientCredentialByHash` is not a query. Besides answering "is this
+credential still valid", it RENEWS an active login or mobile session and touches mobile `lastSeenAt`.
+Resolving it once at upgrade answers the question correctly and then never performs the maintenance
+again — so a healthy long-lived socket dies at the 30-day expiry it should have been renewing all
+along, and mobile activity tracking silently stops. The snapshot preserves the boolean and destroys the
+side effect.
+
+RULE 51'S DECISION PROCEDURE ASSUMES A PURE PROVIDER. Cases 1, 2 and 3 all ask only WHERE the await may
+happen. That is a complete question when the async call is a read. When the provider also WRITES, moving
+the await also moves WHEN the write happens — and a write that must RECUR cannot be hoisted to a
+one-shot boundary at all. Neither earlier (51/case 2) nor later (51b) is available.
+
+SO SPLIT THE TWO RESPONSIBILITIES, and keep both:
+
+1. THE ANSWER the synchronous path consumes becomes a resolved value it can read without yielding —
+   for the pong handler, a resolved validity. The port stays synchronous. Nothing on the frame or pong
+   path yields.
+2. THE MAINTENANCE moves to a serialized async producer on its own cadence — a heartbeat — which
+   performs the renew and the touch and refreshes the resolved value the sync path reads.
+
+Rule 51b's condition 2 does NOT apply here and POD-3469 was right to say so: the existing timer body was
+synchronous, so there is no already-fire-and-forget deferred body to move the await into. 51b is for
+deferring a resolution; this is for separating a read from a write.
+
+NOW THE RULE 49 OBLIGATION, WHICH IS SHARPER HERE THAN ANYWHERE ELSE IN THIS EPIC. The resolved validity
+is a cache on an AUTHENTICATION path, so ask which way it drifts. A stale "valid" keeps alive a socket
+whose credential has been revoked. That permits MORE, and it is the unsafe direction. Therefore:
+
+- The cached validity carries a BOUNDED staleness, and the bound is stated in the code, not implied by
+  the heartbeat interval.
+- If the heartbeat is OVERDUE — it failed, or was never scheduled — the answer is INVALID and the socket
+  closes. Fail closed. An authentication cache whose refresher has died must not keep answering "yes".
+- Explicit revocation invalidates IMMEDIATELY and does not wait for the next heartbeat. POD-3469's
+  existing revoke producer already covers deletion; it does NOT cover renewal or touch, which is exactly
+  why the maintenance half must survive as its own producer.
+
+STATE THE INTERVAL, THE STALENESS BOUND AND THE OVERDUE BEHAVIOUR in the handoff. A credential cache
+that outlives its refresher is a login that cannot be revoked.
+
+GENERALLY: before applying rule 51 to any provider, ask whether it WRITES. If it does, 51's three cases
+do not decide it — split the answer from the maintenance and apply 49 to whatever you cached.
+
+### Rule 52 — PROMISE TRUTHINESS has unbounded spellings: the lint is a floor, not the guard
+
+[Raised by POD-3263's `850b106ec`, 2026-09-06, and it is the seventh confirmed instance of this class
+in this flip. The first six were `.filter`/`.find` callbacks and are caught by
+`checkAsyncBooleanPredicate`. This one was not, because it wore a COMPARISON instead of a callback.]
+
+THE SITE. `relay.ts` read:
+
+    exclusiveOperationActive: () =>
+      operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined
+
+`engine.active()` returns a promise now. A promise compared to `undefined` is a perfectly good
+boolean — so this answered TRUE on every call, and NOTHING failed to typecheck.
+`UpdatesService.setTarget` uses it to decide whether a newly published version lands or is queued
+behind a running update, so EVERY publication was being queued as though an operation were
+permanently in flight.
+
+THE CLASS IS "A PROMISE USED AS A BOOLEAN", AND ITS SPELLINGS ARE UNBOUNDED:
+
+    p !== undefined      p != null       Boolean(p)       if (p)
+    p ? a : b            !p              p && q           while (p)
+    arr.filter(async …)  arr.find(async …)  arr.some(async …)
+
+`checkAsyncBooleanPredicate` catches only the last line. Do not read a clean lint as the absence of
+this defect — the lint is a FLOOR. Catching the rest needs TYPE information, because syntax alone
+cannot tell which expression is a promise; that is filed as POD-3483.
+
+SO THE OBLIGATION IS ON THE AUTHOR, NOT THE TOOL. When you make a function async, walk EVERY call site
+and ask what its result is used AS, not merely whether it still compiles. A result used as a boolean —
+in a comparison, a condition, a ternary, a negation — is the dangerous case, and the compiler is silent
+on all of them because every one is legal.
+
+THE RUN OF CONSERVATIVE FAILURES IS A SAMPLING ARTEFACT, NOT A PROPERTY OF THE CLASS.
+[POD-3467, 2026-09-06, correcting this rule's own framing.] All seven confirmed instances failed toward
+a CONSERVATIVE branch — publications queued, digests coalesced, an operation treated as in flight — and
+that is precisely why they survived unnoticed. It would be a mistake to read that as the class being
+benign. It reflects only which sites happened to get converted naively first.
+
+`anchorFor` in `scoping.ts` is the counter-example, and it is worth studying even though the defect was
+never written: `currentValueOf` became async, and had the comparison been left inline,
+`value !== undefined` would have been true on every call and every REVOKED subject would have been
+re-admitted as an upsert carrying a promise as its wire value, instead of being evicted. There, truthy
+is the PERMISSIVE direction. A revocation that does not revoke is a data leak, not a latency bug.
+
+So WORK OUT THE DRIFT DIRECTION PER SITE. Ask what the comparison guards, not what the last six sites
+happened to do. The next permissive one will not announce itself either.
+
+AND NOTE WHICH WAY THE BUG WENT, because it is the reason this class is severe: the broken witness said
+TRUE always, so the system took the CONSERVATIVE branch and queued everything. A promise is always
+truthy, so this class fails toward whichever branch "truthy" selects — which may be the permissive one.
+POD-3263's own analysis is the model: it refused to CACHE the witness because a cached answer drifts
+toward a stale FALSE, and false is the permissive direction there.
+
+THE POSITIVE RULE: never leave a possibly-async expression in a boolean position. Resolve it first and
+compare the resolved value.
+
+### Rule 53 — an ADDED await can DEADLOCK a test whose subject is CONCURRENCY, and it reads as slowness
+
+[Raised by POD-3263 on `updates/service.test.ts`, 2026-09-06. Rule 48a warns that a MISSING await is
+silent. This is the opposite failure and it is worse, because it does not present as a failure at all.]
+
+THE SHAPE. A mechanical await pass wrote
+
+    const tick = await svc.refreshTarget(…)
+
+in three refresh-coalescing tests whose WHOLE POINT is that two calls are in flight TOGETHER, with the
+resolver released by a `finish()` further down the test body. Awaiting the first call means `finish()`
+is never reached, so the test DEADLOCKS and dies on the 20-second timeout. A fourth test had
+
+    await Promise.all([await a, await b])
+
+which serialises the two calls and defeats the `Promise.all` it is written around.
+
+WHY IT IS DANGEROUS: a deadlock presents as a TIMEOUT, and a timeout reads as "this test is slow" or
+"the box is loaded" — especially on a shared machine, and especially while the disk is full and ENOSPC
+is producing 20-second timeouts of its own. Three separate causes converge on the same symptom.
+
+THE RULE. Before adding an await inside a test, ask WHAT THE TEST IS ABOUT. If its subject is
+concurrency — coalescing, single-flight, debouncing, racing, ordering, "both in flight at once" — then
+awaiting each call individually destroys the thing under test. Keep the calls unawaited, collect the
+promises, release the resolver, and await the collection:
+
+    const a = svc.refreshTarget(…)      // NOT awaited
+    const b = svc.refreshTarget(…)      // NOT awaited
+    finish()                            // now reachable
+    const [ra, rb] = await Promise.all([a, b])
+
+NEVER write `Promise.all([await a, await b])`. It type-checks, it passes, and it tests nothing the
+`Promise.all` was there to test.
+
+AND WHEN A TEST TIMES OUT DURING THIS FLIP, ENUMERATE THE THREE CAUSES BEFORE DEBUGGING THE SUBJECT:
+a deadlock you introduced, ENOSPC (`df -h /`), or a genuinely slow test. They are indistinguishable
+from the symptom alone.
+
+### Rule 52a — WIDEN THE PORT IN THE SAME PASS: a sync port fed by an async provider is the only window where promise-truthiness is silent
+
+[POD-3469 audited rule 52 across its slice and returned a refinement that changes the instruction,
+2026-09-06. It is right, and it converts rule 52 from a warning into a procedure.]
+
+RULE 52's OWN EXAMPLE IS LOUD ON POD-3469'S BRANCH. The same two sites —
+
+    relay.ts:784  operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined
+    relay.ts:789  exclusiveUpdateVersion(operations?.engine.active(…), channel)
+
+— are compiler ERRORS there (TS2322 at 783, TS2322 at 788, TS2345 at 789), not silent ones. The
+difference is that POD-3469 had already WIDENED THE PORT to `Promise<boolean>` and
+`Promise<string | undefined>`. Once the port says `Promise`, a synchronous arrow whose body compares a
+promise to `undefined` no longer satisfies it, and the compiler names the line.
+
+SO THE SILENCE WAS NEVER A PROPERTY OF THE EXPRESSION. It was a property of the PORT still being sync
+while the provider went async. That is the entire window in which this class hides, and it is a window
+YOU CONTROL.
+
+THE PROCEDURE, and it is now mandatory: WIDEN THE PORT IN THE SAME PASS AS THE PROVIDER. Never leave a
+sync-typed port fed by an async provider, even briefly, even "just until the next commit". Widen it and
+the compiler enumerates every bad call site for you, for free, by name and line.
+
+The same effect is visible elsewhere: `feed-visibility.ts:381` reports a `Promise<boolean>` provider
+against a sync `mayRead` port as a plain type error. SYNC PORT PLUS ASYNC PROVIDER IS LOUD. What stays
+silent is only the residue — where the port is legal at both ends and the promise sits inside an
+expression whose own inferred type is still boolean.
+
+AND A NEGATIVE RESULT WORTH HAVING, so nobody repeats it. POD-3469 tried a repo-wide TEXTUAL scan for
+promise-in-boolean: derive every async name, flag un-awaited uses in conditions, negations, logical
+operators, nullish comparisons and ternaries. It produced 873 findings and essentially all were NAME
+COLLISIONS — `has`, `get`, `state`, `capabilities`, `isFile`, `join`, `canSee`, `runs` are async
+somewhere and sync where they are used. Name matching cannot decide this. POD-3483's type-aware check
+is genuinely required; do not attempt a grep substitute.
+
+WHAT DOES WORK WITHOUT TYPES is exhausting ONE confirmed-async function: POD-3469 checked every
+`engine.active(` call site in the repo and found only the two above. Note `relay.ts:2742` reads wrong at
+a glance and is FINE — `await` binds tighter than `!==`.
+
+### Rule 54 — AWAITING CORRECTLY IS NOT THE SAME AS BEING SAFE TO AWAIT: check-then-act across a new await
+
+[POD-3469, 2026-09-06, measured on POD-3263's tip. It had previously certified that same code CLEAN for
+rule 52 — and it was: every call awaits properly, no promise sits in a boolean. This is a different
+defect entirely, and it appeared only when it probed for CONCURRENCY rather than reading for truthiness.]
+
+THE CLASS. Adding an await between a CHECK and the ACT it guards turns a previously atomic sequence
+into a race. The code is correct as written and correct as read; what changed is that the function now
+yields in the middle, so a second entrant can pass the same check before the first has acted.
+
+MEASURED, not argued — the same byte-identical test on both trees:
+
+    POD-3263 tip 46e2975c1   attachDaemon called 2 TIMES   FAIL
+    POD-3469 branch          attachDaemon called 1 time    pass
+
+Two hello frames delivered in ONE tick admit the daemon TWICE. Verified in
+`packages/protocol/src/handshake/acceptor.ts`:
+
+    :156   if (state === 'established') …          CHECK — refuses a second hello
+    :218   const outcome = await strategy.authenticate({…})   YIELD
+    :242   state = 'established'                   ACT — too late
+
+`daemon-socket.ts` repeats it one level up: `if (principal === undefined)` → `await
+receiveDaemonFrame` → `principal = outcome.principal`. The handler is async and nothing serializes it.
+
+IT IS REACHABLE BY THE PEER. An attacker writes two hellos back to back and controls whether they land
+in one read. Beyond the double admission it permits concurrent unbounded credential lookups on a socket
+that has not authenticated.
+
+WHY NO TEST SAW IT, and this is the reusable part: the existing case, "refuses a second handshake on a
+live connection", AWAITS its first hello before sending the second. It is SEQUENTIAL BY CONSTRUCTION,
+so it cannot express two frames in flight, and it passes on both shapes. The assertion was never wrong.
+The DELIVERY could not see the bug. Same shape as a vacuous fail-closed test: check what the harness is
+capable of expressing before trusting what it reports.
+
+THE OBLIGATION. Every time you add an await to a function that GUARDS something — an admission, a
+single-flight, a "have we already done this", a cache fill, a lock acquisition — find the check it sits
+between and ask what happens if a second caller arrives during the yield. Then WRITE THE TEST THAT
+DELIVERS TWO IN ONE TICK, without awaiting the first. If your existing test awaits between the two, it
+is testing sequence, not concurrency, and it will pass either way.
+
+THE FIX IS NOT A CAP. Bounding a queue limits how much can pile up; it does not make the admission
+single-flight. Either mark the connection as in-progress SYNCHRONOUSLY before the first await, or
+serialize entry at the boundary (POD-3469's `preAuthSerial` chain). It mutation-checked that its own
+guard is load-bearing: replacing `preAuthSerial` with `Promise.resolve()` reproduces "called 2 times"
+exactly.
+
+### Rule 52b — WIDEN TO `Promise<T>`, NOT TO `T | Promise<T>`: a union port manufactures the blind spot
+
+[POD-3484, 2026-09-06, correcting rule 52a with a live example. 52a says widening the port in the same
+pass makes the class loud. That is true only for one of the two ways to widen.]
+
+RULE 52a IS RIGHT ABOUT `Promise<T>` AND WRONG ABOUT UNIONS. `apps/server/src/modules/updates/operation.ts`
+declares
+
+    stepActive?: (operationId: string, stepId: string) => boolean | Promise<boolean>
+
+That port WAS widened in the same pass as its provider, exactly as 52a demands. The bad call site
+thirty lines below still typechecks clean, zero errors in the file:
+
+    until: () => !(context.stepActive?.(operation.id, UPDATE_STEP_WEB) ?? true)
+
+The arrow returns `boolean`, which satisfies the union, so nothing is loud. The promise sits inside an
+expression whose own inferred type is still boolean — the exact residue rule 52 describes. THE EFFECT
+WAS REAL: the web-rebuild watcher never stopped, which is the POD-2173 leak the fence exists to close.
+
+A UNION PORT IS A MACHINE FOR MANUFACTURING THAT RESIDUE, because it makes the synchronous spelling
+legal at both ends BY CONSTRUCTION. `Promise<T>` refuses the sync arrow and the compiler enumerates the
+sites; `T | Promise<T>` accepts it and says nothing. The whole leverage of 52a comes from the port
+REFUSING something, and a union refuses nothing.
+
+SO THE PROCEDURE IS: widen to `Promise<T>`. Do not reach for the union because it makes the diff
+smaller — it makes the diff smaller precisely by not forcing the call sites you need forced.
+
+IF A UNION IS GENUINELY REQUIRED because some implementations must stay synchronous, then declare it a
+KNOWN BLIND SPOT: list the port in the handoff, read every call site by hand, and say you did. A union
+port is the one place where "the typecheck is clean" carries no information about this class.
+
+AND A UNION IS SOMETIMES A DELIBERATE STOP-SHORT, WHICH MUST ALSO BE DECLARED. POD-3469 widened
+`UpdatesDeps.onTargetChanged` to `void | Promise<void>` rather than `Promise<void>` because tightening
+it would flag `relay.ts:790` — a FENCED file it was not allowed to edit. That was the right call at the
+time and the wrong thing to leave silent. If a fence, not a design need, is what stopped you, say so:
+name the port, name the site outside your fence, and file the remainder. Otherwise the next reader
+cannot tell a considered union from an unfinished one.
+
+NOTE WHAT THE `void` SLOT WAS DOING BEFORE ANY OF THIS. At the merge-base the port was declared plain
+`void` while the provider already returned `Promise<void>`, and ALL THREE call sites were un-awaited. A
+`void`-returning slot ACCEPTS a promise-returning function — the same assignability rule behind the
+floating-promise hazard in the merge steps — so the float pre-dated the flip entirely and was invisible
+in the type. Widening to a union is therefore an IMPROVEMENT on `void`: it makes the asyncness visible
+and awaits what can be awaited. The ranking is `Promise<T>` best, union second, bare `void` worst.
+
+THIS ALSO BOUNDS RULE 51. When rule 51 case 1 says "widen the port and await", it means widen to
+`Promise<T>`. A case-1 conversion that produces a union has not been done.
+
+THE BAN IS ON PORTS, NOT ON THE TOKEN. [POD-3469, 2026-09-06, and this qualification is load-bearing —
+without it someone "fixing" a union will destroy a design this epic deliberately chose.] A union is
+acceptable as an IMPLEMENTATION SIGNATURE behind overloads that discriminate on argument type, because
+TypeScript does not expose the implementation signature to callers:
+
+    export function receiveDaemonFrame(a: HandshakeAcceptor, raw: string): DaemonFrameOutcome
+    export function receiveDaemonFrame(a: PreparedDaemonAcceptor, raw: string): Promise<DaemonFrameOutcome>
+    export function receiveDaemonFrame(a: HandshakeAcceptor | PreparedDaemonAcceptor, raw: string):
+      DaemonFrameOutcome | Promise<DaemonFrameOutcome> { … }
+
+Each caller matches ONE overload, decided statically by which acceptor it holds, and gets a single
+concrete type. POD-3469 PROVED a caller cannot obtain the union: assigning
+`receiveDaemonFrame(prepared, …)` into a `DaemonFrameOutcome` slot is refused with TS2322. This is in
+fact the STRONGEST available shape here, because the caller cannot get the wrong one.
+
+THE TEST IS NOT THE SPELLING, IT IS WHETHER A CALLER CAN OBTAIN THE UNION. A port hands the union to
+every caller and the sync spelling stays legal at both ends — banned. An implementation signature
+behind discriminating overloads hands the union to nobody — allowed, if you can demonstrate it. If you
+cannot demonstrate it, treat it as a port.
+
+Collapsing those overloads into one async function would take the synchronous acceptor path with it —
+the very path the gateway ruling in the merge steps exists to protect.
+
+### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
+
+[Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
+`transaction-spec.ts`, the savepoint-hijack case, and now `synchronous-span.test.ts`'s orphaned
+`expect(reported).toEqual([])`. Every answer has been the same; make it a rule so the flip stops
+round-tripping through me.]
+
+SORT EVERY ASSERTION IN A DELETED MECHANISM'S TEST INTO ONE OF TWO PILES:
+
+- **MECHANISM** — it names the implementation, or observes ABSENCE from a registry/namespace/counter
+  that the deletion removes. `expect(reported).toEqual([])` against a deleted sink registry;
+  assertions naming `podium_sp_<depth>` or the `depths` WeakMap. These DIE with the construct. Keeping
+  one is worse than deleting it: it either fails to compile, or passes because nothing can populate
+  the thing it inspects, which is a green that means nothing.
+- **BEHAVIOUR** — it observes what a CALLER can see, and would still make sense written against the
+  replacement. `expect(ran).toEqual(['now'])`; the throw propagating rather than being swallowed;
+  rolling back only the inner savepoint; nothing appended after a failed write. These TRANSFER, and
+  they transfer VERBATIM to wherever the behaviour now lives.
+
+YOU MAY APPLY THIS WITHOUT ASKING. Report the split in the handoff — which assertions you dropped as
+mechanism, which you carried, and where the carried ones landed.
+
+THE ONE THING THAT IS NOT OPTIONAL: after removing a mechanism assertion, PROVE THE SURVIVORS ARE
+STILL ARMED. Break each remaining assertion's subject and watch it red by name. The risk is that the
+deleted assertion was the one doing the discriminating and the survivors pass regardless — which is
+how a suite gets greener while testing less, and that is precisely the shape of this epic's two
+critical findings.
+
+STOP AND ASK ONLY IF the behaviour pile is EMPTY — a test all of whose assertions were mechanism means
+the deletion removed a property nobody is checking any more, and I want to know that rather than have
+it silently disappear.
+
+### Rule 49 — a cached RETENTION bound resolves PER PASS, and its fail-closed answer is re-bootstrap
+
+[Ruling on POD-3263's fifth boundary, 2026-09-05. Refines rule 47, which covers a synchronous reader
+over an async store. `FeedRetentionPort.minAvailableSeq` and `authorizationRevision` look like the
+same shape as feed identity. They are not, and caching them the identity way is unsafe.]
+
+IDENTITY IS EFFECTIVELY IMMUTABLE; A RETENTION BOUND ONLY RISES. `minAvailableSeq` increases every
+time retention prunes, so a cached copy is not merely possibly-stale — it is stale in ONE direction,
+and that direction is the dangerous one. `change-log.ts` states the servability rule: a cursor is
+servable iff `cursor + 1 >= minAvailableSeq`. With a stale-LOW cached bound the server computes
+servable for a cursor whose changes it has already pruned, and serves a gap. The same file already
+warns of the identical failure for the degenerate value: "a 0 would claim it can serve a cursor it
+cannot."
+
+SO: RESOLVE PER SERVING PASS, not once at boot. Rule 47's resolve-once is correct for identity and
+wrong here.
+
+AND THE FAIL-CLOSED ANSWER IS ALREADY WRITTEN DOWN. When the bound is unresolved or in doubt, answer
+RE-BOOTSTRAP, because `change-log.ts` certifies that direction as always safe: "the authority's answer
+is authoritative either way; a needless bootstrap is always legal". Never default to serving. The
+same reasoning gives `authorizationRevision` its default: an unresolved revision means re-check or
+refuse, never authorize on a cached one.
+
+GENERALLY: before caching a value behind a synchronous reader, ask which way it drifts. If it drifts
+toward permitting more, it may not be cached across the operation it permits.
+
+### Rule 48 — an exact-error capture helper goes async; the expected strings transfer VERBATIM
+
+[Ruling on POD-3263's fourth assertion boundary, 2026-09-05. The site is
+`modules/workflows/engine.test.ts`, whose `thrown(fn)` helper captures a throw as the exact string
+`` `${name}: ${message} | code=${code}` `` and returns `'NO THROW'` otherwise. 84 call sites; 15 now
+call commands that return promises.]
+
+CUSTODY TRANSFERS TO AN ASYNC CAPTURE HELPER. `await fn()` inside the same try/catch catches a
+synchronous throw AND a rejection, so ONE helper serves all 84 sites and the sync ones need no split.
+The returned string format and the `'NO THROW'` sentinel are preserved exactly, so every expected
+string in every assertion transfers UNCHANGED. Under the flip's mechanical rule that is await plus a
+helper rename and nothing else. **If any expected string has to change, that is a finding — stop and
+report it, do not adjust the expectation.**
+
+THE OTHER ARM IS IMPOSSIBLE, not merely undesirable. "Keep synchronous validation before returning a
+promise" cannot work where validation READS THE STORE, and these do: `'unknown workflow revision:
+wfr_nope'` can only be known by looking the revision up, and that read is async after the flip.
+Splitting the 15 into sync-validatable and not would also give one error class two failure modes,
+which is worse than either alone. It is an API redesign and the flip is not the place for it.
+
+THIS MIGRATION IS SAFE-BY-CONSTRUCTION, unlike the `rejects.toThrow` one in the awaitify ledger. A
+missed `await` here leaves `expect(Promise).toBe('Error: …')`, which FAILS LOUDLY. A missed `await` on
+`rejects.toThrow` passes silently. Same flip, opposite hazard — do not carry the caution from one to
+the other, and do not "harden" this helper into something that swallows the difference.
+
+PRESERVE THE COUNTERFACTUALS. Several of these tests pair a refusal with the same call by a
+higher-grade principal, explicitly so the refusal is known to be the rule firing rather than an
+incidental failure. Those are arming canaries. They transfer with the assertions they guard.
+
+### Rule 47 — a synchronous reader over an async store LOADS AT AN ASYNC ENTRY POINT, never at composition
+
+[Ruling on POD-3263's no-rule boundary, 2026-09-05. The site is `FeedIdentityRegistry.current()`,
+which must stay synchronous because `FeedPublisher` drain/connect and the conformance getters call it
+on a path that may not yield (§2.5). Its store's reads are async after the flip.]
+
+B1 proposed loading and minting in an async `open(store, mint)` before composition. REFUSED, because
+`identity.ts` documents two properties that construction-time loading destroys, and both have stated
+reasons:
+
+    Constructing this does NOT write. The identity is minted lazily on the first `current()`, so a
+    read-only consumer of a fresh database does not silently create a feed — and, more usefully, so a
+    test can observe the "no identity persisted yet" state that a first-boot replica actually meets.
+
+and `current()` reads THROUGH on a cache miss, "which is what makes 'survives a restart' a property a
+test can assert by building a second registry over the same store".
+
+THE RULE. Where a synchronous reader sits over a now-async store, add an EXPLICIT async resolve step
+and call it at the async entry points that already precede the synchronous path — not in the
+constructor, and not in composition. Three conditions:
+
+1. CONSTRUCTION STILL WRITES NOTHING. The resolve step is a separate call, so a read-only consumer
+   that never enters the write path still never mints. That is the property being preserved.
+2. THE SYNCHRONOUS READER THROWS IF UNRESOLVED. It must not lazily mint, return null, or return a
+   stale value. A missed call site has to fail loudly at the first read: for feed identity the silent
+   alternative is a replica applying a foreign timeline, which `bump()`'s own guard exists to prevent.
+3. RESOLVE IS IDEMPOTENT AND READS THROUGH ONCE. Building a second registry over the same store and
+   resolving must still observe the persisted value, so the restart property keeps its test.
+
+WHY NOT THE OTHER ARM. Making `current()` async and widening the publisher/connection API pushes a
+yield into the transport drain, which is exactly the class §2.5 exists to forbid: a drain that can
+yield mid-loop lets frames interleave. The registry is not the place to discover that.
+
+GENERALLY: when the flip makes a dependency async under a caller that may not yield, the fix is to
+move the await EARLIER to a boundary that already exists, never to make the non-yielding path yield
+and never to hide the await behind a cache that can be stale.
+
 ### Rule 35 — transaction routing is AMBIENT, and drizzle's transaction is the mechanism
 
 [Operator decision on record, 2026-09-04. Supersedes the framing in rule 30, which described ambient
@@ -1444,6 +2083,26 @@ rather than a reimplementation of it:
         ? tx.transaction((inner) => scope.run(inner, fn))   // drizzle's savepoint
         : this.root.transaction((t) => scope.run(t, fn), { behavior: 'immediate' })
     }
+
+**RULE 35a — THE OUTER ARM IS THE EXECUTOR'S, NOT DRIZZLE'S (POD-3263 correction, 2026-09-05).**
+The snippet above says `this.root.transaction(...)`. That is right for bun:sqlite, where the
+size-one queue owns one shared connection, and WRONG for the async driver. Over `sqlite-proxy`,
+drizzle implements `transaction()` as BEGIN, body, COMMIT issued through its callback — three
+ordinary statements that the root `QueryClient` scheduler would lease INDEPENDENTLY, so nothing
+holds one connection across the body. `driver.ts` states the contract the other way round: the
+queue owns the connection, and an interactive transaction is held open on the server across awaits
+under a declared lease budget. So the outer arm must be the executor's `transact`, which pins that
+lease; drizzle's own `transaction` is correct ONLY for the nested arm, where a connection is already
+pinned and all it adds is a savepoint:
+
+    // outer: the executor pins the lease, and the span runs on the pinned connection
+    executor.transact((tx) => scope.run(buildStoreDrizzle(tx.drizzle), fn))
+    // nested: a savepoint inside the already-pinned connection
+    currentTransaction().transaction((inner) => scope.run(inner, fn))
+
+The ambient getter, the `behavior: 'immediate'` intent and the savepoint deletions are all
+unchanged; only WHO opens the outermost span moves, from drizzle to the executor. Found by POD-3263
+before wiring it rather than after, which is why it costs a paragraph instead of a phase.
 
 DELETED by this: the `podium_sp_${depth}` savepoint construction and the `depths` WeakMap in
 `packages/runtime/src/sqlite/transaction.ts`. Drizzle nests via its own savepoints and we stop having

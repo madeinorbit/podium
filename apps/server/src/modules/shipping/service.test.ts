@@ -1335,7 +1335,11 @@ describe('ShippingService enqueue transaction', () => {
         requestedBy: approval.requestedBy,
         overrideScope: false,
       }),
-    ).rejects.toThrow(/event refused/)
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        message: expect.stringMatching(/event refused/),
+      }),
+    })
     expect((await store.shipping.getOrder(order.id))?.state).toBe('queued')
     expect((await store.issues.getIssue(issue.id))?.stage).toBe('shipping')
     service.dispose()

@@ -77,6 +77,18 @@ export const TURSO_BUSY_RETRY = {
   maxDelayMs: 500,
 } as const
 
+function unwrapCause(error: unknown): unknown {
+  let current = error
+  const seen = new Set<unknown>()
+  while (current !== null && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current)
+    const cause = (current as { cause?: unknown }).cause
+    if (cause === undefined) break
+    current = cause
+  }
+  return current
+}
+
 /**
  * Which libsql failures are worth another attempt.
  *
@@ -88,9 +100,10 @@ export const TURSO_BUSY_RETRY = {
  * which means the work is already lost — is fatal.
  */
 export function classifyLibsqlFailure(error: unknown): FailureClass {
-  const code = (error as { code?: unknown } | null)?.code
+  const original = unwrapCause(error)
+  const code = (original as { code?: unknown } | null)?.code
   if (typeof code === 'string' && code.toUpperCase().includes('SQLITE_BUSY')) return 'busy'
-  const message = error instanceof Error ? error.message : String(error)
+  const message = original instanceof Error ? original.message : String(original)
   return /SQLITE_BUSY|database is locked/i.test(message) ? 'busy' : 'fatal'
 }
 
