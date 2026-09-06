@@ -391,7 +391,7 @@ export class IssueGitWorkflowModule {
           `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
         )
       }
-      if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
+      if (row.machineId) await this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
       const branch = this.store.slug(row.seq, row.title)
       path = this.worktreePathFor(startRepoPath, branch)
       // Freeze the SAME repo-affine/default choice repoOp used to make internally.
@@ -1050,7 +1050,7 @@ export class IssueGitWorkflowModule {
     const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
-    if (pinnedMachineId) this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
+    if (pinnedMachineId) await this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
     const res = await this.store.d.repoOp(
       'worktreeAddExisting',
       repoPath,
@@ -1422,12 +1422,12 @@ export class IssueGitWorkflowModule {
     // (POD-1571): comparing the source path literally made a present repo read as
     // absent and refused every add-session to a machine with a different layout.
     if (row.machineId) {
-      this.store.d.requireMachineForRepo?.(
+      await this.store.d.requireMachineForRepo?.(
         row.machineId,
         (await this.repoPathOnMachine(row.repoPath, row.machineId)),
       )
     }
-    this.store.d.spawnSession({
+    await this.store.d.spawnSession({
       cwd: row.worktreePath,
       issueId: row.id,
       agentKind: kind,

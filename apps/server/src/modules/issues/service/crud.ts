@@ -158,7 +158,7 @@ export interface ShippingIssueMutation {
  */
 interface IssueCrudHierarchyPort {
   reparent(id: string, parentId: string | null): Promise<IssueWire>
-  setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): void
+  setParentForUpdate(row: IssueRow, parentId: import('@podium/model').IssueId | null): Promise<void>
 }
 
 interface IssueCrudAttentionPort {
@@ -917,7 +917,7 @@ export class IssueCrudModule {
     // through (`podium issue create --machine`, the new-issue dialog):
     // POD-2700 §2.5 lists issue homing as an enforcement site, and refusing only
     // one of the two entry points is how a guard becomes decorative.
-    if (input.machineId != null) this.store.d.requireIssueHomeMachine?.(input.machineId)
+    if (input.machineId != null) await this.store.d.requireIssueHomeMachine?.(input.machineId)
     // Server-minted ids are unique by construction; a client-minted optimistic
     // insert is not. Refuse it before allocating a sequence or touching storage:
     // IssuesRepository upserts by id for ordinary updates, so allowing create to
@@ -1135,7 +1135,7 @@ export class IssueCrudModule {
     // the patch actually MOVES the pin: clearing it (`null`) and updates that do
     // not mention it are untouched.
     if (rowPatch.machineId != null && rowPatch.machineId !== row.machineId) {
-      this.store.d.requireIssueHomeMachine?.(rowPatch.machineId)
+      await this.store.d.requireIssueHomeMachine?.(rowPatch.machineId)
     }
     if (
       rowPatch.worktreePath &&
@@ -1156,7 +1156,7 @@ export class IssueCrudModule {
       })
     }
     if ('parentId' in rowPatch) {
-      this.hierarchy().setParentForUpdate(
+      await this.hierarchy().setParentForUpdate(
         row,
         rowPatch.parentId == null ? null : await this.store.resolveRef(rowPatch.parentId),
       )
