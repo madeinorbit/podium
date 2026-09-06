@@ -43,16 +43,14 @@ export interface SuperagentTurnPort {
     threadId: ThreadId
     text: string
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
-  interruptTurn(input: { ownerUserId: UserId; threadId: ThreadId }): void
-  restartThread(input: { ownerUserId: UserId; threadId: ThreadId }): void
-  startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }): {
-    threadId: ThreadId
-    isNew: boolean
-  }
-  ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }): {
-    threadId: ThreadId
-    isNew: boolean
-  }
+  interruptTurn(input: { ownerUserId: UserId; threadId: ThreadId }): void | Promise<void>
+  restartThread(input: { ownerUserId: UserId; threadId: ThreadId }): void | Promise<void>
+  startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }):
+    | { threadId: ThreadId; isNew: boolean }
+    | Promise<{ threadId: ThreadId; isNew: boolean }>
+  ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }):
+    | { threadId: ThreadId; isNew: boolean }
+    | Promise<{ threadId: ThreadId; isNew: boolean }>
 }
 
 /** Persisted forum-topic ↔ superagent-thread bindings. */
@@ -66,7 +64,7 @@ export interface MessagingTopicsPort {
 /** Per-user outbound routing. The bridge never reads a global chat id. */
 export interface MessagingRoutingPort {
   /** Exactly one current route for this user, or undefined to fail closed. */
-  chatIdForUser(userId: UserId): string | undefined
+  chatIdForUser(userId: UserId): string | undefined | Promise<string | undefined>
 }
 
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
@@ -97,11 +95,14 @@ export interface MessagingDeps {
   telegramBotToken(): string
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
-  issues?: { list(): IssueWire[] }
+  issues?: { list(): IssueWire[] | Promise<IssueWire[]> }
   /** Sessions held by this server, resolved by explicit issueId membership. */
   sessions?: {
-    listSessions(): SessionMeta[]
-    listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
+    listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+    listSessionsForIssue?(
+      worktreePath: string | null,
+      issueId: IssueId,
+    ): SessionMeta[] | Promise<SessionMeta[]>
   }
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
@@ -304,7 +305,7 @@ export class MessagingService implements TelegramNoticePort {
     sessionId?: SessionId
   }): Promise<void> {
     const botToken = this.deps.telegramBotToken().trim()
-    const chatId = this.deps.routing.chatIdForUser(input.ownerUserId)?.trim()
+    const chatId = (await this.deps.routing.chatIdForUser(input.ownerUserId))?.trim()
     if (!botToken || !chatId) return
     if (this.adapter) {
       const threadRef = this.noticeThreadRef(chatId, input.sessionId)
@@ -374,25 +375,27 @@ export class MessagingService implements TelegramNoticePort {
     return asThreadId('global')
   }
 
-  private resolveIssueThread(issue: IssueWire, ownerUserId: UserId): ThreadId {
-    const sessions =
+  private async resolveIssueThread(issue: IssueWire, ownerUserId: UserId): Promise<ThreadId> {
+    const sessions = await (
       this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
       this.deps.sessions?.listSessions() ??
       []
+    )
     const session = pickIssueSession(issue, sessions)
     if (session) {
-      return this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })
+      return (await this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId }))
         .threadId
     }
-    return this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath })
+    return (await this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath }))
       .threadId
   }
 
-  private issueThreadNote(issue: IssueWire): string {
-    const sessions =
+  private async issueThreadNote(issue: IssueWire): Promise<string> {
+    const sessions = await (
       this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
       this.deps.sessions?.listSessions() ??
       []
+    )
     const session = pickIssueSession(issue, sessions)
     if (session) {
       return `Agent session ${session.name ?? session.title} is wired to this topic.`
@@ -618,7 +621,7 @@ export class MessagingService implements TelegramNoticePort {
           await this.reply(source, HELP_TEXT)
           return
         case 'issues': {
-          const list = this.deps.issues?.list()
+          const list = await this.deps.issues?.list()
           if (!list) {
             await this.reply(source, 'Issue list is unavailable.')
             return
@@ -633,7 +636,7 @@ export class MessagingService implements TelegramNoticePort {
         }
         case 'stop':
           try {
-            this.deps.superagent.interruptTurn({ ownerUserId, threadId: asThreadId(threadId) })
+            await this.deps.superagent.interruptTurn({ ownerUserId, threadId: asThreadId(threadId) })
             await this.reply(source, 'Stopping the current turn…')
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -642,7 +645,7 @@ export class MessagingService implements TelegramNoticePort {
           return
         case 'new':
           try {
-            this.deps.superagent.restartThread({ ownerUserId, threadId: asThreadId(threadId) })
+            await this.deps.superagent.restartThread({ ownerUserId, threadId: asThreadId(threadId) })
             this.queues.delete(turnKey(ownerUserId, threadId))
             await this.reply(
               source,
@@ -703,7 +706,7 @@ export class MessagingService implements TelegramNoticePort {
         await this.adapter?.answerCallback?.(cb.id, 'Unknown button')
         return
       }
-      const issues = this.deps.issues?.list()
+      const issues = await this.deps.issues?.list()
       const issue = issues?.find((i) => i.id === issueId)
       if (!issue) {
         await this.adapter?.answerCallback?.(cb.id, 'Issue not found')
@@ -763,9 +766,9 @@ export class MessagingService implements TelegramNoticePort {
     chatId: string,
     issue: IssueWire,
   ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: ThreadId }> {
-    const threadId = this.resolveIssueThread(issue, ownerUserId)
+    const threadId = await this.resolveIssueThread(issue, ownerUserId)
     const ref = issueDisplayRef(issue)
-    const sessionNote = this.issueThreadNote(issue)
+    const sessionNote = await this.issueThreadNote(issue)
     const existing =
       this.deps.topics?.getByIssue(chatId, issue.id)?.threadRef ??
       this.topicRefByIssue.get(topicKey(chatId, issue.id))
