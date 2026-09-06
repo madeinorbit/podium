@@ -9,15 +9,21 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readInstallTopology } from './install-topology'
 import {
+  accountingRefusal,
   admissionRefusal,
   availableMb,
   decideConcurrency,
+  decideContinue,
   decideForce,
+  decideSummarize,
+  expectedTypecheckTasks,
   fingerprint,
   readCensus,
+  readRunAccounting,
   sharedTurboCacheDir,
 } from './typecheck'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
@@ -698,5 +704,140 @@ describe('availableMb', () => {
     // A kernel without MemAvailable must not read as "no memory", which would
     // pin concurrency at 1 forever on every non-Linux host.
     expect(availableMb('MemTotal: 12244000 kB\n')).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Shaped after the summaries turbo 2.10.5 actually wrote for this repository's gate.
+ * The load-bearing property is that the truncated run lists 24 task records for a graph
+ * of 26 — the two it never started are absent, not present-and-marked.
+ */
+function summary(taskIds: string[], attempted: number, cancelled: string[] = []): string {
+  return JSON.stringify({
+    execution: { command: 'turbo run typecheck --continue=always', attempted, exitCode: 1 },
+    tasks: [
+      ...taskIds.map((taskId) => ({
+        taskId,
+        execution: { startTime: 1, endTime: 2, exitCode: 0 },
+      })),
+      ...cancelled.map((taskId) => ({ taskId, execution: null })),
+    ],
+  })
+}
+
+const TRUNCATED = summary(['@podium/model#typecheck', '@podium/scripts#typecheck'], 4)
+const UNIVERSE = [
+  '@podium/mobile#typecheck',
+  '@podium/model#typecheck',
+  '@podium/scripts#typecheck',
+  '@podium/web#typecheck',
+]
+
+describe('decideContinue', () => {
+  it('runs every project instead of stopping at the first red one', () => {
+    // The whole defect: with turbo's default the run is cancelled at the first failure
+    // and apps/web — red since the async flip — was never compiled.
+    expect(decideContinue([])).toEqual(['--continue=always'])
+    expect(decideContinue(['--filter=@podium/web'])).toEqual(['--continue=always'])
+  })
+
+  it('a caller who spells --continue means it, in either spelling', () => {
+    expect(decideContinue(['--continue=never'])).toEqual([])
+    expect(decideContinue(['--continue'])).toEqual([])
+    // A different flag that merely starts the same way must NOT count as one.
+    expect(decideContinue(['--continue-on-error'])).toEqual(['--continue=always'])
+  })
+})
+
+describe('decideSummarize', () => {
+  it('asks for the summary this wrapper reads, and cleans up after itself', () => {
+    expect(decideSummarize([])).toEqual({ add: ['--summarize'], callerOwnsFile: false })
+  })
+
+  it("leaves the caller's own summary file alone", () => {
+    expect(decideSummarize(['--summarize'])).toEqual({ add: [], callerOwnsFile: true })
+    expect(decideSummarize(['--summarize=true'])).toEqual({ add: [], callerOwnsFile: true })
+  })
+})
+
+describe('readRunAccounting', () => {
+  it('counts the graph against turbo, and the results against the task records', () => {
+    expect(readRunAccounting(TRUNCATED)).toEqual({
+      attempted: 4,
+      reported: ['@podium/model#typecheck', '@podium/scripts#typecheck'],
+    })
+  })
+
+  it('a listed task with no execution record is unreported, not reported', () => {
+    // Turbo omits an unstarted task today. A later version that lists it as cancelled
+    // must not read as evidence that it ran.
+    const withCancelled = summary(['@podium/model#typecheck'], 2, ['@podium/web#typecheck'])
+    expect(readRunAccounting(withCancelled)).toEqual({
+      attempted: 2,
+      reported: ['@podium/model#typecheck'],
+    })
+  })
+
+  it('refuses to guess at output it cannot read', () => {
+    expect(readRunAccounting('')).toBeNull()
+    expect(readRunAccounting('not json')).toBeNull()
+    expect(readRunAccounting(JSON.stringify({ tasks: [] }))).toBeNull()
+    expect(readRunAccounting(JSON.stringify({ execution: { attempted: 4 } }))).toBeNull()
+  })
+})
+
+describe('accountingRefusal', () => {
+  it('names the projects a truncated run never reached', () => {
+    const message = accountingRefusal(readRunAccounting(TRUNCATED), UNIVERSE, 1) as string
+    expect(message).toContain('@podium/web#typecheck')
+    expect(message).toContain('@podium/mobile#typecheck')
+    expect(message).toContain('2 never ran')
+    // and does not accuse the two that did report
+    expect(message).not.toContain('Never ran: @podium/model')
+  })
+
+  it('stays silent when every task in the graph reported a result', () => {
+    const full = summary(UNIVERSE, 4)
+    expect(accountingRefusal(readRunAccounting(full), UNIVERSE, 0)).toBeNull()
+    expect(accountingRefusal(readRunAccounting(full), UNIVERSE, 1)).toBeNull()
+  })
+
+  it('refuses an unverifiable run rather than assuming it was complete', () => {
+    expect(accountingRefusal(null, UNIVERSE, 0)).toContain('refused')
+    expect(accountingRefusal(null, UNIVERSE, 1)).not.toBeNull()
+  })
+
+  it('does not present a guessed list as the graph when the two disagree', () => {
+    // A --filter narrows what turbo attempts, so the manifest census can no longer
+    // be subtracted to an exact answer. The count is still turbo's and still exact.
+    const filtered = summary(['@podium/model#typecheck'], 2)
+    const message = accountingRefusal(readRunAccounting(filtered), UNIVERSE, 1) as string
+    expect(message).toContain('1 never ran')
+    expect(message).toContain('a guide and not the graph')
+    expect(message).not.toContain('Never ran:')
+  })
+
+  it('the count comes from turbo, so a wrong universe cannot invent a refusal', () => {
+    const full = summary(UNIVERSE, 4)
+    expect(accountingRefusal(readRunAccounting(full), [], 0)).toBeNull()
+  })
+})
+
+describe('expectedTypecheckTasks', () => {
+  it('is the set of workspaces declaring the script, in this repository', () => {
+    const tasks = expectedTypecheckTasks(join(dirname(fileURLToPath(import.meta.url)), '..'))
+    // Every package the gate is supposed to cover, including the three that spent the
+    // async flip hidden behind an early stop.
+    for (const task of [
+      '@podium/server#typecheck',
+      '@podium/scripts#typecheck',
+      '@podium/web#typecheck',
+      '@podium/mobile#typecheck',
+    ]) {
+      expect(tasks).toContain(task)
+    }
+    // Workspaces with no typecheck script are not tasks and must not be named as missing.
+    expect(tasks).not.toContain('@podium/e2e#typecheck')
+    expect(tasks).not.toContain('@podium/acceptance#typecheck')
   })
 })
