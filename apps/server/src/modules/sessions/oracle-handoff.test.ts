@@ -630,7 +630,7 @@ describe('oracle: handoff success across two machines', () => {
     // The case today's machines table cannot express: alice OWNS m1 and merely
     // SEES m2. Driven through POD-381's real resolver over a hand-built ownership
     // index — the rules are theirs, only the rows are the fixture's.
-    f.reg.modules.sessions.machineUseGate = () => aliceGate([{ subject: 'alice', verb: 'see' }])
+    f.reg.modules.sessions.machineUseGate = async () => aliceGate([{ subject: 'alice', verb: 'see' }])
 
     expect(
       await messageOf(() =>
@@ -654,7 +654,7 @@ describe('oracle: handoff success across two machines', () => {
     const f = await handoffFixture()
     // alice owns the source and can see NEITHER m2 (bob's, no grant) nor an id
     // that names nothing at all.
-    f.reg.modules.sessions.machineUseGate = () => aliceGate([])
+    f.reg.modules.sessions.machineUseGate = async () => aliceGate([])
 
     const invisible = await messageOf(() =>
       f.reg.modules.issueSessionLifecycle.handoffSession(
@@ -811,7 +811,7 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -843,7 +843,7 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -876,7 +876,7 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -1164,7 +1164,7 @@ describe('oracle: duplicate dispatch', () => {
     // never learns the transfer succeeded.
     // Two principals, distinguished by the actor half of their capability: the
     // operator (default fleet — may use everything) and carol, who owns nothing.
-    f.reg.modules.sessions.machineUseGate = (caller) =>
+    f.reg.modules.sessions.machineUseGate = async (caller) =>
       caller.capability.actorUser === 'carol'
         ? gateForPrincipal('carol', revocableFleet({ m2: [] }))
         : machineUseGateFor({
