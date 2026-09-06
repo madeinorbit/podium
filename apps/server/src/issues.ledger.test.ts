@@ -164,7 +164,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    expect(() => svc.create({ repoPath: '/r', title: 'phantom', startNow: false })).toThrow(
+    await expect(svc.create({ repoPath: '/r', title: 'phantom', startNow: false })).rejects.toThrow(
       'append failed',
     )
     spy.mockRestore()
@@ -193,7 +193,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     })
     // update() mutates the MAP-OWNED row object in place BEFORE the commit;
     // persistWith's backup seam must roll those fields back on the throw.
-    expect(() => svc.update(wire.id, { title: 'phantom' })).toThrow('append failed')
+    await expect(svc.update(wire.id, { title: 'phantom' })).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory shows the OLD title (in-place rollback — same object reference)…
     expect((await svc.get(wire.id))?.title).toBe('old title')
@@ -233,7 +233,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    expect(() => svc.setLabels(wire.id, ['urgent'])).toThrow('append failed')
+    await expect(svc.setLabels(wire.id, ['urgent'])).rejects.toThrow('append failed')
     spy.mockRestore()
     // The label write rolled back with the row, and the in-place updatedAt
     // stamp was restored — a reconcile sees byte-identical wire truth.
@@ -254,7 +254,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    expect(() => svc.purgeEmptyDraft(wire.id)).toThrow('append failed')
+    await expect(svc.purgeEmptyDraft(wire.id)).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory truth intact (the re-hydrate runs only after a committed tx)…
     expect((await svc.get(wire.id))?.title).toBe('survivor')

@@ -16,7 +16,7 @@ afterEach(() => {
 const boot = () => REACTIONS.find((reaction) => reaction.id === 'startup.boot-reconcile')!
 
 describe('composition root reaction principals', () => {
-  it('refuses to assemble with a system reaction that widens write scope', () => {
+  it('refuses to assemble with a system reaction that widens write scope', async () => {
     // A distinct id: a clone of an existing one would be refused as a duplicate,
     // which is a different guard refusing first — the exact failure this issue is about.
     const widening = {
@@ -24,13 +24,12 @@ describe('composition root reaction principals', () => {
       id: 'test.widening-system-reaction',
       principal: { class: 'system', actor: 'system', writeScope: 'all' },
     }
-    expect(
-      () =>
-        SessionRegistry.create(undefined, undefined, {
-          instanceId: 'default',
-          reactions: [...REACTIONS, widening],
-        }),
-    ).toThrow('system reactions must not widen write scope beyond the acted-on entity')
+    await expect(
+      SessionRegistry.create(undefined, undefined, {
+        instanceId: 'default',
+        reactions: [...REACTIONS, widening],
+      }),
+    ).rejects.toThrow('system reactions must not widen write scope beyond the acted-on entity')
   })
 
   it('publishes the declared registry when every principal is in scope', async () => {

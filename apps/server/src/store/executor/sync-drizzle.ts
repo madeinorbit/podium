@@ -167,7 +167,9 @@ function buildStoreDrizzle(client: QueryClient) {
       }
       if (statementMethod === 'get') {
         const row = await client.writeGet(sql, ...params)
-        return { rows: row === undefined ? [] : [proxyRowValues(row)] }
+        return {
+          rows: row === undefined ? (undefined as unknown as unknown[]) : proxyRowValues(row),
+        }
       }
       return { rows: (await client.writeAll(sql, ...params)).map(proxyRowValues) }
     },
@@ -180,7 +182,18 @@ function buildStoreDrizzle(client: QueryClient) {
           intent: 'write' as const,
         })),
       )
-      return results.map((result) => ({ rows: result.rows.map(proxyRowValues), ...result.run }))
+      return results.map((result, index) => {
+        if (batch[index]?.method === 'get') {
+          return {
+            rows:
+              result.rows.length === 0
+                ? (undefined as unknown as unknown[])
+                : proxyRowValues(result.rows[0]),
+            ...result.run,
+          }
+        }
+        return { rows: result.rows.map(proxyRowValues), ...result.run }
+      })
     },
   )
 }
