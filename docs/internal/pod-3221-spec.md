@@ -1912,6 +1912,19 @@ and awaits what can be awaited. The ranking is `Promise<T>` best, union second, 
 THIS ALSO BOUNDS RULE 51. When rule 51 case 1 says "widen the port and await", it means widen to
 `Promise<T>`. A case-1 conversion that produces a union has not been done.
 
+NARROWING PROTECTS THE IMPLEMENTATION SIDE, NOT THE CALLER SIDE — I overstated this, and POD-3488
+is the demonstration. Narrowing `renew?: () => boolean | Promise<boolean>` to `() => Promise<boolean>`
+stops an IMPLEMENTATION supplying a synchronous function. It does NOT stop a CALLER writing
+
+    if (!this.renewResourceLease(lease))          // Promise<boolean>, negated
+
+because negating a promise is legal at any type. Verified: removing the `await` from all three call
+sites typechecks at ZERO errors and breaks no test.
+
+So a narrowed port is necessary and NOT sufficient. The caller side needs a TEST — one that fails when
+the await is removed. Rule 52b buys you the compiler at the assignment; only a test buys you the
+compiler's absence at the negation.
+
 THE BAN IS ON PORTS, NOT ON THE TOKEN. [POD-3469, 2026-09-06, and this qualification is load-bearing —
 without it someone "fixing" a union will destroy a design this epic deliberately chose.] A union is
 acceptable as an IMPLEMENTATION SIGNATURE behind overloads that discriminate on argument type, because
