@@ -172,9 +172,9 @@ describe('the wire window, over real sockets', () => {
     // so the refusals below are asserted after hello has been processed, not by
     // spinning until the deadline.
     await Promise.all([
-      await stale.nextMatching((m) => m.type === 'welcome'),
-      await current.nextMatching((m) => m.type === 'welcome'),
-      await beyond.nextMatching((m) => m.type === 'welcome'),
+      stale.nextMatching((m) => m.type === 'welcome'),
+      current.nextMatching((m) => m.type === 'welcome'),
+      beyond.nextMatching((m) => m.type === 'welcome'),
     ])
 
     // THE CURRENT BUILD IS SERVED ITS WORLD IN ITS OWN VERSION. It was admitted

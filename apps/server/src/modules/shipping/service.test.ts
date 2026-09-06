@@ -390,8 +390,8 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
 
     const receipts = await Promise.all([
-      await service.enqueue({ issueId: issue.id, ...approval }),
-      await service.enqueue({ issueId: issue.id, ...approval }),
+      service.enqueue({ issueId: issue.id, ...approval }),
+      service.enqueue({ issueId: issue.id, ...approval }),
     ])
     expect(receipts.map((receipt) => receipt.created).sort()).toEqual([false, true])
     expect(new Set(receipts.map((receipt) => receipt.order.id)).size).toBe(1)

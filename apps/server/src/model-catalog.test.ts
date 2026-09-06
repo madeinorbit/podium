@@ -104,9 +104,9 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     const probe = vi.fn(async () => ({}))
     const cat = new ModelCatalog(probe)
     await Promise.all([
-      await cat.refresh(asMachineId(M)),
-      await cat.refresh(asMachineId(M)),
-      await cat.refresh(asMachineId(M)),
+      cat.refresh(asMachineId(M)),
+      cat.refresh(asMachineId(M)),
+      cat.refresh(asMachineId(M)),
     ])
     expect(probe).toHaveBeenCalledTimes(1)
   })
