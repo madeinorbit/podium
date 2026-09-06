@@ -229,18 +229,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SessionStore.transact',
   },
   {
-    file: 'apps/server/src/store/executor/synchronous-span.ts',
-    symbol: 'runSynchronousSpan',
-    body: 'arg0',
-    label: 'runSynchronousSpan',
-  },
-  {
-    file: 'packages/runtime/src/sqlite/transaction.ts',
-    symbol: 'transaction',
-    body: 'arg1',
-    label: 'transaction(db, fn)',
-  },
-  {
     file: 'apps/server/src/modules/lock/service.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -266,8 +254,19 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // a caller already opened one. Declared here rather than in
     // NOT_A_SPAN_OPENER because a package cannot name the server's binding, so
     // this declaration is the only place the call site can be recognised from.
+    //
+    // THE SYMBOL IS THE TYPE ALIAS, NOT THE PROPERTY [POD-3518], and the same
+    // reason applies to the server twin below and to `TransactPort` further
+    // down. `createOrJoinTransaction` is declared `readonly
+    // createOrJoinTransaction: TransactionRunner`, so a call site's resolved
+    // signature is the ALIAS's function type — the declaration the checker
+    // hands back is the `<T>(fn) => Promise<T>` node, whose declared name is
+    // `TransactionRunner`. Keying this row on the property name matched nothing
+    // and the entry read as a DEAD opener while 46 server span openings and 1
+    // sync one went unscanned. That is the failure this table's dead-opener
+    // check exists to report, and it reported it.
     file: 'packages/sync/src/adapters/sqlite/store-queries.ts',
-    symbol: 'createOrJoinTransaction',
+    symbol: 'TransactionRunner',
     body: 'arg0',
     label: 'StoreQueries.createOrJoinTransaction',
   },
@@ -276,9 +275,10 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // the structural twin of the entry above, and unnamed until now. POD-3416 found it while declaring its port:
     // it is the same shape, on the same connection, and the only reason the sync
     // one was declared first is that a package cannot name the server's binding.
-    // Mine had no such excuse.
+    // Mine had no such excuse. Keyed on `TransactionRunner` for the reason the
+    // entry above gives.
     file: 'apps/server/src/store/executor/sync-drizzle.ts',
-    symbol: 'createOrJoinTransaction',
+    symbol: 'TransactionRunner',
     body: 'arg0',
     label: 'StoreQueries.createOrJoinTransaction (server)',
   },
@@ -335,13 +335,18 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
 const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 70,
-    why: "the ASYNC executor's own transact. It opens Stage B's spans, not today's; at the flip it replaces SessionStore.transact and this table entry goes with the bridge (POD-3327).",
+    line: 81,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70; POD-3498's SpanScopeDrizzle comment moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 680,
-    why: "the same declaration's implementation. (Was 676; POD-3345's idle-gap clock moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
+    line: 678,
+    why: "the same declaration's implementation. (Was 676, then 680; POD-3345's idle-gap clock and the flip's own edits moved it. Reported each time.)",
+  },
+  {
+    file: 'packages/runtime/src/sqlite/transaction.ts',
+    line: 28,
+    why: 'the SYNCHRONOUS `transaction(db, fn)` helper. It WAS a span opener and it is no longer reachable as one: since the flip, no file under apps/server/src or packages/sync/src calls it — the only caller left in the whole repo is `migrations/restore.test.ts`, and its own `transaction-spec.ts` is not in the server program. It stays named here rather than deleted so that a production caller reappearing is an UNNAMED opener on the next run instead of a span nobody scans [POD-3518].',
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -387,10 +392,19 @@ const POST_COMMIT_REGISTRARS: readonly { readonly file: string; readonly symbol:
   // above: the callback is code already moved OUT of the transaction, so its
   // argument subtree is deliberately not walked.
   { file: 'packages/sync/src/authority/ports.ts', symbol: 'onCommit' },
-  // POD-3328's baseline fold, registered as a commit application so a batch
-  // whose span never committed is never promoted. Same category as the rows
-  // above: the callback is code already moved OUT of the transaction, so its
-  // argument subtree is deliberately not walked.
+  // Ledger §A row 3's own mechanism: `AuthorityDeps.postCommit`, which
+  // `Authority.finalize` hands subscriber delivery to when the server has wired
+  // it. Keyed on the ALIAS, `postCommit?: PostCommitFollowUpPort`, for the same
+  // reason the two `createOrJoinTransaction` openers are — a call through a
+  // function-typed property resolves to the alias's function type [POD-3518].
+  //
+  // WHAT THIS DOES NOT DO, and the distinction is the whole point of row 3: it
+  // stops the DEFERRED callback's subtree being walked, because that code has
+  // already been moved out of the transaction. The `else` arm beside it —
+  // delivery straight away, which is what every client adapter and every unit
+  // test gets — is still walked, still reaches `ChangeSubscriber`, and is still
+  // reported. See the ACCEPTED rows in check-span-effects.ts.
+  { file: 'packages/sync/src/authority/ports.ts', symbol: 'PostCommitFollowUpPort' },
 ]
 
 /* ------------------------------------------------------- capability tables */
@@ -726,6 +740,49 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     why: 'the event row is a database write; its announcement moved to afterCommit (ledger A row 1)',
   },
 
+  /* --- POD-3261's feed visibility: reads and decisions, never publication -- */
+  /*
+   * The four members `prepareBatch` asks on the way to a delivery. Each one
+   * READS — a declared class, a grant edge, a row's keyed user — or PREPARES a
+   * request-scoped copy of those reads. None writes, and none tells anything
+   * outside the process anything: rule 19's question is answered by the
+   * DELIVERY, which is `ChangeSubscriber` and is classified observable below.
+   * Deciding who may see a row is not the same act as showing it to them, and a
+   * rolled-back transaction leaves no trace of a decision nobody was told.
+   */
+  'packages/sync/src/feed/visibility.ts#VisibilityStatePort.classOf': {
+    kind: 'contained',
+    why: "a read of an entity kind's DECLARED visibility class, or null when nothing declared one. It decides; it publishes nothing.",
+  },
+  'packages/sync/src/feed/visibility.ts#VisibilityStatePort.mayRead': {
+    kind: 'contained',
+    why: 'an authorization read: does this human hold read on this entity, as owner or through a grant edge. It refuses or permits, it does not publish.',
+  },
+  'packages/sync/src/feed/visibility.ts#VisibilityStatePort.keyedUserOf': {
+    kind: 'contained',
+    why: "a read of the user in a per-user-state row's own key. Pure over the row.",
+  },
+  'packages/sync/src/feed/visibility.ts#VisibilityStatePort.forBatch': {
+    kind: 'contained',
+    why: 'the batching seam: it returns a request-scoped port that memoises the named refs and stays live outside them. It performs the same reads as the members above, once per batch instead of once per row; nothing outside the process can tell it ran.',
+  },
+
+  /* --- the executor's post-commit machinery, seen from inside a span ------- */
+  'apps/server/src/store/executor/post-commit.ts#PostCommitStep.PostCommitStep': {
+    kind: 'exempt',
+    why: 'a registered post-commit step being RUN — the drain, not the span. Its body is code already moved out of the transaction by `effect`/`followUp`/`commitApplication`, all three of which are post-commit registrars whose argument subtree is deliberately not walked. Calling it is the mechanism working, which is the fix and not the defect (compare `PostCommitEffectPort` below).',
+  },
+  'apps/server/src/store/executor/context.ts#TransactionFrame.alive': {
+    kind: 'contained',
+    why: "a liveness predicate on the frame's external lifetime — the same family as `BaselineFoldPort.spanOpen` and `CommitRegistration.live`. It reads whether the scope that owns this frame is still going and returns a boolean; it writes nothing and registers nothing.",
+  },
+
+  /* --- a caller-supplied message BUILDER, not the send --------------------- */
+  'apps/server/src/modules/daemon-request.ts#DaemonRequestSpec.build': {
+    kind: 'opaque',
+    why: "the request spec's own build callback, supplied at the call site the same way `IssueStore.write` is, and analysed there where it is written down. It CONSTRUCTS a control message; the act that leaves the process is the broker's send, which is `ControlSend` and is classified observable above.",
+  },
+
   /* --- EXEMPT: another issue owns the model, or it IS the mechanism -------- */
   'packages/sync/src/authority/ports.ts#PostCommitEffectPort.PostCommitEffectPort': {
     kind: 'exempt',
@@ -776,6 +833,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/authority/ports.ts#AuthorityCommit.current': {
     kind: 'opaque',
     why: 'an arbitration read supplied by the caller',
+  },
+  'packages/sync/src/authority/ports.ts#AuthorityCommit.changes': {
+    kind: 'opaque',
+    why: "the commit's own changes body — the twin of `AuthorityCommit.write` above and of `Ledger.changes` below. It is a SPAN ROOT in its own right: `Authority.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down both bodies are analysed as roots of their own.",
   },
   'packages/sync/src/ledger.ts#Ledger.changes': {
     kind: 'opaque',
@@ -930,7 +991,6 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
   const sourceFiles = program
     .getSourceFiles()
     .filter((file) => !file.isDeclarationFile && inWalk(file.fileName))
-  const rootFiles = sourceFiles.filter((file) => inRoots(file.fileName))
 
   for (const file of sourceFiles) {
     collectClasses(file)
@@ -1208,16 +1268,42 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
 
   /* -- pass 1b: the opener table's own completeness ------------------------ */
 
-  for (const file of rootFiles) {
+  /*
+   * THE WHOLE WALK SCOPE, not just the roots [POD-3518]. The scan costs ONE
+   * declaration outside `apps/server/src` and `packages/sync/src` — the
+   * runtime's `transaction(db, fn)` — and buying that one row is what lets an
+   * opener the flip left with no caller be DECLARED not-a-span-opener instead of
+   * silently deleted from the table. A row deleted from both tables is a span
+   * nobody would scan if a caller came back.
+   */
+  for (const file of sourceFiles) {
     findUncoveredOpeners(file)
   }
 
+  /**
+   * A `transact`/`transaction`/`createOrJoinTransaction` declaration that
+   * neither table names.
+   *
+   * WHAT IT MEANS FOR A DECLARATION TO BE NAMED, and this is the part POD-3518
+   * had to fix: a call through a function-typed PROPERTY —
+   * `readonly createOrJoinTransaction: TransactionRunner`, `transact:
+   * TransactPort` — resolves to the ALIAS's function type, so the opener table
+   * keys that row on the alias and not on the property. Asking only whether the
+   * property's own name is in the table therefore reports a property whose
+   * opener IS declared. So the property's type is resolved here the same way
+   * {@link resolveCallee} resolves a call: through the checker, to the
+   * declaration a call site would land on. That replaces a hard-coded
+   * `#TransactPort` special case, which covered exactly one of the three ports
+   * that have this shape and was why the two `createOrJoinTransaction` ports
+   * could go dead without this check saying so.
+   */
   function findUncoveredOpeners(file: ts.SourceFile): void {
     const visit = (node: ts.Node): void => {
       if (
         (ts.isMethodDeclaration(node) ||
           ts.isMethodSignature(node) ||
           ts.isPropertySignature(node) ||
+          ts.isPropertyDeclaration(node) ||
           ts.isFunctionDeclaration(node) ||
           ts.isTypeAliasDeclaration(node)) &&
         node.name &&
@@ -1227,16 +1313,25 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
           node.name.text === 'transaction')
       ) {
         const site = siteOf(node, repoRoot)
-        const key = `${site.file}#${node.name.text}`
         const known =
-          openerByKey.has(key) ||
-          openerByKey.has(`${site.file}#TransactPort`) ||
+          openerByKey.has(`${site.file}#${node.name.text}`) ||
+          openerKeysBehind(node).some((key) => openerByKey.has(key)) ||
           NOT_A_SPAN_OPENER.some((entry) => entry.file === site.file && entry.line === site.line)
         if (!known) uncoveredOpeners.push(site)
       }
       node.forEachChild(visit)
     }
     visit(file)
+  }
+
+  /** The table keys a CALL through this declaration would be looked up under. */
+  function openerKeysBehind(node: ts.NamedDeclaration): string[] {
+    const type = checker.getTypeAtLocation(node)
+    return type
+      .getCallSignatures()
+      .map((signature) => signature.declaration)
+      .filter((declaration): declaration is ts.SignatureDeclaration => declaration !== undefined)
+      .map((declaration) => declKey(declaration))
   }
 
   /* -- pass 2: propagate to a fixpoint ------------------------------------- */
@@ -1364,7 +1459,12 @@ function declaredName(decl: ts.Node): string {
     // property that declares it, whichever the source wrote. A function arm of
     // a union (`(() => T) | T`) is named for the property, not for the union.
     let parent: ts.Node = decl.parent
-    while (ts.isUnionTypeNode(parent) || ts.isParenthesizedTypeNode(parent)) parent = parent.parent
+    while (
+      ts.isUnionTypeNode(parent) ||
+      ts.isParenthesizedTypeNode(parent) ||
+      isPromiseWrapper(parent)
+    )
+      parent = parent.parent
     if (ts.isTypeAliasDeclaration(parent)) return parent.name.text
     if (
       (ts.isPropertySignature(parent) ||
@@ -1397,6 +1497,32 @@ function declaredName(decl: ts.Node): string {
   )
     return parent.name.text
   return '<anonymous>'
+}
+
+/**
+ * `Promise<(x) => y>` around a function type — an ASYNC method that hands one
+ * back [POD-3518].
+ *
+ * The flip made `ReposRepository.repoIdResolver` and `IssueStore.repoScopeFilter`
+ * async, and their return types went from `(x) => y` to `Promise<(x) => y>`. The
+ * function type's parent stopped being the method and became the type reference,
+ * so both stopped resolving to `repoIdResolver()` / `repoScopeFilter()` and both
+ * appeared as `<anonymous>` — while their PORT_CAPABILITIES rows, which have no
+ * slack check of their own, went quietly stale. Seeing through the wrapper is
+ * what keeps a classification about a resolver a classification about the SAME
+ * resolver once it is awaited.
+ *
+ * Only `Promise` and `Awaited`, deliberately: a function type inside any other
+ * generic — `Map<string, () => void>` — is not the same declaration wearing a
+ * different type, and naming it for the property that holds the Map would be
+ * wrong in the direction that hides things.
+ */
+function isPromiseWrapper(node: ts.Node): boolean {
+  return (
+    ts.isTypeReferenceNode(node) &&
+    ts.isIdentifier(node.typeName) &&
+    (node.typeName.text === 'Promise' || node.typeName.text === 'Awaited')
+  )
 }
 
 function bodyArguments(call: ts.CallExpression, position: BodyPosition): ts.Expression[] {
