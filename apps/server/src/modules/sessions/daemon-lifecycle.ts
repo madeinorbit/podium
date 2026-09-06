@@ -67,7 +67,7 @@ export interface SessionDaemonLifecyclePorts {
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
     draft?: SessionDurableState,
-  ): TerminalCandidateFacts | null
+  ): Promise<TerminalCandidateFacts | null>
   broadcastToClients(message: LiveServerMessage): void
   clearOffer(sessionId: SessionId): void
   /** A parked row whose durable host turned out to be alive [POD-1953]. */
@@ -211,7 +211,7 @@ export class SessionDaemonLifecycle {
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
     draft?: SessionDurableState,
-  ): TerminalCandidateFacts | null =>
+  ): Promise<TerminalCandidateFacts | null> =>
     this.ports.terminalCandidateFacts(session, lease, checkpoint, draft)
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
@@ -705,7 +705,7 @@ export class SessionDaemonLifecycle {
           if (lease && isExactFencedCheckpointReplay(observation, lease)) {
             const checkpoint = lease.checkpoint
             if (checkpoint) {
-              const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+              const facts = await this.terminalCandidateFacts(session, lease, checkpoint)
               if (facts) {
                 await this.store.observationCheckpoints.renewTerminalCandidate(
                   facts,
@@ -752,7 +752,7 @@ export class SessionDaemonLifecycle {
           checkpoint: outcome.checkpoint,
           updatedAt: outcome.checkpoint.acceptedAt,
         }
-        const candidateFacts = this.terminalCandidateFacts(
+        const candidateFacts = await this.terminalCandidateFacts(
           session,
           acceptedLease,
           outcome.checkpoint,
@@ -859,7 +859,7 @@ export class SessionDaemonLifecycle {
           JSON.stringify(msg.providerCursor) !== JSON.stringify(checkpoint.providerCursor)
         )
           break
-        const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+        const facts = await this.terminalCandidateFacts(session, lease, checkpoint)
         if (!facts) break
         await this.store.observationCheckpoints.confirmTerminalCandidate(
           facts,

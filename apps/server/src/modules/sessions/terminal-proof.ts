@@ -65,13 +65,15 @@ export interface TerminalProofPorts {
   pendingForProof(
     sessionId: SessionId,
     atIso: string,
-  ): {
-    id: string
-    status: string
-    deliveredAt: string | null
-    injectedAt?: string | null
-    ackedBy: string | null
-  }[]
+  ): Promise<
+    {
+      id: string
+      status: string
+      deliveredAt: string | null
+      injectedAt?: string | null
+      ackedBy: string | null
+    }[]
+  >
   /** Whether the inbox is mid-drain for this session. */
   isDraining(sessionId: SessionId): boolean
   /** Whether the auto-continue controller is holding this session. */
@@ -118,18 +120,18 @@ export class SessionTerminalProof {
    * Child sessions are read live and deliberately: they are OTHER sessions, and
    * no draft of this write says anything about them.
    */
-  facts(
+  async facts(
     session: Session,
     lease: ObservationLeaseRecord,
     checkpoint = lease.checkpoint,
     d: SessionDurableFields = session,
-  ): TerminalCandidateFacts | null {
+  ): Promise<TerminalCandidateFacts | null> {
     const fence = checkpoint?.terminalFence
     if (!checkpoint || !fence || fence.closing) return null
     if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
-    const addressedMessages = this.ports
-      .pendingForProof(session.sessionId, new Date(this.ports.now()).toISOString())
-      .map((message) => ({
+    const addressedMessages = (
+      await this.ports.pendingForProof(session.sessionId, new Date(this.ports.now()).toISOString())
+    ).map((message) => ({
         id: message.id,
         status: message.status,
         deliveredAt: message.deliveredAt,
@@ -231,7 +233,7 @@ export class SessionTerminalProof {
     if (!lease) return { reason: 'no_lease' }
     const fence = lease.checkpoint?.terminalFence
     if (!fence || fence.closing) return { reason: 'no_terminal_fence' }
-    const facts = this.facts(session, lease)
+    const facts = await this.facts(session, lease)
     if (!facts) return { reason: 'not_terminal' }
     const proof = await this.ports.checkpoints.getTerminalCandidate(sessionId)
     if (!proof) return { reason: 'proof_missing' }
