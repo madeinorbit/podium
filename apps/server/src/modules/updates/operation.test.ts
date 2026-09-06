@@ -2075,7 +2075,7 @@ describe('the step runners', () => {
     expect((await h.read()).state).toBe('running')
     fleet.push(machine({ id: 'podium', name: 'podium' }))
 
-    await boot.updates.setTarget('dev', target)
+    await boot.updates.setTargetFromProducer('dev', target)
     await h.settleTargetChanges()
     await boot.engine.whenSettled('op_1')
 
@@ -2628,7 +2628,7 @@ describe('surviving the coordinator restart', () => {
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
       requestDestBundle: async () => {
-        await publisher?.setTarget('dev', packed)
+        await publisher?.setTargetFromProducer('dev', packed)
       },
     })
     publisher = h.updates
@@ -2694,12 +2694,12 @@ describe('a version published mid-operation', () => {
   it('queues a NEW version instead of mutating the running wave', async () => {
     let running = false
     const { updates } = service(() => running)
-    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
     expect(updates.target('dev')?.version).toBe('0.4.3')
 
     await updates.authorize('dev')
     running = true
-    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     // The running wave is untouched…
     expect(updates.target('dev')?.version).toBe('0.4.3')
     // …and the newcomer is waiting its turn, visibly.
@@ -2709,12 +2709,12 @@ describe('a version published mid-operation', () => {
   it('publishes the queued version when the operation terminates, as an OFFER', async () => {
     let running = false
     const { updates, sent } = service(() => running)
-    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
     await updates.authorize('dev')
     const grantsBefore = sent.length
 
     running = true
-    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     running = false
     expect(await updates.publishNextTargets()).toEqual(['dev'])
 
@@ -2732,9 +2732,9 @@ describe('a version published mid-operation', () => {
   it('lets the same version gain its packed artifact mid-operation', async () => {
     let running = false
     const { updates } = service(() => running)
-    await updates.setTarget('dev', devTarget())
+    await updates.setTargetFromProducer('dev', devTarget())
     running = true
-    await updates.setTarget('dev', packedTarget())
+    await updates.setTargetFromProducer('dev', packedTarget())
     expect(updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
@@ -2755,7 +2755,7 @@ describe('a version published mid-operation', () => {
       () => 'dev+abc1234',
     )
     expect(updates.target('dev')).toBeUndefined()
-    await updates.setTarget('dev', packedTarget())
+    await updates.setTargetFromProducer('dev', packedTarget())
     expect(updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
@@ -2766,7 +2766,7 @@ describe('a version published mid-operation', () => {
       () => true,
       () => 'dev+abc1234',
     )
-    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     expect(updates.target('dev')).toBeUndefined()
     expect(updates.nextTarget('dev')?.version).toBe('0.4.4')
   })
@@ -2778,17 +2778,17 @@ describe('a version published mid-operation', () => {
    */
   it('does not grant anything just because a descriptor was re-published', async () => {
     const { updates, sent } = service(() => false)
-    await updates.setTarget('dev', devTarget())
+    await updates.setTargetFromProducer('dev', devTarget())
     updates.markAuthorized('dev')
     const before = sent.length
-    await updates.setTarget('dev', packedTarget())
+    await updates.setTargetFromProducer('dev', packedTarget())
     expect(sent.length).toBe(before)
   })
 
   it('drops a queued version for a channel that can no longer advertise one', async () => {
     const { updates } = service(() => true)
-    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
-    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     expect(updates.nextTarget('dev')).toBeDefined()
     updates.setTargetUnavailable('dev', 'nothing published for this commit')
     expect(updates.nextTarget('dev')).toBeUndefined()
@@ -3107,7 +3107,7 @@ describe('the fleet bridge', () => {
 
     // A newer release is published while it was away, and retention will sweep
     // the one this operation planned.
-    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
 
     expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
@@ -3118,7 +3118,7 @@ describe('the fleet bridge', () => {
   it('restates a superseded deferred reason once, not on every fleet event', async () => {
     const h = await harness({ machines: [machine({ id: 'laptop' })], target: packedTarget() })
     const details = { target: packedTarget(), channel: 'dev' as const }
-    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
     const restated = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3166,7 +3166,7 @@ describe('the fleet bridge', () => {
     h.setTargetChanged(() => bridge.onTargetChanged())
 
     // Retention will sweep this operation's tarballs under the ordinary window.
-    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
     await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
@@ -3232,7 +3232,7 @@ describe('the fleet bridge', () => {
     h.setTargetChanged(() => bridge.onTargetChanged())
 
     h.clock.advance(5_000)
-    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
     await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
     await h.engine.whenSettled('op_2')
@@ -3296,7 +3296,7 @@ describe('the fleet bridge', () => {
 
     // A re-resolve of the SAME version also fires the target hook. The machine
     // really will update when it reconnects, so the note must not be touched.
-    await h.updates.setTarget('dev', packedTarget())
+    await h.updates.setTargetFromProducer('dev', packedTarget())
     await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
