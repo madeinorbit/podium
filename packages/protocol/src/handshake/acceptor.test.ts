@@ -9,8 +9,8 @@ import { WIRE_VERSION } from '../version'
 import { createHandshakeAcceptor } from './acceptor'
 import type { PeerHello } from './envelope'
 import { createAuthStrategyRegistry } from './strategies/registry'
-import type { AuthOutcome, PeerAuthStrategy } from './strategies/types'
 import { createDefaultAuthRegistry } from './strategies/default-registry'
+import type { AuthOutcome, PeerAuthStrategy } from './strategies/types'
 import {
   createRecordingMinter,
   fakeMachines,
@@ -87,6 +87,68 @@ describe('handshake order — the gateway end', () => {
     const step = await a.receive(goodHello())
     expect(step.action === 'reject' && step.reply.reason).toBe('unexpected-frame')
     expect(a.state).toBe('closed')
+  })
+
+  /**
+   * THE SAME RULE, WITH THE FRAMES ACTUALLY IN FLIGHT TOGETHER (POD-3263).
+   *
+   * The test above awaits its first hello before sending the second, so the
+   * connection is already `established` when the second arrives — it is
+   * sequential by construction and cannot express two frames racing. That is why
+   * it stayed green while admission was genuinely double-entrant: `state` only
+   * becomes `established` AFTER the credential lookup, which is a durable read
+   * now, so both hellos passed the guard and both authenticated. The gateway
+   * attached the daemon twice, and a peer chooses whether its two frames arrive
+   * in one read.
+   *
+   * Here the handshake is suspended mid-authenticate and the second frame is
+   * delivered while the first is still pending — both promises collected, then
+   * awaited together.
+   */
+  it('rule 3: a second hello DELIVERED MID-HANDSHAKE cannot authenticate too', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let lookups = 0
+    const base = fakeMachines({ tokens: { 'tok-ok': machine } })
+    const a = acceptor({
+      registry: createDefaultAuthRegistry({
+        machines: {
+          ...base,
+          // The credential lookup is the durable read the flip introduced. Held
+          // open so a second frame can arrive while the first is inside it.
+          verifyMachineToken: async (token, hint, observed) => {
+            lookups += 1
+            await gate
+            return base.verifyMachineToken(token, hint, observed)
+          },
+        },
+        mint: createRecordingMinter(),
+      }),
+    })
+
+    // NOT awaited: both frames have to be in the acceptor at once.
+    const first = a.receive(goodHello())
+    const second = a.receive(goodHello())
+    release()
+    const [firstStep, secondStep] = await Promise.all([first, second])
+
+    // ONE credential lookup, and NOTHING admitted. Rule 3 already treats a
+    // second hello as a violation that CLOSES the connection; when it lands
+    // mid-handshake the first hello loses too, which is the fail-closed reading
+    // and the one that cannot leave a peer attached. `peer` is the property that
+    // actually matters: it is what the gateway attaches, and it must be null.
+    expect(lookups).toBe(1)
+    expect(a.state).toBe('closed')
+    expect(a.peer).toBeNull()
+    expect(firstStep.action).toBe('reject')
+    expect(secondStep.action).toBe('reject')
+    expect(
+      [firstStep, secondStep].every(
+        (step) => step.action === 'reject' && step.reply.reason === 'unexpected-frame',
+      ),
+    ).toBe(true)
   })
 
   it('rule 4: no frame is delivered before a principal exists, and every frame after carries one', async () => {
