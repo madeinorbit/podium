@@ -31,6 +31,7 @@ import { readOrCreateLocalMachineId } from './local-machine'
 import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
 import { writeConnectivity } from './connectivity'
 import { stateDir, type PodiumConfig } from './config'
+import type { MachineUpdateAuthority } from './machine-update'
 
 const log = createLogger('runtime:machine-supervisor')
 const STATE_FILE = 'supervisor.json'
@@ -229,7 +230,10 @@ export interface MachineSupervisorConnectionDeps {
   report(): MachineServiceReport
   acceptAssignment?(assignment: MachineServiceAssignment): boolean
   onAssignment?(assignment: MachineServiceAssignment): void
-  onGrant(message: Extract<MachineSupervisorControlMessage, { type: 'updateGrant' }>): void
+  onGrant(
+    message: Extract<MachineSupervisorControlMessage, { type: 'updateGrant' }>,
+    authority: MachineUpdateAuthority,
+  ): void
   onConnected?(): void
   onPaired?(): void
 }
@@ -355,6 +359,7 @@ export function createMachineSupervisorConnection(
       return
     }
     activeServerUrl = resolveServerUrl()
+    const grantServerUrl = activeServerUrl
     const active = new WebSocket(activeServerUrl.replace(/\/$/, '') + '/machine')
     socket = active
     active.addEventListener('open', () => {
@@ -385,7 +390,12 @@ export function createMachineSupervisorConnection(
             saveSupervisorState(deps.stateDir, deps.state)
             deps.onAssignment?.(message.assignment)
             sendReport()
-          } else deps.onGrant(message)
+          } else {
+            const isCurrent = () =>
+              socket === active && connected && resolveServerUrl() === grantServerUrl
+            if (!isCurrent()) return
+            deps.onGrant(message, { kind: 'coordinator', serverUrl: grantServerUrl, isCurrent })
+          }
         } catch (error) {
           log.warn('dropped malformed machine control frame', { err: error })
         }

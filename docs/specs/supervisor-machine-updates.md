@@ -30,10 +30,32 @@ that presence work with original ancestry and replaces its execution seam.
 An authenticated machine-plane connection delivers an `updateGrant` containing a grant
 ID and the complete exact target (version, platform URL, digest, signature, trust root,
 schema declaration). The executor freezes this descriptor on acceptance. A repeated ID
-must name the identical descriptor; conflicting reuse is rejected. The additive `issuedAt` authority stamp is monotonic within a coordinator process;
-older or equal stamps cannot supersede newer accepted authority. A backward clock jump
-fails closed rather than silently reauthorizing old work. A deliberate downgrade requires fresh authorization;
-version ordering alone neither grants nor revokes permission.
+must name the identical descriptor; conflicting reuse is rejected across all sources.
+The additive `issuedAt` stamp orders grants only within their authenticated source.
+The local control socket and one-shot CLI share the machine-local clock domain; the
+active authenticated machine-plane connection supplies its configured coordinator endpoint
+out of band. Grant fields, ID prefixes, publisher keys, reconnects, and key rotations cannot
+choose or reset a domain. Different coordinator endpoints have independent watermarks;
+returning to an earlier endpoint retains its watermark. A disconnected or replaced connection
+cannot admit work, including after waiting for admission or pre-activation cancellation.
+
+Each source's watermark survives intervening grants from other sources and supervisor
+restarts. Older or equal stamps cannot supersede that source's newer accepted authority;
+a backward clock jump within one source fails closed. Deliberate downgrades require fresh
+authorization; version ordering alone neither grants nor revokes permission. Coordinator
+replacement at the same endpoint retains the fence, so its clock must advance past the last
+accepted stamp; changing endpoints through authenticated topology configuration uses that
+endpoint's history, rather than comparing different machines' clocks.
+
+Format-1 journals lacking provenance retain their old global watermark as a conservative
+legacy floor: their unknown history cannot safely be split by guessing which producer wrote
+it. They may still require clock catch-up on upgrade. Dated legacy wire grants remain usable
+through authenticated transports without new fields; undated grants may replay known IDs but
+cannot authorize new work. Internal callers without source context retain the conservative
+global fence. The journal retains the maximum scalar authority for old binary rollback;
+an old writer stripping the additive history restores conservative migration behavior.
+Per-source history is retained without eviction or an endpoint-count lockout, as with the
+existing completed-grant replay history.
 
 The supervisor stores its enrollment and pinned instance key in `supervisor.json`.
 Publisher-advertised keys are diagnostic only. Release signatures use the baked release

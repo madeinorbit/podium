@@ -76,7 +76,7 @@ export async function startMachineUpdateControl(
       }
       if (req.method === 'POST' && (req.url === '/grant' || req.url === '/prepare')) {
         // Return admission promptly; durable status is the completion contract.
-        await executor.accept(parsed, false, req.url === '/prepare')
+        await executor.accept(parsed, false, req.url === '/prepare', { kind: 'local' })
         res.statusCode = 202
         json({ accepted: true })
         return

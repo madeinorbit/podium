@@ -17,7 +17,11 @@ export const UpdateGrantMessage = z.object({
   type: z.literal('updateGrant'),
   /** Correlates the grant with the status reports it produces, across a restart. */
   grantId: z.string().min(1),
-  /** Coordinator authority ordering; frozen with the exact grant. */
+  /**
+   * Ordering within the authenticated issuing source; frozen with the exact grant.
+   * Independent local/coordinator clocks are not comparable. The receiving
+   * transport supplies provenance out of band; grant fields cannot choose it.
+   */
   issuedAt: z.number().int().nonnegative().optional(),
   /**
    * Explicit repair re-delivers the current target even when its version label
