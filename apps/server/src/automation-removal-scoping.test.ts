@@ -152,7 +152,10 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       onBehalfOf: OWNER,
     }
     await ledgerOf(reg).commit({
-      write: async () => await store.automations.addRun(run),
+      write: async () => {
+        await store.automations.addRun(run)
+        return undefined
+      },
       changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
     })
 

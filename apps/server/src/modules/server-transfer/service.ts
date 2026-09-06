@@ -62,8 +62,10 @@ export interface ServerTransferDeps {
    *  caller in a loop never falls back to the per-machine form — which is the
    *  point, since that form is what re-read the table. */
   targetStateResolver():
-    | ((machineId: MachineId) => ServerTransferTargetState)
-    | Promise<(machineId: MachineId) => ServerTransferTargetState>
+    | ((machineId: MachineId) => ServerTransferTargetState | Promise<ServerTransferTargetState>)
+    | Promise<
+        (machineId: MachineId) => ServerTransferTargetState | Promise<ServerTransferTargetState>
+      >
   localPromotedTransfer():
     | PromotedTargetMetadata
     | undefined

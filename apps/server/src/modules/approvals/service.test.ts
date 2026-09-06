@@ -32,8 +32,12 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
-      logEvent: (kind, issueId) => events.push({ kind, issueId }),
-      notifyIssue: (_issueId, body) => mails.push(body),
+      logEvent: (kind, issueId) => {
+        events.push({ kind, issueId })
+      },
+      notifyIssue: (_issueId, body) => {
+        mails.push(body)
+      },
       ...(executeServerOp ? { executeServerOp } : {}),
     })
   }
