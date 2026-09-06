@@ -1864,6 +1864,40 @@ serialize entry at the boundary (POD-3469's `preAuthSerial` chain). It mutation-
 guard is load-bearing: replacing `preAuthSerial` with `Promise.resolve()` reproduces "called 2 times"
 exactly.
 
+### Rule 52b — WIDEN TO `Promise<T>`, NOT TO `T | Promise<T>`: a union port manufactures the blind spot
+
+[POD-3484, 2026-09-06, correcting rule 52a with a live example. 52a says widening the port in the same
+pass makes the class loud. That is true only for one of the two ways to widen.]
+
+RULE 52a IS RIGHT ABOUT `Promise<T>` AND WRONG ABOUT UNIONS. `apps/server/src/modules/updates/operation.ts`
+declares
+
+    stepActive?: (operationId: string, stepId: string) => boolean | Promise<boolean>
+
+That port WAS widened in the same pass as its provider, exactly as 52a demands. The bad call site
+thirty lines below still typechecks clean, zero errors in the file:
+
+    until: () => !(context.stepActive?.(operation.id, UPDATE_STEP_WEB) ?? true)
+
+The arrow returns `boolean`, which satisfies the union, so nothing is loud. The promise sits inside an
+expression whose own inferred type is still boolean — the exact residue rule 52 describes. THE EFFECT
+WAS REAL: the web-rebuild watcher never stopped, which is the POD-2173 leak the fence exists to close.
+
+A UNION PORT IS A MACHINE FOR MANUFACTURING THAT RESIDUE, because it makes the synchronous spelling
+legal at both ends BY CONSTRUCTION. `Promise<T>` refuses the sync arrow and the compiler enumerates the
+sites; `T | Promise<T>` accepts it and says nothing. The whole leverage of 52a comes from the port
+REFUSING something, and a union refuses nothing.
+
+SO THE PROCEDURE IS: widen to `Promise<T>`. Do not reach for the union because it makes the diff
+smaller — it makes the diff smaller precisely by not forcing the call sites you need forced.
+
+IF A UNION IS GENUINELY REQUIRED because some implementations must stay synchronous, then declare it a
+KNOWN BLIND SPOT: list the port in the handoff, read every call site by hand, and say you did. A union
+port is the one place where "the typecheck is clean" carries no information about this class.
+
+THIS ALSO BOUNDS RULE 51. When rule 51 case 1 says "widen the port and await", it means widen to
+`Promise<T>`. A case-1 conversion that produces a union has not been done.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,

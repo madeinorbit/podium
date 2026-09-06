@@ -117,9 +117,13 @@ frame handling and keep the acceptor synchronous over the resolved value.
 
 B1's gateway work lives in `332ff8f44`, which is a commit I MADE from B1's uncommitted tree while
 recovering its wedged session. I then handed that same commit to POD-3469 telling it to "read it first
-and build on it", and separately specified a different shape in its brief. I never told B1 to stop. Two
-workers then built two designs in one area, one of them following instructions I gave and the other
-following work I had preserved for it. The duplication is mine, not theirs.
+and build on it", and separately specified a different shape in its brief. I never told B1 to stop.
+
+CORRECTION (POD-3469, verified): it never built on `332ff8f44` — that commit is NOT an ancestor of its
+HEAD, because its branch base PREDATES it. So the two designs did not diverge from a shared starting
+point; POD-3469's handshake layer sits at merge-base precisely because it never touched that path, and
+B1's diverged from it independently. My instruction to build on that commit was therefore unfollowable
+as well as contradictory, which makes the duplication more clearly mine and not a worker's misreading.
 
 ### MECHANICS — no history surgery on a live branch
 
