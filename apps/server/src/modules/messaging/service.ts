@@ -45,14 +45,14 @@ export interface SuperagentTurnPort {
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
   interruptTurn(input: { ownerUserId: UserId; threadId: ThreadId }): void
   restartThread(input: { ownerUserId: UserId; threadId: ThreadId }): void
-  startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }): {
+  startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }): Promise<{
     threadId: ThreadId
     isNew: boolean
-  }
-  ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }): {
+  }>
+  ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }): Promise<{
     threadId: ThreadId
     isNew: boolean
-  }
+  }>
 }
 
 /** Persisted forum-topic ↔ superagent-thread bindings. */
@@ -426,11 +426,12 @@ export class MessagingService implements TelegramNoticePort {
       []
     const session = pickIssueSession(issue, sessions)
     if (session) {
-      return this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })
+      return (await this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId }))
         .threadId
     }
-    return this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath })
-      .threadId
+    return (
+      await this.deps.superagent.ensureConciergeThread({ ownerUserId, repoPath: issue.repoPath })
+    ).threadId
   }
 
   private async issueThreadNote(issue: IssueWire): Promise<string> {
@@ -494,7 +495,7 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Plain chat (not slash/callback): optional inactivity recap, then queue. */
   private async handleChatMessage(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {
-    const resolvedThreadId = this.resolveThreadId(msg)
+    const resolvedThreadId = await this.resolveThreadId(msg)
     const threadId = resolvedThreadId
     // [spec:SP-62c3] First message after >30min idle → recap BEFORE dispatch.
     if (await this.shouldPostInactivityRecap(msg.source)) {

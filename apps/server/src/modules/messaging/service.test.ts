@@ -258,11 +258,11 @@ async function makeHarness(
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
-  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
+  const startBtwTurn = vi.fn(async ({ sessionId }: { sessionId: SessionId }) => ({
     threadId: `btw_${sessionId}`,
     isNew: true,
   }))
-  const ensureConciergeThread = vi.fn(({ repoPath }: { repoPath: string }) => ({
+  const ensureConciergeThread = vi.fn(async ({ repoPath }: { repoPath: string }) => ({
     threadId: `concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`,
     isNew: true,
   }))
@@ -565,10 +565,10 @@ describe('MessagingService', () => {
       }
     }
 
-    function bindTopic(
+    async function bindTopic(
       h: Harness,
       opts: { sessionId?: string; issueId?: string; threadRef?: string } = {},
-    ): { sessionId: SessionId; issueId: string; threadRef: string } {
+    ): Promise<{ sessionId: SessionId; issueId: string; threadRef: string }> {
       const sessionId = opts.sessionId ?? 's_agent'
       const issueId = opts.issueId ?? 'iss_bound'
       const threadRef = opts.threadRef ?? '555'
@@ -586,7 +586,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId, threadRef } = bindTopic(h)
+      const { sessionId, threadRef } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -600,7 +600,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId } = bindTopic(h)
+      const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -615,7 +615,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId } = bindTopic(h)
+      const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -635,12 +635,12 @@ describe('MessagingService', () => {
       'errored',
       'ended',
       'compacting',
-    ] as const)('stops ambient typing on %s', (phase) => {
+    ] as const)('stops ambient typing on %s', async (phase) => {
       vi.useFakeTimers()
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId } = bindTopic(h)
+      const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -663,7 +663,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId } = bindTopic(h)
+      const { sessionId } = await bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -696,7 +696,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
+      const { sessionId, threadRef } = await bindTopic(h, { threadRef: '9001' })
       await h.topics.upsert({
         issueId: asIssueId('iss_bound'),
         chatId: '42',
@@ -736,7 +736,7 @@ describe('MessagingService', () => {
       const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
-      const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
+      const { sessionId, threadRef } = await bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {
         sessionId,
         ownerUserId: BOUND_USER,
@@ -1175,11 +1175,11 @@ describe('MessagingService', () => {
         ),
         interruptTurn: vi.fn(),
         restartThread: vi.fn(),
-        startBtwTurn: vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
+        startBtwTurn: vi.fn(async ({ sessionId }: { sessionId: SessionId }) => ({
           threadId: asThreadId(`btw_${sessionId}`),
           isNew: true,
         })),
-        ensureConciergeThread: vi.fn(({ repoPath }: { repoPath: string }) => ({
+        ensureConciergeThread: vi.fn(async ({ repoPath }: { repoPath: string }) => ({
           threadId: asThreadId(`concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`),
           isNew: true,
         })),
