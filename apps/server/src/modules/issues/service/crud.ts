@@ -727,7 +727,7 @@ export class IssueCrudModule {
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
   private async archiveClosedSubtree(parentId: string, sessionList?: SessionMeta[]): Promise<void> {
-    sessionList ??= this.store.deps.listSessions()
+    sessionList ??= await this.store.deps.listSessions()
     const skipped: Array<{ seq: number; why: string }> = []
     for (const child of this.store.rows.values()) {
       if (child.parentId !== parentId || child.archived || child.deletedAt) continue

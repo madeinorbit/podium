@@ -540,7 +540,7 @@ export class IssueAttentionModule {
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
-      sessionList ??= this.store.deps.listSessions()
+      sessionList ??= await this.store.deps.listSessions()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
       if (this.store.computeUnread(row, sessions)) continue
       out.push(await this.autoArchive(row, principal))

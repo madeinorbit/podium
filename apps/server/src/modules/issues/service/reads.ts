@@ -228,7 +228,7 @@ export class IssueReportsModule {
       else byParent.set(r.parentId, [r])
     }
     // One session list for the whole walk — same membership rules as IssueWire.
-    const sessionList = this.store.deps.listSessions()
+    const sessionList = await this.store.deps.listSessions()
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
