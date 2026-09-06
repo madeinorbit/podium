@@ -303,5 +303,15 @@ not have. Under POD-3469's serialization a second entrant cannot reach the await
 re-check is belt-and-braces rather than load-bearing there — but if the merged result ever loses the
 serialization, that re-check is the second line of defence. Preserve it if it applies cleanly.
 
-POD-3469's committed test asserts only that the daemon attaches exactly once, which holds under either
-policy, so nothing in the pinned suite prejudges this ruling.
+THE PINNED SUITE IS NOT POLICY-NEUTRAL — corrected by POD-3469 against its own earlier claim.
+`daemon-fail-closed.test.ts` asserts `expect(h.attach).toHaveBeenCalledTimes(1)`. Under a
+close-the-connection policy that count is ZERO and the test would FAIL, so it encodes first-hello-wins.
+It needs no change because the ruling went that way — but anyone revisiting this policy later must
+expect that assertion to move from 1 to 0, and must not read the suite as having stayed out of the
+question. The policy-neutral half is the SECURITY property, that the daemon is never attached TWICE;
+that holds either way and is genuinely pinned.
+
+MEASURED CONFIRMATION of the framing above, from POD-3469: hello, routable frame, second hello, same
+routable frame again gives routed=1 before and routed=0 after, replies
+`[peerHelloOk, peerHelloRejected, peerHelloRejected]`. After the second hello nothing is served. The
+protocol connection is dead and only the socket survives, which is what makes this rule-3 compliant.
