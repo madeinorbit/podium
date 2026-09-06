@@ -496,6 +496,16 @@ afterAll(async () => {
   }
   for (const instance of running) {
     if (instance.child.exitCode === null && instance.child.signalCode === null) {
+      // Stop through the isolated instance CLI so its parent drains both roles.
+      // Killing only the parent strands the server and daemon after this file.
+      await runCli(instance, ['stop']).catch((error) => console.error(error))
+      await waitUntil(
+        () => instance.child.exitCode !== null || instance.child.signalCode !== null,
+        `${instance.id} parent cleanup`,
+        10_000,
+      ).catch((error) => console.error(error))
+    }
+    if (instance.child.exitCode === null && instance.child.signalCode === null) {
       instance.child.kill('SIGKILL')
       await new Promise<void>((resolve) => instance.child.once('exit', () => resolve()))
     }
