@@ -81,25 +81,27 @@ async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 
 describe('loop split representative load [spec:SP-c29e]', () => {
   it('holds publication interaction and event-loop targets at 588 sessions / 800 issues', async () => {
-    const store = openTestStore(':memory:')
-    store.transact(() => {
-      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
+    const store = await openTestStore(':memory:')
+    await store.transact(async () => {
+      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(issueRow(seq))
     })
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
       for (let index = 0; index < SESSION_COUNT; index += 1) {
         sessionIds.push(
-          registry.modules.sessions.createSession({
-            agentKind: 'shell',
-            cwd: `/representative-load/session-${index}`,
-          }).sessionId,
+          (
+            await registry.modules.sessions.createSession({
+              agentKind: 'shell',
+              cwd: `/representative-load/session-${index}`,
+            })
+          ).sessionId,
         )
       }
       registry.modules.sessions.flushBroadcasts()
-      expect(registry.modules.sessions.listSessions()).toHaveLength(SESSION_COUNT)
-      expect(registry.modules.issues.list()).toHaveLength(ISSUE_COUNT)
+      expect(await registry.modules.sessions.listSessions()).toHaveLength(SESSION_COUNT)
+      expect(await registry.modules.issues.list()).toHaveLength(ISSUE_COUNT)
 
       const clients: Array<{
         id: string

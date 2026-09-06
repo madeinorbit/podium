@@ -66,7 +66,7 @@ describe('server-owned janitor worker', () => {
     const workerLogs: string[] = []
 
     try {
-      const seed = openTestStore(dbPath)
+      const seed = await openTestStore(dbPath)
       const message: MessageRow = {
         id: 'msg_worker_due',
         threadId: asThreadId('thread_worker_due'),
@@ -94,7 +94,7 @@ describe('server-owned janitor worker', () => {
         factTarget: null,
         expectsResponse: false,
       }
-      seed.messages.addMessage(message)
+      await seed.messages.addMessage(message)
       seed.close()
 
       server = await startServer({

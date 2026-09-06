@@ -77,10 +77,10 @@ async function waitUntil(
   }
 }
 
-function expiredEventCount(store: SessionStore, id: string): number {
-  return store.events
-    .listEventsSince(0)
-    .filter((event) => event.kind === 'message.expired' && event.subject === id).length
+async function expiredEventCount(store: SessionStore, id: string): Promise<number> {
+  return (await store.events.listEventsSince(0)).filter(
+    (event) => event.kind === 'message.expired' && event.subject === id,
+  ).length
 }
 
 function makeRoot(prefix: string): string {
@@ -89,9 +89,9 @@ function makeRoot(prefix: string): string {
   return dir
 }
 
-function maintenanceHarness(dir: string, leaseTtlMs = 1_000) {
+async function maintenanceHarness(dir: string, leaseTtlMs = 1_000) {
   const dbPath = join(dir, 'podium.db')
-  const store = openTestStore(dbPath)
+  const store = await openTestStore(dbPath)
   const service = new MaintenanceService(
     store,
     {
@@ -278,9 +278,9 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
   for (const boundary of ['before-apply', 'after-apply-before-ack'] as const) {
     it('SIGKILLs the janitor ' + boundary + ' and recovers exactly once', async () => {
       const dir = makeRoot('podium-janitor-' + boundary + '-')
-      const harness = maintenanceHarness(dir)
+      const harness = await maintenanceHarness(dir)
       const message = dueMessage('msg_' + boundary)
-      harness.store.messages.addMessage(message)
+      await harness.store.messages.addMessage(message)
       const boundaryHit = harness.arm(boundary)
       const firstStarted = join(dir, 'first.started')
       const first = spawnJanitor(dir, harness.dbPath, harness.serverUrl, firstStarted)
@@ -293,10 +293,10 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         ])
         expect(first.child.pid).toBeGreaterThan(0)
         if (boundary === 'before-apply') {
-          expect(harness.store.messages.getMessage(message.id)?.status).toBe('queued')
+          expect((await harness.store.messages.getMessage(message.id))?.status).toBe('queued')
         } else {
-          expect(harness.store.messages.getMessage(message.id)?.status).toBe('expired')
-          expect(expiredEventCount(harness.store, message.id)).toBe(1)
+          expect((await harness.store.messages.getMessage(message.id))?.status).toBe('expired')
+          expect(await expiredEventCount(harness.store, message.id)).toBe(1)
         }
         await kill(first.child, 'SIGKILL')
         expect(first.child.signalCode).toBe('SIGKILL')
@@ -307,11 +307,11 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         const recovered = spawnJanitor(dir, harness.dbPath, harness.serverUrl, recoveredStarted)
         try {
           await waitUntil(
-            () => harness.store.messages.getMessage(message.id)?.status === 'expired',
+            async () => (await harness.store.messages.getMessage(message.id))?.status === 'expired',
             'janitor recovery apply',
           )
           await waitUntil(() => existsSync(recoveredStarted), 'recovered janitor start')
-          expect(expiredEventCount(harness.store, message.id)).toBe(1)
+          expect(await expiredEventCount(harness.store, message.id)).toBe(1)
           const recoveredPid = recovered.child.pid
           if (recoveredPid === undefined) throw new Error('recovered janitor reported no pid')
           expect(Number(readFileSync(recoveredStarted, 'utf8'))).toBe(recoveredPid)
@@ -366,7 +366,7 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
 describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
   it('restarts a progress-hung janitor with SIGKILL and stays healthy after recovery', async () => {
     const dir = makeRoot('podium-janitor-watchdog-')
-    const harness = maintenanceHarness(dir)
+    const harness = await maintenanceHarness(dir)
     const instanceId = uniqueInstance('accw')
     const unit = instanceServiceName('janitor', instanceId)
     const startedFile = join(dir, 'watchdog.started')
@@ -397,14 +397,14 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
 
       const message = dueMessage('msg_watchdog_restart')
       const boundaryHit = harness.arm('after-apply-before-ack')
-      harness.store.messages.addMessage(message)
+      await harness.store.messages.addMessage(message)
       await Promise.race([
         boundaryHit,
         Bun.sleep(10_000).then(() => {
           throw new Error('janitor did not enter watchdog hang')
         }),
       ])
-      expect(harness.store.messages.getMessage(message.id)?.status).toBe('expired')
+      expect((await harness.store.messages.getMessage(message.id))?.status).toBe('expired')
       await waitUntil(
         () => {
           const pid = Number(systemctl(unit, 'MainPID'))
@@ -417,7 +417,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
       const recoveredPid = Number(systemctl(unit, 'MainPID'))
       expect(recoveredPid).not.toBe(firstPid)
       expect(Number(systemctl(unit, 'NRestarts'))).toBeGreaterThanOrEqual(1)
-      expect(expiredEventCount(harness.store, message.id)).toBe(1)
+      expect(await expiredEventCount(harness.store, message.id)).toBe(1)
       await Bun.sleep(4_500)
       expect(Number(systemctl(unit, 'MainPID'))).toBe(recoveredPid)
       expect(systemctl(unit, 'ActiveState')).toBe('active')
@@ -429,7 +429,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
 
   it('revives exit-78 only after a real maintenance schema catch-up', async () => {
     const dir = makeRoot('podium-janitor-compat-')
-    const harness = maintenanceHarness(dir)
+    const harness = await maintenanceHarness(dir)
     const instanceId = uniqueInstance('accc')
     const unit = instanceServiceName('janitor', instanceId)
     const schemaFile = join(dir, 'schema-version')

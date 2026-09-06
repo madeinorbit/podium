@@ -14,6 +14,7 @@ import { readInstallTopology } from './install-topology'
 import {
   admissionRefusal,
   availableMb,
+  continueArgs,
   decideConcurrency,
   decideForce,
   fingerprint,
@@ -21,6 +22,28 @@ import {
   sharedTurboCacheDir,
 } from './typecheck'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
+
+describe('continueArgs', () => {
+  it('defaults to --continue=always so the gate reaches every package', () => {
+    // POD-3508: turbo's default is --continue=never, so the run stopped at the
+    // first red package and the ones it never reached looked identical to the
+    // ones that passed. @podium/scripts sat at 93 errors behind that.
+    expect(continueArgs([])).toEqual(['--continue=always'])
+    expect(continueArgs(['--filter=@podium/web'])).toEqual(['--continue=always'])
+  })
+
+  it('lets an explicit --continue from the caller win, in either spelling', () => {
+    expect(continueArgs(['--continue'])).toEqual([])
+    expect(continueArgs(['--continue=never'])).toEqual([])
+    expect(continueArgs(['--continue=dependencies-successful'])).toEqual([])
+  })
+
+  it('does not mistake another flag that merely starts the same way', () => {
+    // `--continue` must not be matched by prefix alone: a future
+    // `--continue-on-x` would silently suppress the default.
+    expect(continueArgs(['--continue-on-error'])).toEqual(['--continue=always'])
+  })
+})
 
 describe('decideForce', () => {
   it('plain run forwards args untouched and stays cached', () => {

@@ -239,6 +239,25 @@ export function decideConcurrency(args: string[], env: { cores: number; availabl
   }
 }
 
+/**
+ * The gate must REACH every package, not stop at the first red one.
+ *
+ * Turbo aborts the remaining tasks as soon as one fails, so `bun run typecheck`
+ * reported "22 successful, 26 total" and the four it never ran were indistinguishable
+ * from four that passed. @podium/scripts was one of them: it carried 93 errors for
+ * the whole of POD-3221 while the headline said apps/server was at zero, because the
+ * run stopped before it (POD-3508). A gate that cannot see a package cannot regress
+ * on it either, so the next break there would have been equally invisible.
+ *
+ * `--continue=always` runs every task and still exits non-zero, so a red stays red —
+ * the change is to WHAT IS REPORTED, never to whether the gate passes. An explicit
+ * `--continue` from the caller wins, the same way `--concurrency` does.
+ */
+export function continueArgs(forwardArgs: string[]): string[] {
+  const set = forwardArgs.some((a) => a === '--continue' || a.startsWith('--continue='))
+  return set ? [] : ['--continue=always']
+}
+
 export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
   const cacheDir = process.env.TURBO_CACHE_DIR ?? sharedTurboCacheDir(root)
   const existed = existsSync(cacheDir)
@@ -291,6 +310,7 @@ async function main() {
       'run',
       'typecheck',
       ...concurrencyArgs,
+      ...continueArgs(decision.forwardArgs),
       ...decision.forwardArgs,
     ],
     {

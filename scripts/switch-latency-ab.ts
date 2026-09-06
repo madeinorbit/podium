@@ -186,18 +186,20 @@ async function runArm(label: string): Promise<ArmReport> {
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { SessionStore } = await import('../apps/server/src/store')
   const store = await SessionStore.open(':memory:')
-  await store.transact(() => {
-    for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
+  await store.transact(async () => {
+    for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(issueRow(seq))
   })
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const sessionIds: SessionId[] = []
   try {
     for (let index = 0; index < SESSION_COUNT; index += 1) {
       sessionIds.push(
-        registry.modules.sessions.createSession({
-          agentKind: 'shell',
-          cwd: `/switch-latency-bench/session-${index}`,
-        }).sessionId,
+        (
+          await registry.modules.sessions.createSession({
+            agentKind: 'shell',
+            cwd: `/switch-latency-bench/session-${index}`,
+          })
+        ).sessionId,
       )
     }
     registry.modules.sessions.flushBroadcasts()

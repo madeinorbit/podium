@@ -60,12 +60,12 @@ function openAccountsDatabase() {
 }
 
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
-function managedAccountEnv(): Record<string, string> | undefined {
+async function managedAccountEnv(): Promise<Record<string, string> | undefined> {
   const db = openAccountsDatabase()
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
   const accounts = new AccountsRepository(queries)
-  accounts.upsert({
+  await accounts.upsert({
     id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
@@ -74,7 +74,7 @@ function managedAccountEnv(): Record<string, string> | undefined {
     scope: 'role',
     createdAt: 1,
   })
-  const env = resolveAccountEnv(accounts, asAccountId('managed:anthropic')).env
+  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'))).env
   db.close()
   return env
 }
@@ -263,7 +263,7 @@ async function spawnAndDumpEnv(
 
 describe('managed account -> real spawned process env (#216)', () => {
   it('POSITIVE: a managed anthropic api-key lands in the spawned process ENVIRONMENT', async () => {
-    const env = managedAccountEnv()
+    const env = await managedAccountEnv()
     // The server resolved the stored credential into exactly the documented env var.
     expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
 
@@ -295,7 +295,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
     const accounts = new AccountsRepository(queries)
-    accounts.upsert({
+    await accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
@@ -304,7 +304,7 @@ describe('managed account -> real spawned process env (#216)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const { env } = resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
+    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
     db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 

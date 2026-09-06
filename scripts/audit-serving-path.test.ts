@@ -38,10 +38,10 @@ describe('the shipped objects have one serving tail', () => {
     expect(SessionLifecycle.prototype).not.toHaveProperty('sendMetadataDelta')
   })
 
-  it('a REAL edge serves a v1 peer from the feed, with no list builder in reach', () => {
-    const plumbing = feedTestPlumbing()
-    plumbing.ledger.commit({
-      write: () => {},
+  it('a REAL edge serves a v1 peer from the feed, with no list builder in reach', async () => {
+    const plumbing = await feedTestPlumbing()
+    await plumbing.ledger.commit({
+      write: async () => {},
       changes: () => [{ entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
     })
     const received: { type: string }[] = []

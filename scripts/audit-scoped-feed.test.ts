@@ -92,11 +92,11 @@ describe('the instrument can say YES — three broken kernels, three catches', (
     const findings = await broken((kernel) => ({
       ...kernel,
       FeedPublisher: class extends (FeedPublisher as never as new (deps: never) => FeedPublisher) {
-        override publish(principal: never, delivery: never): void {
+        override async publish(principal: never, delivery: never): Promise<void> {
           const d = delivery as { kind: string; throughSeq: number; changes: readonly unknown[] }
           if (d.kind === 'batch' && d.changes.length === 0) {
             // The regression: pad the "empty" frame so it consumes queue budget.
-            super.publish(principal, {
+            await super.publish(principal, {
               ...d,
               changes: [
                 { seq: d.throughSeq, entity: 'session', entityId: 'pad', op: 'upsert', value: {} },
@@ -104,7 +104,7 @@ describe('the instrument can say YES — three broken kernels, three catches', (
             } as never)
             return
           }
-          super.publish(principal, delivery)
+          await super.publish(principal, delivery)
         }
       } as never as KernelUnderTest['FeedPublisher'],
     }))

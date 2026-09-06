@@ -111,10 +111,10 @@ function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
   }
 }
 
-function seedLegacyNamedState(spec: InstanceSpec): void {
+async function seedLegacyNamedState(spec: InstanceSpec): Promise<void> {
   mkdirSync(spec.stateDir, { recursive: true })
   const path = join(spec.stateDir, 'podium.db')
-  openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734')).close()
+  ;(await openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734'))).close()
   const db = openDatabase(path)
   db.prepare('DELETE FROM machines').run()
   db.prepare(
@@ -788,7 +788,7 @@ describe('multi-instance runtime isolation', () => {
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
     const compat = startInstance(makeSpec('default'))
     const namedSpec = makeSpec('blue')
-    seedLegacyNamedState(namedSpec)
+    await seedLegacyNamedState(namedSpec)
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
