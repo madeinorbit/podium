@@ -184,6 +184,8 @@ interface PendingGrant {
   channel: UpdateChannel
   grantId: string
   issuedAt: number
+  /** Exact coordinator receipt survives reconstruction, including repair and trust metadata. */
+  coordinatorGrant?: UpdateGrantMessage
 }
 
 /**
@@ -333,6 +335,48 @@ export class UpdatesService {
   // Keep target-named terminal boot reports while a reconnecting machine is
   // absent from the live directory; replay them once it is visible again.
   private readonly terminalStatusesBeforeMachine = new Map<string, UpdateStatusMessage>()
+  /** Reserved before planning, including when this host is not connected yet.
+   * A missing/inactive operation handler holds the host; it never falls back to /grant. */
+  private readonly coordinatorUpdates = new Map<string, { active(): boolean; dispatch(grant: UpdateGrantMessage): void } | undefined>()
+
+  reserveCoordinatorUpdate(machineId: string): void {
+    if (!this.coordinatorUpdates.has(machineId)) this.coordinatorUpdates.set(machineId, undefined)
+  }
+
+  handleCoordinatorUpdate(machineId: string, handler: { active(): boolean; dispatch(grant: UpdateGrantMessage): void }): void {
+    this.coordinatorUpdates.set(machineId, handler)
+    const pending = this.pendingGrants.get(machineId)
+    const grant = pending?.coordinatorGrant
+    if (grant && handler.active() && this.coordinatorGrantActive(machineId, grant))
+      handler.dispatch(grant)
+  }
+
+  coordinatorUpdateApproved(channel: UpdateChannel, target: UpdateTarget): boolean {
+    this.assertPersistence()
+    const approved = this.approvedTarget(channel)
+    return !this.deps.recoveryOnly && approved !== undefined &&
+      updateFingerprint(approved) === updateFingerprint(target)
+  }
+
+  /** The server step may run before its host presence arrives. It uses the
+   * same durable issuer as the wave, after that step has drained the fleet. */
+  grantCoordinatorUpdate(machineId: string, channel: UpdateChannel, target: UpdateTarget, cause: GrantCause): boolean {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId) ?? {
+      id: machineId, version: '', state: 'pending' as const, online: false, busy: false,
+      coordinator: true, presenceSource: 'supervisor' as const,
+    }
+    return this.issueGrants(channel, target, [machine], [machineId], cause).length > 0
+  }
+
+  coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): boolean {
+    const pending = this.pendingGrants.get(machineId)
+    return pending !== undefined && this.coordinatorUpdateApproved(pending.channel, grant.target) &&
+      pending?.grantId === grant.grantId &&
+      pending.targetFingerprint === updateFingerprint(grant.target) &&
+      this.target(pending.channel) !== undefined &&
+      updateFingerprint(this.target(pending.channel)) === pending.targetFingerprint
+  }
+
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
@@ -1620,6 +1664,12 @@ export class UpdatesService {
     const replanned: WaveMachine[] = []
     for (const machine of candidates) {
       if (machine.version === target.version) continue
+      // A coordinator retry must join its held/committed transaction. Replacing
+      // its authority here could cancel a preparation or race the outgoing process.
+      if (this.pendingGrants.get(machine.id)?.coordinatorGrant) {
+        replanned.push(machine)
+        continue
+      }
       this.machineStates.delete(machine.id)
       this.pendingGrants.delete(machine.id)
       replanned.push({ ...machine, state: 'current' })
@@ -1713,6 +1763,25 @@ export class UpdatesService {
       throw new Error('Update grants are disabled during recovery-only startup')
     const issued: string[] = []
     for (const machineId of selected) {
+      const machine = machines.find((candidate) => candidate.id === machineId)
+      const coordinatorHandler = this.coordinatorUpdates.get(machineId)
+      // Intrinsic guard: boot/reconnect can dispatch before an operation has
+      // assembled its context. A supervisor coordinator never receives /grant.
+      const coordinatorOwned = this.coordinatorUpdates.has(machineId) ||
+        (machine?.coordinator === true && machine.presenceSource === 'supervisor')
+      if (coordinatorOwned && !coordinatorHandler?.active()) continue
+      if (coordinatorOwned) {
+        if (!this.coordinatorUpdateApproved(channel, target))
+          throw new Error('Coordinator update requires approval of the exact target.')
+      }
+      const pending = this.pendingGrants.get(machineId)
+      if (coordinatorHandler && pending?.coordinatorGrant &&
+          pending.channel === channel && pending.targetFingerprint === updateFingerprint(target) &&
+          (pending.coordinatorGrant.repair === true) === repair) {
+        coordinatorHandler.dispatch(pending.coordinatorGrant)
+        issued.push(machineId)
+        continue
+      }
       const grant: UpdateGrantMessage = {
         type: 'updateGrant',
         grantId: this.deps.nextGrantId(),
@@ -1724,7 +1793,6 @@ export class UpdatesService {
         target,
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
-      const machine = machines.find((candidate) => candidate.id === machineId)
       /**
        * BEFORE THE SEND, and that ordering is the difference between the two
        * halves this merges (POD-3170 + POD-2907).
@@ -1759,6 +1827,7 @@ export class UpdatesService {
         grantId: grant.grantId,
         targetFingerprint: updateFingerprint(target),
         issuedAt: grant.issuedAt!,
+        ...(coordinatorHandler ? { coordinatorGrant: grant } : {}),
       })
       this.machineStates.set(machineId, {
         channel,
@@ -1769,7 +1838,8 @@ export class UpdatesService {
       this.persistRecovery()
       // Register correlation before dispatch: an in-process participant may
       // synchronously report its terminal replay from send().
-      this.deps.send(asMachineId(machineId), grant)
+      if (coordinatorHandler) coordinatorHandler.dispatch(grant)
+      else this.deps.send(asMachineId(machineId), grant)
       issued.push(machineId)
     }
     return issued

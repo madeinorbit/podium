@@ -1,3 +1,4 @@
+import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import { createLogger } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
@@ -71,7 +72,7 @@ export interface Context {
   loginRequired?: () => boolean
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
-  requestCoordinatorRestart?: () => void
+  requestCoordinatorRestart?: () => void | Promise<void>
   /** This coordinator's own install shape; absent remains unknown and visible. */
   serverInstallKind?: 'installed' | 'source'
   /** This deployment's lifecycle projection, read live (POD-2766). `setup.activate`
@@ -81,7 +82,7 @@ export interface Context {
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean
   /** Installed coordinator-only exact-target delivery before the process-manager restart. */
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   /** Source-host only: rebuild BOTH websites via podium-web when the server is
    *  current — the unit builds apps/web/dist and apps/mobile/dist together. */
   requestWebRebuild?: () => void
