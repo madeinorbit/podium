@@ -26,8 +26,8 @@ function fakeWs() {
       }
       eventHandlers.push(callback)
     },
-    emit: (event: string, ...args: unknown[]) => {
-      for (const callback of handlers[event] ?? []) callback(...args)
+    emit: async (event: string, ...args: unknown[]) => {
+      for (const callback of handlers[event] ?? []) await callback(...args)
     },
   }
 }
@@ -87,7 +87,7 @@ describe('build report on hello accept', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, registry)
 
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',

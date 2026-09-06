@@ -31,8 +31,8 @@ function fakeWs() {
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => {
-      for (const handler of handlers[ev] ?? []) handler(...a)
+    emit: async (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) await handler(...a)
     },
   }
 }
@@ -73,9 +73,9 @@ describe('the instrument', () => {
     // Without this, every refusal below could be a socket that routes nothing at
     // all — a refusal-only suite that would pass against a broken wiring.
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
     expect(h.attach).toHaveBeenCalledTimes(1)
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).toHaveBeenCalledTimes(1)
   })
 })
@@ -83,7 +83,7 @@ describe('the instrument', () => {
 describe('a daemon that cannot prove who it is', () => {
   it('rejects an UNPAIRED machine and admits nothing', async () => {
     const h = await harness([])
-    h.ws.emit(
+    await h.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'ghost', token: 'whatever', hostname: 'ghost' }),
     )
@@ -103,7 +103,7 @@ describe('a daemon that cannot prove who it is', () => {
       tokenHash: sha256('rotated'),
       ownerUserId: asUserId('user:sole'),
     })
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
@@ -113,32 +113,32 @@ describe('a daemon that cannot prove who it is', () => {
       { id: 'm1', token: 'tok1' },
       { id: 'm2', token: 'tok2' },
     ])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm2', token: 'tok1', hostname: 'm2' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm2', token: 'tok1', hostname: 'm2' }))
     expect(h.attach).not.toHaveBeenCalled()
   })
 
   it('keeps a REJECTED socket rejected: later frames reach no feature port', async () => {
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     // A retry with the CORRECT token on the same socket must not succeed — a
     // socket that can retry into a usable connection is an oracle for guessing.
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     // And application traffic never routes.
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).not.toHaveBeenCalled()
   })
 
   it('drops pre-auth application traffic without creating a principal', async () => {
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).not.toHaveBeenCalled()
     expect(h.attach).not.toHaveBeenCalled()
     // Closing an unattached socket must not detach a machine that may have a
     // healthy daemon on another socket.
     const detach = vi.spyOn(h.reg.gateway, 'detachDaemon')
-    h.ws.emit('close')
+    await h.ws.emit('close')
     expect(detach).not.toHaveBeenCalled()
   })
 })
@@ -147,12 +147,12 @@ describe('the local socket confers no more than a remote pairing', () => {
   it('refuses the local machine with a bad credential, exactly as it refuses a remote', async () => {
     // M4, the all-in-one case: the local daemon has no bootstrap special case.
     const local = await harness([{ id: 'local', token: 'sekret' }])
-    local.ws.emit(
+    await local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'wrong', hostname: 'thishost' }),
     )
     const remote = await harness([{ id: 'm1', token: 'sekret' }])
-    remote.ws.emit(
+    await remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'box' }),
     )
@@ -167,12 +167,12 @@ describe('the local socket confers no more than a remote pairing', () => {
     // Same kind, same capability form, a per-connection device: nothing about
     // being local widens what the principal carries.
     const local = await harness([{ id: 'local', token: 'sekret' }])
-    local.ws.emit(
+    await local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'sekret', hostname: 'thishost' }),
     )
     const remote = await harness([{ id: 'm1', token: 'tok' }])
-    remote.ws.emit(
+    await remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'b' }),
     )
