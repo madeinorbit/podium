@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { createServer, request } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { asMachineId } from '@podium/model'
 import type { UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
 import { ParentProcess, PARENT_SUCCESSOR_ENV } from '../../packages/runtime/src/parent-process'
@@ -20,10 +21,23 @@ import { NativeMachineUpdateAdapter } from '../../packages/runtime/src/machine-u
 import { verifyTarball } from '../../packages/runtime/src/update-delivery'
 import { swapHeadlessBundle } from '../../packages/runtime/src/update-install'
 import { startMachineUpdateControl } from '../../packages/runtime/src/machine-update-control'
+import { createInstalledCoordinatorUpdate } from '../../apps/server/src/modules/updates/installed-restart'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { backupDatabase, runDrizzleMigrations } from '../../apps/server/src/migrations'
+import { DRIZZLE_MIGRATIONS } from '../../apps/server/src/migrations/drizzle-manifest.generated'
+import { SnapshotVerifier } from '../../apps/server/src/migrations/snapshot-verifier'
+import { OperationEngine, systemOperationClock } from '../../apps/server/src/modules/operations/engine'
+import { OperationKindRegistry } from '../../apps/server/src/modules/operations/kinds'
+import { OperationStore } from '../../apps/server/src/modules/operations/store'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../../apps/server/src/modules/operations/lifecycle'
+import { UpdateRecoveryStore } from '../../apps/server/src/modules/updates/recovery-store'
 import {
-  createInstalledCoordinatorUpdate,
-  createInstalledCoordinatorRestart,
-} from '../../apps/server/src/modules/updates/installed-restart'
+  createUpdateFleetBridge,
+  exclusiveUpdateVersion,
+  UPDATE_OPERATION_KIND,
+  updateOperationKind,
+  type UpdateOperationContext,
+} from '../../apps/server/src/modules/updates/operation'
 import { UpdatesService } from '../../apps/server/src/modules/updates/service'
 import { decideReconciliation } from '../../apps/server/src/modules/updates/reconciler'
 import type { WaveMachine } from '../../apps/server/src/modules/updates/wave'
@@ -176,6 +190,16 @@ export async function runMachine(version: string, buildIdentity: string): Promis
     let policy: { published?: UpdateTarget; approved?: UpdateTarget } = existsSync(policyPath)
       ? JSON.parse(readFileSync(policyPath, 'utf8'))
       : {}
+    const dbPath = join(state, 'operations.db')
+    const db = id === 'coordinator' ? openDatabase(dbPath) : undefined
+    if (db) {
+      db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    }
+    const store = db ? new OperationStore(db) : undefined
+    const verifier = db ? new SnapshotVerifier(dbPath) : undefined
+    let engine: OperationEngine | undefined
+    let bridge: ReturnType<typeof createUpdateFleetBridge> | undefined
     const updates = new UpdatesService({
       machines: () =>
         Object.values(fleet).map((machine) => ({
@@ -183,6 +207,11 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           online: Date.now() - machine.seenAt < 1500,
         })),
       approvedTarget: () => policy.approved,
+      ...(db ? { recovery: new UpdateRecoveryStore(db) } : {}),
+      exclusiveOperationActive: () => engine?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      exclusiveOperationVersion: (channel) =>
+        exclusiveUpdateVersion(engine?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: () => bridge?.onTargetChanged(),
       send: (machineId, grant) => {
         queues.set(machineId, grant)
         event('grant', { machineId, grant })
@@ -193,6 +222,49 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       fleetChannel: () => 'dev',
     })
     if (policy.published) updates.setTarget('dev', policy.published)
+    const context = (): UpdateOperationContext => ({
+      updates,
+      channel: 'dev',
+      appVersion: () => version,
+      serverInstallKind: 'installed',
+      hostMachineId: 'coordinator',
+      onlyMachines: ['coordinator'],
+      prepareCoordinatorUpdate: createInstalledCoordinatorUpdate({
+        runtimeDir,
+        env: { ...process.env, PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
+      }),
+      // A supervisor preparation must supply its exact activation receipt.
+      requestCoordinatorRestart: () => {
+        throw new Error('Unscoped coordinator restart')
+      },
+      prepareVerifiedDatabaseSnapshot: async (from, target) => {
+        event('snapshot-waiting')
+        while (existsSync(join(state, 'hold-snapshot'))) await sleep(50)
+        const path = backupDatabase(db!, dbPath, `update-${from}-to-${target}`)
+        if (!path) throw new Error('Coordinator database has no snapshotable file')
+        verifier!.recordStaged(path, crypto.randomUUID())
+        const schema = db!
+          .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
+          .get() as { name: string }
+        return verifier!.verify(path, schema.name)
+      },
+      recordOperationDetails: (operationId, patch) => {
+        engine!.recordDetails(operationId, patch)
+        if (patch.coordinatorSnapshotGrantId)
+          event('snapshot-receipt', { operationId, ...store!.get(operationId)!.operation!.details })
+      },
+      report: (operationId, stepId, patch) => {
+        void engine!.recordProgress(operationId, stepId, patch)
+      },
+      stepActive: (operationId, stepId) => engine!.watching(operationId, stepId),
+    })
+    if (store) {
+      const registry = new OperationKindRegistry()
+      registry.register(updateOperationKind())
+      engine = new OperationEngine({ store, registry, clock: systemOperationClock })
+      bridge = createUpdateFleetBridge({ engine, updates })
+    }
+    let adopted = false
     const server = createServer(async (req, res) => {
       try {
         const token = req.headers.authorization
@@ -262,7 +334,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               target: policy.published,
               approvedTargetVersion: policy.approved?.version,
               approvedTarget: policy.approved,
-              operationActive: false,
+              operationActive: engine?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
               attempts: 0,
             })
             event('reconnect-decision', { machineId: body.id, verdict })
@@ -272,37 +344,25 @@ export async function runMachine(version: string, buildIdentity: string): Promis
                 eligibility: 'fixture persisted exact approval reconnect',
               })
           }
+          if (engine && body.id === 'coordinator' && !adopted) {
+            adopted = true
+            await engine.adoptOnBoot(
+              () => ({
+                appVersion: version,
+                servedWebDigest: undefined,
+                machineDirectory: updates.fleet(),
+                now: Date.now(),
+              }),
+              context,
+            )
+          }
+          bridge?.onFleetChanged()
           res.end(JSON.stringify({ grant: queues.get(body.id) }))
           queues.delete(body.id)
           return
         }
         if (token !== 'Bearer fixture-operator') {
           res.writeHead(403).end()
-          return
-        }
-        if (req.url === '/prepare-self') {
-          const prepare = createInstalledCoordinatorUpdate({
-            env: { ...process.env, PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
-          })!
-          await prepare(body)
-          writeFileSync(
-            join(state, 'coordinator-prepared.json'),
-            JSON.stringify({ target: body, savedBeforeActivation: true }),
-          )
-          res.end('{}')
-          return
-        }
-        if (req.url === '/activate-self') {
-          const prepared = JSON.parse(
-            readFileSync(join(state, 'coordinator-prepared.json'), 'utf8'),
-          )
-          createInstalledCoordinatorRestart({
-            instanceId: process.env.PODIUM_INSTANCE!,
-            port: () => 1,
-            pendingVersion: () => prepared.target.version,
-            env: { ...process.env, PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
-          })!()
-          res.end('{}')
           return
         }
         if (req.url === '/publish') {
@@ -313,11 +373,21 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             throw new Error('target changed before approval')
           policy.approved = policy.published
           writeFileSync(policyPath, JSON.stringify(policy))
-          for (const machine of body.machines)
+          for (const machine of body.machines.filter(
+            (machine: string) => machine !== 'coordinator',
+          ))
             updates.authorizeMachine(asMachineId(machine), {
               initiator: { kind: 'operator-apply' },
               eligibility: 'fixture explicit operator approval',
             })
+          if (body.machines.includes('coordinator')) {
+            if (!engine) throw new Error('Coordinator operation engine unavailable')
+            const started = await engine.start(UPDATE_OPERATION_KIND, context())
+            if (!started.started)
+              throw new Error(`Coordinator operation refused: ${JSON.stringify(started)}`)
+            res.end(JSON.stringify({ operationId: started.operation.id }))
+            return
+          }
         } else if (req.url === '/fleet') {
           res.end(JSON.stringify({ fleet: updates.fleet(), policy, identities: fleet }))
           return
@@ -334,6 +404,8 @@ export async function runMachine(version: string, buildIdentity: string): Promis
     await new Promise<void>((resolve) => server.listen(socket, resolve))
     const stop = () => {
       event('stop')
+      engine?.stop()
+      verifier?.close()
       server.close(() => process.exit(0))
       setTimeout(() => process.exit(0), 100).unref()
     }
@@ -432,6 +504,31 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       writeFileSync(join(state, 'paused'), 'activating')
       while (existsSync(join(state, 'pause-activation'))) await sleep(50)
     }
+    if (id === 'coordinator') {
+      // This is the real supervisor process, before the production adapter swaps bytes.
+      // Read another connection: an in-memory flag cannot prove the operation's receipt.
+      const db = openDatabase(join(state, 'operations.db'), { readOnly: true })
+      try {
+        const operation = new OperationStore(db).history(UPDATE_OPERATION_KIND)[0]?.operation
+        const details = operation?.details
+        const grant = args[0]
+        const recovered = new UpdateRecoveryStore(db)
+          .read()
+          ?.grants.find(([machine]) => machine === id)?.[1].coordinatorGrant
+        if (
+          !operation ||
+          details?.coordinatorSnapshotGrantId !== grant.grantId ||
+          typeof details.databaseSnapshotPath !== 'string' ||
+          !existsSync(details.databaseSnapshotPath) ||
+          !isDeepStrictEqual(recovered, grant) ||
+          !isDeepStrictEqual(details.target, grant.target)
+        )
+          throw new Error('Activation preceded the durable exact operation/snapshot receipt')
+        event('activation-receipt', { operationId: operation.id, grant, ...details })
+      } finally {
+        db.close()
+      }
+    }
     await activate(...args)
     event('activated', args[1])
   }
@@ -479,20 +576,22 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         `machine-${id}`,
       )
       if (response.grant)
-        await executor.accept(response.grant, false, false, {
-          kind: 'coordinator',
-          // The fixture's authenticated heartbeat replaces the production WS.
-          serverUrl: `ws://fixture.invalid/${encodeURIComponent(coordinatorSocket)}`,
-          isCurrent: () => acceptingGrants && !existsSync(join(state, 'offline')),
-        }).catch((error) => {
-          statuses.push({
-            type: 'updateStatus',
-            grantId: response.grant.grantId,
-            version,
-            state: 'rejected',
-            detail: String(error),
+        await executor
+          .accept(response.grant, false, false, {
+            kind: 'coordinator',
+            // The fixture's authenticated heartbeat replaces the production WS.
+            serverUrl: `ws://fixture.invalid/${encodeURIComponent(coordinatorSocket)}`,
+            isCurrent: () => acceptingGrants && !existsSync(join(state, 'offline')),
           })
-        })
+          .catch((error) => {
+            statuses.push({
+              type: 'updateStatus',
+              grantId: response.grant.grantId,
+              version,
+              state: 'rejected',
+              detail: String(error),
+            })
+          })
     } catch {
       statuses.unshift(...pending)
     } finally {

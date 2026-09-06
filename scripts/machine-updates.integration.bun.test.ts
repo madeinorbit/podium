@@ -13,6 +13,9 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { OperationStore } from '../apps/server/src/modules/operations/store'
+import { UpdateRecoveryStore } from '../apps/server/src/modules/updates/recovery-store'
 import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { requestMachineUpdate } from '../packages/runtime/src/machine-update-control'
 import { readMachineUpdateJournal } from '../packages/runtime/src/machine-update'
@@ -64,6 +67,76 @@ class Group {
   }
   journal(id: string) {
     return readMachineUpdateJournal(this.runtime(id))
+  }
+  operation(operationId: string) {
+    const db = openDatabase(join(this.state('coordinator'), 'operations.db'), { readOnly: true })
+    try {
+      return new OperationStore(db).get(operationId)?.operation
+    } finally {
+      db.close()
+    }
+  }
+  async coordinatorReplacement(target: UpdateTarget, operationId: string, oldPid: number) {
+    const journal = await this.phase('coordinator', 'current')
+    const digest = target.artifacts.headless!.platforms['linux-x86_64']!.digest
+    expect(journal?.grant.target).toEqual(target)
+    expect(journal?.prepared?.digest).toBe(digest)
+    const identity = await until(
+      () => socketRequest(this.socket, '/identity'),
+      (identity) => identity.version === target.version && identity.digest === digest,
+      'coordinator serves the exact approved replacement',
+    )
+    expect(identity.buildIdentity).toBe(target.version)
+    expect(identity.pid).not.toBe(oldPid)
+    const events = this.events('coordinator')
+    const receipts = events.filter((event) => event.type === 'activation-receipt')
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].detail.operationId).toBe(operationId)
+    expect(receipts[0].detail.grant).toEqual(journal!.grant)
+    expect(receipts[0].detail.target).toEqual(target)
+    expect(receipts[0].detail.coordinatorSnapshotGrantId).toBe(journal!.grant.grantId)
+    expect(events.findIndex((event) => event.type === 'snapshot-receipt')).toBeGreaterThan(-1)
+    expect(events.findIndex((event) => event.type === 'snapshot-receipt')).toBeLessThan(
+      events.indexOf(receipts[0]),
+    )
+    expect(events.indexOf(receipts[0])).toBeLessThan(
+      events.findIndex((event) => event.type === 'activated'),
+    )
+    expect(events.filter((event) => event.type === 'activated')).toHaveLength(1)
+    const details = this.operation(operationId)!.details!
+    expect(details.databaseSnapshotPath).toBe(receipts[0].detail.databaseSnapshotPath)
+    expect(details.coordinatorSnapshotGrantId).toBe(journal!.grant.grantId)
+    // The actual backup contains the operation and exact grant from before activation.
+    const snapshot = openDatabase(details.databaseSnapshotPath as string, { readOnly: true })
+    try {
+      expect(snapshot.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+      expect(new OperationStore(snapshot).get(operationId)?.operation?.details?.target).toEqual(
+        target,
+      )
+      expect(
+        new UpdateRecoveryStore(snapshot)
+          .read()
+          ?.grants.find(([machine]) => machine === 'coordinator')?.[1].coordinatorGrant,
+      ).toEqual(journal!.grant)
+    } finally {
+      snapshot.close()
+    }
+    const boots = events.filter((event) => event.type === 'boot')
+    for (const role of ['parent', 'server'])
+      expect(
+        boots.some(
+          (event) =>
+            event.role === role &&
+            event.version === target.version &&
+            event.digest === digest &&
+            event.buildIdentity === target.version,
+        ),
+      ).toBe(true)
+    await until(
+      () => this.operation(operationId),
+      (operation) => operation?.state === 'done',
+      'replacement coordinator adopts and completes its durable operation',
+    )
   }
   events(id: string): any[] {
     try {
@@ -278,16 +351,12 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
         .events('coordinator')
         .some((event) => event.type === 'boot' && event.version === '2.0.0'),
     ).toBe(false)
-    await socketRequest(group.socket, '/approve', {
+    const oldIdentity = await socketRequest(group.socket, '/identity')
+    const { operationId } = await socketRequest(group.socket, '/approve', {
       version: target.version,
       machines: ['coordinator'],
     })
-    await group.phase('coordinator', 'current')
-    await until(
-      () => socketRequest(group.socket, '/identity'),
-      (identity) => identity.version === '2.0.0' && identity.buildIdentity === '2.0.0',
-      'coordinator serves from replacement artifact',
-    )
+    await group.coordinatorReplacement(target, operationId, oldIdentity.pid)
     const endpoints = [...group.machines.keys()].map(
       (id) =>
         JSON.parse(readFileSync(join(group.runtime(id), 'machine-update-control.json'), 'utf8'))
@@ -540,17 +609,34 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     const group = new Group()
     await group.bootFour()
     const target = group.artifact('2.0.0')
-    await socketRequest(group.socket, '/prepare-self', target)
+    const oldIdentity = await socketRequest(group.socket, '/identity')
+    const hold = join(group.state('coordinator'), 'hold-snapshot')
+    writeFileSync(hold, 'hold verification before durable snapshot receipt')
+    await socketRequest(group.socket, '/publish', target)
+    const { operationId } = await socketRequest(group.socket, '/approve', {
+      version: target.version,
+      machines: ['coordinator'],
+    })
+    await until(
+      () => group.events('coordinator'),
+      (events) => events.some((event) => event.type === 'snapshot-waiting'),
+      'operation waits for snapshot verification after preparing the signed artifact',
+    )
     expect(group.journal('coordinator')?.phase).toBe('prepared')
     expect(group.journal('coordinator')?.activationHeld).toBe(true)
-    expect((await socketRequest(group.socket, '/identity')).version).toBe('1.0.0')
+    expect(group.journal('coordinator')?.grant.target).toEqual(target)
+    expect(await socketRequest(group.socket, '/identity')).toEqual(oldIdentity)
+    expect(group.operation(operationId)?.details?.databaseSnapshotPath).toBeUndefined()
+    expect(group.operation(operationId)?.details?.coordinatorSnapshotGrantId).toBeUndefined()
     expect(
-      JSON.parse(
-        readFileSync(join(group.state('coordinator'), 'coordinator-prepared.json'), 'utf8'),
-      ).savedBeforeActivation,
-    ).toBe(true)
-    await socketRequest(group.socket, '/activate-self', {}).catch(() => {})
-    await group.phase('coordinator', 'current')
+      group
+        .events('coordinator')
+        .filter((event) =>
+          ['snapshot-receipt', 'activation-receipt', 'activated', 'restart'].includes(event.type),
+        ),
+    ).toEqual([])
+    rmSync(hold)
+    await group.coordinatorReplacement(target, operationId, oldIdentity.pid)
   }, 45000)
 
   it('updates a present machine whose old daemon refused to start', async () => {
