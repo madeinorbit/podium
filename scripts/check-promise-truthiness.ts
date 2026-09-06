@@ -647,6 +647,157 @@ export function probe(): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// THE SPREAD PROBE — rule 55's four cases, and why two of them say nothing
+// ---------------------------------------------------------------------------
+//
+// SPREADING a value that might be a promise is a SEPARATE defect from reading
+// one as a condition, and this script does not detect it: a promise has no own
+// enumerable properties, so `{ ...resolveAsync() }` copies NOTHING from the
+// provider and the object arrives missing every required field. POD-3499 hit it
+// at `shipping/service.test.ts:535`, where a test resolver overrode one field of
+// an async provider and silently dropped `validationProfile`.
+//
+// Only EXCESS PROPERTY CHECKING catches it, and only while the object literal is
+// still FRESH — checked directly against an annotation. So of rule 55's four
+// cases, TWO ARE EXPECTED TO BE SILENT, and that is the whole point of keeping
+// them here:
+//
+//   case 1  annotated target, extra property      TS2353   flagged
+//   case 2  annotated target, no extra property   SILENT   nothing is "excess"
+//   case 3  port impl, INFERRED return            SILENT   freshness already lost
+//   case 4  port impl, ANNOTATED return           TS2353   freshness restored
+//
+// CASES 2 AND 3 ARE NOT BUGS IN THIS FIXTURE AND MUST NOT BE "FIXED". Case 3 is
+// the dangerous one and the reason the pair is recorded: it is a port written the
+// ordinary way, with no return annotation, and the spread of a promise carries
+// `then`, `catch`, `finally` and `Symbol.toStringTag`, so it structurally IS a
+// `Promise<Policy>` and passes. The discriminator is INFERRED-VERSUS-ANNOTATED
+// RETURN, not the union — which is why widening a port to `Promise<T>` (rule 56)
+// does not by itself make this class visible.
+//
+// This probe asserts the compiler still behaves that way. If a future TypeScript
+// starts reporting case 2 or 3, this fails LOUDLY rather than letting the repo
+// keep a stale rule 55 in the spec.
+
+const SPREAD_FIXTURE_FILE = 'packages/probe/src/spread.ts'
+
+/**
+ * Line numbers below are into this text; keep them in step when editing it. They
+ * anchor on the OFFENDING PROPERTY, not on the declaration — TS2353 points at the
+ * excess property, which for a multi-line literal is a later line than the `const`
+ * (case 4 is line 19, not 17). The silent cases are anchored the same way, at the
+ * line their diagnostic WOULD occupy, so that a case which stops being silent is
+ * reported as rule 55 breaking rather than as an unplanned line.
+ */
+const SPREAD_FIXTURE = `export interface Policy {
+  validationProfile: string
+  evidenceOptional: boolean
+}
+
+declare function resolveAsync(): Promise<Policy>
+
+export const one: Promise<Policy> = { ...resolveAsync(), evidenceOptional: false }
+
+export const two: Promise<Policy> = { ...resolveAsync() }
+
+export const three: () => Promise<Policy> = () => ({
+  ...resolveAsync(),
+  evidenceOptional: false,
+})
+
+export const four: () => Promise<Policy> = (): Promise<Policy> => ({
+  ...resolveAsync(),
+  evidenceOptional: false,
+})
+`
+
+/** The cases excess-property checking DOES reach, by line, with rule 55's label. */
+const SPREAD_FLAGGED = new Map<number, string>([
+  [8, 'case 1 — annotated target, extra property'],
+  [19, 'case 4 — port impl with an ANNOTATED return'],
+])
+
+/**
+ * The cases that say nothing, and MUST keep saying nothing. A checkout where
+ * these start reporting has changed the rule, not fixed the fixture.
+ */
+const SPREAD_SILENT = new Map<number, string>([
+  [10, 'case 2 — annotated target, no excess property to report'],
+  [14, 'case 3 — port impl with an INFERRED return; freshness is already lost'],
+])
+
+/** @returns the reasons rule 55 no longer holds; empty means it still does. */
+export function spreadProbe(): string[] {
+  const abs = `${PROBE_ROOT}/${SPREAD_FIXTURE_FILE}`
+  const host: ts.CompilerHost = {
+    getSourceFile: (fileName, languageVersion) => {
+      const text = fileName === abs ? SPREAD_FIXTURE : ts.sys.readFile(fileName)
+      return text === undefined
+        ? undefined
+        : ts.createSourceFile(fileName, text, languageVersion, true)
+    },
+    getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
+    writeFile: () => {},
+    getCurrentDirectory: () => PROBE_ROOT,
+    getCanonicalFileName: (f) => f,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => '\n',
+    fileExists: (fileName) => fileName === abs || ts.sys.fileExists(fileName),
+    readFile: (fileName) => (fileName === abs ? SPREAD_FIXTURE : ts.sys.readFile(fileName)),
+  }
+  const program = ts.createProgram(
+    [abs],
+    {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      lib: ['lib.es2023.d.ts'],
+      strict: true,
+      noEmit: true,
+    },
+    host,
+  )
+  const broken: string[] = []
+  const syntactic = program.getSyntacticDiagnostics()
+  if (syntactic[0]) {
+    return [
+      `the spread fixture does not parse: ${ts.flattenDiagnosticMessageText(syntactic[0].messageText, ' ')}`,
+    ]
+  }
+
+  const reported = new Map<number, number>()
+  for (const d of program.getSemanticDiagnostics()) {
+    if (!d.file || d.file.fileName !== abs || d.start === undefined) continue
+    reported.set(d.file.getLineAndCharacterOfPosition(d.start).line + 1, d.code)
+  }
+
+  for (const [line, label] of SPREAD_FLAGGED) {
+    const code = reported.get(line)
+    if (code === undefined) {
+      broken.push(`rule 55 ${label}: expected TS2353 at line ${line}, the compiler said nothing`)
+    } else if (code !== 2353) {
+      broken.push(`rule 55 ${label}: expected TS2353 at line ${line}, got TS${code}`)
+    }
+  }
+  // The half of rule 55 that a reader is most likely to "tidy up".
+  for (const [line, label] of SPREAD_SILENT) {
+    const code = reported.get(line)
+    if (code !== undefined) {
+      broken.push(
+        `rule 55 ${label}: this case is EXPECTED to be silent, but the compiler now ` +
+          `reports TS${code} at line ${line}. Rule 55 in docs/internal/pod-3221-spec.md is stale.`,
+      )
+    }
+  }
+  for (const line of reported.keys()) {
+    if (!SPREAD_FLAGGED.has(line) && !SPREAD_SILENT.has(line)) {
+      broken.push(`the spread fixture reported at an unplanned line ${line}`)
+    }
+  }
+  return broken
+}
+
+// ---------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------
 
@@ -687,7 +838,7 @@ const render = (rows: Finding[]) =>
   rows.map((f) => `${f.file}:${f.line}  ${f.position} [${f.reason}]  ->  ${f.text}`).join('\n')
 
 function main(): void {
-  const broken = probe()
+  const broken = [...probe(), ...spreadProbe()]
   if (broken.length > 0) {
     console.error('THE CHECK IS BROKEN — its own probe failed, so its answer means nothing:')
     for (const reason of broken) console.error(`  ${reason}`)
@@ -701,7 +852,9 @@ function main(): void {
     console.log(
       `probe: fires on all ${PROBE_EXPECTED.size} planted sites (${TSC_BLIND.length} of them ` +
         `invisible to the compiler's own TS2801) and stays quiet on all ${PROBE_QUIET.length} ` +
-        `correct ones, across ${FIXTURE.size} fixture files`,
+        `correct ones, across ${FIXTURE.size} fixture files; rule 55's spread fixture holds ` +
+        `on all ${SPREAD_FLAGGED.size + SPREAD_SILENT.size} cases (${SPREAD_SILENT.size} of them ` +
+        `EXPECTED to be silent)`,
     )
     return
   }
