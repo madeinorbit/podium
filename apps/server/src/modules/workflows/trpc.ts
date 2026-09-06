@@ -90,7 +90,7 @@ export function workflowCaller(ctx: Context): WorkflowCaller {
 type MutationProcedure<N extends WorkflowProcName> = TRPCMutationProcedure<{
   meta: unknown
   input: z.input<(typeof WORKFLOW_COMMANDS)[N]['contract']['input']>
-  output: ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
+  output: Awaited<ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>>
 }>
 
 /**
@@ -122,7 +122,7 @@ function workflowMutation<N extends WorkflowProcName>(name: N): MutationProcedur
 type QueryProcedure<N extends WorkflowQueryName> = TRPCQueryProcedure<{
   meta: unknown
   input: z.input<(typeof WORKFLOW_QUERIES)[N]['input']>
-  output: ReturnType<(typeof WORKFLOW_QUERIES)[N]['run']>
+  output: Awaited<ReturnType<(typeof WORKFLOW_QUERIES)[N]['run']>>
 }>
 
 function workflowQuery<N extends WorkflowQueryName>(name: N): QueryProcedure<N> {
