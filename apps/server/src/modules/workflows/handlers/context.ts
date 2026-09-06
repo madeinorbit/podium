@@ -248,6 +248,16 @@ export class WorkflowAccess {
   private readonly machinesFor: (
     principal: WorkflowPrincipal,
   ) => WorkflowMachineAccess | Promise<WorkflowMachineAccess>
+  /**
+   * A UNION HERE IS DELIBERATE AND SAFE — do not "fix" it to `Promise<T>`
+   * (spec rule 52b bans union PORTS, and this is not one).
+   *
+   * It is PRIVATE, exactly one line consumes it, and that line awaits it; the
+   * public {@link WorkflowAccess.ownershipFor} returns `Promise<T>`. So no
+   * caller can obtain the union — which is the actual test, rather than how it
+   * is spelled. It exists so a composition root may supply either a synchronous
+   * port or an async resolver; collapsing it would force every fixture to wrap.
+   */
   private readonly resolveOwnership: (
     entities: readonly WorkflowEntityRef[],
   ) => WorkflowOwnershipPort | Promise<WorkflowOwnershipPort>
