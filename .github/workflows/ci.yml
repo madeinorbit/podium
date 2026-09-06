@@ -102,6 +102,38 @@ jobs:
       # as span-effects: it builds a TypeScript program over apps/server.
       - name: hidden reads (no store read in a constructor or a getter)
         run: bun run audit:hidden-reads
+      # BLOCKING, its own step. A PROMISE READ AS A YES/NO ANSWER (POD-3483,
+      # epic POD-3221, spec §6 rule 51). A promise is always truthy, so a
+      # `Promise<boolean>` in a boolean position is a guard that stopped
+      # deciding: the true branch always runs and the refusal is unreachable,
+      # with no type error and no failing test. POD-3487 is why this step
+      # exists — `HumanCeiling.canSee` was declared `boolean | Promise<boolean>`
+      # and read synchronously, so mail addressed to an issue beyond the
+      # delegating human's ceiling was DELIVERED. An authorization bypass, past
+      # a suite that walks that exact path.
+      #
+      # NOT REDUNDANT WITH THE COMPILER, and the boundary was measured rather
+      # than assumed. tsc's own TS2801 covers a bare `Promise<boolean>` in an
+      # `if`, a ternary and a `&&` — but it is silent on `!promise`, on `while`
+      # and `for` conditions, and above all on the UNION port
+      # `boolean | Promise<boolean>`, which is not "always defined" and so never
+      # trips it. That union is the shape of POD-3487, and pinning those four
+      # blind spots is what the script's own probe asserts on every run.
+      #
+      # NOT REDUNDANT WITH `lint:boundaries` either. Its
+      # `checkAsyncBooleanPredicate` is a text rule catching one spelling — an
+      # `async` callback handed to `.filter/.find/.some/.every` — which needs no
+      # types and costs nothing. This one is type-directed and needs no syntax,
+      # so it sees the promise through a port, an alias and a union, at any
+      # remove from the `async` keyword. Neither subsumes the other; both run.
+      #
+      # It builds a TypeScript program per workspace and asks the checker about
+      # every boolean position, so it costs minutes and is deliberately its own
+      # step. Same split, same reason, as span-effects and hidden-reads. It runs
+      # its `--probe` fixture FIRST and exits 2 — never 1 — if the check can no
+      # longer fire, so a dead instrument can never be read as a clean repo.
+      - name: promise truthiness (no promise read as a yes/no answer)
+        run: bun run lint:promise-truthiness
       # BLOCKING, its own step. THE ONE DEFECT CLASS THAT WOULD REACH BACK INTO
       # EVERY CONVERTED QUERY (POD-3391, spec §6 rule 16). `Statement.intent` is
       # the only property of the executor a REPOSITORY chooses — `get`/`all`
