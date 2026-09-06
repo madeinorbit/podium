@@ -394,11 +394,44 @@ export class SessionStore {
     // ahead of every reader, so no in-memory `Session` can be holding the stale
     // pointer when it is cleared.
     await this.refuseLegacyIdentities()
+    await this.backfillLegacyWorktreeMachines()
     this.searchIndexEnabledValue = isFeatureEnabled('command-palette', await this.settings.getSettings())
     await this.conversations.ensureFts(this.searchIndexEnabledValue)
     await this.superagent.seedGlobalThread()
     await this.issues.renumberCollidingIssueSeqs()
     await this.healDanglingIssueReferences()
+  }
+
+  /**
+   * THE ONE-TIME BOOT UPGRADE POD-3246 COULD NOT RETIRE (POD-3359).
+   *
+   * The other three went because every database had already crossed the build
+   * that carried them. This one had not. It shipped on 2026-08-23 (3416b5cec),
+   * three days after the only stable release v0.1.0 (79c588880, 2026-08-20), and
+   * no stable tag contains it — `git tag --contains` names only `dev` and the two
+   * `v0.1.1-edge` builds. The operator's minimum supported upgrade version is
+   * v0.1.0, so a database may arrive here having never run it, and the drizzle
+   * adoption build is inside v0.1.0, so nothing upstream refuses that database
+   * first.
+   *
+   * It runs AFTER `refuseLegacyIdentities` deliberately: that refusal is what now
+   * guarantees the precondition the deleted version got from the legacy-machine
+   * rewrite it used to follow — a database still holding a retired sentinel never
+   * reaches this line, so no stored id can be misread as a remote machine.
+   *
+   * Idempotent: it only ever writes rows whose `machine_id` is NULL, so a second
+   * boot moves nothing.
+   */
+  private async backfillLegacyWorktreeMachines(): Promise<void> {
+    const { backfilled, skipped } = await this.issues.backfillLegacyWorktreeMachineIds(
+      this.hostMachineId,
+    )
+    if (backfilled > 0 || skipped > 0) {
+      console.warn(
+        `[podium:store] pinned ${backfilled} legacy worktree issue(s) to ${this.hostMachineId}; ` +
+          `left ${skipped} for manual recovery (a session on another machine contradicts this host)`,
+      )
+    }
   }
 
   /** Per-boot heal (idempotent): clear session pointers and letter counters whose

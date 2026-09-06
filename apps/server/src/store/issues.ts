@@ -14,6 +14,7 @@ import {
   IssueStage,
   isIssueClosed,
   isIssueColorSlot,
+  type MachineId,
   type RepoId,
   type SessionId,
   type UserId,
@@ -25,10 +26,13 @@ import {
   count,
   desc,
   eq,
+  exists,
   inArray,
+  isNotNull,
   isNull,
   max,
   ne,
+  not,
   notInArray,
   or,
   sql,
@@ -42,6 +46,7 @@ import {
   issueRefLetters,
   issues,
   issueUserState,
+  sessions,
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -939,6 +944,115 @@ export class IssuesRepository {
   async issuesMissingRepoId(): Promise<number> {
     const r = await this.db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).get()
     return r?.c ?? 0
+  }
+
+  /**
+   * ONE-TIME BOOT BACKFILL for worktrees created before ordinary issue starts
+   * recorded their machine (POD-2647, restored by POD-3359). Most NULL pins are
+   * historical hub work, but the old session-CWD adoption path could copy a
+   * remote session's worktree onto an issue without copying its machine.
+   *
+   * WHY THIS IS STILL HERE AFTER POD-3246 RETIRED THE OTHER BOOT UPGRADES. That
+   * retirement's premise was that every database had already crossed the build
+   * carrying the upgrade. This one had not: it was introduced by 3416b5cec on
+   * 2026-08-23, three days AFTER the only stable release v0.1.0 (79c588880,
+   * 2026-08-20), and `git tag --contains 3416b5cec` names no stable tag — only
+   * `dev`, `v0.1.1-edge.3` and `v0.1.1-edge.4`. A supported direct upgrade from
+   * v0.1.0 therefore skips it, and nothing else stops that upgrade: the drizzle
+   * adoption build 938ad5bd is INSIDE v0.1.0, so a v0.1.0 database is already
+   * drizzle-native and the migration runtime opens it without complaint.
+   *
+   * WHY THE SENTINEL REFUSAL CANNOT REPLACE IT. `refuseLegacyIdentities` rejects
+   * retired machine sentinels and missing repo_ids. It cannot see this class,
+   * and widening it to fire on a NULL machine_id would be a worse bug: a NULL
+   * machine is ALSO legitimate for a worktree-less or genuinely ambiguous row,
+   * so the refusal would brick boots that are perfectly correct.
+   *
+   * Session rows are the durable contradiction: the adopting session was already
+   * linked to the issue and authenticated as its real machine. Both its current
+   * `issue_id` and its sticky birth `ref_issue_id` count, so rehoming cannot
+   * erase the evidence. A row with ANY linked non-host session therefore stays
+   * NULL for manual recovery rather than being routed to the wrong disk.
+   *
+   * The caller runs this AFTER `refuseLegacyIdentities`, which preserves the
+   * precondition the deleted version got from the legacy-machine rewrite that
+   * used to precede it: a database still carrying a retired sentinel never
+   * reaches here, so no stored machine id can be mistaken for a remote one.
+   *
+   * Existing pins always win, worktree-less issues remain genuinely unplaced,
+   * and reruns update nothing. Contradictory rows stay countable on every boot so
+   * the operator can see the backfill deliberately left work behind.
+   */
+  async backfillLegacyWorktreeMachineIds(
+    hostMachineId: MachineId,
+  ): Promise<{ backfilled: number; skipped: number }> {
+    return await this.createOrJoinTransaction(async () => {
+      const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
+      const skipped = (await this.legacyWorktreeSkippedQuery(hostMachineId).get())?.c ?? 0
+      // BEFORE the write, per the POD-1939 invariant `store-issues-row-cache-writers`
+      // enforces: invalidating afterwards would still empty the map, but a read
+      // taken in between would cache rows read inside this open transaction.
+      await this.invalidateRowCache()
+      const backfilled = Number(
+        (
+          await this.db
+            .update(issues)
+            .set({ machineId: hostMachineId })
+            .where(and(legacyWorktreeRow, not(contradictorySession)))
+            .run()
+        ).changes,
+      )
+      return { backfilled, skipped }
+    })
+  }
+
+  /**
+   * The two terms `backfillLegacyWorktreeMachineIds` is built from, in one place
+   * so the count and the UPDATE can never drift into disagreeing about which
+   * rows are candidates and which are contradicted.
+   */
+  private legacyWorktreeTerms(hostMachineId: MachineId) {
+    return {
+      /** Owns a worktree, names no machine — the residue a v0.1.0 build leaves. */
+      legacyWorktreeRow: and(isNotNull(issues.worktreePath), isNull(issues.machineId)),
+      /**
+       * Correlated on `issues.id` in the WHERE, so drizzle qualifies it back to
+       * the OUTER row rather than self-joining; the select list is the literal
+       * `1`, so there is no unqualified column here to silently rebind onto
+       * `sessions`. `legacyWorktreeBackfillSql` pins both properties.
+       */
+      contradictorySession: exists(
+        this.db
+          .select({ one: sql`1` })
+          .from(sessions)
+          .where(
+            and(
+              or(eq(sessions.issueId, issues.id), eq(sessions.refIssueId, issues.id)),
+              ne(sessions.machineId, hostMachineId),
+            ),
+          ),
+      ),
+    }
+  }
+
+  /** Counts the candidates the contradiction evidence tells the backfill to leave alone. */
+  private legacyWorktreeSkippedQuery(hostMachineId: MachineId) {
+    const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
+    return this.db
+      .select({ c: count() })
+      .from(issues)
+      .where(and(legacyWorktreeRow, contradictorySession))
+  }
+
+  /**
+   * The SQL the contradiction test emits, so a test can pin the subquery's
+   * CORRELATION directly rather than only through its consequence. Read off the
+   * count query rather than the UPDATE because both are built from the same
+   * `legacyWorktreeTerms`, and a write builder in a method that exists only to
+   * print SQL would owe the POD-1939 cache invalidation it has no reason to do.
+   */
+  legacyWorktreeContradictionSql(hostMachineId: MachineId): string {
+    return this.legacyWorktreeSkippedQuery(hostMachineId).toSQL().sql
   }
 
   // ---- labels ----

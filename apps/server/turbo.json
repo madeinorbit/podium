@@ -1851,6 +1851,7 @@
         "src/store.conversation-idle-writes.test.ts",
         "src/store.conversation-registry.test.ts",
         "src/store.issues.test.ts",
+        "src/store.legacy-worktree-machine.test.ts",
         "src/store.machines.test.ts",
         "src/store.mirror.test.ts",
         "src/store.outbox.test.ts",
