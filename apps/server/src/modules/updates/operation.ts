@@ -1782,7 +1782,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
         dispatch: (grant) => {
           void ensureCoordinatorReplacement(operation, context, step.id, grant).then(
             (outcome) => {
-              if (outcome.state === 'failed') context.report?.(operation.id, step.id, outcome)
+              if (outcome.state === 'failed') context.report?.(operation.id, step.id, { ...outcome, state: 'failed' })
             },
             (error: unknown) => context.report?.(operation.id, step.id, {
               state: 'failed',

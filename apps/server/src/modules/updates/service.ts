@@ -362,7 +362,7 @@ export class UpdatesService {
    * same durable issuer as the wave, after that step has drained the fleet. */
   grantCoordinatorUpdate(machineId: string, channel: UpdateChannel, target: UpdateTarget, cause: GrantCause): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId) ?? {
-      id: machineId, version: '', state: 'pending' as const, online: false, busy: false,
+      id: machineId, version: '', state: 'current' as const, online: false, busy: false,
       coordinator: true, presenceSource: 'supervisor' as const,
     }
     return this.issueGrants(channel, target, [machine], [machineId], cause).length > 0
