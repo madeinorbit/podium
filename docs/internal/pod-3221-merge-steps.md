@@ -220,3 +220,46 @@ Return a resolved promise when `targetChanged` is absent, so the site satisfies 
 that work in the sub-issue filed for it; POD-3469 does the whole thing in one commit AFTER the merge,
 because `updates/service.ts` is one of the twelve hand-resolved files and churn there beforehand is
 exactly what the resolution cannot absorb.
+
+## 6. MERGE ORDER AND THE THREE SLICE-TO-SLICE OVERLAPS
+
+Forecast on 2026-09-06 with `git merge-tree` against B1's tip, plus each slice's TRUE changed-file set
+(`diff <its own merge-base with B1>..<branch>` — NOT `diff B1..branch`, which also reports B1's newer
+commits and grossly overstates the overlap; that mistake made four disjoint slices look like they
+shared seventy files).
+
+| slice | own files | conflicts vs B1 |
+|---|---|---|
+| POD-3467 | 18 | 1 — `messaging/service.ts` (§3) |
+| POD-3469 | 46 | 12 — the gateway design (§4) |
+| POD-3482 | 8 | 0 |
+| POD-3484 | 4 | 0 |
+
+THE SLICES ARE NEARLY DISJOINT. Only three real overlaps exist, all against POD-3469:
+
+1. **POD-3467 ↔ POD-3469** — `artifact-route.test.ts`, `dev-publisher-wiring.ts`, `server.ts`.
+   COMPLEMENTARY, already verified: 3467 converted `hasRemoteUpdateConsumers` with a resolved
+   snapshot, 3469 converted `setTarget`/`setTargetUnavailable`. Different declarations. Take both.
+
+2. **POD-3469 ↔ POD-3482** — `machines/service.ts`, `machines/service.test.ts`.
+   **DANGEROUS. TAKE BOTH SIDES, NOT ONE.** POD-3469's version of `machines/service.ts` STILL CONTAINS
+   TWO `.find(async …)` PREDICATES; POD-3482's has zero. Resolving this file toward POD-3469 — which
+   §4's gateway ruling otherwise instructs — would silently REINTRODUCE two of the six predicate
+   defects, each of which makes `.find` return the first element unconditionally. POD-3482's fix was
+   break-tested by the coordinator. The correct resolution is POD-3469's port widening PLUS
+   POD-3482's predicate fixes in the same file.
+   BACKSTOP: `checkAsyncBooleanPredicate` in `scripts/check-boundaries.ts` catches this if it comes
+   back — run `lint:boundaries` after the merge and require ZERO `async-boolean-predicate` violations.
+
+3. **POD-3469 ↔ POD-3484** — `updates/operation.test.ts`. Take POD-3484's: it owns that file and took
+   it from 28 failed to 0 failed / 164 passed against a baseline it reproduced itself.
+
+SUGGESTED ORDER — POD-3469 LAST, because its twelve files are hand-resolved and nothing should disturb
+them afterwards:
+
+    1. POD-3482  (0 conflicts)
+    2. POD-3484  (0 conflicts)
+    3. POD-3467  (1 conflict, §3)
+    4. POD-3469  (12 conflicts, §4, plus the packages/protocol/handshake restore in §4a)
+
+Re-run the trial merges immediately before landing: B1 is still committing, so these numbers move.
