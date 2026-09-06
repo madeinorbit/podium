@@ -143,7 +143,9 @@ export interface PrincipalMailPolicy {
   principalForMessage(
     message: MessageRow,
   ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
-  policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess } | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
+  policyFor(principal: CommandPrincipal):
+    | { ceiling: HumanCeiling; machines: MachineAccess }
+    | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 }
 
 export function principalMailPolicy(opts: PrincipalMailPolicy): {
@@ -151,7 +153,9 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
   placementAtWake: WakePlacementPort
   gateOptions: {
     principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
-    policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess } | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }> | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
+    policyFor(principal: CommandPrincipal):
+      | { ceiling: HumanCeiling; machines: MachineAccess }
+      | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   }
 } {
   const authorizeAtApply = Object.assign(
