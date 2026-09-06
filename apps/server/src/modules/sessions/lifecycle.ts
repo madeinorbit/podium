@@ -749,8 +749,8 @@ export class SessionLifecycle {
   ): Promise<void> {
     await this.sessionKill.removeSessionRuntime(sessionId, terminalRetirement)
   }
-  killSession(input: { sessionId: SessionId }): void {
-    this.sessionKill.killSession(input)
+  async killSession(input: { sessionId: SessionId }): Promise<void> {
+    await this.sessionKill.killSession(input)
   }
   private async emitSessionExited(
     sessionId: SessionId,

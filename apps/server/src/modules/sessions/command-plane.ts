@@ -652,7 +652,7 @@ export const SESSION_COMMAND_HANDLERS = {
   kill: async (ctx: SessionCommandCtx, input: TargetInput) => {
     // Absent ⇒ the pinned shape: kill neither throws nor tombstones.
     if (!await ctx.target(input.sessionId, 'sessions.kill')) return undefined
-    return ctx.sessions.killSession(input)
+    return await ctx.sessions.killSession(input)
   },
 
   hibernate: async (ctx: SessionCommandCtx, input: TargetInput) =>

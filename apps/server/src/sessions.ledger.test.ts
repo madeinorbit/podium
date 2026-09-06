@@ -205,7 +205,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const cursor = await cursorOf(registry)
     const delta = deltaClient(registry)
     const before = delta.inbox.length
-    registry.modules.sessions.killSession({ sessionId })
+    await registry.modules.sessions.killSession({ sessionId })
     registry.modules.sessions.flushBroadcasts()
     // Durable: the remove is in the log…
     const healed = await registry.modules.sessions.syncChangesSince(cursor)
@@ -803,7 +803,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       checkpointRecord as never,
     )
 
-    registry.modules.sessions.killSession({ sessionId })
+    await registry.modules.sessions.killSession({ sessionId })
 
     const exited = (
       await registry.sessionStore.events.listEventsSince(0, { kinds: ['session.exited'] })
@@ -824,7 +824,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const spy = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    expect(() => registry.modules.sessions.killSession({ sessionId })).toThrow('append failed')
+    await expect(registry.modules.sessions.killSession({ sessionId })).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory truth survived: the session is still listed; the store rolled the
     // tombstone write back inside the same transact span.
@@ -843,7 +843,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     if (healed.kind !== 'delta') return
     expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
     // And the kill still works once the append path recovers.
-    registry.modules.sessions.killSession({ sessionId })
+    await registry.modules.sessions.killSession({ sessionId })
     expect((await registry.modules.sessions.listSessions()).some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
@@ -858,7 +858,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const a = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
     const b = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w2' })
     registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'kept' })
-    registry.modules.sessions.killSession({ sessionId: b.sessionId })
+    await registry.modules.sessions.killSession({ sessionId: b.sessionId })
     const healed = await registry.modules.sessions.syncChangesSince(0)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return

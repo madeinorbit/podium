@@ -474,7 +474,7 @@ export class SuperagentService {
     if (thread.podiumSessionId) {
       // Best-effort: a stale/absent row must not block the reset the user asked for.
       try {
-        this.modules.sessions.killSession({ sessionId: thread.podiumSessionId })
+        await this.modules.sessions.killSession({ sessionId: thread.podiumSessionId })
       } catch {
         // already gone
       }

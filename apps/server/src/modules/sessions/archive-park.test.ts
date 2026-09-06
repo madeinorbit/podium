@@ -228,7 +228,7 @@ describe('archive parks the session process [POD-108]', () => {
     })
     const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
 
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
 
     expect(gitCleanup).toHaveBeenCalledWith(sessionId)
     expect(await meta(reg, sessionId)).toBeUndefined()

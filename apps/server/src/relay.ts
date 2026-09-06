@@ -447,6 +447,10 @@ export class SessionRegistry {
   private readonly ledger: Ledger
   /** Curated issue-event window, resolved during async registry hydration. */
   private readonly issueEventFeed: IssueEventFeedPublisher
+  /** Open interaction set, resolved during async registry hydration. */
+  private readonly interactionFeed: InteractionFeedPublisher
+  /** Boot and inventory-triggered personal backend seeding. */
+  private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
@@ -492,6 +496,8 @@ export class SessionRegistry {
     // can inspect their targets.
     await this.modules.sessions.loadFromStore()
     await this.issueEventFeed.resolve()
+    await this.interactionFeed.resolve()
+    await this.superagentDefaults.seed()
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
     await this.ledger.reconcile(
@@ -851,12 +857,10 @@ export class SessionRegistry {
     // seed runs on the report rather than once at startup. `inventory` is the
     // flag `recordInventory` sets; a rename or a machine name change must not
     // re-run it.
-    this.bus.on('machine.metadataChanged', ({ inventory }) => {
-      if (inventory) superagentDefaults.seed()
+    this.bus.on('machine.metadataChanged', async ({ inventory }) => {
+      if (inventory) await superagentDefaults.seed()
     })
-    // …and once now, for the install whose daemon reported before this process
-    // started. Cheap and idempotent: the guard reads the fields the write fills.
-    superagentDefaults.seed()
+    this.superagentDefaults = superagentDefaults
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
@@ -2758,14 +2762,15 @@ export class SessionRegistry {
      * module exists, which is what makes "the aggregate observes; existing UI
      * behavior is unchanged" structural rather than careful.
      */
-    const interactionSeed = (await ledger.authority.snapshot('pendingInteraction')) as readonly {
-      readonly id: string
-    }[]
     const interactionFeed = new InteractionFeedPublisher({
       ledger,
-      seed: () => interactionSeed,
+      seed: async () =>
+        (await ledger.authority.snapshot('pendingInteraction')) as readonly {
+          readonly id: string
+        }[],
       toWire: (row) => interactions.wireOf(row),
     })
+    this.interactionFeed = interactionFeed
     const interactions = new InteractionService({
       store: this.store.interactions,
       now: () => new Date(this.now()).toISOString(),

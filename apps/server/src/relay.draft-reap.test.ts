@@ -42,7 +42,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
     expect(await reg.issues.get(draft.id)).not.toBeNull()
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
     expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
@@ -116,7 +116,7 @@ describe('draft retention on session death', () => {
       issueId: draft.id,
     })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(second)).toBe(draft.id)
   })
@@ -129,7 +129,7 @@ describe('draft retention on session death', () => {
       cwd: '/repo',
       issueId: issue.id,
     })
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(issue.id)).not.toBeNull()
   })
 
@@ -138,7 +138,7 @@ describe('draft retention on session death', () => {
     const { draft, sessionId } = await draftWithSession(reg)
     await reg.issues.update(draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
     expect((await reg.issues.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(draft.id)).not.toBeNull()
   })
 })

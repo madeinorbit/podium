@@ -47,11 +47,13 @@ const log = createLogger('server:interactions:feed')
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
   readonly ledger: Pick<Ledger, 'capture'>
-  /** What the Authority already holds for this kind, at construction — the same
-   *  seeding argument `IssueEventFeedPublisher` makes: seeding from the TABLE
-   *  would re-publish rows a restart had not lost, and disagree with the
+  /** What the Authority already holds for this kind when async boot resolves it —
+   *  the same seeding argument `IssueEventFeedPublisher` makes: seeding from the
+   *  TABLE would re-publish rows a restart had not lost, and disagree with the
    *  snapshot a connected replica already has. */
-  readonly seed: () => readonly { readonly id: string }[]
+  readonly seed: () =>
+    | readonly { readonly id: string }[]
+    | Promise<readonly { readonly id: string }[]>
   /** The wire projection of a durable row (the service's, injected so the
    *  publisher does not own a second copy of it). */
   readonly toWire: (row: InteractionRow) => PendingInteractionWire
@@ -59,10 +61,22 @@ export interface InteractionFeedDeps {
 
 export class InteractionFeedPublisher {
   /** Change-log ids currently carried. */
-  private readonly carried: Set<string>
+  private carried = new Set<string>()
+  private resolved = false
+  private resolving: Promise<void> | undefined
 
-  constructor(private readonly deps: InteractionFeedDeps) {
-    this.carried = new Set(deps.seed().map((row) => row.id))
+  constructor(private readonly deps: InteractionFeedDeps) {}
+
+  /** Read the authority's existing open set after composition and before serving. */
+  async resolve(): Promise<void> {
+    if (this.resolved) return
+    if (!this.resolving) {
+      this.resolving = (async () => {
+        this.carried = new Set((await this.deps.seed()).map((row) => row.id))
+        this.resolved = true
+      })()
+    }
+    await this.resolving
   }
 
   /**
@@ -74,6 +88,7 @@ export class InteractionFeedPublisher {
    * a `remove` for a row no replica ever held is a change with no meaning.
    */
   async publish(row: InteractionRow): Promise<void> {
+    await this.resolve()
     try {
       const id = interactionRowId(row.sessionId, row.id)
       if (row.status === 'asked') {

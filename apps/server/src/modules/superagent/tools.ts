@@ -579,7 +579,7 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
+        await sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
     },

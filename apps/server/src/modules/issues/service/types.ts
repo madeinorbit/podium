@@ -165,7 +165,7 @@ export interface IssueDeps {
    * happens today.
    */
   applyCommit?: BaselineFoldPort
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay

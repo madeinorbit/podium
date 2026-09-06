@@ -834,9 +834,10 @@ export class SessionRepository {
     // this runs. `SessionStore` folds any pre-POD-318 sentinel rows onto this host's
     // minted id as it OPENS — ahead of this reconcile, and ahead of the registry that
     // calls it — so there is no stale machine baseline here to be captured later.
-    const recovered = this.ports.ledger.reconcile(
+    const sessions = await this.listSessions()
+    const recovered = await this.ports.ledger.reconcile(
       'session',
-      this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
+      sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
     this.publishSessionProjection(recovered)
   }

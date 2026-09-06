@@ -1123,7 +1123,7 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.modules.sessions.killSession({ sessionId: s1 })
+    await reg.modules.sessions.killSession({ sessionId: s1 })
     expect(daemon).toContainEqual({
       type: 'sessionBindingRetire',
       sessionId: s1,
@@ -1766,7 +1766,7 @@ describe('SessionRegistry', () => {
       code: 0,
     })
     expect((await store.sessions.loadSessions()).at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
-    reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession({ sessionId })
     expect(await store.sessions.loadSessions()).toEqual([])
   })
 
@@ -4717,7 +4717,7 @@ describe('hibernation', () => {
     // Removing the delegated actor revokes the reference before the target's
     // death applies. Exit recovery must re-resolve it live, refuse the wake,
     // and retain the durable row for an explicit authorized recovery.
-    reg.modules.sessions.killSession({ sessionId: actorSessionId })
+    await reg.modules.sessions.killSession({ sessionId: actorSessionId })
     daemon.length = 0
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',

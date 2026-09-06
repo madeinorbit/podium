@@ -92,7 +92,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = await regWithDaemon()
     const victim = await liveSession(reg)
     await acquireAs(reg, victim, 'merge:main')
-    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     expect(await lockNames(reg)).toEqual([])
     reg.dispose()
   })
@@ -108,7 +108,7 @@ describe('session.exited → lock auto-release wiring', () => {
       'acquire',
       { repoPath: REPO, name: 'merge:main' },
     )
-    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     const after = await reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
     expect(after[0]?.holder.sessionId).toBe(waiter)
     reg.dispose()

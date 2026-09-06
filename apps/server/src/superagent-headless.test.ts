@@ -973,7 +973,7 @@ describe('openInTerminal + one-writer lock', () => {
       }),
     ).rejects.toThrow(/open in a terminal/)
     // The lock clears lazily once the terminal session is gone.
-    h.registry.modules.sessions.killSession({ sessionId })
+    await h.registry.modules.sessions.killSession({ sessionId })
     await expect(
       h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,

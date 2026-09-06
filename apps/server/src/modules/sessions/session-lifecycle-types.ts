@@ -51,9 +51,12 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
  *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
  *  tests can fake it. */
 export interface SessionLedger {
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
   capture(specs: EntityChangeSpec[]): MetadataChange[]
-  reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
+  reconcile(
+    entity: 'session',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 /** Non-session fields retained by the expiring wire-v1 catch-up snapshot. */

@@ -113,7 +113,7 @@ export class SessionKill {
     this.ports.repository.forget(sessionId)
   }
 
-  killSession(input: { sessionId: SessionId }): void {
+  async killSession(input: { sessionId: SessionId }): Promise<void> {
     const session = this.ports.sessions.get(input.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
     // The remove change commits in the SAME transaction as the tombstone (and
@@ -124,7 +124,7 @@ export class SessionKill {
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
-    this.ports.ledger.commit({
+    await this.ports.ledger.commit({
       write: async () => {
         await this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         await this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)

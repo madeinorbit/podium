@@ -46,8 +46,8 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
     expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    await expect(store.transact(() => {
-        registry.modules.sessions.killSession({ sessionId })
+    await expect(store.transact(async () => {
+        await registry.modules.sessions.killSession({ sessionId })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -67,8 +67,8 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       cwd: '/w',
     })
 
-    await store.transact(() => {
-      registry.modules.sessions.killSession({ sessionId })
+    await store.transact(async () => {
+      await registry.modules.sessions.killSession({ sessionId })
     })
 
     expect(await liveSessionIds(registry)).not.toContain(sessionId)
