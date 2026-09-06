@@ -162,8 +162,8 @@ interface IssueCrudHierarchyPort {
 }
 
 interface IssueCrudAttentionPort {
-  onIssueArchived(row: IssueRow): void
-  retireIssueOffers(row: IssueRow): void
+  onIssueArchived(row: IssueRow): void | Promise<void>
+  retireIssueOffers(row: IssueRow): void | Promise<void>
 }
 
 /** Narrow git-workflow face for inputs that invalidate derived gitState [POD-576]. */
@@ -930,7 +930,7 @@ export class IssueCrudModule {
     const repoId = await this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
-    const settings = this.store.deps.getSettings()
+    const settings = await this.store.deps.getSettings()
     // THE shared answer to "which agent, model and effort?" (POD-1107) — the same
     // function the approvals broker's automation-schedule path calls, so the two
     // can no longer drift apart. The role-defaults rule [spec:SP-7ff1] lives
@@ -1169,7 +1169,7 @@ export class IssueCrudModule {
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
     if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
-      row.machineId = this.store.resolveWorktreeMachine(undefined, row.worktreePath)
+      row.machineId = (await this.store.resolveWorktreeMachine(undefined, row.worktreePath))
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
@@ -1257,7 +1257,7 @@ export class IssueCrudModule {
       // Closing completes the work: retire standing agent offers so a
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
-      this.attention().retireIssueOffers(row)
+      await this.attention().retireIssueOffers(row)
       this.onIssueClosed?.({
         issueId: row.id,
       })
@@ -1282,7 +1282,7 @@ export class IssueCrudModule {
       await this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
       // Stops the member sessions AND gives the checkout back (POD-567); the
       // sweep's own archive path calls the same seam.
-      this.attention().onIssueArchived(row)
+      await this.attention().onIssueArchived(row)
       // Explicit archive dismisses the whole subtree so children do not
       // promote into the live list as orphans of a hidden parent.
       if (opts?.cascadeArchive !== false) await this.archiveLivingDescendants(row.id)
@@ -1337,14 +1337,14 @@ export class IssueCrudModule {
   async markIssueRead(id: string): Promise<IssueWire> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    await this.store.writeIssueUserState(row.id, { readAt: this.coveringReadAt(row) })
+    await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) })
     const wire = await this.store.persist(row, { touch: false })
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 
   /** The cursor that covers everything currently visible on this issue's row. */
-  private coveringReadAt(row: IssueRow): string {
+  private async coveringReadAt(row: IssueRow): Promise<string> {
     const ids = new Set<string>([row.id])
     let grew = true
     while (grew) {
@@ -1360,7 +1360,7 @@ export class IssueCrudModule {
     for (const other of this.store.rows.values()) {
       if (!ids.has(other.id)) continue
       if (other.updatedAt > latest) latest = other.updatedAt
-      for (const session of this.store.sessionsFor(other)) {
+      for (const session of (await this.store.sessionsFor(other))) {
         if (session.lastActiveAt > latest) latest = session.lastActiveAt
       }
     }
@@ -1684,9 +1684,7 @@ export class IssueCrudModule {
   async ensureCoordinator(id: string, sessionId: SessionId, opts?: { onlyMember?: boolean }): Promise<IssueWire> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     if (row.coordinatorSessionId) return await this.store.toWire(row)
-    const eligible = this.store
-      .sessionsFor(row)
-      .filter(
+    const eligible = (await this.store.sessionsFor(row)).filter(
         (session) =>
           session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
       )

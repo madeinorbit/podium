@@ -139,9 +139,7 @@ export class IssueAttentionModule {
         // Last session leaving is hopscotch: the origin becomes a signpost and
         // maybeTakeOriginWorktree will take a pending checkout. 878's
         // replacement-coordinator rule applies only when someone stays.
-        const others = this.store
-          .sessionsFor(prev)
-          .filter(
+        const others = (await this.store.sessionsFor(prev)).filter(
             (session) =>
               session.sessionId !== opts.sessionId &&
               !session.archived &&
@@ -255,9 +253,7 @@ export class IssueAttentionModule {
     const coordinatorId = row.coordinatorSessionId
     const replacement =
       coordinatorId && coordinatorId !== movingSessionId
-        ? this.store
-            .sessionsFor(row)
-            .find(
+        ? (await this.store.sessionsFor(row)).find(
               (session) =>
                 session.sessionId === coordinatorId &&
                 !session.archived &&
@@ -315,14 +311,14 @@ export class IssueAttentionModule {
     let origin = await this.store.draft(originId)
     let target = await this.store.draft(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
-    const remaining = this.store
-      .sessionsFor(origin)
-      .filter((session) => !session.archived && session.status !== 'exited')
+    const remaining = (await this.store.sessionsFor(origin)).filter(
+      (session) => !session.archived && session.status !== 'exited',
+    )
     if (remaining.length > 0) return
-    const worktreeMachineId = this.store.resolveWorktreeMachine(
+    const worktreeMachineId = (await this.store.resolveWorktreeMachine(
       origin.machineId,
       origin.worktreePath,
-    )
+    ))
     const pending = await this.originWorktreeIsPending(origin, worktreeMachineId)
     if (!pending) return
     /**
@@ -389,7 +385,7 @@ export class IssueAttentionModule {
       'isMergedInto',
       origin.repoPath,
       { branch: origin.branch, parentBranch: origin.parentBranch },
-      this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath),
+      (await this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath)),
     )
     return !merged.ok
   }
@@ -402,7 +398,7 @@ export class IssueAttentionModule {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return
     if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
-    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return
+    if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return
     await this.crud().purgeEmptyDraft(id)
   }
 
@@ -414,7 +410,7 @@ export class IssueAttentionModule {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
-    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return false
+    if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return false
     await this.crud().purgeEmptyDraft(id)
     return true
   }
@@ -593,7 +589,7 @@ export class IssueAttentionModule {
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    const sessions = this.store.sessionsFor(row)
+    const sessions = (await this.store.sessionsFor(row))
     if (this.store.computeUnread(row, sessions)) return 'precondition'
     await this.autoArchive(row, principal)
     return 'applied'
@@ -618,7 +614,7 @@ export class IssueAttentionModule {
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    this.onIssueArchived(draft)
+    await this.onIssueArchived(draft)
     return wire
   }
 
@@ -646,8 +642,8 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public onIssueArchived(row: IssueRow): void {
-    this.cascadeArchiveSessions(row)
+  public async onIssueArchived(row: IssueRow): Promise<void> {
+    await this.cascadeArchiveSessions(row)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
     // `MaintenanceService`'s span (its `write()` wraps every pure job in
@@ -679,10 +675,10 @@ export class IssueAttentionModule {
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
    *  broadcast. */
-  public cascadeArchiveSessions(row: IssueRow): void {
+  public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
-    for (const s of this.store.sessionsFor(row)) {
+    for (const s of (await this.store.sessionsFor(row))) {
       if (s.archived) continue
       setArchived(s.sessionId, true)
     }
@@ -695,10 +691,10 @@ export class IssueAttentionModule {
    *  the explicit "work is finished" flip — clear standing offers so finished
    *  work cannot keep demanding attention. No-ops when the clear hook is absent
    *  (test deps) or a session has no offer. */
-  public retireIssueOffers(row: IssueRow): void {
+  public async retireIssueOffers(row: IssueRow): Promise<void> {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
-    for (const s of this.store.sessionsFor(row)) {
+    for (const s of (await this.store.sessionsFor(row))) {
       if (!s.offer) continue
       clearOffer(s.sessionId)
     }

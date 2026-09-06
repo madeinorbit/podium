@@ -122,10 +122,13 @@ export class IssueStore {
    * The fallback preserves lightweight test fixtures that do not wire the port;
    * the relay always supplies MachinesService.resolveMachine.
    */
-  resolveWorktreeMachine(machineId: MachineId | null | undefined, cwd: string): MachineId {
+  async resolveWorktreeMachine(
+    machineId: MachineId | null | undefined,
+    cwd: string,
+  ): Promise<MachineId> {
     return (
       machineId ??
-      this.deps.resolveMachine?.(undefined, cwd) ??
+      (await this.deps.resolveMachine?.(undefined, cwd)) ??
       this.deps.store.hostMachineId
     )
   }
@@ -155,11 +158,11 @@ export class IssueStore {
    * pass instead of before. A fixture that never wired the narrow port is slow,
    * not wrong.
    */
-  sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): SessionMeta[] {
+  async sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): Promise<SessionMeta[]> {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
     const narrow = this.deps.listSessionsForIssue
-    if (narrow) return narrow(row.worktreePath, row.id)
-    return sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    if (narrow) return await narrow(row.worktreePath, row.id)
+    return sessionsForIssue(row.worktreePath, await this.deps.listSessions(), row.id)
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
@@ -540,10 +543,10 @@ export class IssueStore {
    *
    * Returns false for an issue this service does not hold.
    */
-  unreadFor(id: IssueId): boolean {
+  async unreadFor(id: IssueId): Promise<boolean> {
     const row = this.rows.get(id)
     if (row === undefined) return false
-    const sessions = this.sessionsFor(row)
+    const sessions = await this.sessionsFor(row)
     return this.computeUnread(row, sessions)
   }
 

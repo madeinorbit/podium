@@ -1560,7 +1560,7 @@ export class SessionRegistry {
           })
           break
         case 'activity':
-          issues.onSessionActivity(event.sessionId)
+          await issues.onSessionActivity(event.sessionId)
           break
         case 'attention':
           await issues.onSessionAttention(event.sessionId)

@@ -230,12 +230,12 @@ export class IssueGitWorkflowModule {
    * parsed-then-silently-ignored failure this exists to avoid. Precedence, therefore:
    * explicit flag > issue's stored value > `auto`.
    */
-  private selectionFor(
+  private async selectionFor(
     agentKind: string,
     stored: { agent: string; model: string; effort: string },
     override?: { model?: string; effort?: string },
-  ): { model: string; effort: string } {
-    const settings = this.store.d.getSettings()
+  ): Promise<{ model: string; effort: string }> {
+    const settings = await this.store.d.getSettings()
     const coding = resolveRole(settings, 'coding')
     const usesIssueProfile = agentKind === stored.agent
     const inherited = (value: string, roleValue: string): string =>
@@ -298,7 +298,7 @@ export class IssueGitWorkflowModule {
       model: switching ? 'auto' : row.defaultModel,
       effort: switching ? 'auto' : row.defaultEffort,
     }
-    const selection = this.selectionFor(agent, stored, {
+    const selection = await this.selectionFor(agent, stored, {
       ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.effort ? { effort: opts.effort } : {}),
     })
@@ -397,7 +397,7 @@ export class IssueGitWorkflowModule {
       // Freeze the SAME repo-affine/default choice repoOp used to make internally.
       // Persisting and routing with one value records where the worktree was actually
       // created without changing which daemon receives the operation.
-      const worktreeMachineId = this.store.resolveWorktreeMachine(row.machineId, startRepoPath)
+      const worktreeMachineId = (await this.store.resolveWorktreeMachine(row.machineId, startRepoPath))
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
@@ -491,9 +491,9 @@ export class IssueGitWorkflowModule {
       branch: row.branch,
       worktreePath: row.worktreePath,
     })
-    const existing = this.store
-      .sessionsFor(row)
-      .filter((session) => !session.archived && session.status !== 'exited')
+    const existing = (await this.store.sessionsFor(row)).filter(
+      (session) => !session.archived && session.status !== 'exited',
+    )
     if (existing.length > 0) {
       for (const session of existing) {
         if (session.cwd !== path) this.store.d.setSessionCwd?.(session.sessionId, path)
@@ -517,7 +517,7 @@ export class IssueGitWorkflowModule {
     }
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
-    const spawned = this.store.d.spawnSession({
+    const spawned = await this.store.d.spawnSession({
       ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
       cwd: path,
       issueId: row.id,
@@ -599,7 +599,7 @@ export class IssueGitWorkflowModule {
     const machineId = planned.machineId ?? undefined
     /** The issue as COMMITTED right now, for the report. A read wants no draft. */
     const issueNow = async (): Promise<IssueWire> => await this.store.toWire(await this.store.rowOrThrow(id))
-    const gw = this.store.d.getSettings().gitWorkflow
+    const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
       const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
       return { ...r, issue: await issueNow() }
@@ -932,9 +932,12 @@ export class IssueGitWorkflowModule {
    * Falls back to the issue's own path on absence, deliberately: that is what makes
    * requireMachineForRepo still able to say NO, naming a path the user recognises.
    */
-  private repoPathOnMachine(repoPath: string, machineId: MachineId | null | undefined): string {
+  private async repoPathOnMachine(
+    repoPath: string,
+    machineId: MachineId | null | undefined,
+  ): Promise<string> {
     if (!machineId) return repoPath
-    return this.store.d.findRepoOnMachine?.(repoPath, machineId) ?? repoPath
+    return (await this.store.d.findRepoOnMachine?.(repoPath, machineId)) ?? repoPath
   }
 
   /**
@@ -972,7 +975,7 @@ export class IssueGitWorkflowModule {
     // its actual cwd immediately before the operation, then that exact id is reused
     // for routing and persisted if the operation establishes a worktree.
     const pinnedMachineId = requestedMachineId ?? at.machineId ?? undefined
-    const repoPath = this.repoPathOnMachine(at.repoPath, pinnedMachineId)
+    const repoPath = await this.repoPathOnMachine(at.repoPath, pinnedMachineId)
     // A worktree path is machine-local. It is reusable only when the issue is
     // already homed on the requested machine AND its repository resolves to the
     // same checkout there. Otherwise it is a stale source-machine path and the
@@ -987,13 +990,13 @@ export class IssueGitWorkflowModule {
     const homeMatches =
       requestedMachineId === undefined ||
       (at.machineId === requestedMachineId &&
-        this.repoPathOnMachine(at.repoPath, at.machineId) === repoPath)
+        (await this.repoPathOnMachine(at.repoPath, at.machineId)) === repoPath)
     const recordedWorktreePath = homeMatches ? at.worktreePath : null
     if (recordedWorktreePath) {
-      const statusMachineId = this.store.resolveWorktreeMachine(
+      const statusMachineId = (await this.store.resolveWorktreeMachine(
         pinnedMachineId,
         recordedWorktreePath,
-      )
+      ))
       const st = await this.store.d.repoOp(
         'status',
         recordedWorktreePath,
@@ -1043,7 +1046,7 @@ export class IssueGitWorkflowModule {
     // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
-    const worktreeMachineId = this.store.resolveWorktreeMachine(pinnedMachineId, repoPath)
+    const worktreeMachineId = (await this.store.resolveWorktreeMachine(pinnedMachineId, repoPath))
     const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
@@ -1397,7 +1400,7 @@ export class IssueGitWorkflowModule {
     }
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
-    const selection = this.selectionFor(kind, {
+    const selection = await this.selectionFor(kind, {
       agent: row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,
@@ -1421,7 +1424,7 @@ export class IssueGitWorkflowModule {
     if (row.machineId) {
       this.store.d.requireMachineForRepo?.(
         row.machineId,
-        this.repoPathOnMachine(row.repoPath, row.machineId),
+        (await this.repoPathOnMachine(row.repoPath, row.machineId)),
       )
     }
     this.store.d.spawnSession({
@@ -1467,8 +1470,8 @@ export class IssueGitWorkflowModule {
   /** Debounced LLM activity digest — see {@link IssueAssistantDigestModule} for why
    *  it is not part of this module's git debounce. Delegated so the registry, the
    *  session-wiring port and every caller keep the same method on the same object. */
-  onSessionActivity(sessionId: SessionId): void {
-    this.assistant.onSessionActivity(sessionId)
+  onSessionActivity(sessionId: SessionId): void | Promise<void> {
+    return this.assistant.onSessionActivity(sessionId)
   }
 
   // ── git-state probes [POD-98] ─────────────────────────────────────────────
@@ -1638,7 +1641,7 @@ export class IssueGitWorkflowModule {
    */
   async sweepParentBranchMovement(): Promise<void> {
     const landingBase = landingBaseFromSettings(
-      this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+      (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
     )
     const groups = new Map<string, ParentBranchGroup>()
     const addToGroup = (row: IssueRow, ref: string) => {
@@ -1713,10 +1716,10 @@ export class IssueGitWorkflowModule {
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
     try {
-      const members = this.store.sessionsFor(row)
+      const members = (await this.store.sessionsFor(row))
       const attribution = this.gitAttributionFor(members)
       const landingBranch = landingBaseFromSettings(
-        this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+        (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,
       )
       const state = await probeGitState(
         {

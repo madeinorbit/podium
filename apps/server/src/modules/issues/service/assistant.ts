@@ -1,7 +1,7 @@
 import type { IssueWire, SessionId } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 
 /**
@@ -37,9 +37,9 @@ export class IssueAssistantDigestModule {
 
   /** A member session did something. Debounce a digest refresh for the issue that
    *  owns its worktree — 120s after the LAST activity, not once per event. */
-  onSessionActivity(sessionId: SessionId): void {
-    if (!this.store.d.getSettings().issues?.assistantEnabled) return
-    const sess = findSessionById(this.store.d, sessionId)
+  async onSessionActivity(sessionId: SessionId): Promise<void> {
+    if (!(await this.store.d.getSettings()).issues?.assistantEnabled) return
+    const sess = await findSessionByIdAsync(this.store.d, sessionId)
     if (!sess) return
     const row = [...this.store.rows.values()].find(
       (r) =>
@@ -64,7 +64,7 @@ export class IssueAssistantDigestModule {
     let row = await this.store.draftOrThrow(id)
     if (!row.worktreePath) return await this.store.toWire(row)
     const settings = await this.store.d.getSettings()
-    const members = this.store.sessionsFor(row).map((s) => ({
+    const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
       tail: '',

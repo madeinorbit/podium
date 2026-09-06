@@ -56,7 +56,7 @@ export interface SessionDaemonLifecyclePorts {
     additionalWrite?: () => Promise<void>,
   ): Promise<void>
   broadcastSessions(): void
-  onSessionActivity(sessionId: SessionId): void
+  onSessionActivity(sessionId: SessionId): void | Promise<void>
   onSessionAttention(sessionId: SessionId): void
   onSessionTurnEnd(sessionId: SessionId): void
   emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): void
@@ -266,7 +266,7 @@ export class SessionDaemonLifecycle {
     if (s) await this.write(s, (draft) => s.onExit(msg.code, draft))
     this.broadcastSessions()
     // The assistant digest remains a legacy consumer in this vertical slice.
-    this.ports.onSessionActivity(msg.sessionId)
+    await this.ports.onSessionActivity(msg.sessionId)
     // Keep the issue attachment: an updater and an abandoned process both
     // arrive as agentExit, and the exited session remains resumable.
     // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
@@ -799,7 +799,7 @@ export class SessionDaemonLifecycle {
         this.autoContinue.onStateChange(session.sessionId, next)
         // The assistant digest is not part of the board/recency slice; keep its
         // legacy activity trigger until a later consumer migration owns replay.
-        this.ports.onSessionActivity(session.sessionId)
+        await this.ports.onSessionActivity(session.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (
@@ -902,7 +902,7 @@ export class SessionDaemonLifecycle {
         })
         // The assistant digest is not part of the board/recency slice; keep its
         // legacy activity trigger until a later consumer migration owns replay.
-        this.ports.onSessionActivity(msg.sessionId)
+        await this.ports.onSessionActivity(msg.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (

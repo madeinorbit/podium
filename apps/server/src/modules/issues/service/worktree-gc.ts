@@ -61,7 +61,7 @@ export class IssueWorktreeGcModule {
 
   /** Reclaimable paths, oldest close first, shared by the panel and manual apply. */
   async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
-    const { afterDays } = this.store.d.getSettings().worktreeGc
+    const { afterDays } = (await this.store.d.getSettings()).worktreeGc
     const targetMachineId = machineId ?? this.store.d.store.hostMachineId
     const live = await this.store.d.listSessions()
     const repoRows = await this.store.d.store.repos.listRepos(targetMachineId)
@@ -110,13 +110,23 @@ export class IssueWorktreeGcModule {
       }),
     )
 
+    // RESOLVED ONCE, UP FRONT, so every predicate below stays synchronous.
+    // A row's machine is a durable read now, and `rowMachine` used to be called
+    // from inside `.map` and `.filter`. An async callback there would put
+    // promises in `claimed` (so no membership test could ever match, and claimed
+    // worktrees would be swept as reclaimable) and would make the machine filter
+    // compare a promise to an id — always unequal, dropping every candidate.
+    const machineByRow = new Map<IssueId, MachineId>()
+    for (const row of this.store.rows.values()) {
+      machineByRow.set(row.id, await this.store.resolveWorktreeMachine(row.machineId, row.repoPath))
+    }
     const rowMachine = (row: IssueRow): MachineId =>
-      this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
-    const claimed = new Set(
-      [...this.store.rows.values()]
-        .filter((row) => row.worktreePath)
-        .map((row) => `${rowMachine(row)}\0${row.worktreePath}`),
-    )
+      machineByRow.get(row.id) ?? this.store.deps.store.hostMachineId
+    const claimed = new Set<string>()
+    for (const row of this.store.rows.values()) {
+      if (!row.worktreePath) continue
+      claimed.add(`${rowMachine(row)}\0${row.worktreePath}`)
+    }
     const candidates = [...this.store.rows.values()]
       .filter((row) => this.isCandidate(row, nowMs, afterDays))
       .filter((row) => rowMachine(row) === targetMachineId)
@@ -175,7 +185,7 @@ export class IssueWorktreeGcModule {
    * live path occupancy before proposing or releasing anything.
    */
   async tryObserved(observed: WorktreeGcObservation, nowMs: number, principal: CommandPrincipal) {
-    const policy = this.store.d.getSettings().worktreeGc
+    const policy = (await this.store.d.getSettings()).worktreeGc
     if (
       policy.mode === 'off' ||
       policy.mode !== observed.mode ||
