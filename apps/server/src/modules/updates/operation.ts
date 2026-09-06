@@ -1425,7 +1425,7 @@ export interface UpdateOperationContext {
    * Optional, and absent means "carry on": a context assembled without an engine
    * has nothing that could have ended the step behind the watcher's back.
    */
-  stepActive?: (operationId: string, stepId: string) => boolean
+  stepActive?: (operationId: string, stepId: string) => boolean | Promise<boolean>
   /** Deferred wake-up for the watchers. Injected so a test never sleeps. */
   schedule?: (fn: () => void, ms: number) => void
   /** How often a watcher re-reads the world. */
@@ -1554,7 +1554,7 @@ function watch(
   poll: () => StepProgressPatch | undefined,
   opts: {
     /** True once someone else has reported the outcome: stop, say nothing. */
-    until?: () => boolean
+    until?: () => boolean | Promise<boolean>
     heartbeat?: (elapsedMs: number) => StepProgressPatch
   } = {},
 ): void {
@@ -1564,8 +1564,8 @@ function watch(
   const now = context.now ?? Date.now
   const startedAt = now()
   let lastBeatAt = startedAt
-  const tick = (): void => {
-    if (opts.until?.() === true) return
+  const tick = async (): Promise<void> => {
+    if ((await opts.until?.()) === true) return
     const patch = poll()
     if (patch === undefined) {
       const at = now()
@@ -1573,12 +1573,12 @@ function watch(
         lastBeatAt = at
         context.report?.(operationId, stepId, opts.heartbeat(at - startedAt))
       }
-      schedule(tick, interval)
+      schedule(() => void tick(), interval)
       return
     }
     context.report?.(operationId, stepId, patch)
   }
-  schedule(tick, interval)
+  schedule(() => void tick(), interval)
 }
 
 /** "1 min 20 s", for a detail line that has to move while nothing else does. */
