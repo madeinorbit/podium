@@ -3090,3 +3090,42 @@ restored the shape without restoring the coverage.
 **THE INSTRUMENT.** This is mechanically detectable — an `await` in an argument-list array
 literal passed to `Promise.all`, `Promise.allSettled`, `Promise.race` or `Promise.any` — and
 belongs in `check-boundaries.ts` beside the async-boolean-predicate rule, so it cannot recur.
+
+### Rule 58a — an escape hatch does not only HIDE defects, it MANUFACTURES findings
+
+Rule 58 closes by saying to treat every escape hatch as a hole in every gate downstream of
+it. POD-3508 found the sharper and more dangerous half, and it nearly filed the false
+report itself.
+
+`scripts/audit-scoped-feed.ts` drives the sync kernel through `as never` casts, so tsgo is
+blind to that whole seam. The flip dropped four awaits behind it — `authority.capture`,
+`authority.changesSince`, `publisher.publish`, `connection.drain`. The audit then reported
+**three confident findings against a healthy `packages/sync`**:
+
+> "the grantee did NOT receive a row she may see"
+> "a permanent invisible gap that heal-loops forever"
+
+Both are artefacts of the audit's own driver. Awaiting the four takes that file from three
+failures to green, and `packages/sync` was never wrong.
+
+**SO AN UNCHECKED SEAM INVERTS THE USUAL RISK.** The classes before this one cost us
+defects that no gate could see. This one costs us *investigations into code that is fine* —
+and it is worse, because a red finding is acted on. Someone would have opened a
+`packages/sync` regression, and the evidence would have looked strong: a specific grantee,
+a specific missing row, a named failure mode.
+
+**THE RULE.** Before believing ANY finding produced by an instrument, check whether the
+instrument reaches its subject through `as any`, `as never`, `as unknown as`, or a port it
+declares itself. If it does, the finding is unverified regardless of how specific it looks:
+**fix the instrument's own seam first, re-run, and only then read the result.** POD-3508's
+`measure-hot-paths.ts` is the same story in the other direction — three dropped promises
+inside the measurement window produced WRONG NUMBERS, not wrong types:
+`readyList(...).length` on a promise is `undefined` (a silent undercount, which reads as a
+free win exactly when the gate matters), `issues.get(...) !== null` is always true so the
+counter always incremented, and `upsertIssue({...row})` spread a promise and wrote the
+title `"undefined (aged out)"`.
+
+**CONSEQUENCE FOR R4.** The POD-3243 hot-path baseline was produced by that instrument.
+Any number quoted from it before this fix is suspect and must be re-measured, not carried
+forward. A measurement is only as trustworthy as the seam the measuring code reaches
+through, and this one was `as any` all the way down.
