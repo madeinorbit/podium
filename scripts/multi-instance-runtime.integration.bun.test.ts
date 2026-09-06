@@ -15,6 +15,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -381,6 +382,79 @@ function packagedDiagnostics(spec: InstanceSpec): string {
         : `--- ${relative}: missing ---`
     })
     .join('\n')
+}
+
+/** Failure evidence belongs to the three transfer runtimes, before fixture cleanup. */
+async function transferDiagnostics(specs: InstanceSpec[], marker: string): Promise<string> {
+  const redact = (key: string, value: unknown): unknown =>
+    /token|secret|password|cookie|authorization|privatekey/i.test(key) ? '[redacted]' : value
+  const bounded = (value: unknown): string => JSON.stringify(value, redact, 2).slice(-16_384)
+  const sections = [
+    `fault marker ${marker}: ${existsSync(marker) ? readFileSync(marker, 'utf8').trim() : 'missing'}`,
+  ]
+  for (const spec of specs) {
+    sections.push(`TRANSFER INSTANCE ${spec.stateDir} port=${spec.port}`)
+    const files = [
+      'config.json',
+      'supervisor.json',
+      'connectivity.json',
+      'supervisor-transfer-pending.json',
+      '.server-transfer/journal.json',
+      'run/parent.pid',
+      'run/server.pid',
+      'run/daemon.pid',
+      'run/daemon-health.json',
+      'logs/parent.log',
+      'logs/server.log',
+      'logs/daemon.log',
+      'logs/parent.ndjson',
+      'logs/server.ndjson',
+      'logs/daemon.ndjson',
+    ]
+    try {
+      for (const entry of readdirSync(join(spec.stateDir, '.server-transfer'))
+        .filter((name) => /^[0-9a-f-]{36}$/i.test(name))
+        .slice(0, 4)) {
+        files.push(`.server-transfer/${entry}/state.json`)
+      }
+    } catch {}
+    for (const relative of files) {
+      const file = Bun.file(join(spec.stateDir, relative))
+      if (!(await file.exists())) continue
+      const tail = await file.slice(Math.max(0, file.size - 16_384)).text()
+      let text: string
+      try {
+        text = bounded(JSON.parse(tail))
+      } catch {
+        text = tail
+          .split('\n')
+          .map((line) => {
+            try {
+              return JSON.stringify(JSON.parse(line), redact)
+            } catch {
+              return line
+            }
+          })
+          .join('\n')
+      }
+      sections.push(`${relative}:\n${text}`)
+    }
+    const api = createTRPCClient<AppRouter>({
+      links: [
+        httpBatchLink({
+          url: `http://127.0.0.1:${spec.port}/trpc`,
+          fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(1_500) }),
+        }),
+      ],
+    })
+    const results = await Promise.allSettled([
+      api.operations.active.query({ group: 'lifecycle' }),
+      api.operations.history.query({ kind: 'server-move', limit: 3 }),
+      api.machines.list.query(),
+    ])
+    sections.push(`operation active/history and machines:\n${bounded(results)}`)
+  }
+  return sections.join('\n')
 }
 
 function jsonOutput(result: CliResult): { data?: unknown } {
@@ -1223,6 +1297,27 @@ exec "$CANARY_REAL_CLI" "$@"
       const publicUrl = `http://127.0.0.1:${target.port}`
       const sourceUrl = `ws://127.0.0.1:${source.port}`
       const marker = join(TEST_ROOT, `${label}-fault`)
+      const waitForTransfer = async (
+        predicate: () => boolean | Promise<boolean>,
+        description: string,
+        timeoutMs = 60_000,
+      ) => {
+        const deadline = Date.now() + timeoutMs
+        while (!(await predicate())) {
+          const journalPath = join(source.stateDir, '.server-transfer/journal.json')
+          if (existsSync(journalPath)) {
+            const journal = read(source, '.server-transfer/journal.json')
+            if (
+              journal.state === 'aborted' ||
+              (journal.state === 'commit-uncertain' && !existsSync(marker))
+            ) {
+              throw new Error(`${description}: transfer terminated in ${journal.state}`)
+            }
+          }
+          if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
+          await Bun.sleep(100)
+        }
+      }
       mkdirSync(source.stateDir, { recursive: true })
       writeFileSync(
         join(source.stateDir, 'config.json'),
@@ -1242,7 +1337,7 @@ exec "$CANARY_REAL_CLI" "$@"
               }
             : {}),
         })
-        await waitUntil(
+        await waitForTransfer(
           async () => (await version(source))?.instanceId === 'blue',
           `${label} source`,
         )
@@ -1259,7 +1354,7 @@ exec "$CANARY_REAL_CLI" "$@"
         }
         const targetId = read(target, 'supervisor.json').machineId
         const observerId = read(observer, 'supervisor.json').machineId
-        await waitUntil(async () => {
+        await waitForTransfer(async () => {
           const rows = await sourceApi.machines.list.query()
           return (
             [sourceId, targetId, observerId].every((id) =>
@@ -1282,8 +1377,8 @@ exec "$CANARY_REAL_CLI" "$@"
         expect(started.started).toBe(true)
         if (!started.started) throw new Error('server transfer did not start')
         if (interrupted) {
-          await waitUntil(() => existsSync(marker), `${label} source crashed after promotion`)
-          await waitUntil(
+          await waitForTransfer(() => existsSync(marker), `${label} source crashed after promotion`)
+          await waitForTransfer(
             async () => {
               try {
                 const operation = await sourceApi.operations.active.query({ group: 'lifecycle' })
@@ -1292,8 +1387,10 @@ exec "$CANARY_REAL_CLI" "$@"
                   Array.isArray(awaiting) &&
                   awaiting.some(
                     (ask: unknown) =>
-                      typeof ask === 'object' && ask !== null &&
-                      'id' in ask && ask.id === 'server-move-recovery',
+                      typeof ask === 'object' &&
+                      ask !== null &&
+                      'id' in ask &&
+                      ask.id === 'server-move-recovery',
                   )
                 )
               } catch {
@@ -1306,7 +1403,7 @@ exec "$CANARY_REAL_CLI" "$@"
           // Restart the real target while its daemon still owes the sealed source recovery.
           await run(target, ['stop'])
           await run(target, [])
-          await waitUntil(
+          await waitForTransfer(
             async () => (await version(target)) !== undefined,
             `${label} restarted target`,
           )
@@ -1323,7 +1420,7 @@ exec "$CANARY_REAL_CLI" "$@"
           })
           expect(recovered.handled).toBe(true)
         }
-        await waitUntil(
+        await waitForTransfer(
           () => {
             try {
               return (
@@ -1340,7 +1437,7 @@ exec "$CANARY_REAL_CLI" "$@"
           120_000,
         )
         const assertTopology = async () => {
-          await waitUntil(
+          await waitForTransfer(
             async () => {
               try {
                 const rows = await targetApi.machines.list.query()
@@ -1397,6 +1494,9 @@ exec "$CANARY_REAL_CLI" "$@"
         console.log(
           `PASS ${label}: compiled transfer, three endpoint rebinds, durable assignments, finalized restarts${interrupted ? ', sealed-source refusal and target restart during recovery' : ''}`,
         )
+      } catch (error) {
+        console.error(await transferDiagnostics(specs, marker))
+        throw error
       } finally {
         for (const spec of specs) await runPackagedCli(executable, spec, ['stop']).catch(() => {})
       }
