@@ -247,13 +247,16 @@
         "src/upstream-retirement.ts",
         "src/web-bundle-stamp.test.ts",
         "src/web-bundle-stamp.ts",
+        "test-shard-report.ts",
         "test-shards.json",
         "tsconfig.json",
         "vitest.*.config.ts",
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": []
+      "outputs": [
+        ".test-shard-reports/contracts.json"
+      ]
     },
     "test:store": {
       "dependsOn": [],
@@ -707,13 +710,16 @@
         "src/test-support/stage-a-seam.ts",
         "src/title-filter.ts",
         "src/trpc.ts",
+        "test-shard-report.ts",
         "test-shards.json",
         "tsconfig.json",
         "vitest.*.config.ts",
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": []
+      "outputs": [
+        ".test-shard-reports/store.json"
+      ]
     },
     "test:services": {
       "dependsOn": [],
@@ -1295,13 +1301,16 @@
         "src/title-filter.ts",
         "src/trpc.ts",
         "src/web-bundle-stamp.ts",
+        "test-shard-report.ts",
         "test-shards.json",
         "tsconfig.json",
         "vitest.*.config.ts",
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": []
+      "outputs": [
+        ".test-shard-reports/services.json"
+      ]
     },
     "test:boundary": {
       "dependsOn": [],
@@ -1947,6 +1956,7 @@
         "src/wsServer.daemon.test.ts",
         "src/wsServer.origin.test.ts",
         "src/wsServer.test.ts",
+        "test-shard-report.ts",
         "test-shards.json",
         "test/**",
         "tsconfig.json",
@@ -1954,7 +1964,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": []
+      "outputs": [
+        ".test-shard-reports/boundary.json"
+      ]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -2305,13 +2317,16 @@
         "src/test-support/open-test-store.ts",
         "src/title-filter.ts",
         "src/trpc.ts",
+        "test-shard-report.ts",
         "test-shards.json",
         "tsconfig.json",
         "vitest.*.config.ts",
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": []
+      "outputs": [
+        ".test-shard-reports/normalized-wire.json"
+      ]
     }
   }
 }

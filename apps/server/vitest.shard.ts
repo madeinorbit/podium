@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
+import { shardReportPath } from './test-shard-report'
 import { shardMayReuse, splitForReuse } from './src/test-support/reuse-plan'
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -55,6 +56,24 @@ export const isolatedProjectName = (shardId: string) => `server:${shardId}:isola
  * compose the application and stay fully isolated regardless of how clean an individual
  * file reads.
  */
+/**
+ * The shard's reporters: the usual console output, plus a JSON report naming every file the
+ * run executed (POD-3531).
+ *
+ * This is what lets `@podium/server#test` reconcile rather than assert. The aggregate
+ * announces a roster of N files and then has to show N files ran; without a per-shard record
+ * of what was actually collected, "the shards ran" is something only Turbo's dependency
+ * graph knows, and a human running the lane by hand can see nothing at all.
+ *
+ * Reporters are ROOT-level, never per-project: a shard that splits into reused/isolated
+ * projects is still one Vitest run and must produce one report covering both, or the
+ * reconciliation would read a half-run shard as a short one.
+ */
+const shardReporters = (shardId: string) => [
+  ['default', {}] as const,
+  ['json', { outputFile: shardReportPath(repositoryRoot, shardId) }] as const,
+]
+
 export const createServerShardConfig = (shardId: string) => {
   const shard = manifest.shards.find((candidate) => candidate.id === shardId)
   if (!shard) {
@@ -87,7 +106,12 @@ export const createServerShardConfig = (shardId: string) => {
     return defineConfig({
       root: repositoryRoot,
       resolve: sharedVitestConfig.resolve,
-      test: { ...shardTestOptions, name: `server:${shardId}`, include: shard.testFiles },
+      test: {
+        ...shardTestOptions,
+        name: `server:${shardId}`,
+        include: shard.testFiles,
+        reporters: shardReporters(shardId),
+      },
     })
   }
 
@@ -97,6 +121,7 @@ export const createServerShardConfig = (shardId: string) => {
     test: {
       ...shardTestOptions,
       name: `server:${shardId}`,
+      reporters: shardReporters(shardId),
       // NO root-level `include` here, and it is not an omission. Vitest resolves a
       // root-level `include` ahead of each project's own, so leaving the shard roster here
       // made BOTH projects collect all 70 files — every test ran twice and isolation was
