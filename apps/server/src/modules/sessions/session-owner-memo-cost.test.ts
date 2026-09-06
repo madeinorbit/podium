@@ -24,6 +24,7 @@ import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { GrantRow } from '../../store/grants'
 import { SessionAuthz } from './session-authz'
+import type { SessionOwnerMemo } from './session-state/service'
 
 interface Counts {
   getIssue: number
@@ -74,17 +75,17 @@ function harness() {
     sessions: { get: () => undefined },
     store: {
       sessions: {
-        getSession: (sessionId: SessionId) => {
+        getSession: async (sessionId: SessionId) => {
           const found = SESSIONS.find((s) => s.sessionId === sessionId)
           return found ? { ...found, ownerUserId: asUserId(found.ownerUserId) } : undefined
         },
       },
       issues: {
-        getIssue: (id: string) => {
+        getIssue: async (id: string) => {
           counts.getIssue += 1
           return id === ISSUE_A ? { id, ownerUserId: asUserId('u_issue_owner') } : null
         },
-        getIssues: (ids: readonly string[]) => {
+        getIssues: async (ids: readonly string[]) => {
           counts.getIssues += 1
           const out = new Map<string, unknown>()
           for (const id of ids) {
@@ -94,11 +95,11 @@ function harness() {
         },
       },
       grants: {
-        listForResource: (kind: string, id: string) => {
+        listForResource: async (kind: string, id: string) => {
           counts.listForResource += 1
           return matching(kind, id)
         },
-        listForResources: (kind: string, ids: readonly string[]) => {
+        listForResources: async (kind: string, ids: readonly string[]) => {
           counts.listForResources += 1
           const out = new Map<string, GrantRow[]>()
           for (const id of ids) {
@@ -114,23 +115,25 @@ function harness() {
   return { authz, counts }
 }
 
-const emptyMemo = () => ({
-  issues: new Map<string, unknown>(),
-  grants: new Map<string, string[]>(),
+const emptyMemo = (): SessionOwnerMemo => ({
+  issues: new Map(),
+  grants: new Map(),
 })
 const ids = SESSIONS.map((s) => s.sessionId)
 
 describe('per-pass ownership memo [POD-1653]', () => {
-  it('answers identically primed and unprimed — batching changed cost, not meaning', () => {
+  it('answers identically primed and unprimed — batching changed cost, not meaning', async () => {
     const slow = harness()
     // The ORACLE: no memo at all, every question asked one at a time. This is
     // the behaviour every single-session caller still gets.
-    const unprimed = ids.map((id) => slow.authz.sessionOwner(id))
+    const unprimed = await Promise.all(ids.map(async (id) => await slow.authz.sessionOwner(id)))
 
     const fast = harness()
     const memo = emptyMemo()
-    fast.authz.primeOwnerMemo(memo, ids)
-    const primed = ids.map((id) => fast.authz.sessionOwner(id, memo))
+    await fast.authz.primeOwnerMemo(memo, ids)
+    const primed = await Promise.all(
+      ids.map(async (id) => await fast.authz.sessionOwner(id, memo)),
+    )
 
     expect(primed).toEqual(unprimed)
     // The fixture must actually exercise the interesting cases, or the equality
@@ -141,11 +144,11 @@ describe('per-pass ownership memo [POD-1653]', () => {
     expect(unprimed[3]).toEqual({ owner: 'u_four', grants: [] })
   })
 
-  it('costs one batched read per kind for a whole pass, not one per session', () => {
+  it('costs one batched read per kind for a whole pass, not one per session', async () => {
     const { authz, counts } = harness()
     const memo = emptyMemo()
-    authz.primeOwnerMemo(memo, ids)
-    for (const id of ids) authz.sessionOwner(id, memo)
+    await authz.primeOwnerMemo(memo, ids)
+    for (const id of ids) await authz.sessionOwner(id, memo)
 
     // One issue batch, one grants batch per resource kind present (issue +
     // session). Crucially ZERO per-resource statements: a miss in the memo is
@@ -157,16 +160,16 @@ describe('per-pass ownership memo [POD-1653]', () => {
     expect(counts.listForResource).toBe(0)
   })
 
-  it('does not grow its read count when the pass grows', () => {
-    const cost = (repeats: number): Counts => {
+  it('does not grow its read count when the pass grows', async () => {
+    const cost = async (repeats: number): Promise<Counts> => {
       const { authz, counts } = harness()
       const memo = emptyMemo()
       const pass = Array.from({ length: repeats }, () => ids).flat()
-      authz.primeOwnerMemo(memo, pass)
-      for (const id of pass) authz.sessionOwner(id, memo)
+      await authz.primeOwnerMemo(memo, pass)
+      for (const id of pass) await authz.sessionOwner(id, memo)
       return counts
     }
     // The property that matters: 10x the sessions is the SAME number of reads.
-    expect(cost(10)).toEqual(cost(1))
+    expect(await cost(10)).toEqual(await cost(1))
   })
 })

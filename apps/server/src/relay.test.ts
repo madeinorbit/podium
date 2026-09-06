@@ -25,7 +25,7 @@ import { advanceToComposerReady, expectSubmitStillDeferred } from './test-suppor
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
 
-import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/messages/service'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
@@ -689,9 +689,10 @@ describe('SessionRegistry', () => {
     const coordinatorCaller = {
       actor: { kind: 'session' as const, id: coordinator },
       capability: coordinatorCapability,
-      principal: resolvePrincipal(coordinatorCapability, {
+      principal: await resolvePrincipalAsync(coordinatorCapability, {
         parentSessionOf: () => undefined,
-        onBehalfOfFor: (candidate) => reg.modules.sessions.sessionOwner(candidate)?.owner,
+        onBehalfOfFor: async (candidate) =>
+          (await reg.modules.sessions.sessionOwner(candidate))?.owner,
       }),
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
@@ -705,9 +706,10 @@ describe('SessionRegistry', () => {
       {
         actor: { kind: 'session', id: worker },
         capability: workerCapability,
-        principal: resolvePrincipal(workerCapability, {
+        principal: await resolvePrincipalAsync(workerCapability, {
           parentSessionOf: () => undefined,
-          onBehalfOfFor: (candidate) => reg.modules.sessions.sessionOwner(candidate)?.owner,
+          onBehalfOfFor: async (candidate) =>
+            (await reg.modules.sessions.sessionOwner(candidate))?.owner,
         }),
         onBehalfOf: FIRST_ADMIN_USER_ID,
       },
@@ -5769,7 +5771,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
     const after = (await reg.modules.sessions.listSessions())[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -5793,7 +5795,7 @@ describe('SessionRegistry read state (#124)', () => {
     attachCurrent(reg, c.send)
     c.sent.length = 0
 
-    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     expect(feedValues(c.sent, 'session')).toContainEqual(
@@ -5811,13 +5813,13 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.modules.sessions.markSessionRead(SOLE_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
     expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
 
     const c = sink()
     attachCurrent(reg, c.send)
     c.sent.length = 0
-    reg.modules.sessions.markSessionUnread(SOLE_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionUnread(asUserId(SOLE_USER_ID), sessionId)
     reg.modules.sessions.flushBroadcasts()
 
     const after = (await reg.modules.sessions.listSessions())[0]
@@ -5856,13 +5858,13 @@ describe('SessionRegistry snooze', () => {
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
       [sessionId]: null,
     })
     expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
 
-    reg.modules.sessions.clearSnooze(SOLE_USER_ID, sessionId)
+    await reg.modules.sessions.clearSnooze(asUserId(SOLE_USER_ID), sessionId)
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
     expect('snoozedUntil' in ((await reg.modules.sessions.listSessions())[0] ?? {})).toBe(false)
   })
@@ -5875,7 +5877,7 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
 
     reg.modules.sessions.sendText({ sessionId, text: 'hi' })
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
@@ -5893,7 +5895,7 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
     reg.gateway.routeDaemonFrame(

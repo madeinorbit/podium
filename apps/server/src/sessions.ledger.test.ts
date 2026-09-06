@@ -743,13 +743,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // deadline now yields NO wire change, the ledger's byte-dedup drops it, and
     // `appendChanges` is never reached — the append could not fail because there
     // was nothing to append. The rollback behaviour under test is unchanged.
-    expect(() =>
+    // The callee is async now, so the same failure arrives as a REJECTION.
+    // Spelled `rejects.toThrow` rather than `toThrow`: a sync `toThrow` around an
+    // async call passes vacuously, because the call returns a promise instead of
+    // throwing [POD-3507].
+    await expect(
       registry.modules.sessions.setSnooze({
-        userId: SOLE_USER_ID,
+        userId: asUserId(SOLE_USER_ID),
         sessionId,
         until: '2999-07-20T12:00:00.000Z',
       }),
-    ).toThrow('snooze append failed')
+    ).rejects.toThrow('snooze append failed')
     append.mockRestore()
     expect(
       (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.snoozedUntil,
@@ -773,8 +777,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     // Same future deadline as the failed attempt, for the same reason: a lapsed
     // timed snooze is pruned on read and would produce no change to project.
-    registry.modules.sessions.setSnooze({
-      userId: SOLE_USER_ID,
+    await registry.modules.sessions.setSnooze({
+      userId: asUserId(SOLE_USER_ID),
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })

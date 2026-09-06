@@ -647,8 +647,8 @@ describe('queueText (durable outbox sends)', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = await hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({
-      userId: SOLE_USER_ID,
+    await reg.modules.sessions.setSnooze({
+      userId: asUserId(SOLE_USER_ID),
       sessionId: asSessionId(sessionId),
       until: null,
     })
