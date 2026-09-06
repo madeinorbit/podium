@@ -1979,6 +1979,51 @@ cannot demonstrate it, treat it as a port.
 Collapsing those overloads into one async function would take the synchronous acceptor path with it —
 the very path the gateway ruling in the merge steps exists to protect.
 
+### Rule 55 — SPREADING a value that might be a promise: narrowing is right and NOT sufficient
+
+[POD-3499 found it at `shipping/service.test.ts:535`, generalised it wrongly, corrected itself when
+challenged, and supplied a four-case discriminator. The coordinator reproduced all four under this
+repo's tsgo. Both of us were wrong first; the measured version is below.]
+
+THE SITE. A test resolver overriding one field of an async provider's result:
+
+    const policy: ShippingPolicyResolver = {
+      resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
+    }
+
+`compatibility.resolve` is async, so the spread is OF A PROMISE. A promise has no own enumerable
+properties, so the object arrives with NOTHING from the provider — here, no `validationProfile` at all.
+It typechecks.
+
+WHY IT TYPECHECKS, measured — spreading `Promise<Policy>` where `Policy` has a required property:
+
+    const one:   Promise<Policy>       = { ...resolveAsync(), evidenceOptional: false }   TS2353 FLAGGED
+    const two:   Promise<Policy>       = { ...resolveAsync() }                            silent
+    const three: () => Promise<Policy> = () => ({ ...resolveAsync(), evidenceOptional: false })   silent
+    const four:  () => Promise<Policy> = (): Promise<Policy> => ({ ... })                 TS2353 FLAGGED
+
+ONLY EXCESS PROPERTY CHECKING CATCHES THIS, and it fires only while the object literal is still FRESH —
+checked directly against an annotation. Case 3 is a port implementation written the ordinary way, with
+no return annotation: freshness is lost before the assignability check, and the spread of a promise
+carries `then`, `catch`, `finally` and `Symbol.toStringTag`, so it structurally IS a `Promise<Policy>`
+and passes.
+
+THE DISCRIMINATOR IS INFERRED-VERSUS-ANNOTATED RETURN, NOT THE UNION. This matters because the obvious
+conclusion is wrong: `Promise<T>` hides it just as well as `T | Promise<T>` in the position that
+actually occurs. So NARROWING PER RULE 52b IS STILL RIGHT — it is simply not sufficient here. POD-3499
+verified that on the real code: after widening `resolve` to `Promise<ResolvedShippingPolicy>`, the bad
+stub still typechecked clean, and only a runtime failure revealed it.
+
+AND THE TRUTHINESS CHECKER CORRECTLY DOES NOT SEE IT. The value is never read as a boolean; it has the
+RIGHT TYPE and the WRONG RUNTIME CONTENTS. No type-directed instrument can be expected to find that.
+
+THE INSTRUMENT IS A TEST: assert that a required field SURVIVES the spread. A fixture that overrides one
+field of a provider's result must be checked for the fields it did not override, or it is asserting
+against an empty object and passing.
+
+CHEAP DEFENCE WHERE YOU CONTROL THE CODE: annotate the return type of port implementations. Case 4 shows
+the annotation restores the check for free.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
