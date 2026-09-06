@@ -299,6 +299,22 @@ describe('attachSession', () => {
     expect((await move()).parentId).toBe(parent.id)
   })
 
+  it('async predicate regression: an unmatched spinoff never reuses the first issue', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
+    const unrelated = await svc.create({ repoPath: '/elsewhere', title: 'Unrelated', startNow: false })
+    const origin = await svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
+    issueBySession.set(asSessionId('s1'), origin.id)
+    const attached = await svc.attachSession({
+      sessionId: asSessionId('s1'),
+      newSpinoff: { title: 'A title matching nothing', origin: 'agent' },
+      confirmRehome: true,
+    })
+    expect(attached.id).not.toBe(unrelated.id)
+    expect(attached.id).not.toBe(origin.id)
+    expect(attached.title).toBe('A title matching nothing')
+    expect(attached.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+  })
+
   it('reuses accepted discovered work instead of minting a duplicate successor', async () => {
     const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/origin'),

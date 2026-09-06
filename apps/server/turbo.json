@@ -934,6 +934,7 @@
         "src/modules/memory/conversation-list-fold.test.ts",
         "src/modules/memory/lake.test.ts",
         "src/modules/memory/lake.ts",
+        "src/modules/memory/search.predicates.test.ts",
         "src/modules/memory/search.ts",
         "src/modules/memory/service.ts",
         "src/modules/memory/transcript-indexer.ts",

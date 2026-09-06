@@ -654,12 +654,15 @@ export class MachinesService {
 
     // Prefer another capable ONLINE machine that actually owns this cwd. This
     // keeps implicit routing useful without ever launching against a foreign path.
-    const byRepo = machines.find(
-      async (machine) =>
-        agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
-        (await this.deps.store.repos
-          .listRepos(machine.id))
-          .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
+    // Repo ownership may disappear; keep these reads local to this placement,
+    // never reuse a positive on a later request. Missing rows cannot match.
+    const reposByMachine = new Map(await Promise.all(machines.map(async (machine) =>
+      [machine.id, await this.deps.store.repos.listRepos(machine.id)] as const,
+    )))
+    const byRepo = machines.find((machine) =>
+      this.daemons.has(machine.id) &&
+      agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
+      reposByMachine.get(machine.id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
     )
     if (byRepo) return byRepo.id
 
@@ -841,10 +844,15 @@ export class MachinesService {
    * to attach and drain the queue.
    */
   async pickMachineForRepo(_originUrl: string | undefined, cwd: string): Promise<MachineId> {
-    const byRepo = this.onlineMachineIds().find(async (id) =>
-      (await this.deps.store.repos
-        .listRepos(id))
-        .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
+    const online = this.onlineMachineIds()
+    // A removed repo would make a retained positive unsafe. Resolve per pick;
+    // absent repos and machines that disconnected during the read do not match.
+    const reposByMachine = new Map(await Promise.all(online.map(async (id) =>
+      [id, await this.deps.store.repos.listRepos(id)] as const,
+    )))
+    const byRepo = online.find((id) =>
+      this.daemons.has(id) &&
+      reposByMachine.get(id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
     )
     return byRepo ?? await this.defaultMachine()
   }

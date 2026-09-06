@@ -365,6 +365,30 @@ describe('MachinesService inventory persistence (#222)', () => {
     return { svc, store }
   }
 
+  test('async predicate regression: repo placement skips the first foreign cwd', async () => {
+    const { svc, store } = await makeStoreService()
+    const other = asMachineId('repo-owner')
+    await svc.attach(MACHINE, recorder().send)
+    await svc.attach(other, recorder().send)
+    await store.repos.addRepo('/foreign', MACHINE)
+    await store.repos.addRepo('/wanted', other)
+    expect(await svc.pickMachineForRepo(undefined, '/wanted/subdir')).toBe(other)
+  })
+
+  test('async predicate regression: agent placement rejects every incapable repo owner', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
+      id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    await store.repos.addRepo('/repo', MACHINE)
+    await svc.attach(MACHINE, recorder().send)
+    await svc.recordInventory(MACHINE, INV)
+    await expect(svc.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow(
+      "codex is not installed on machine 'Missing'",
+    )
+  })
+
   test('recordInventory persists the report and it survives a hello reconnect', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({

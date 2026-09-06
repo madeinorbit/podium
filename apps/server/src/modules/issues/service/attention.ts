@@ -163,7 +163,7 @@ export class IssueAttentionModule {
       // mint a same-title successor beside it. The provenance edge + exact
       // normalized title make the reuse scoped to this origin; proposals stay
       // inert until accepted and closed/archived work is never resurrected.
-      target = opts.newSpinoff ? this.acceptedSpinoff(anchor, title) : undefined
+      target = opts.newSpinoff ? await this.acceptedSpinoff(anchor, title) : undefined
       if (!target) {
         const wire = await this.crud().create({
           repoPath: anchor.repoPath,
@@ -277,23 +277,28 @@ export class IssueAttentionModule {
     )
   }
 
-  private acceptedSpinoff(anchor: IssueRow, title: string): IssueRow | undefined {
+  private async acceptedSpinoff(anchor: IssueRow, title: string): Promise<IssueRow | undefined> {
     const normalized = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase()
     const wanted = normalized(title)
+    const eligible = (row: IssueRow): boolean =>
+      row.id !== anchor.id &&
+      row.repoId === anchor.repoId &&
+      row.parentId == null &&
+      !row.deletedAt &&
+      !row.archived &&
+      row.stage !== 'proposed' &&
+      !this.store.isClosed(row) &&
+      normalized(row.title) === wanted
+    const candidates = [...this.store.rows.values()].filter(eligible)
+    // Provenance can be removed, so retaining a positive across attaches would
+    // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
+    const dependencies = new Map(await Promise.all(candidates.map(async (row) =>
+      [row.id, await this.store.deps.store.issues.listIssueDeps(row.id)] as const,
+    )))
     return [...this.store.rows.values()]
-      .filter(
-        async (row) =>
-          row.id !== anchor.id &&
-          row.repoId === anchor.repoId &&
-          row.parentId == null &&
-          !row.deletedAt &&
-          !row.archived &&
-          row.stage !== 'proposed' &&
-          !this.store.isClosed(row) &&
-          normalized(row.title) === wanted &&
-          (await this.store.deps.store.issues
-            .listIssueDeps(row.id))
-            .some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from'),
+      .filter((row) =>
+        eligible(row) &&
+        dependencies.get(row.id)?.some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from') === true,
       )
       .sort((a, b) => a.seq - b.seq)[0]
   }
