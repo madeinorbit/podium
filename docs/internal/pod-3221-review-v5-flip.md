@@ -177,8 +177,13 @@ conversion is complete, so the "not yet converted" framing is stale.
   `change_latest` statement DOES route into the enclosing executor span; an
   appended latest-state row is discarded on rollback. The landed tests only
   cover the commit case; isolation is correct but UNTESTED (see below).
-- `check-statement-intent.ts`: running at report time; result appended when it
-  lands.
+- `check-statement-intent.ts` (POD-3426): CANNOT COMPLETE on this tip. The
+  gate runs the unit corpus via vitest (`check-statement-intent.ts:133-141`)
+  and refuses to trust its count unless the corpus runs clean; the corpus
+  includes `executor.test.ts`, whose two POD-3506 tests hang to timeout. So
+  this gate, like F3's span-effect gate, is BLOCKED by the unlanded POD-3506
+  fix — a second exit-gate the freeze has taken offline. Not a defect in the
+  gate; a consequence of shipping the review before POD-3506 lands.
 
 ## Coverage gap (not a defect)
 
@@ -187,12 +192,34 @@ isolation holds with a probe, but the suite would stay green if a future edit
 re-bound them to a span instance in a way that leaked writes past a rollback.
 Recommend adding the enclosing-rollback case to `sync-prepared-span.test.ts`.
 
-## Pending
+## Substantive fixes read — all sound
 
-- (done — see F2)
-  hides) — running.
-- (done — POD-3499/3488/3487/3494/3496 read; all clean)
-  3496, 3483, 3426, rule-55 fixture).
-- (done — constructs gone; F4 notes stale comments)
-  runSynchronousSpan, legacy-handle-probe.ts, StoreExecutor.legacy).
-- (done — F1)
+POD-3499 (five defects), POD-3496 (19 producer-call restorations), POD-3494
+(root-prepared statements), POD-3498 (unified span path + `Omit<'transaction'>`
+guard), POD-3500 (four void ports widened + awaited), POD-3488 (lease-renewal
+refusal), POD-3487/3485 (async ceiling/notification): each read at the diff.
+No deleted behavioural assertion, no escape hatch, no re-introduced union port.
+POD-3498's `Omit<FullStoreDrizzle,'transaction'>` is a genuine type-level
+guard that makes reinstating the second-BEGIN branch a compile error.
+
+## Verdict — APPROVE WITH CHANGES
+
+The flip's central claim ("apps/server at 0 errors") reproduces and holds at
+project scope, and the substantive repairs are correct. But the flip range is
+NOT green tree-wide, and the "0 errors" headline is exactly as weak as the
+coordinator warned: two of the three reds outside the filed set (F1, apps/web)
+are the flip's own promise class, and F1 is a genuine FIFTH defect class the
+existing instruments cannot see.
+
+Blocking before checkpoint R4:
+- F1 (HIGH): wrap the three `ReturnType<>` tRPC output declarations in
+  `Awaited<>`; apps/web is red until then. Candidate spec rule 58.
+- F2 (HIGH): file the fail-fast typecheck-gate truncation alongside POD-3508
+  (apps/web hidden the same way scripts/ was).
+- F3 (MEDIUM): the span-effect gate is red and POD-3498 blinded its
+  repository-port entry; re-point it and adjudicate the 19 failures before it
+  can gate the next landing.
+
+Non-blocking: F4 (stale `executor.legacy` comments), the POD-3494 rollback
+coverage gap, and the note that both check-span-effects and
+check-statement-intent are offline until POD-3506 lands.
