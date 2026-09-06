@@ -72,7 +72,9 @@ export interface AgentRelayDispatchDeps {
   readonly issueCommands: IssueCommandDispatcher
   readonly issueSessionLifecycle: IssueSessionLifecycle
   readonly issues: IssueService
-  readonly listRepos: () => Parameters<typeof fleetViewFor>[2]
+  readonly listRepos: () =>
+    | Parameters<typeof fleetViewFor>[2]
+    | Promise<Parameters<typeof fleetViewFor>[2]>
   readonly lockCommands: LockCommandDispatcher
   readonly messageGate: MessageGate
   readonly modules: () => RegistryModules
@@ -82,7 +84,7 @@ export interface AgentRelayDispatchDeps {
   readonly workflowCallerForCapability: (
     capability: Capability,
     overrideScope?: boolean,
-  ) => WorkflowCaller
+  ) => WorkflowCaller | Promise<WorkflowCaller>
   readonly workflows: WorkflowService
 }
 
@@ -206,7 +208,7 @@ export function makeAgentRelayDispatch(
       return await Promise.resolve(await visibleMachinesFor(modules(), capability))
     }
     if (router === 'machines' && proc === 'listWithRepos') {
-      return await Promise.resolve(await fleetViewFor(modules(), capability, listRepos()))
+      return await fleetViewFor(modules(), capability, await listRepos())
     }
     if (router === 'machines' && proc === 'reprobe') {
       const raw = (input ?? {}) as Record<string, unknown>
@@ -248,7 +250,7 @@ export function makeAgentRelayDispatch(
     if (router === 'workflows') {
       return await dispatchWorkflowRpc(
         workflows,
-        workflowCallerForCapability(capability, overrideScope),
+        await workflowCallerForCapability(capability, overrideScope),
         proc,
         input,
       )
