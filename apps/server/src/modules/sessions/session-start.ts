@@ -118,26 +118,26 @@ export interface SessionStartPorts {
   terminalProof: SessionTerminalProof
   /** Whose preferences a spawning read uses. NOT this module's decision. */
   settingsViewer(): UserId
-  durableLabelFor(sessionId: SessionId): string
+  durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
    *  is the coupling POD-1396's first cut existed to remove. */
   hasSession(sessionId: SessionId): boolean
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
-  defaultMachine(): MachineId
-  machineName(machineId: MachineId): string
+  defaultMachine(): MachineId | Promise<MachineId>
+  machineName(machineId: MachineId): string | Promise<string>
   nativeAccountIdForMachine(
     machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
-  ): AccountId
+  ): AccountId | Promise<AccountId>
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
-  ): MachineId
+  ): MachineId | Promise<MachineId>
   onSpawnTargetLogin?(input: {
     machineId: MachineId
     agentKind: AgentKind
@@ -149,7 +149,7 @@ export interface SessionStartPorts {
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
-  soleOwnerForCwd(cwd: string): IssueId | undefined
+  soleOwnerForCwd(cwd: string): IssueId | undefined | Promise<IssueId | undefined>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
@@ -159,7 +159,9 @@ export interface SessionStartPorts {
   }):
     | { instructions: AgentInstruction[]; commit(): void | Promise<void> }
     | Promise<{ instructions: AgentInstruction[]; commit(): void | Promise<void> }>
-  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
+  sessionOwner(
+    sessionId: SessionId,
+  ): { owner: UserId; grants: string[] } | undefined | Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
@@ -236,7 +238,7 @@ export class SessionStart {
     if (input.loginHarness && agentKind !== 'shell') {
       throw new Error('loginHarness is only valid for shell sessions')
     }
-    const machineId = this.ports.resolveMachineForAgent(
+    const machineId = await this.ports.resolveMachineForAgent(
       input.machineId,
       input.cwd,
       agentKind,
@@ -263,7 +265,7 @@ export class SessionStart {
     }
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.ports.soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd)) ?? undefined
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
@@ -284,7 +286,7 @@ export class SessionStart {
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
         : input.binding?.principal.kind === 'agent'
-          ? this.ports.sessionOwner(input.binding.principal.parentBindingId)?.owner
+          ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
     const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
@@ -408,7 +410,9 @@ export class SessionStart {
       throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId ? asMachineId(input.machineId) : this.ports.defaultMachine()
+    const machineId = input.machineId
+      ? asMachineId(input.machineId)
+      : await this.ports.defaultMachine()
     const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
     this.ports.onSpawnTargetLogin?.({
       machineId,
@@ -448,10 +452,10 @@ export class SessionStart {
     const accountId =
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
-        : this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+        : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
     const session = new Session({
       sessionId,
-      durableLabel: this.ports.durableLabelFor(sessionId),
+      durableLabel: await this.ports.durableLabelFor(sessionId),
       ownerUserId,
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -568,7 +572,7 @@ export class SessionStart {
       harness: input.agentKind,
       model: launch.model ?? null,
       effort: launch.effort ?? null,
-      machine: this.ports.machineName(machineId),
+      machine: await this.ports.machineName(machineId),
       machineId,
       accountId: accountId ?? null,
     }
