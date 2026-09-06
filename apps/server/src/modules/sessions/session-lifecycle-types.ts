@@ -52,7 +52,7 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
  *  tests can fake it. */
 export interface SessionLedger {
   commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
-  capture(specs: EntityChangeSpec[]): MetadataChange[]
+  capture(specs: EntityChangeSpec[]): MetadataChange[] | Promise<MetadataChange[]>
   reconcile(
     entity: 'session',
     rows: { id: string; value: unknown }[],

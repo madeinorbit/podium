@@ -256,9 +256,12 @@ export class SessionRepository {
   }
 
   /** Explicit non-row capture seam [spec:SP-c29e]. */
-  private captureSessionSpecs(specs: EntityChangeSpec[], issueRelevant = true): MetadataChange[] {
+  private async captureSessionSpecs(
+    specs: EntityChangeSpec[],
+    issueRelevant = true,
+  ): Promise<MetadataChange[]> {
     if (specs.length === 0) return []
-    const changes = this.ports.ledger.capture(specs)
+    const changes = await this.ports.ledger.capture(specs)
     this.publishSessionProjection(changes, undefined, issueRelevant)
     return changes
   }
@@ -341,7 +344,7 @@ export class SessionRepository {
       })
     }
     try {
-      const changes = this.captureSessionSpecs(specs, issueRelevant)
+      const changes = await this.captureSessionSpecs(specs, issueRelevant)
       // A volatile A→B→A batch legitimately dedups to no durable patch, but it
       // still invalidates the legacy snapshot pipeline once. Do not fabricate a
       // projection event: patch consumers need only the captured final truth.
