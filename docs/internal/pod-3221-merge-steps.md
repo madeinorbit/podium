@@ -330,3 +330,22 @@ MEASURED CONFIRMATION of the framing above, from POD-3469: hello, routable frame
 routable frame again gives routed=1 before and routed=0 after, replies
 `[peerHelloOk, peerHelloRejected, peerHelloRejected]`. After the second hello nothing is served. The
 protocol connection is dead and only the socket survives, which is what makes this rule-3 compliant.
+
+## 8. CORRECTION: the third lease boundary is type-guarded, so the gap is BEHAVIOURAL not total
+
+`12f2fd8ac`'s message records `service.ts:2633` (the `isolateShippingTrain` boundary) as "NOT GUARDED",
+which overstates the exposure. POD-3488 checked what I did not, and the coordinator verified it on the
+epic branch: with the await dropped at that site, POD-3483's `lint:promise-truthiness` reports
+
+    apps/server/src/modules/shipping/service.ts:2633  negation [promise-of-boolean]   exit 1
+
+and passes clean otherwise (3507 files, 19 projects, probe green). So a dropped await there FAILS CI at
+the type level even though no test names the behaviour.
+
+WHY THIS MATTERS RATHER THAN BEING A FOOTNOTE: it changes what POD-3494 unblocks. Not "the only thing
+standing between that site and a silent regression" — a behavioural test for a site that CI already
+guards. That is a lower priority and a different justification.
+
+AND IT IS THE TWO PIECES OF TOOLING COMPOSING: the boundary POD-3488 could not reach with a test is
+exactly the one POD-3483's type-directed check sees, because the spelling there is a NEGATION — the
+form TS2801 never flags and the form that check exists for. Neither instrument covers it alone.
