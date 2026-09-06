@@ -1725,6 +1725,44 @@ toward a stale FALSE, and false is the permissive direction there.
 THE POSITIVE RULE: never leave a possibly-async expression in a boolean position. Resolve it first and
 compare the resolved value.
 
+### Rule 53 — an ADDED await can DEADLOCK a test whose subject is CONCURRENCY, and it reads as slowness
+
+[Raised by POD-3263 on `updates/service.test.ts`, 2026-09-06. Rule 48a warns that a MISSING await is
+silent. This is the opposite failure and it is worse, because it does not present as a failure at all.]
+
+THE SHAPE. A mechanical await pass wrote
+
+    const tick = await svc.refreshTarget(…)
+
+in three refresh-coalescing tests whose WHOLE POINT is that two calls are in flight TOGETHER, with the
+resolver released by a `finish()` further down the test body. Awaiting the first call means `finish()`
+is never reached, so the test DEADLOCKS and dies on the 20-second timeout. A fourth test had
+
+    await Promise.all([await a, await b])
+
+which serialises the two calls and defeats the `Promise.all` it is written around.
+
+WHY IT IS DANGEROUS: a deadlock presents as a TIMEOUT, and a timeout reads as "this test is slow" or
+"the box is loaded" — especially on a shared machine, and especially while the disk is full and ENOSPC
+is producing 20-second timeouts of its own. Three separate causes converge on the same symptom.
+
+THE RULE. Before adding an await inside a test, ask WHAT THE TEST IS ABOUT. If its subject is
+concurrency — coalescing, single-flight, debouncing, racing, ordering, "both in flight at once" — then
+awaiting each call individually destroys the thing under test. Keep the calls unawaited, collect the
+promises, release the resolver, and await the collection:
+
+    const a = svc.refreshTarget(…)      // NOT awaited
+    const b = svc.refreshTarget(…)      // NOT awaited
+    finish()                            // now reachable
+    const [ra, rb] = await Promise.all([a, b])
+
+NEVER write `Promise.all([await a, await b])`. It type-checks, it passes, and it tests nothing the
+`Promise.all` was there to test.
+
+AND WHEN A TEST TIMES OUT DURING THIS FLIP, ENUMERATE THE THREE CAUSES BEFORE DEBUGGING THE SUBJECT:
+a deadlock you introduced, ENOSPC (`df -h /`), or a genuinely slow test. They are indistinguishable
+from the symptom alone.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
