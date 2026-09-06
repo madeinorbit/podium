@@ -1416,7 +1416,7 @@ export interface UpdateOperationContext {
   recordOperationDetails?: (
     operationId: string,
     patch: Record<string, unknown>,
-  ) => void | Promise<void>
+  ) => Promise<void>
   /**
    * Report progress for one step of THIS operation.
    *
@@ -1433,7 +1433,7 @@ export interface UpdateOperationContext {
    * Optional, and absent means "carry on": a context assembled without an engine
    * has nothing that could have ended the step behind the watcher's back.
    */
-  stepActive?: (operationId: string, stepId: string) => boolean | Promise<boolean>
+  stepActive?: (operationId: string, stepId: string) => Promise<boolean>
   /**
    * Deferred wake-up for the watchers. Injected so a test never sleeps.
    *
@@ -1444,7 +1444,7 @@ export interface UpdateOperationContext {
    * drain loop reading the queue length straight afterwards sees an empty
    * queue and calls a wave finished while its next tick is still pending.
    */
-  schedule?: (fn: () => void | Promise<void>, ms: number) => void
+  schedule?: (fn: () => Promise<void>, ms: number) => void
   /** How often a watcher re-reads the world. */
   watchIntervalMs?: number
   /** How often a watched step says it is still there. Injected so tests never sleep. */
@@ -1454,7 +1454,7 @@ export interface UpdateOperationContext {
 
 const DEFAULT_WATCH_INTERVAL_MS = 500
 
-function defaultSchedule(fn: () => void | Promise<void>, ms: number): void {
+function defaultSchedule(fn: () => Promise<void>, ms: number): void {
   // Fired, never awaited: a timer has nobody to hand a rejection back to, and
   // `tick` reports its own outcomes rather than throwing them.
   const timer = setTimeout(() => void fn(), ms)
@@ -1573,7 +1573,7 @@ function watch(
   poll: () => StepProgressPatch | undefined,
   opts: {
     /** True once someone else has reported the outcome: stop, say nothing. */
-    until?: () => boolean | Promise<boolean>
+    until?: () => Promise<boolean>
     heartbeat?: (elapsedMs: number) => StepProgressPatch
   } = {},
 ): void {
@@ -1667,7 +1667,7 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
     watch(context, operation.id, UPDATE_STEP_PREPARE, () => undefined, {
       // The settle handlers below report the outcome; this watcher only ever
       // reports that the outcome has not arrived yet.
-      until: () => !preparing.has(operation.id),
+      until: async () => !preparing.has(operation.id),
       heartbeat: (elapsedMs) => ({
         state: 'running',
         detail: `Building the update package… ${elapsedLabel(elapsedMs)}`,
