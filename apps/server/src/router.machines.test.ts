@@ -8,6 +8,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
 async function machineCaller() {
@@ -93,17 +94,12 @@ describe('sessions.create with machineId', () => {
       tokenHash: 'h2',
       ownerUserId: asUserId('user:sole'),
     })
-    await store.machines.setMachineInventory(
-      'm2',
-      JSON.stringify({
-        os: 'linux',
-        arch: 'x64',
-        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
-        tools: [],
-      }),
-    )
+    const inventory = fixtureInventory({
+      agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+    })
+    await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.gateway.attachDaemon('m2', () => {})
+    await attachDaemonWithInventory(registry, 'm2', () => {}, inventory)
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({

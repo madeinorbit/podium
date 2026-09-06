@@ -34,6 +34,7 @@ import { SessionRegistry } from './relay'
 import type { SessionRow, SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
@@ -177,14 +178,11 @@ describe('SessionRegistry', () => {
       tokenHash: 'host-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    const inventory = JSON.stringify({
-      os: 'linux',
-      arch: 'x64',
+    const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
-      tools: [],
     })
-    await store.machines.setMachineInventory(asMachineId('remote-first'), inventory)
-    await store.machines.setMachineInventory(store.hostMachineId, inventory)
+    await store.machines.setMachineInventory(asMachineId('remote-first'), JSON.stringify(inventory))
+    await store.machines.setMachineInventory(store.hostMachineId, JSON.stringify(inventory))
     await store.repos.addRepo('/host/project', store.hostMachineId)
     await store.repos.addRepo('/remote/project', asMachineId('remote-first'))
 
@@ -207,8 +205,18 @@ describe('SessionRegistry', () => {
     try {
       // Attach the remote first so default ordering cannot accidentally make the
       // host case pass; repository affinity must select each registered owner.
-      reg.gateway.attachDaemon('remote-first', answerRepoOps('remote-first', remote))
-      reg.gateway.attachDaemon(store.hostMachineId, answerRepoOps(store.hostMachineId, host))
+      await attachDaemonWithInventory(
+        reg,
+        'remote-first',
+        answerRepoOps('remote-first', remote),
+        inventory,
+      )
+      await attachDaemonWithInventory(
+        reg,
+        store.hostMachineId,
+        answerRepoOps(store.hostMachineId, host),
+        inventory,
+      )
       const hostIssue = await reg.modules.issues.create({
         repoPath: '/host/project',
         title: 'Host routed',

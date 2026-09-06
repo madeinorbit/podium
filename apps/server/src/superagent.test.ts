@@ -12,6 +12,7 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -138,7 +139,7 @@ describe('harnessAllowedTools', () => {
 describe('start_agent tool wiring (issue #60)', () => {
   async function harness() {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+    await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
           registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {

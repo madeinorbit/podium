@@ -11,6 +11,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
@@ -34,20 +35,17 @@ async function setup() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const inventory = JSON.stringify({
-    os: 'linux',
-    arch: 'x64',
+  const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
-    tools: [],
   })
-  await store.machines.setMachineInventory('m1', inventory)
-  await store.machines.setMachineInventory('m2', inventory)
+  await store.machines.setMachineInventory('m1', JSON.stringify(inventory))
+  await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
-  registry.gateway.attachDaemon('m1', (message) => m1.push(message))
-  registry.gateway.attachDaemon('m2', (message) => m2.push(message))
+  await attachDaemonWithInventory(registry, 'm1', (message) => m1.push(message), inventory)
+  await attachDaemonWithInventory(registry, 'm2', (message) => m2.push(message), inventory)
   const sessionId = (await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/repo',
