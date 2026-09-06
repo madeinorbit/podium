@@ -488,6 +488,9 @@ export class SessionRegistry {
     // but provisioning it is a store write and therefore belongs in async boot,
     // after composition and before every other hydration step.
     await this.modules.machines.ensureHostMachine(hostname())
+    // Session rows must be restored before any issue or message reconciliation
+    // can inspect their targets.
+    await this.modules.sessions.loadFromStore()
     await this.issueEventFeed.resolve()
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
@@ -511,6 +514,16 @@ export class SessionRegistry {
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
     await this.modules.automations.reconcileFromStore()
+    await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
+    // One durable queued-row pass repairs events missed while the server was down
+    // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
+    try {
+      await this.modules.messages.reconcileQueued()
+    } catch (error) {
+      log.warn('queued message startup recovery failed — the retry backstop remains active', {
+        err: error,
+      })
+    }
   }
 
   /**
@@ -1434,10 +1447,7 @@ export class SessionRegistry {
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
     this.bus.on('session.exited', async ({ sessionId }) => await locks.releaseForSession(sessionId))
-    // Boot: hydrate sessions (and reconcile the restored state against the
-    // write-seam ledger — boot reconciliation lives in the sessions module now).
-    sessionsSvc.loadFromStore()
-    // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
+    // Session hydration runs from the async registry factory after the graph is complete.
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
@@ -2994,21 +3004,11 @@ export class SessionRegistry {
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
-    issues.boot(systemPrincipal('boot-reconcile'))
     issueSessionLifecycle.startClosedIssueSweep()
     shipping.start()
     void shipping
       .reconcile()
       .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
-    // One durable queued-row pass repairs events missed while the server was down
-    // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
-    try {
-      messagesSvc.reconcileQueued()
-    } catch (error) {
-      log.warn('queued message startup recovery failed — the retry backstop remains active', {
-        err: error,
-      })
-    }
     this.steward = new StewardService({
       principal: systemPrincipal('steward'),
       store: this.store.events,
