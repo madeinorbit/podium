@@ -347,7 +347,7 @@ const BOTH: readonly TransportTag[] = ['trpc', 'relay']
 
 /** A ceiling that hides exactly the named issue ids from the delegating human. */
 const ceilingHiding = (hidden: () => string[]) => ({
-  canSee: (e: { kind: 'issue' | 'session'; id: string }) => !hidden().includes(e.id),
+  canSee: async (e: { kind: 'issue' | 'session'; id: string }) => !hidden().includes(e.id),
 })
 
 /** Run one scenario on one transport and reduce it to a comparable answer. */
@@ -442,10 +442,10 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
 // ---------------------------------------------------------------------------
 
 describe('the two halves of the ceiling are one object', () => {
-  const ceiling = { canSee: () => true }
+  const ceiling = { canSee: async () => true }
 
   it('refuses to compose a gate whose delivery service carries a DIFFERENT ceiling', () => {
-    const other = { canSee: () => true }
+    const other = { canSee: async () => true }
     expect(() =>
       mailHarness({ ceiling, authorizeAtApply: mailPolicy({ ceiling: other }).authorizeAtApply }),
     ).toThrow(/DIFFERENT object/)

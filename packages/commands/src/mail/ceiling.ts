@@ -40,16 +40,21 @@ import { asIssueId, asSessionId, type IssueId, type SessionId, type MachineId } 
  * The live visibility question, asked at every apply (readiness §3.1.3 A1 —
  * never a capability snapshot frozen at spawn).
  *
- * Deliberately a bare boolean: refusal and nonexistence must be
+ * Deliberately a bare boolean answer: refusal and nonexistence must be
  * indistinguishable to the caller, so there is no reason code to leak. This is
  * the same shape as `VisibilityResolver` in `@podium/protocol`, narrowed to the
  * two entity kinds mail can address, and it is a PORT — the answer comes from
  * the user/grant tables (POD-1075 / POD-1079), never from this package.
+ *
+ * ALWAYS a promise, never `boolean | Promise<boolean>`. The union was legal for
+ * both an async implementation and a synchronous `if (ceiling.canSee(...))`
+ * consumer, and a promise in a boolean position is always truthy — so the union
+ * made an authorization predicate that could not refuse, and the compiler had
+ * nothing to say about it. A single promise return makes every un-awaited
+ * consumer a type error instead of a silent bypass. Do not re-widen it.
  */
 export interface HumanCeiling {
-  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }):
-    | boolean
-    | Promise<boolean>
+  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }): Promise<boolean>
 }
 
 /**
@@ -69,7 +74,7 @@ export interface HumanCeiling {
  * that can be widened by accident.
  */
 export const SINGLE_USER_CEILING: HumanCeiling = {
-  canSee: () => true,
+  canSee: async () => true,
 }
 
 /** What addressing resolved to. `unresolvable` is the ONE denial shape: an

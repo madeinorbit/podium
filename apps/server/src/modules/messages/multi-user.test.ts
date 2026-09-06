@@ -27,7 +27,7 @@ import { applyAuthFromCeiling } from './handlers/context'
 
 /** A ceiling that hides exactly the named issue ids from the delegating human. */
 const ceilingHiding = (hidden: () => string[]) => ({
-  canSee: (e: { kind: 'issue' | 'session'; id: string }) => !hidden().includes(e.id),
+  canSee: async (e: { kind: 'issue' | 'session'; id: string }) => !hidden().includes(e.id),
 })
 
 // ---------------------------------------------------------------------------
@@ -255,6 +255,93 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     await h.svc.sweep()
     expect((await h.svc.message(r.message.id))?.status).not.toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The apply-time ceiling must be able to REFUSE (POD-3487)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE REFUSAL BRANCH IS REACHABLE — pinned because it once was not.
+ *
+ * `HumanCeiling.canSee` was briefly declared `boolean | Promise<boolean>`. That
+ * union made an async implementation legal (relay's real ceiling is async) AND
+ * made a synchronous `if (ceiling.canSee(...))` consumer legal, and a promise in
+ * a boolean position is always truthy. So `applyAuthFromCeiling` returned
+ * `{ ok: true }` for every message and the refusal below could not run — a
+ * message addressed to an issue beyond the delegating human's ceiling was
+ * delivered, with nothing to type-error about it.
+ *
+ * The fixture is what decides whether this suite can see that. Every OTHER
+ * ceiling in this file is a test double, and a SYNCHRONOUS double refuses
+ * correctly even through the broken consumer — which is why the bug survived a
+ * suite that already exercised this exact path. This ceiling is therefore
+ * `async`, matching relay.ts's shipped implementation rather than the shape that
+ * is convenient to write, and it is the only reason the assertions below
+ * discriminate. `canSee` is now declared `Promise<boolean>` with no union, so a
+ * sync consumer is a compile error rather than a silent bypass; do not re-widen
+ * it, and do not make this fixture synchronous.
+ */
+describe('an ASYNC ceiling still refuses at apply — the promise is awaited, not truthy-tested', () => {
+  it('refuses delivery and the mirror write for a target beyond the ceiling', async () => {
+    const hidden: string[] = []
+    // Async on purpose. A synchronous double here passes on the broken code.
+    const ceiling = ceilingHiding(() => hidden)
+    const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
+    const send = async (body: string) =>
+      await h.svc.send(
+        { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
+        { to: { kind: 'issue', id: target.id }, body },
+      )
+
+    // THE INSTRUMENT SAYS YES FIRST: visible target, the send lands — delivered
+    // to the target's session and mirrored to its legacy mailbox.
+    const allowed = await send('legitimate')
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
+    await h.svc.sweep()
+    expect((await h.svc.message(allowed.message.id))?.status).not.toBe('dead_letter')
+    expect(await h.store.issues.getIssueMessage(allowed.message.id)).not.toBeNull()
+    expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
+
+    // The SAME send, with the target beyond the human ceiling. These are the
+    // assertions that were vacuously green: it dead-letters, it leaves no mirror
+    // row, and it never reaches the target's session.
+    hidden.push(target.id)
+    const pushesBefore = h.pushes.filter((p) => p.sessionId === 'sTarget').length
+    const denied = await send('beyond the ceiling')
+    await h.svc.sweep()
+    expect((await h.svc.message(denied.message.id))?.status).toBe('dead_letter')
+    expect(await h.store.issues.getIssueMessage(denied.message.id)).toBeNull()
+    expect((await h.store.issues.listIssueMessages(target.id)).map((m) => m.body)).toEqual([
+      'legitimate',
+    ])
+    expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBe(pushesBefore)
+    // The refusal REASON — byte-identical to the one an id that does not exist
+    // gives (D20.2) — and the sender notice that goes with it (D9) are asserted
+    // on the drain path by cutover.test.ts's "rejects at the drain and tells the
+    // sender". This test's job is the reachability of the branch at all, so it
+    // reads the reason from the port directly in the case below rather than
+    // re-deriving the notice wording here.
+  })
+
+  it('the port itself answers false — read directly, with no delivery machinery in the way', async () => {
+    const hidden = ['iss_hidden']
+    const port = applyAuthFromCeiling(ceilingHiding(() => hidden))
+    const row = (toId: string) =>
+      ({ toKind: 'issue', toId }) as unknown as Parameters<typeof port>[0]
+    // Instrument says yes…
+    expect(await port(row('iss_visible'))).toEqual({ ok: true })
+    // …and the refusal is reachable. `toEqual({ ok: true })` rather than a
+    // truthiness check on purpose: the defect this pins produced a truthy value
+    // at every site that read one.
+    expect(await port(row('iss_hidden'))).toEqual({
+      ok: false,
+      reason: 'issue no longer exists',
+    })
   })
 })
 
