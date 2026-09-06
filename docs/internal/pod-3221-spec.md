@@ -3030,3 +3030,63 @@ told. A sixth shape found the same night makes the point bluntly — `session-wi
 construction, unawaited, against methods that are all async, with `apps/server` still
 reporting zero. **Treat every escape hatch as a hole in every gate downstream of it**, and
 audit what is under one before trusting a green.
+
+### Rule 59 — the SEVENTH class: an await that changes EVALUATION ORDER, not correctness
+
+```ts
+await Promise.all([f(), f(), f()])          // concurrent — three calls in flight
+await Promise.all([await f(), await f(), await f()])   // SEQUENTIAL — one at a time
+```
+
+An `await` inside an array literal is evaluated **before the next element is constructed**, so
+each call completes before the next begins. `Promise.all` then receives three already-settled
+values and has nothing to interleave. The expression still typechecks, still returns the same
+values, and still *reads* as a correct await — the flip commit `9f0d5c33e` made this edit
+across sibling test files and no review caught it.
+
+**IT IS NOT RULE 57 AND NOT A MISSING AWAIT.** Rule 57 is about a *declined* await at a site.
+This await is neither forgotten nor declined: it is locally harmless and changes the semantics
+of the **enclosing expression**. The tell is not the call site — it is the `Promise.all` two
+lines up. A reviewer diffing source sees a correct-looking await; a reviewer diffing tests sees
+a correct-looking await. Only reading the enclosing expression shows it.
+
+**THE DAMAGE IS WORST WHERE IT IS SILENT.** POD-3501 measured three outcomes:
+
+| file | result |
+|---|---|
+| `model-catalog.test.ts` | RED — 2 failures, one a **20s timeout**: a gated concurrent test cannot progress once sequentialised |
+| `oracle-handoff.test.ts` | RED |
+| `updates/operation.test.ts` | **GREEN — and this is the dangerous one** |
+
+`operation.test.ts` passes because, run sequentially, the second start still hits the
+already-running branch. So the assertion holds. What it no longer covers is **the race it is
+named for**, and no red run will ever surface that. A concurrency test that was quietly
+converted into a sequential one is worse than a deleted test, because it still reports success.
+
+**THE DERIVED SET, not a hand list.** Nine sites remain on the tip (coordinator-derived by
+matching `Promise.all(` array literals containing `await`):
+
+```
+apps/server/src/model-catalog.test.ts:106            modules/operations/engine.test.ts:260
+apps/server/src/migrations/snapshot-verifier.test.ts:431   modules/shipping/service.test.ts:392
+apps/server/src/gateway/wire-window.integration.test.ts:174 modules/updates/dev-web-build.test.ts:250
+modules/updates/service.test.ts:1234                 modules/updates/head-sha-cache.test.ts:223
+modules/updates/operation.test.ts:1492
+```
+
+`issues.test.ts:4629` was the same defect and is already repaired — POD-3468 spotted it as
+"inner awaits that accidentally serialized the single-flight counterfactual", which is the
+same finding arrived at independently, months of context apart. That it was found twice by
+accident and never by a gate is the argument for the lint.
+
+**THE FIX IS TO DELETE THE AWAITS**, not to add anything. `Promise.all` already awaits.
+
+**AND IT MUST BE PROVEN PER TEST.** Removing the awaits turns red files green, which looks like
+success — but for a file that was GREEN throughout, the only evidence that the concurrency is
+back is a mutation that could not have failed before: make the two operations genuinely
+overlap and show the test distinguishes that from the sequential case. Otherwise you have
+restored the shape without restoring the coverage.
+
+**THE INSTRUMENT.** This is mechanically detectable — an `await` in an argument-list array
+literal passed to `Promise.all`, `Promise.allSettled`, `Promise.race` or `Promise.any` — and
+belongs in `check-boundaries.ts` beside the async-boolean-predicate rule, so it cannot recur.
