@@ -79,7 +79,7 @@ const open = async (): Promise<Harness> => {
   }
   return {
     store,
-    svc: IssueService.create(deps),
+    svc: await IssueService.create(deps),
     duringNextWrite: (fn, when = 'before') => {
       during = { fn, when }
     },

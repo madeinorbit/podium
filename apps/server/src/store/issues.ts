@@ -777,7 +777,7 @@ export class IssuesRepository {
       .from(issues)
       .where(eq(issues.repoId, repoId))
       .get()
-    return (r?.m ?? 0) + 1
+    return Number(r?.m ?? 0) + 1
   }
 
   /**

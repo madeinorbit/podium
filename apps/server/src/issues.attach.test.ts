@@ -51,7 +51,7 @@ async function harness(sessions: SessionMeta[] = []) {
     getSessionIssueId: (sessionId) => issueBySession.get(sessionId) ?? null,
     setSessionIssueId: (sessionId, issueId) => issueBySession.set(sessionId, issueId),
   }
-  return { store, deps, issueBySession, svc: IssueService.create(deps) }
+  return { store, deps, issueBySession, svc: await IssueService.create(deps) }
 }
 
 const sess = (sessionId: SessionId, cwd = '/x'): SessionMeta =>

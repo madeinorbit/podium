@@ -272,7 +272,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     ...issueTestPlumbing(),
     now,
   }
-  const issues = IssueService.create(issueDeps)
+  const issues = await IssueService.create(issueDeps)
 
   const record =
     (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {

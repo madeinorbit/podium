@@ -151,6 +151,12 @@ export function currentTransaction(): StoreDrizzle | undefined {
   return transactionScope.getStore() as StoreDrizzle | undefined
 }
 
+function proxyRowValues(row: unknown): unknown[] {
+  if (Array.isArray(row)) return row
+  if (row !== null && typeof row === 'object') return Object.values(row)
+  return [row]
+}
+
 function buildStoreDrizzle(client: QueryClient) {
   return proxyDrizzle(
     async (sql, params, method) => {
@@ -161,9 +167,9 @@ function buildStoreDrizzle(client: QueryClient) {
       }
       if (statementMethod === 'get') {
         const row = await client.writeGet(sql, ...params)
-        return { rows: row === undefined ? [] : [row] }
+        return { rows: row === undefined ? [] : [proxyRowValues(row)] }
       }
-      return { rows: await client.writeAll(sql, ...params) }
+      return { rows: (await client.writeAll(sql, ...params)).map(proxyRowValues) }
     },
     async (batch) => {
       const results = await client.batch(
@@ -174,7 +180,7 @@ function buildStoreDrizzle(client: QueryClient) {
           intent: 'write' as const,
         })),
       )
-      return results.map((result) => ({ rows: [...result.rows], ...result.run }))
+      return results.map((result) => ({ rows: result.rows.map(proxyRowValues), ...result.run }))
     },
   )
 }

@@ -69,7 +69,7 @@ async function harness(
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })
-  const issues = IssueService.create({
+  const issues = await IssueService.create({
     store,
     listSessions: () => [],
     getSettings: () =>

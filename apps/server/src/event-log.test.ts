@@ -33,7 +33,7 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-02T00:00:00.000Z',
   }
-  return { store, deps, svc: IssueService.create({ ...deps, ...extra }) }
+  return { store, deps, svc: await IssueService.create({ ...deps, ...extra }) }
 }
 
 describe('SessionStore event log', () => {

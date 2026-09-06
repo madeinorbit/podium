@@ -56,7 +56,7 @@ async function harness() {
     store,
     ledger,
     appended,
-    svc: IssueService.create(deps),
+    svc: await IssueService.create(deps),
     setNow: (iso: string) => {
       wallClock = iso
     },
@@ -282,7 +282,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       transact: async (fn) => await store.transact(fn),
     })
     const plumbing2 = issueTestPlumbing()
-    const svc2 = IssueService.create({
+    const svc2 = await IssueService.create({
       store,
       listSessions: () => [],
       getSettings: () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
