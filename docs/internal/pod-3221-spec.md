@@ -1701,6 +1701,30 @@ boolean — so this answered TRUE on every call, and NOTHING failed to typecheck
 behind a running update, so EVERY publication was being queued as though an operation were
 permanently in flight.
 
+CORRECTION — THE COMPILER IS NOT SILENT ON ALL OF THESE. [POD-3483, 2026-09-06, verified by the
+coordinator with a direct probe under this repo's tsgo.] TypeScript emits TS2801, "This condition will
+always return true since this Promise<boolean> is always defined", and it ALREADY CATCHES five of the
+eight spellings:
+
+    if (p())            FLAGGED        !p()                silent
+    p() ? a : b         FLAGGED        while (p())         silent
+    p() && x            FLAGGED        for (; p(); )       silent
+    x && p()            FLAGGED
+    const v = p(); if (v)   FLAGGED
+
+SO A GREEN TYPECHECK IS NOT WORTHLESS HERE, and the original wording of this rule wrongly implied it
+was. What the compiler is genuinely blind to is `!p`, the loop conditions — and, decisively, THE UNION
+PORT, because TS2801's premise is that the value is ALWAYS DEFINED and a `T | Promise<T>` is not.
+
+THAT IS WHY BOTH LIVE DEFECTS SURVIVED. POD-3487's was `if (ceiling.canSee(...))`, a spelling TS2801
+flags — it escaped only because the port was a union. POD-3488's was `!lease.renew()`, a spelling
+TS2801 does not flag at all. The union defeats the compiler's own check, which is the strongest
+argument yet for rule 52b.
+
+TWO CONSEQUENCES. TS2801 only protects a checkout whose typecheck is ALREADY GREEN, so it protects
+nothing on a red slice mid-flip — which is exactly when this class is introduced. And the union port is
+simultaneously the spelling the compiler cannot see and the one this epic keeps writing.
+
 THE CLASS IS "A PROMISE USED AS A BOOLEAN", AND ITS SPELLINGS ARE UNBOUNDED:
 
     p !== undefined      p != null       Boolean(p)       if (p)
