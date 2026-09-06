@@ -29,7 +29,7 @@ import {
   FIRST_ADMIN_USER_ID,
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
-import { ownershipFromMachines } from '../../machine-access'
+import { ownershipSnapshotFromMachines } from '../../machine-access'
 import { machinesForPrincipal, sessionCommandServices, usableRepos } from './command-ctx'
 import {
   bindingPrincipalFor,
@@ -91,11 +91,11 @@ function ownershipTable(
 type Oracle = Awaited<ReturnType<typeof makeOracle>>
 
 /** The context the router builds, with the principal and ownership substituted. */
-function ctxFor(
+async function ctxFor(
   o: Oracle,
   principal: CommandPrincipal,
   opts: { ownership?: MachineOwnershipIndex; visibility?: SessionVisibility } = {},
-): SessionCommandCtx {
+): Promise<SessionCommandCtx> {
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
@@ -132,7 +132,7 @@ function ctxFor(
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     rpc: () => modules.rpc,
-    ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
+    ownership: opts.ownership ?? (await ownershipSnapshotFromMachines(modules.machines)),
     mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
@@ -141,7 +141,7 @@ function ctxFor(
 describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
     const o = await makeOracle()
-    const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+    const created = await dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
       agentKind: 'codex',
       cwd: '/p',
       draftIssue: { repoPath: '/p' },
@@ -173,7 +173,7 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     const issue = await o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
 
-    const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+    const created = await dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
       agentKind: 'codex',
       cwd: '/p',
       issueId: issue.id,
@@ -191,7 +191,7 @@ describe('draft launch compensation', () => {
     })
 
     await expect(
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+      dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
         agentKind: 'codex',
         cwd: '/p',
         draftIssue: { repoPath: '/p' },
@@ -211,7 +211,7 @@ describe('draft launch compensation', () => {
     })
 
     await expect(
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+      dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
         agentKind: 'codex',
         cwd: '/p',
         draftIssue: { repoPath: '/p' },
@@ -248,7 +248,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 
     // The owner may spawn there: the fixture is not one that denies everybody.
     await expect(
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'create', {
+      dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'create', {
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'box',
@@ -258,8 +258,8 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // A second human cannot — and the machine is invisible to them, so the
     // refusal is the never-paired one.
     expect(
-      await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, human(COLLEAGUE), { ownership }), 'create', {
+      await messageOf(async () =>
+        dispatchSessionCommand(await ctxFor(o, human(COLLEAGUE), { ownership }), 'create', {
           agentKind: 'shell',
           cwd: '/p',
           machineId: 'box',
@@ -278,8 +278,8 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     const ownership = ownershipTable(rows)
 
     expect(
-      await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'resume', {
+      await messageOf(async () =>
+        dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'resume', {
           agentKind: 'claude-code',
           cwd: '/p',
           resume: { kind: 'claude-session', value: 'n1' },
@@ -303,7 +303,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
   ] as const)('denies %s against a session living on a machine the principal may not use', async (command) => {
     const { o, rows } = await oracleWithPairedMachine()
     const ownership = ownershipTable(rows)
-    const owner = ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership })
+    const owner = await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership })
     const spawned = (await dispatchSessionCommand(owner, 'create', {
       agentKind: 'shell',
       cwd: '/p',
@@ -319,9 +319,9 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
 
     expect(
-      await messageOf(() =>
+      await messageOf(async () =>
         dispatchSessionCommand(
-          ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }),
+          await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }),
           command,
           input,
         ),
@@ -341,9 +341,9 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     expect((await o.meta(sessionId)).machineId).toBe(host)
 
     // The instance owner — whoever set it up — may kill it.
-    const asOwner = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const asOwner = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
     // ...and a second authenticated human may not, on the SAME machine.
-    const asColleague = ctxFor(o, human(COLLEAGUE))
+    const asColleague = await ctxFor(o, human(COLLEAGUE))
 
     expect(await messageOf(() => dispatchSessionCommand(asColleague, 'kill', { sessionId }))).toBe(
       `unknown machine '${host}'`,
@@ -439,7 +439,7 @@ describe('delegation, resolved live at every apply', () => {
     const ownership = ownershipTable(rows)
     const worker = agentFor('agent-1', FIRST_ADMIN_USER_ID)
 
-    const first = (await dispatchSessionCommand(ctxFor(o, worker, { ownership }), 'create', {
+    const first = (await dispatchSessionCommand(await ctxFor(o, worker, { ownership }), 'create', {
       agentKind: 'shell',
       cwd: '/p',
       machineId: 'box',
@@ -450,8 +450,8 @@ describe('delegation, resolved live at every apply', () => {
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
 
     expect(
-      await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, worker, { ownership }), 'create', {
+      await messageOf(async () =>
+        dispatchSessionCommand(await ctxFor(o, worker, { ownership }), 'create', {
           agentKind: 'shell',
           cwd: '/p',
           machineId: 'box',
@@ -487,7 +487,7 @@ describe('delegation, resolved live at every apply', () => {
 
     // The human may spawn on 'b'...
     await expect(
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'create', {
+      dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership }), 'create', {
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'b',
@@ -496,8 +496,8 @@ describe('delegation, resolved live at every apply', () => {
 
     // ...the child, delegating through that parent, may not.
     expect(
-      await messageOf(() =>
-        dispatchSessionCommand(ctxFor(o, child, { ownership }), 'create', {
+      await messageOf(async () =>
+        dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
           agentKind: 'shell',
           cwd: '/p',
           machineId: 'b',
@@ -507,7 +507,7 @@ describe('delegation, resolved live at every apply', () => {
 
     // Counterfactual: the narrowing denies 'b' specifically, not everything.
     await expect(
-      dispatchSessionCommand(ctxFor(o, child, { ownership }), 'create', {
+      dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'a',
@@ -522,8 +522,8 @@ describe('invisible fails exactly like nonexistent', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     // The multi-user answer POD-1075 will supply, injected here so the branch is
     // exercised rather than merely present.
-    const hidden = ctxFor(o, human(COLLEAGUE), { visibility: () => false })
-    const visible = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const hidden = await ctxFor(o, human(COLLEAGUE), { visibility: () => false })
+    const visible = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
 
     // Same command, same shapes, whichever kind of absence it was.
     expect(await dispatchSessionCommand(hidden, 'hibernate', { sessionId })).toEqual(
@@ -554,8 +554,8 @@ describe('invisible fails exactly like nonexistent', () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const agent = agentFor('agent-1', FIRST_ADMIN_USER_ID)
-    const hidden = ctxFor(o, agent, { visibility: () => false })
-    const visible = ctxFor(o, agent)
+    const hidden = await ctxFor(o, agent, { visibility: () => false })
+    const visible = await ctxFor(o, agent)
 
     const onHidden = await messageOf(() =>
       dispatchSessionCommand(hidden, 'sendText', { sessionId, text: 'hi' }),
@@ -573,7 +573,7 @@ describe('chat interrupt ordering', () => {
   it('reserves a stopped message id so a send arriving later cannot recreate it', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const ctx = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
     vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockResolvedValue({
       ok: false,
       reason: 'no active turn',
@@ -623,7 +623,7 @@ describe('attribution and ownership come from the principal', () => {
     const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
     const ownership = ownershipTable(rows)
-    const ctx = ctxFor(o, human(COLLEAGUE), { ownership })
+    const ctx = await ctxFor(o, human(COLLEAGUE), { ownership })
     const { sessionId } = (await dispatchSessionCommand(ctx, 'create', {
       agentKind: 'claude-code',
       cwd: '/p',
@@ -670,7 +670,7 @@ describe('attribution and ownership come from the principal', () => {
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
     const principal = agentFor('agent-1', COLLEAGUE)
     const created = (await dispatchSessionCommand(
-      ctxFor(o, principal, { ownership: ownershipTable(rows) }),
+      await ctxFor(o, principal, { ownership: ownershipTable(rows) }),
       'create',
       { agentKind: 'shell', cwd: '/p', machineId: 'box' },
     )) as { sessionId: SessionId }

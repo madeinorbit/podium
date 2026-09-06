@@ -59,7 +59,7 @@ import {
 } from './command-principal'
 
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
-import { ownershipFromMachines } from './machine-access'
+import { ownershipSnapshotFromMachines } from './machine-access'
 import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
 import {
   dispatchSessionCommand,
@@ -154,11 +154,11 @@ function ownershipTable(
  * (one password, no accounts, no owner columns). Everything else is the real
  * composition root over a real registry.
  */
-function ctxFor(
+async function ctxFor(
   o: Oracle,
   principal: CommandPrincipal,
   opts: { ownership?: MachineOwnershipIndex; visibility?: SessionVisibility } = {},
-): SessionCommandCtx {
+): Promise<SessionCommandCtx> {
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
@@ -191,7 +191,7 @@ function ctxFor(
       issues: modules.issues,
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
-    ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
+    ownership: opts.ownership ?? (await ownershipSnapshotFromMachines(modules.machines)),
     mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
@@ -659,14 +659,14 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // And the value that IS written comes from the principal: an agent's create
     // stamps that agent, a human's stamps `user`.
     const agentSession = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-    const asAgent = ctxFor(o, agentFor(agentSession.sessionId, FIRST_ADMIN_USER_ID))
+    const asAgent = await ctxFor(o, agentFor(agentSession.sessionId, FIRST_ADMIN_USER_ID))
     const created = await dispatchSessionCommand(asAgent, 'create', {
       agentKind: 'shell',
       cwd: '/by-agent',
     })
     expect((await o.meta(created.sessionId)).spawnedBy).toBe(`session:${agentSession.sessionId}`)
 
-    const asHuman = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const asHuman = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
     const byHuman = await dispatchSessionCommand(asHuman, 'create', {
       agentKind: 'shell',
       cwd: '/by-human',
@@ -770,7 +770,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
         ],
       ]),
     )
-    const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership })
+    const ctx = await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership })
 
     const message = await messageOf(() =>
       dispatchSessionCommand(ctx, gated.key, gated.input(target.sessionId)),
@@ -787,7 +787,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     // 'box' fixture above — that machine has a daemon but no machines-table row, so
     // it is `absent` for everyone and would have made this pass for the wrong reason.
     const o = await makeOracle()
-    const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const ctx = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
     const created = await dispatchSessionCommand(ctx, 'create', {
       agentKind: 'shell',
       cwd: '/p',
@@ -805,7 +805,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     const target = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
-    const ctx = ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
+    const ctx = await ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
 
     const message = await messageOf(() =>
       dispatchSessionCommand(ctx, 'kill', { sessionId: target.sessionId }),
@@ -867,13 +867,13 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
     // Nonexistent: an id nothing ever created.
-    const ghostCtx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    const ghostCtx = await ctxFor(o, human(FIRST_ADMIN_USER_ID))
     const ghost = await settle(() => dispatchSessionCommand(ghostCtx, row.key, row.input(GHOST)))
 
     // Invisible: a session that EXISTS and that this principal may not see. The
     // fixture contains a real row, so this is not the ghost case rerun — if the
     // visibility seam were ignored the two answers would differ.
-    const invisibleCtx = ctxFor(o, human(FIRST_ADMIN_USER_ID), { visibility: () => false })
+    const invisibleCtx = await ctxFor(o, human(FIRST_ADMIN_USER_ID), { visibility: () => false })
     const invisible = await settle(() =>
       dispatchSessionCommand(invisibleCtx, row.key, row.input(live.sessionId)),
     )
@@ -886,14 +886,14 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // the same thing for all inputs, or if `settle` swallowed everything.
     const o = await makeOracle()
     const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-    const visible = await settle(() =>
-      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'hibernate', {
+    const visible = await settle(async () =>
+      dispatchSessionCommand(await ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'hibernate', {
         sessionId: live.sessionId,
       }),
     )
-    const invisible = await settle(() =>
+    const invisible = await settle(async () =>
       dispatchSessionCommand(
-        ctxFor(o, human(FIRST_ADMIN_USER_ID), { visibility: () => false }),
+        await ctxFor(o, human(FIRST_ADMIN_USER_ID), { visibility: () => false }),
         'hibernate',
         {
           sessionId: live.sessionId,
@@ -912,9 +912,9 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     const invisible = ownershipTable(
       new Map([['box', { owner: COLLEAGUE, grants: [], name: 'The Box' }]]),
     )
-    const invisibleMessage = await messageOf(() =>
+    const invisibleMessage = await messageOf(async () =>
       dispatchSessionCommand(
-        ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: invisible }),
+        await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: invisible }),
         'create',
         {
           agentKind: 'shell',
@@ -924,9 +924,9 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       ),
     )
     // Never paired: no row for this id anywhere.
-    const neverPaired = await messageOf(() =>
+    const neverPaired = await messageOf(async () =>
       dispatchSessionCommand(
-        ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: ownershipTable(new Map()) }),
+        await ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership: ownershipTable(new Map()) }),
         'create',
         { agentKind: 'shell', cwd: '/p', machineId: 'box' },
       ),
@@ -953,7 +953,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       },
     )
     const viaCommand = await dispatchSessionCommand(
-      ctxFor(o, human(FIRST_ADMIN_USER_ID)),
+      await ctxFor(o, human(FIRST_ADMIN_USER_ID)),
       'sendText',
       {
         sessionId: GHOST,
