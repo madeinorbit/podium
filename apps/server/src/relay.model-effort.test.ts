@@ -2,6 +2,7 @@ import { asUserId, asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -33,7 +34,7 @@ async function captureSpawn(over: {
   )
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const sent: ControlMessage[] = []
-  registry.gateway.attachDaemon('m1', (m) => sent.push(m))
+  await attachDaemonWithInventory(registry, 'm1', (m) => sent.push(m))
   await registry.modules.sessions.createSession({ cwd: '/wt', machineId: asMachineId('m1'), ...over })
   const spawn = sent.find((m) => m.type === 'spawn')
   registry.dispose()
