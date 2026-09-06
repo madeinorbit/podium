@@ -67,10 +67,10 @@ describe('ApprovalService', () => {
     expect(await svc.listPending()).toHaveLength(1)
   })
 
-  it('rejects an op outside the closed catalog', () => {
+  it('rejects an op outside the closed catalog', async () => {
     const { svc } = harness()
-    expect(() => req(svc, { kind: 'rm-rf' })).toThrow()
-    expect(() => req(svc, { kind: 'set-server' })).toThrow() // missing target
+    await expect(req(svc, { kind: 'rm-rf' })).rejects.toThrow()
+    await expect(req(svc, { kind: 'set-server' })).rejects.toThrow() // missing target
   })
 
   it('approve → executing + exec request to the owning daemon; result lands', async () => {
@@ -104,7 +104,7 @@ describe('ApprovalService', () => {
     const { id } = await req(svc)
     expect((await svc.deny(id)).status).toBe('denied')
     expect(mails).toEqual([expect.stringContaining('denied by the operator')])
-    expect(() => svc.approve(id)).toThrow(/not pending/)
+    await expect(svc.approve(id)).rejects.toThrow(/not pending/)
     expect(sent).toHaveLength(0)
   })
   it('executes server-owned workflow approvals without forwarding them to a daemon', async () => {

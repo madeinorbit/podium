@@ -457,7 +457,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
     ).rejects.toThrow(/cannot restart itself/i)
   })
 
-  it('refuses a member: a session must not let anyone drop everyone else transport', () => {
+  it('refuses a member: a session must not let anyone drop everyone else transport', async () => {
     // The contract's `admin` floor, enforced in the service the way this family
     // enforces everything (see `setLoginRequired`, which verifies the caller's own
     // credential rather than leaning on the router).
@@ -472,7 +472,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,
     })
-    expect(() => service.activate()).toThrow(/only an admin/i)
+    await expect(service.activate()).rejects.toThrow(/only an admin/i)
     expect(restart).not.toHaveBeenCalled()
   })
 })

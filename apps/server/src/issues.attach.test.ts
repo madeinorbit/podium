@@ -166,7 +166,7 @@ describe('attachSession', () => {
     issueBySession.set(asSessionId('s2'), real.id)
     const other = await svc.create({ repoPath: '/r', title: 'O', startNow: false })
 
-    expect(() => svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id })).toThrow(
+    await expect(svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id })).rejects.toThrow(
       /attach blocked/,
     )
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id) // unmoved
@@ -179,9 +179,9 @@ describe('attachSession', () => {
         sessionId: asSessionId('s1'),
         newSubissue: { title: 'Side quest', origin: 'agent' },
       })
-    expect(unconfirmed).toThrow(/native subagent must not self-attach/)
-    expect(unconfirmed).toThrow(/parent must attach it/)
-    expect(unconfirmed).toThrow(/--confirm-rehome/)
+    await expect(unconfirmed()).rejects.toThrow(/native subagent must not self-attach/)
+    await expect(unconfirmed()).rejects.toThrow(/parent must attach it/)
+    await expect(unconfirmed()).rejects.toThrow(/--confirm-rehome/)
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id)
     expect((await svc.list('/r')).filter((issue) => issue.parentId === real.id)).toHaveLength(0)
 
@@ -230,12 +230,12 @@ describe('attachSession', () => {
 
   it('newSubissue with no current issue requires targetId as parent', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
-    expect(() =>
+    await expect(
       svc.attachSession({
         sessionId: asSessionId('s1'),
         newSubissue: { title: 'x', origin: 'human' },
       }),
-    ).toThrow(/no parent/)
+    ).rejects.toThrow(/no parent/)
     const parent = await svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const w = await svc.attachSession({
       sessionId: asSessionId('s1'),
@@ -289,11 +289,11 @@ describe('attachSession', () => {
         newSubissue: { title: 'Follow-on child', origin: 'agent' },
         confirmRehome: true,
       })
-    expect(move).toThrow(/would lose its active coordination/)
-    expect(move).toThrow(/coordinator 1 --set <sessionId>/)
+    await expect(move()).rejects.toThrow(/would lose its active coordination/)
+    await expect(move()).rejects.toThrow(/coordinator 1 --set <sessionId>/)
 
     await svc.setCoordinator(parent.id, asSessionId('s2'))
-    expect(move).toThrow(/would lose its active coordination/)
+    await expect(move()).rejects.toThrow(/would lose its active coordination/)
 
     await svc.setCoordinator(parent.id, asSessionId('s3'))
     expect((await move()).parentId).toBe(parent.id)
@@ -329,28 +329,28 @@ describe('attachSession', () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const origin = await svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
     issueBySession.set(asSessionId('s1'), origin.id)
-    expect(() =>
+    await expect(
       svc.attachSession({
         sessionId: asSessionId('s1'),
         newSpinoff: { title: 'x', origin: 'agent' },
       }),
-    ).toThrow(/--confirm-rehome/)
-    expect(() =>
+    ).rejects.toThrow(/--confirm-rehome/)
+    await expect(
       svc.attachSession({
         sessionId: asSessionId('s1'),
         newSubissue: { title: 'a', origin: 'agent' },
         newSpinoff: { title: 'b', origin: 'agent' },
         confirmRehome: true,
       }),
-    ).toThrow(/not both/)
+    ).rejects.toThrow(/not both/)
     // Unattached session with no --id: nothing to spin off from.
     issueBySession.delete(asSessionId('s1'))
-    expect(() =>
+    await expect(
       svc.attachSession({
         sessionId: asSessionId('s1'),
         newSpinoff: { title: 'x', origin: 'human' },
       }),
-    ).toThrow(/no origin/)
+    ).rejects.toThrow(/no origin/)
   })
 
   it('takes a pending origin worktree onto the spin-off', async () => {
@@ -434,10 +434,10 @@ describe('attachSession', () => {
 
   it('throws without --id/--subissue and on unknown target', async () => {
     const { svc } = await harness([sess(asSessionId('s1'))])
-    expect(() => svc.attachSession({ sessionId: asSessionId('s1') })).toThrow(/attach needs/)
-    expect(() =>
+    await expect(svc.attachSession({ sessionId: asSessionId('s1') })).rejects.toThrow(/attach needs/)
+    await expect(
       svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
-    ).toThrow()
+    ).rejects.toThrow()
   })
 })
 

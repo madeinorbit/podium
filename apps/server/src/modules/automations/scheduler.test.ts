@@ -286,7 +286,7 @@ describe('AutomationsService.create', () => {
       targetSessionId: 'sess_sleeping',
     })
 
-    expect(() =>
+    await expect(
       h.service.create({
         name: 'Too late',
         scheduleKind: 'once',
@@ -295,14 +295,14 @@ describe('AutomationsService.create', () => {
         prompt: 'x',
         enabled: true,
       }),
-    ).toThrow(/future/)
+    ).rejects.toThrow(/future/)
   })
 
   it('rejects an unparseable cron before it can be persisted', async () => {
     const h = await harness()
-    expect(() =>
+    await expect(
       h.service.create({ name: 'Bad', cron: 'every tuesday', agentKind: 'codex', prompt: 'x' }),
-    ).toThrow(/5 fields/)
+    ).rejects.toThrow(/5 fields/)
     expect(await h.service.list()).toEqual([])
   })
 
@@ -387,12 +387,12 @@ describe('AutomationsService.tick — spawn', () => {
       nextRunAt: null,
       lastRunAt: iso(runAt),
     })
-    expect(() => h.service.setEnabled(a.id, true)).toThrow(/new runAt/)
+    await expect(h.service.setEnabled(a.id, true)).rejects.toThrow(/new runAt/)
   })
 
   it('[POD-1107] refuses to create an automation naming a harness this build cannot run', async () => {
     const h = await harness()
-    expect(() =>
+    await expect(
       h.service.create({
         name: 'Unknown harness',
         scheduleKind: 'once',
@@ -401,7 +401,7 @@ describe('AutomationsService.tick — spawn', () => {
         prompt: 'Continue.',
         sessionMode: 'fresh',
       }),
-    ).toThrow(/unknown agent kind: not-a-harness/)
+    ).rejects.toThrow(/unknown agent kind: not-a-harness/)
 
     const ok = await h.service.create({
       name: 'Known harness',
@@ -411,7 +411,7 @@ describe('AutomationsService.tick — spawn', () => {
       prompt: 'Continue.',
       sessionMode: 'fresh',
     })
-    expect(() => h.service.update(ok.id, { agentKind: 'not-a-harness' })).toThrow(
+    await expect(h.service.update(ok.id, { agentKind: 'not-a-harness' })).rejects.toThrow(
       /unknown agent kind/,
     )
   })
