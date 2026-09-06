@@ -1592,6 +1592,49 @@ AND CHECK THE PROPERTY IS PINNED. If no test asserts that a daemon connecting AF
 say so — that is the behaviour this whole shape exists to protect, and moving it without a test
 watching is how it disappears in the next refactor.
 
+### Rule 51b — case 2 may resolve LATER, not only earlier: a DEBOUNCER's boundary is its own timer
+
+[Raised by POD-3468 on `IssueAssistantDigestModule.onSessionActivity`
+(`apps/server/src/modules/issues/service/assistant.ts:40`), 2026-09-06. It classified the site as case
+2 correctly and then concluded the await had to move UPSTREAM to a relay-owned producer, and so
+proposed to leave the site untouched. The classification was right; the direction was not.]
+
+CASE 2 SAYS "MOVE THE AWAIT OFF THE SYNCHRONOUS PATH". It does not say the only direction is earlier.
+Later is equally valid whenever the path is ALREADY deferred and ALREADY best-effort — and a debouncer
+is exactly that shape.
+
+THE TEST for this variant, all three required:
+
+1. The function has NO observable effect at call time — it schedules, it does not answer.
+2. The deferred body is already fire-and-forget in the code as it stands (a `void ...catch(() => {})`
+   inside a timer or a queue drain), so no NEW unobserved rejection is introduced.
+3. The async read is needed only by the deferred body, not by the scheduling decision.
+
+`onSessionActivity` passes all three: its four callers are void (the `issue.sessionDerived` bus handler
+at `relay.ts:1553`, and `daemon-lifecycle.ts` at 263, 794 and 901), it arms a 120-second timer, and
+that timer's body is already `void this.refreshAssistant(row.id).catch(() => {})`. The resolution moves
+INTO the timer body. Nothing upstream changes and `relay.ts` is not touched — which matters during the
+flip, because `relay.ts` is single-owner and every site pushed onto it serialises behind one worker.
+
+WHAT THIS VARIANT COSTS, AND IT IS INVISIBLE. Deferring a resolution loses whatever the resolved value
+was used for AT SCHEDULING TIME. Here the resolved value is the debounce KEY:
+
+    this.assistantTimers.set(row.id, ...)   // row.id is the ISSUE, not the session
+
+That key is the point of the function: a burst across N member sessions of ONE issue coalesces into ONE
+digest — one LLM call. Defer the resolution naively and the timer keys by `sessionId` instead, so the
+same burst arms N timers and fires N digests for one issue. N times the cost, and NOT ONE TEST FAILS,
+because nothing asserts the call count.
+
+SO THE RULE HAS AN OBLIGATION ATTACHED. Before deferring, name what the pre-resolution value was used
+for — a key, a guard, an early return, an ordering — and say how it is preserved. State the
+before/after count of the deferred effect for a burst that the coalescing exists to collapse. Equal
+counts, or the site comes back to the coordinator.
+
+GENERALLY: when case 2 has no earlier async boundary, look DOWNSTREAM before escalating. A scheduler, a
+queue drain, a retry loop and a debouncer all have a later boundary that already tolerates an await,
+and using it keeps the change inside one file instead of spreading it across an ownership line.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
