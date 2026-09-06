@@ -3129,3 +3129,45 @@ title `"undefined (aged out)"`.
 Any number quoted from it before this fix is suspect and must be re-measured, not carried
 forward. A measurement is only as trustworthy as the seam the measuring code reaches
 through, and this one was `as any` all the way down.
+
+### Rule 57a — a deadlock's blast radius is bounded by FILE SELECTION, not by the defect
+
+POD-3506's tenth-hang pass found a tenth. Not by masking within a file, which is what V5's
+caveat predicted, but because the tenth victim **lives outside the three files the lane
+ran**:
+
+```
+apps/server/src/store/runtime-events.test.ts
+  causal failure ownership > a LIVE turn/failed in the current turn is ownership
+  20004ms timeout under the bug, passes under the fix
+```
+
+A/B over the whole **store shard** — 91 files, 1269 tests, one line reverted, compared BY
+TEST NAME:
+
+| arm | failed | passed | time | hang-shaped |
+|---|---|---|---|---|
+| fix | 56 | 1213 | 389.45s | 10 |
+| bug | 59 | 1210 | 623.88s | 23 |
+
+In fix but not in bug: **none** — the fix introduces no failure and unmasks nothing. In bug
+but not in fix: **three**, of which two were known and the third was invisible to the
+original investigation.
+
+**THE RULE.** A shared-resource defect — a lease, a lane, a connection, a scheduler slot —
+has a blast radius set by what TOUCHES the resource, and that has no relationship to the
+file where the symptom was first noticed. So a verdict scoped to "the files that were red"
+undercounts **on principle, not by accident**. Scope the A/B to the whole shard that
+contains the mechanism, and diff by test NAME rather than by count: a count that improves
+by three cannot tell you whether three got better or five got better and two got worse.
+
+**AND SAY WHAT YOU ARE NOT CLAIMING.** The same pass left 56 failures identical in both
+arms. POD-3506 did not fold them into its verdict, did not call them a product defect, and
+filed them as POD-3526 with the alternative explanation stated as the open question —
+invoking the shard script directly may not be the environment turbo gives it. That is the
+right shape: a verdict says what it proved, and a separate issue carries what it merely saw.
+
+**A CORRECTION IT MADE ON ITSELF**, worth keeping because the mistake is easy: its first
+"zero hang-shaped in the store shard" was an artifact of piping each shard through
+`tail -25` and then grepping the truncation. The real number was ten. Never grep a
+truncated log — the pipe answers a different question than the one you asked.
