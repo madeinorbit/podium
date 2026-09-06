@@ -235,7 +235,7 @@ export interface IssueDeps {
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
-  requireMachineForRepo?(machineId: MachineId, repoPath: string): void
+  requireMachineForRepo?(machineId: MachineId, repoPath: string): Promise<void>
   /**
    * Pre-flight for HOMING an issue on a machine (POD-2700): throws when the
    * machine can never hold a worktree because it runs no Podium daemon.
@@ -248,7 +248,7 @@ export interface IssueDeps {
    * and only the durable answer is knowable. Injected by the relay; optional so
    * the existing test deps literals stay valid.
    */
-  requireIssueHomeMachine?(machineId: MachineId): void
+  requireIssueHomeMachine?(machineId: MachineId): Promise<void>
   /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
