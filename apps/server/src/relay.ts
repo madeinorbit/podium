@@ -1896,10 +1896,11 @@ export class SessionRegistry {
             const role = await this.store.users.roleOf(userId)
             principal = role ? userCommandPrincipal(userId, role) : undefined
           }
+          const ownership = await ownershipSnapshotFromMachines(machines)
           return {
             mayUse: (machineId: MachineId) =>
               principal !== undefined &&
-              checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
+              checkMachineUse(principal, machineId, ownership) === undefined,
             isReachable: (machineId: MachineId) => machines.hasDaemon(machineId),
           }
         },
@@ -2079,9 +2080,10 @@ export class SessionRegistry {
         const role = await this.store.users.roleOf(ownerUserId)
         return role ? userCommandPrincipal(ownerUserId, role) : undefined
       },
-      mayUseDefaultMachine: async (principal) =>
-        checkMachineUse(principal, await machines.defaultMachine(), ownershipFromMachines(machines)) ===
-        undefined,
+      mayUseDefaultMachine: async (principal) => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        return checkMachineUse(principal, await machines.defaultMachine(), ownership) === undefined
+      },
       now: () => new Date(this.now()),
     })
     // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
@@ -2479,7 +2481,7 @@ export class SessionRegistry {
           const machineAccess = checkMachineUse(
             principal,
             machineId,
-            ownershipFromMachines(machines),
+            await ownershipSnapshotFromMachines(machines),
           )
           if (machineAccess) {
             throw new Error(

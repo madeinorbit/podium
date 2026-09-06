@@ -202,7 +202,7 @@ export interface ShippingAuthorizationPort {
       | 'publish'
       | 'verify'
       | 'cancel'
-  }): void
+  }): void | Promise<void>
 }
 
 export interface ShippingResourceAdmissionPort {
@@ -1475,7 +1475,7 @@ export class ShippingService {
     const operation = this.operationFor(executionOrder.state)
     if (operation) {
       try {
-        this.deps.authorization.reauthorize({
+        await this.deps.authorization.reauthorize({
           order: executionOrder,
           issue: executionIssue,
           machineId: effectAttempt.machineId,
@@ -1775,7 +1775,7 @@ export class ShippingService {
       for (const order of train.orders) {
         const issue = await this.deps.issues.get(order.issueId)
         if ((await this.deps.machineFor(issue)) !== tailMachine) return false
-        this.deps.authorization.reauthorize({
+        await this.deps.authorization.reauthorize({
           order,
           issue,
           machineId: tailMachine,
@@ -1853,7 +1853,7 @@ export class ShippingService {
   ): Promise<string | null> {
     try {
       for (const order of prefix) {
-        this.deps.authorization.reauthorize({
+        await this.deps.authorization.reauthorize({
           order,
           issue: await this.deps.issues.get(order.issueId),
           machineId,
@@ -2427,7 +2427,7 @@ export class ShippingService {
       })
     }
     try {
-      this.deps.authorization.reauthorize({
+      await this.deps.authorization.reauthorize({
         order,
         issue,
         machineId: attempt.machineId,
