@@ -184,7 +184,7 @@ type TargetResolver = (
   input: Record<string, unknown>,
   principal: SessionStatePrincipal,
   deps: SessionStateDeps,
-) => AuthTarget | undefined
+) => Promise<AuthTarget | undefined>
 
 interface Registration {
   handler: SessionStateHandler
@@ -206,12 +206,12 @@ interface Registration {
  * makes today's not-found behaviour and tomorrow's invisible-session behaviour the
  * same code path.
  */
-const ownedSession: TargetResolver = (input, _principal, deps) => {
+const ownedSession: TargetResolver = async (input, _principal, deps) => {
   // Same decode edge as `sessionIdOf` below; kept inline because the empty-string
   // case returns EARLY here rather than being handed on.
   const sessionId = typeof input.sessionId === 'string' ? asSessionId(input.sessionId) : ''
   if (!sessionId) return undefined
-  const owner = deps.sessions.sessionOwner(sessionId)
+  const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
   return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
 }
@@ -219,24 +219,28 @@ const ownedSession: TargetResolver = (input, _principal, deps) => {
 /** A per-user row: always the CALLER's own. The payload cannot name a user, so
  *  "set another user's readAt" is not expressible on the wire at all — the
  *  self-scoping check below is the second line of defence, not the only one. */
-const ownPerUserRow: TargetResolver = (_input, principal) => ({
+const ownPerUserRow: TargetResolver = async (_input, principal) => ({
   kind: 'per-user-row',
   userId: principal.userId,
 })
 
-const ownPerUserSessionRow: TargetResolver = (input, principal, deps) => {
+const ownPerUserSessionRow: TargetResolver = async (input, principal, deps) => {
   const sessionId = typeof input.sessionId === 'string' ? asSessionId(input.sessionId) : undefined
-  if (!sessionId || !deps.state.canReadSession(principal, sessionId)) return undefined
+  if (!sessionId || !(await deps.state.canReadSession(principal, sessionId))) return undefined
   return { kind: 'per-user-row', userId: principal.userId }
 }
 
-const ownPerUserTabOrder: TargetResolver = (input, principal, deps) => {
+const ownPerUserTabOrder: TargetResolver = async (input, principal, deps) => {
   if (!Array.isArray(input.sessionIds)) return undefined
-  if (
-    input.sessionIds.some(
-      (id) => typeof id !== 'string' || !deps.state.canReadSession(principal, asSessionId(id)),
-    )
-  ) {
+  // `Array.prototype.some` over an async predicate is always false — the
+  // promise is truthy but `!promise` is not — so this is spelled as an explicit
+  // await of every verdict [POD-3507].
+  const readable = await Promise.all(
+    input.sessionIds.map(async (id) =>
+      typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
+    ),
+  )
+  if (readable.some((ok) => ok !== true)) {
     return undefined
   }
   return { kind: 'per-user-row', userId: principal.userId }
@@ -424,7 +428,7 @@ export class SessionStateRegistry {
 
     // 3. AUTHORIZATION, live, BEFORE idempotency (see the header: a replay whose
     //    grant was revoked must be rejected, not served from the dedup cache).
-    if (this.authorizeOrDeny(contract, registration, input, principal) === DENIED) {
+    if ((await this.authorizeOrDeny(contract, registration, input, principal)) === DENIED) {
       return { outcome: 'denied' }
     }
 
@@ -440,12 +444,12 @@ export class SessionStateRegistry {
     return { outcome: applied.outcome, value: applied.value }
   }
 
-  private authorizeOrDeny(
+  private async authorizeOrDeny(
     contract: CommandDef,
     registration: Registration,
     input: Record<string, unknown>,
     principal: SessionStatePrincipal,
-  ): typeof DENIED | 'allow' {
+  ): Promise<typeof DENIED | 'allow'> {
     if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
       return DENIED
     }
@@ -453,7 +457,7 @@ export class SessionStateRegistry {
     // A contract with no declared policy is refused, not waved through: the
     // default-closed rule applies to policy exactly as it does to exposure.
     if (!policy) return DENIED
-    const target = registration.target(input, principal, this.deps)
+    const target = await registration.target(input, principal, this.deps)
     // Target absent = does not exist. Same answer as denied, one code path.
     if (!target) return DENIED
     // The self-scoping check, stated positively rather than relying on the target

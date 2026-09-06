@@ -33,8 +33,8 @@ const q = defineQuery<FamilyState>()
 // a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
 // an absent owner and an absent caller, compared `undefined === undefined` and
 // answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
-function mayReadSession(state: FamilyState, sessionId: SessionId): boolean {
-  const target = state.modules.sessions.sessionOwner(sessionId as never)
+async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
+  const target = await state.modules.sessions.sessionOwner(sessionId as never)
   if (target === undefined) return false
   return mayReadOwned(state.caller.userId, {
     id: sessionId,
@@ -43,13 +43,28 @@ function mayReadSession(state: FamilyState, sessionId: SessionId): boolean {
   })
 }
 
-function assertMayReadSession(state: FamilyState, sessionId: SessionId): void {
-  if (!mayReadSession(state, sessionId)) throw new TRPCError({ code: 'NOT_FOUND' })
+async function assertMayReadSession(state: FamilyState, sessionId: SessionId): Promise<void> {
+  if (!(await mayReadSession(state, sessionId))) throw new TRPCError({ code: 'NOT_FOUND' })
+}
+
+/** `Array.prototype.filter` over an ASYNC predicate. Written out because the
+ *  sync `.filter(p)` silently keeps every element when `p` returns a promise —
+ *  a truthy object — which is the read-a-promise-as-data defect this issue
+ *  exists to remove, and at these two sites it would show every session to
+ *  every caller [POD-3507]. */
+async function filterAsync<T>(
+  items: readonly T[],
+  keep: (item: T) => Promise<boolean>,
+): Promise<T[]> {
+  const verdicts = await Promise.all(items.map(keep))
+  return items.filter((_item, index) => verdicts[index] === true)
 }
 
 export const SESSION_QUERIES = {
   list: q(z.object({}).passthrough().optional(), async (s) =>
-    (await s.modules.sessions.listSessions()).filter((session) => mayReadSession(s, session.sessionId)),
+    await filterAsync(await s.modules.sessions.listSessions(), (session) =>
+      mayReadSession(s, session.sessionId),
+    ),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
   concurrencyHistory: q(z.object({}).passthrough().optional(), async (s) =>
@@ -63,7 +78,7 @@ export const SESSION_QUERIES = {
     z.object({ sessionIds: z.array(SessionIdField).max(200) }),
     async (s, input) =>
       await s.modules.sessions.sessionActivityHistory(
-        input.sessionIds.filter((sessionId) => mayReadSession(s, sessionId)),
+        await filterAsync(input.sessionIds, (sessionId) => mayReadSession(s, sessionId)),
       ),
   ),
   /** On-demand transcript window for the chat view — a pure disk read via the
@@ -79,7 +94,7 @@ export const SESSION_QUERIES = {
       limit: z.number().int().positive().max(2000),
     }),
     async (s, input) => {
-      assertMayReadSession(s, input.sessionId)
+      await assertMayReadSession(s, input.sessionId)
       return await s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
     },
   ),
@@ -98,7 +113,7 @@ export const SESSION_QUERIES = {
       cursor: z.string().optional(),
     }),
     async (s, input) => {
-      assertMayReadSession(s, input.sessionId)
+      await assertMayReadSession(s, input.sessionId)
       return await s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator')
     },
   ),
@@ -106,7 +121,7 @@ export const SESSION_QUERIES = {
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
   recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), async (s, input) => {
-    assertMayReadSession(s, input.sessionId)
+    await assertMayReadSession(s, input.sessionId)
     return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
   }),
 } as const

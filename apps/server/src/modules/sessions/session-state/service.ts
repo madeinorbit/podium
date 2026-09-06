@@ -312,7 +312,7 @@ export class SessionStateService {
     principal: SessionStatePrincipal,
     sessionId: SessionId,
   ): Promise<SessionStateReadResult<SessionUserOverlay>> {
-    if (!this.canReadSession(principal, sessionId)) return { kind: 'absent' }
+    if (!(await this.canReadSession(principal, sessionId))) return { kind: 'absent' }
     return { kind: 'found', value: await this.overlay(principal.userId, sessionId) }
   }
 
@@ -344,8 +344,8 @@ export class SessionStateService {
     return true
   }
 
-  markRead(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
-    if (!this.canReadSession(principal, sessionId)) return false
+  async markRead(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(principal.userId, sessionId, async () =>
       await this.ports.store.sessions.markSessionRead(
         principal.userId,
@@ -355,8 +355,8 @@ export class SessionStateService {
     )
   }
 
-  markUnread(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
-    if (!this.canReadSession(principal, sessionId)) return false
+  async markUnread(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(principal.userId, sessionId, async () =>
       await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
     )
@@ -367,15 +367,19 @@ export class SessionStateService {
     this.invalidateAllOverlays()
   }
 
-  setSnooze(principal: SessionStatePrincipal, sessionId: SessionId, until: string | null): boolean {
-    if (!this.canReadSession(principal, sessionId)) return false
+  async setSnooze(
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+    until: string | null,
+  ): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(principal.userId, sessionId, async () =>
       await this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
     )
   }
 
-  clearSnooze(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
-    if (!this.canReadSession(principal, sessionId)) return false
+  async clearSnooze(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(principal.userId, sessionId, async () =>
       await this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
     )
@@ -395,21 +399,26 @@ export class SessionStateService {
     const visible: SnoozeMap = {}
     for (const [rawId, until] of Object.entries(rows)) {
       const sessionId = rawId as SessionId
-      if (this.canReadSession(principal, sessionId)) visible[sessionId] = until
+      if (await this.canReadSession(principal, sessionId)) visible[sessionId] = until
     }
     return visible
   }
 
   async listPins(principal: SessionStatePrincipal): Promise<PinState> {
     const rows = await this.ports.store.sessions.listPins(principal.userId)
+    const panelVisible = await Promise.all(
+      rows.panels.map(async (id) => {
+        const sessionId = id as SessionId
+        return !this.ports.getSession(sessionId) || (await this.canReadSession(principal, sessionId))
+      }),
+    )
     return {
       ...rows,
       // Panel ids that name sessions obey session visibility. Non-session panel
       // ids are left alone; this module is not entitled to classify them.
-      panels: rows.panels.filter((id) => {
-        const sessionId = id as SessionId
-        return !this.ports.getSession(sessionId) || this.canReadSession(principal, sessionId)
-      }),
+      // Verdicts awaited into an array first: `.filter` over an async predicate
+      // keeps EVERY element, because a pending promise is truthy [POD-3507].
+      panels: rows.panels.filter((_id, index) => panelVisible[index] === true),
     }
   }
 
@@ -427,10 +436,10 @@ export class SessionStateService {
     const rows = await this.ports.store.sessions.listTabOrders(principal.userId)
     const visible: Record<string, string[]> = {}
     for (const [worktree, ids] of Object.entries(rows)) {
-      visible[worktree] = ids.filter((id) => {
-        const sessionId = id as SessionId
-        return this.canReadSession(principal, sessionId)
-      })
+      const verdicts = await Promise.all(
+        ids.map(async (id) => await this.canReadSession(principal, id as SessionId)),
+      )
+      visible[worktree] = ids.filter((_id, index) => verdicts[index] === true)
     }
     return visible
   }
@@ -440,7 +449,10 @@ export class SessionStateService {
     worktree: string,
     sessionIds: string[],
   ): Promise<Record<string, string[]>> {
-    if (sessionIds.some((id) => !this.canReadSession(principal, id as SessionId))) {
+    const readable = await Promise.all(
+      sessionIds.map(async (id) => await this.canReadSession(principal, id as SessionId)),
+    )
+    if (readable.some((ok) => ok !== true)) {
       return await this.listTabOrders(principal)
     }
     await this.ports.store.sessions.setTabOrder(principal.userId, worktree, sessionIds)
@@ -576,9 +588,12 @@ export class SessionStateService {
    * receiver no way to tell "newer than you" from "older than you", so it took
    * the server's word — and a reconnect after a slow patch deleted typing.
    */
-  replayDrafts(principal: SessionStatePrincipal, send: (message: LiveServerMessage) => void): void {
+  async replayDrafts(
+    principal: SessionStatePrincipal,
+    send: (message: LiveServerMessage) => void,
+  ): Promise<void> {
     for (const doc of this.draftDocs.values()) {
-      if (doc.text && this.canReadSession(principal, doc.sessionId)) send(this.draftWire(doc))
+      if (doc.text && (await this.canReadSession(principal, doc.sessionId))) send(this.draftWire(doc))
     }
   }
 

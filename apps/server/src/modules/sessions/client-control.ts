@@ -83,12 +83,12 @@ export class SessionClientControl {
     }
   }
 
-  onAttached(
+  async onAttached(
     principal: ClientPrincipal,
     client: ClientConn,
     machines: readonly MachineListing[] = [],
-  ): void {
-    this.ports.state.replayDrafts(
+  ): Promise<void> {
+    await this.ports.state.replayDrafts(
       sessionStatePrincipalFor(
         userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
         client.id,

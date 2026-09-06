@@ -316,7 +316,7 @@ export async function buildSuperagentTools(
           ? (await store.superagent.getSuperagentThread(threadId))?.podiumSessionId
           : undefined
         const principal = actorSessionId
-          ? sessions.inboxPrincipalForSession(actorSessionId)
+          ? await sessions.inboxPrincipalForSession(actorSessionId)
           : undefined
         if (!principal || !memoryReader) return 'failed: answer caller identity unavailable'
         const r = await deliverAnswerToSession(

@@ -186,7 +186,7 @@ export class SessionView {
       if (!session) return undefined
       const principal = forPrincipal ?? await this.defaultPrincipal()
       if (!principal) return undefined
-      if (!this.ports.state.canReadSession(principal, sessionId, newSessionListMemo())) {
+      if (!(await this.ports.state.canReadSession(principal, sessionId, newSessionListMemo()))) {
         return undefined
       }
       return session.spawnedBy
@@ -208,7 +208,7 @@ export class SessionView {
     // ~1145 distinct keys per pass, each its own zero-row statement. Primed, the
     // whole pass costs two reads. Same rows, same freshness — see
     // `GrantsRepository.listForResources` on why this is batching, not caching.
-    this.ports.state.primeOwnerMemo?.(
+    await this.ports.state.primeOwnerMemo?.(
       memo,
       candidates.map((session) => session.sessionId),
     )
@@ -234,9 +234,19 @@ export class SessionView {
       const found = await this.ports.store.issues.getIssues(refIssueIds)
       for (const id of refIssueIds) memo.issues.set(id, found.get(id) ?? null)
     }
+    // The visibility verdicts are awaited into an ARRAY before the filter.
+    // `.filter(async p)` keeps every element, because a pending promise is
+    // truthy — which at this exact site would project every session in the
+    // fleet to every reader [POD-3507].
+    const visible = await Promise.all(
+      candidates.map(
+        async (session) =>
+          await this.ports.state.canReadSession(principal, session.sessionId, memo),
+      ),
+    )
     return await Promise.all(
       candidates
-        .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
+        .filter((_session, index) => visible[index] === true)
         .map(async (session) => await this.wire(session, principal, memo)),
     )
   }

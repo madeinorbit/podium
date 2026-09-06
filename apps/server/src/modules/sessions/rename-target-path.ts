@@ -129,8 +129,11 @@ const DENIED: RenameDispatch = { outcome: 'denied' }
  * could pull apart, and it is what makes today's not-found behaviour and
  * tomorrow's invisible-session behaviour the same observable answer.
  */
-function ownedTarget(deps: RenameTargetDeps, sessionId: SessionId): AuthTarget | undefined {
-  const owner = deps.sessions.sessionOwner(sessionId)
+async function ownedTarget(
+  deps: RenameTargetDeps,
+  sessionId: SessionId,
+): Promise<AuthTarget | undefined> {
+  const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
   return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
 }
@@ -233,7 +236,7 @@ export async function renameOnTargetPath(
   const input = parsed.data as SessionRenameInput & { mutationId?: MutationId }
 
   // 3. AUTHORIZATION — LIVE, over the delegation chain, BEFORE idempotency.
-  const target = ownedTarget(deps, input.sessionId)
+  const target = await ownedTarget(deps, input.sessionId)
   if (target === undefined) return DENIED
   if (!mayWrite(principal, target)) return DENIED
 

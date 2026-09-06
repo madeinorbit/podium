@@ -105,6 +105,7 @@ import {
   harnessSupportsInitialPrompt,
 } from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
+import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
   selectMailNudgeSession,
@@ -522,15 +523,31 @@ export class SessionLifecycle {
   clearSnooze(...args: any[]): void {
     ;(this.sessionMetaOps as any).clearSnooze(...args)
   }
-  primeOwnerMemo(...args: any[]): any {
-    return (this.sessionAuthz as any).primeOwnerMemo(...args)
+  /**
+   * SPELLED OUT, NOT `(...args: any[]): any` [POD-3507].
+   *
+   * These four delegate to `SessionAuthz`, whose store reads all became async.
+   * An `any` shim here is the second half of what made that invisible: even
+   * after `SessionAuthzPorts` was widened, every consumer reached these through
+   * `Pick<SessionLifecycle, 'sessionOwner'>` and got `any` back, so a caller
+   * that dropped the await stayed green. The signatures below are the port —
+   * do not collapse them back.
+   */
+  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
+    return this.sessionAuthz.primeOwnerMemo(memo, sessionIds)
   }
 
-  sessionOwner(...args: any[]): any {
-    return (this.sessionAuthz as any).sessionOwner(...args)
+  sessionOwner(
+    sessionId: SessionId,
+    memo?: SessionOwnerMemo,
+  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
+    return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
-  machineUseForClient(...args: any[]): any {
-    return (this.sessionAuthz as any).machineUseForClient(...args)
+  machineUseForClient(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+  ): Promise<'granted' | 'denied' | 'absent'> {
+    return this.sessionAuthz.machineUseForClient(principal, sessionId)
   }
   authorizeClientDrive(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeClientDrive(...args)
@@ -550,12 +567,14 @@ export class SessionLifecycle {
   capabilityForSession(...args: any[]): any {
     return (this.sessionAuthz as any).capabilityForSession(...args)
   }
-  inboxPrincipalForCapability(...args: any[]): any {
-    return (this.sessionAuthz as any).inboxPrincipalForCapability(...args)
+  inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
+    return this.sessionAuthz.inboxPrincipalForCapability(capability)
   }
-  inboxPrincipalForSession(sessionId: SessionId): InboxPrincipalReference | undefined {
+  async inboxPrincipalForSession(
+    sessionId: SessionId,
+  ): Promise<InboxPrincipalReference | undefined> {
     return this.sessions.has(sessionId)
-      ? this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
+      ? await this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
       : undefined
   }
   async resumeSession(
