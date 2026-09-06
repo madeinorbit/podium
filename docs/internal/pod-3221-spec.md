@@ -1709,7 +1709,7 @@ THE CLASS IS "A PROMISE USED AS A BOOLEAN", AND ITS SPELLINGS ARE UNBOUNDED:
 
 `checkAsyncBooleanPredicate` catches only the last line. Do not read a clean lint as the absence of
 this defect — the lint is a FLOOR. Catching the rest needs TYPE information, because syntax alone
-cannot tell which expression is a promise; that is filed as POD-3484.
+cannot tell which expression is a promise; that is filed as POD-3483.
 
 SO THE OBLIGATION IS ON THE AUTHOR, NOT THE TOOL. When you make a function async, walk EVERY call site
 and ask what its result is used AS, not merely whether it still compiles. A result used as a boolean —
