@@ -1895,6 +1895,20 @@ IF A UNION IS GENUINELY REQUIRED because some implementations must stay synchron
 KNOWN BLIND SPOT: list the port in the handoff, read every call site by hand, and say you did. A union
 port is the one place where "the typecheck is clean" carries no information about this class.
 
+AND A UNION IS SOMETIMES A DELIBERATE STOP-SHORT, WHICH MUST ALSO BE DECLARED. POD-3469 widened
+`UpdatesDeps.onTargetChanged` to `void | Promise<void>` rather than `Promise<void>` because tightening
+it would flag `relay.ts:790` — a FENCED file it was not allowed to edit. That was the right call at the
+time and the wrong thing to leave silent. If a fence, not a design need, is what stopped you, say so:
+name the port, name the site outside your fence, and file the remainder. Otherwise the next reader
+cannot tell a considered union from an unfinished one.
+
+NOTE WHAT THE `void` SLOT WAS DOING BEFORE ANY OF THIS. At the merge-base the port was declared plain
+`void` while the provider already returned `Promise<void>`, and ALL THREE call sites were un-awaited. A
+`void`-returning slot ACCEPTS a promise-returning function — the same assignability rule behind the
+floating-promise hazard in the merge steps — so the float pre-dated the flip entirely and was invisible
+in the type. Widening to a union is therefore an IMPROVEMENT on `void`: it makes the asyncness visible
+and awaits what can be awaited. The ranking is `Promise<T>` best, union second, bare `void` worst.
+
 THIS ALSO BOUNDS RULE 51. When rule 51 case 1 says "widen the port and await", it means widen to
 `Promise<T>`. A case-1 conversion that produces a union has not been done.
 

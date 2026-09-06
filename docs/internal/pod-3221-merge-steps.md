@@ -209,3 +209,14 @@ MERGE INSTRUCTION, therefore:
 IF B1'S DESIGN HAD BEEN CHOSEN INSTEAD, the pre-auth bound alone would NOT have fixed this. The
 admission must be single-flight per connection: mark the connection handshaking SYNCHRONOUSLY before
 the first await, or serialize at the socket. A frame cap still leaves two frames in one read racing.
+
+## 5. `relay.ts:790` — `onTargetChanged` returns `Promise<void> | undefined`
+
+    onTargetChanged: (channel) => targetChanged?.(channel),
+
+Return a resolved promise when `targetChanged` is absent, so the site satisfies a tightened
+`Promise<void>` port. Queued because tightening `UpdatesDeps.onTargetChanged` (currently the union
+`void | Promise<void>`) requires this line, and `relay.ts` is single-owner. Tracked with the rest of
+that work in the sub-issue filed for it; POD-3469 does the whole thing in one commit AFTER the merge,
+because `updates/service.ts` is one of the twelve hand-resolved files and churn there beforehand is
+exactly what the resolution cannot absorb.
