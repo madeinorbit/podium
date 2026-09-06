@@ -725,7 +725,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     start() {
       if (!started) {
         started = true
-        if (options.localLink) return connectLocal()
+        if (options.localLink) return connectLocal().then(() => ready)
         else {
           // Preserve the daemon entrypoint's availability semantics: an offline
           // server does not block boot; the state machine keeps retrying.
