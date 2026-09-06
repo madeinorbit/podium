@@ -3171,3 +3171,20 @@ right shape: a verdict says what it proved, and a separate issue carries what it
 "zero hang-shaped in the store shard" was an artifact of piping each shard through
 `tail -25` and then grepping the truncation. The real number was ten. Never grep a
 truncated log — the pipe answers a different question than the one you asked.
+
+**AN EMPTY SET IS ONLY A RESULT IF BOTH ARMS COLLECTED THE SAME FILES.** POD-3506 added this
+and it is the load-bearing caveat on everything above. Rule 57a's strongest claim — "in fix
+but not in bug: NONE, so the fix introduces no failure" — rests on an empty set, and an
+empty set is indistinguishable from a set that was never populated. If the two arms ran
+different shard invocations, or one collected fewer files, the emptiness is an artifact of
+collection rather than a finding. So: same shard invocation, same file list, both arms, and
+say so explicitly when reporting an empty direction. This is the same failure mode as
+POD-3426's gate refusing a corpus that could not have failed, and as POD-3508's canary
+against a typecheck that wrote an empty file — **an absence proved by an instrument that
+ran over nothing is not a pass.**
+
+**MEASURE THE TIP, NOT YOUR OWN BASE.** POD-3506 moved its worktree onto the integration tip
+before running these arms rather than measuring from its own commit 33 behind, having first
+verified its fix was an ancestor of the tip and that no `package.json` or lockfile changed
+across those commits so the install could not be stale. A result taken from a stale base
+describes something nobody will ship.
