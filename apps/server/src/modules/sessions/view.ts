@@ -12,6 +12,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
+import type { IssueRow } from '../../store/types'
 import type { MachinesService } from '../machines/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { Session, SessionDurableFields } from './session'
@@ -36,7 +37,7 @@ import type { SessionStatePrincipal, SessionStateService } from './session-state
  */
 export interface SessionListMemo {
   /** Issue rows by id (null = looked up and absent). */
-  issues: Map<string, unknown>
+  issues: Map<string, IssueRow | null>
   /** Grantee lists by `${resourceKind}:${resourceId}`. */
   grants: Map<string, string[]>
   /** Repo prefix by path (null = looked up and absent). */

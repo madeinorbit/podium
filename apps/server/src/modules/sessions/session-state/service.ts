@@ -136,11 +136,14 @@ export interface SessionStatePorts {
     sessionId: SessionId
     /** Per-pass read-through memo for full-list callers [POD-1618]. */
     memo?: SessionOwnerMemo
-  }) => { owner: UserId | null; grants: readonly string[] } | undefined
+  }) => Promise<{ owner: UserId | null; grants: readonly string[] } | undefined>
   /** Fill a pass's grant memo in one read per resource kind [POD-1653].
    *  Optional: a fixture that omits it is slow, never wrong, because every key
    *  it would have primed is still computed on demand by `sessionOwner`. */
-  readonly primeOwnerMemo?: (memo: SessionOwnerMemo, sessionIds: readonly SessionId[]) => void
+  readonly primeOwnerMemo?: (
+    memo: SessionOwnerMemo,
+    sessionIds: readonly SessionId[],
+  ) => Promise<void>
   /** Persist one session and an optional satellite-row write atomically. The
    *  session's own durable fields are UNCHANGED by this write — one that changes
    *  them goes through {@link writeSession} or {@link mutateSession}. */
@@ -261,17 +264,17 @@ export class SessionStateService {
    */
   /** Prime a full-list pass's memo before the per-session questions start
    *  [POD-1653] — see `SessionAuthz.primeOwnerMemo`. */
-  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): void {
-    this.ports.primeOwnerMemo?.(memo, sessionIds)
+  async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
+    await this.ports.primeOwnerMemo?.(memo, sessionIds)
   }
 
-  canReadSession(
+  async canReadSession(
     principal: SessionStatePrincipal,
     sessionId: SessionId,
     /** Per-pass memo when a full-list caller is asking [POD-1618]. */
     memo?: SessionOwnerMemo,
-  ): boolean {
-    const target = this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
+  ): Promise<boolean> {
+    const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
     if (!target) return false
     if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
       return true

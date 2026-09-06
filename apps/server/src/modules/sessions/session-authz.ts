@@ -105,7 +105,7 @@ export class SessionAuthz {
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const refused = { ok: false, reason: 'session no longer exists' } as const
     const target = this.ports.sessions.get(input.sessionId)
-    const ownership = this.sessionOwner(input.sessionId)
+    const ownership = await this.sessionOwner(input.sessionId)
     if (!target || !ownership) return refused
 
     if (input.sourceMessageId) {
@@ -175,7 +175,7 @@ export class SessionAuthz {
         delegated = await resolvePrincipalAsync(this.capabilityForSession(actorSessionId), {
           parentSessionOf: async (sessionId) =>
             spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
-          onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+          onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
         })
       } catch {
         return refused
@@ -258,11 +258,13 @@ export class SessionAuthz {
    * Machine `use` for a browser principal against the session's host
    * (POD-1081 §4). Independent of session grants — share is not a back door.
    */
-  machineUseForClient(
+  async machineUseForClient(
     principal: ClientPrincipal,
     sessionId: SessionId,
-  ): 'granted' | 'denied' | 'absent' {
-    const session = this.ports.sessions.get(sessionId) ?? this.ports.store.sessions.getSession(sessionId)
+  ): Promise<'granted' | 'denied' | 'absent'> {
+    const session =
+      this.ports.sessions.get(sessionId) ??
+      (await this.ports.store.sessions.getSession(sessionId))
     if (!session) return 'absent'
     const command = userCommandPrincipal(asUserId(principal.user), principal.role)
     const ownership = ownershipFromMachines(this.ports.machines)
@@ -320,14 +322,14 @@ export class SessionAuthz {
    * that answer is given; POD-1070 ownership work replaces it here rather than
    * in eleven handlers.
    */
-  sessionOwner(
+  async sessionOwner(
     sessionId: SessionId,
     /** Per-pass read-through memo [POD-1618]. Absent = look everything up, the
      *  behaviour every single-session caller keeps. */
     memo?: SessionOwnerMemo,
-  ): { owner: UserId; grants: string[] } | undefined {
+  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
     const live = this.ports.sessions.get(sessionId)
-    const durable = live ?? this.ports.store.sessions.getSession(sessionId)
+    const durable = live ?? (await this.ports.store.sessions.getSession(sessionId))
     if (!durable) return undefined
     const issueId = durable.issueId ?? undefined
     const resourceKind = issueId ? 'issue' : 'session'
@@ -336,10 +338,10 @@ export class SessionAuthz {
     // a handful of distinct keys: every session on one issue asks for the SAME
     // issue row and the SAME grant edges [POD-1618].
     const parentOwner = issueId
-      ? (this.memoIssueOwner(issueId, memo) ?? durable.ownerUserId)
+      ? ((await this.memoIssueOwner(issueId, memo)) ?? durable.ownerUserId)
       : durable.ownerUserId
     if (!parentOwner) return undefined
-    const grants = this.memoGrantees(resourceKind, resourceId, memo)
+    const grants = await this.memoGrantees(resourceKind, resourceId, memo)
     return { owner: parentOwner, grants }
   }
 
@@ -364,12 +366,12 @@ export class SessionAuthz {
    * removed, and the reason this fills every requested key rather than only the
    * ones the batched read returned.
    */
-  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): void {
+  async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
     const byKind = new Map<string, Set<string>>()
     const issueIds = new Set<string>()
     for (const sessionId of sessionIds) {
       const live = this.ports.sessions.get(sessionId)
-      const durable = live ?? this.ports.store.sessions.getSession(sessionId)
+      const durable = live ?? (await this.ports.store.sessions.getSession(sessionId))
       if (!durable) continue
       const issueId = durable.issueId ?? undefined
       if (issueId) issueIds.add(issueId)
@@ -385,39 +387,42 @@ export class SessionAuthz {
     // reads a `has()` miss as "not looked up yet" and would re-query it.
     const wantedIssues = [...issueIds].filter((id) => !memo.issues.has(id))
     if (wantedIssues.length > 0) {
-      const found = this.ports.store.issues.getIssues(wantedIssues)
+      const found = await this.ports.store.issues.getIssues(wantedIssues)
       for (const id of wantedIssues) memo.issues.set(id, found.get(id) ?? null)
     }
     for (const [kind, ids] of byKind) {
       const wanted = [...ids].filter((id) => !memo.grants.has(`${kind}:${id}`))
       if (wanted.length === 0) continue
-      const found = this.ports.store.grants.listForResources(kind, wanted)
+      const found = await this.ports.store.grants.listForResources(kind, wanted)
       for (const id of wanted) {
-        memo.grants.set(`${kind}:${id}`, granteesOf((found.get(id) ?? []) as GrantRow[]))
+        memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
       }
     }
   }
 
-  private memoIssueOwner(issueId: IssueId, memo?: SessionOwnerMemo): UserId | undefined {
-    if (!memo) return this.ports.store.issues.getIssue(issueId)?.ownerUserId ?? undefined
+  private async memoIssueOwner(
+    issueId: IssueId,
+    memo?: SessionOwnerMemo,
+  ): Promise<UserId | undefined> {
+    if (!memo) return (await this.ports.store.issues.getIssue(issueId))?.ownerUserId ?? undefined
     if (!memo.issues.has(issueId)) {
-      memo.issues.set(issueId, this.ports.store.issues.getIssue(issueId))
+      memo.issues.set(issueId, await this.ports.store.issues.getIssue(issueId))
     }
-    return (memo.issues.get(issueId) as { ownerUserId?: UserId } | null)?.ownerUserId ?? undefined
+    return (memo.issues.get(issueId) ?? null)?.ownerUserId ?? undefined
   }
 
-  private memoGrantees(
+  private async memoGrantees(
     resourceKind: string,
     resourceId: string,
     memo?: SessionOwnerMemo,
-  ): string[] {
-    const compute = (): string[] =>
-      granteesOf(this.ports.store.grants.listForResource(resourceKind, resourceId) as GrantRow[])
+  ): Promise<string[]> {
+    const compute = async (): Promise<string[]> =>
+      granteesOf(await this.ports.store.grants.listForResource(resourceKind, resourceId))
     if (!memo) return compute()
     const key = `${resourceKind}:${resourceId}`
     const hit = memo.grants.get(key)
     if (hit !== undefined) return hit
-    const value = compute()
+    const value = await compute()
     memo.grants.set(key, value)
     return value
   }
@@ -432,12 +437,12 @@ export class SessionAuthz {
    * delegation chain and owning human are read from live session rows each time;
    * callers receive only the opaque reference that the inbox persists.
    */
-  inboxPrincipalForCapability(capability: Capability): InboxPrincipalReference {
+  async inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
     return inboxPrincipalFromCommand(
-      resolvePrincipal(capability, {
+      await resolvePrincipalAsync(capability, {
         parentSessionOf: (sessionId) =>
           spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
-        onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+        onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
       }),
     )
   }
