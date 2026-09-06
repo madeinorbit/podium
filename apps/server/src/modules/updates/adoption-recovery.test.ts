@@ -176,6 +176,101 @@ describe('production adoption restores supervised execution proof', () => {
     }
   })
 
+  it.each([false, true])(
+    'keeps a canceled rollout canceled when its canary finishes late (reboot=%s)',
+    async (reboot) => {
+      const h = fixture()
+      try {
+        for (const machine of ['a', 'b']) h.add(machine)
+        const updates = h.registry.modules.updates
+        updates.setTarget('dev', target)
+        const started = await h.registry.modules.operations.engine.start(
+          UPDATE_OPERATION_KIND, h.context(['a', 'b']), { createdBy: 'user' },
+        )
+        if (!started.started) throw new Error('operation did not start')
+        const id = started.operation.id
+        await h.registry.modules.operations.engine.whenSettled(id)
+        expect(h.sent.map((s) => s.id)).toEqual(['a'])
+        const grant = h.sent[0]!.grant
+        updates.onStatus(asMachineId('a'), {
+          type: 'updateStatus', state: 'restarting', version: '0.4.1',
+          targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'restarting',
+        })
+        expect(await h.registry.modules.operations.engine.cancel(id)).toMatchObject({ canceled: true })
+        expect(updates.operationActive('dev')).toBe(false)
+        expect(h.store.updateRecovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
+        if (reboot) {
+          const boot = h.reboot()
+          await boot.modules.operations.engine.adoptOnBoot(
+            () => ({ appVersion: target.version, servedWebDigest: undefined,
+              machineDirectory: boot.modules.updates.fleet(), now: Date.now() }),
+            () => h.context(['a', 'b']),
+          )
+        }
+        h.hello('a')
+        h.hello('b', '0.4.1')
+        const current = h.registry.modules.updates
+        expect(current.fleet().find((m) => m.id === 'a')?.state).toBe('stuck')
+        const report = {
+          type: 'updateStatus' as const, state: 'current' as const, version: target.version,
+          targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
+        }
+        current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
+        expect(current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
+        for (let replay = 0; replay < 3; replay++) {
+          current.onStatus(asMachineId('a'), report)
+          h.registry.modules.updateFleetBridge?.onFleetChanged()
+          await h.registry.modules.operations.engine.whenSettled(id)
+          expect(current.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+          expect(current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+          expect(current.operationActive('dev')).toBe(false)
+          expect(h.store.operations.get(id)?.state).toBe('canceled')
+          expect(h.sent.map((s) => s.id)).toEqual(['a'])
+        }
+        const boot = h.reboot()
+        h.hello('a')
+        h.hello('b', '0.4.1')
+        expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+        expect(boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+        expect(h.store.operations.get(id)?.state).toBe('canceled')
+        expect(h.sent.map((s) => s.id)).toEqual(['a'])
+      } finally {
+        h.close()
+      }
+    },
+  )
+
+  it('accepts retired proof in recovery-only memory without writing the reopened query-only database', () => {
+    const h = fixture()
+    try {
+      h.add('a')
+      h.add('b')
+      const updates = h.registry.modules.updates
+      updates.setTarget('dev', target)
+      updates.authorize()
+      const grant = h.sent[0]!.grant
+      updates.withdrawAuthorization()
+      updates.releaseInFlightGrants('Canceled')
+      h.hello('a')
+      const saved = h.store.updateRecovery.read()
+      const boot = h.reboot(true)
+      const write = vi.spyOn(h.store.updateRecovery, 'write')
+      boot.modules.updates.onStatus(asMachineId('a'), {
+        type: 'updateStatus', state: 'current', version: target.version,
+        targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
+      })
+      for (let read = 0; read < 3; read++) {
+        expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+        expect(boot.modules.updates.operationActive('dev')).toBe(false)
+      }
+      expect(write).not.toHaveBeenCalled()
+      expect(h.store.updateRecovery.read()).toEqual(saved)
+      expect(h.sent.map((s) => s.id)).toEqual(['a'])
+    } finally {
+      h.close()
+    }
+  })
+
   it.each([
     false,
     true,
