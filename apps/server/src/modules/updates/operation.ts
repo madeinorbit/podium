@@ -1405,10 +1405,18 @@ export interface UpdateOperationContext {
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
   /**
-   * Synchronous because the path must be durable in the operation before the
-   * restart request can terminate this process.
+   * MUST BE AWAITED WHERE DURABILITY IS THE POINT.
+   *
+   * The snapshot path has to be IN the operation row before the restart request
+   * can terminate this process — that was the whole reason this port used to be
+   * declared synchronous. It no longer can be: the engine's `recordDetails` is a
+   * store write, so the implementation returns a promise, and a caller that only
+   * fires it races the restart it is supposed to precede.
    */
-  recordOperationDetails?: (operationId: string, patch: Record<string, unknown>) => void
+  recordOperationDetails?: (
+    operationId: string,
+    patch: Record<string, unknown>,
+  ) => Promise<void>
   /**
    * Report progress for one step of THIS operation.
    *
@@ -1425,9 +1433,18 @@ export interface UpdateOperationContext {
    * Optional, and absent means "carry on": a context assembled without an engine
    * has nothing that could have ended the step behind the watcher's back.
    */
-  stepActive?: (operationId: string, stepId: string) => boolean | Promise<boolean>
-  /** Deferred wake-up for the watchers. Injected so a test never sleeps. */
-  schedule?: (fn: () => void, ms: number) => void
+  stepActive?: (operationId: string, stepId: string) => Promise<boolean>
+  /**
+   * Deferred wake-up for the watchers. Injected so a test never sleeps.
+   *
+   * The callback may be async — `watch`'s tick awaits the engine's `until`
+   * fence — and a scheduler is free to ignore what it returns, as the default
+   * one does. A test harness that DRIVES this port must await it instead: a
+   * tick that is only fired and not awaited has not re-armed itself yet, so a
+   * drain loop reading the queue length straight afterwards sees an empty
+   * queue and calls a wave finished while its next tick is still pending.
+   */
+  schedule?: (fn: () => Promise<void>, ms: number) => void
   /** How often a watcher re-reads the world. */
   watchIntervalMs?: number
   /** How often a watched step says it is still there. Injected so tests never sleep. */
@@ -1437,8 +1454,10 @@ export interface UpdateOperationContext {
 
 const DEFAULT_WATCH_INTERVAL_MS = 500
 
-function defaultSchedule(fn: () => void, ms: number): void {
-  const timer = setTimeout(fn, ms)
+function defaultSchedule(fn: () => Promise<void>, ms: number): void {
+  // Fired, never awaited: a timer has nobody to hand a rejection back to, and
+  // `tick` reports its own outcomes rather than throwing them.
+  const timer = setTimeout(() => void fn(), ms)
   timer.unref?.()
 }
 
@@ -1554,7 +1573,7 @@ function watch(
   poll: () => StepProgressPatch | undefined,
   opts: {
     /** True once someone else has reported the outcome: stop, say nothing. */
-    until?: () => boolean | Promise<boolean>
+    until?: () => Promise<boolean>
     heartbeat?: (elapsedMs: number) => StepProgressPatch
   } = {},
 ): void {
@@ -1573,12 +1592,12 @@ function watch(
         lastBeatAt = at
         context.report?.(operationId, stepId, opts.heartbeat(at - startedAt))
       }
-      schedule(() => void tick(), interval)
+      schedule(tick, interval)
       return
     }
     context.report?.(operationId, stepId, patch)
   }
-  schedule(() => void tick(), interval)
+  schedule(tick, interval)
 }
 
 /** "1 min 20 s", for a detail line that has to move while nothing else does. */
@@ -1648,13 +1667,18 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
     watch(context, operation.id, UPDATE_STEP_PREPARE, () => undefined, {
       // The settle handlers below report the outcome; this watcher only ever
       // reports that the outcome has not arrived yet.
-      until: () => !preparing.has(operation.id),
+      until: async () => !preparing.has(operation.id),
       heartbeat: (elapsedMs) => ({
         state: 'running',
         detail: `Building the update package… ${elapsedLabel(elapsedMs)}`,
       }),
     })
-    await inFlight.then(
+    // NOT AWAITED, and the comment on this runner says why: a pack is a compile,
+    // and holding it here holds the engine's per-operation chain — and therefore
+    // the tRPC mutation that started the operation — for the whole build. The
+    // settle handlers below report through `context.report`, which the contract
+    // on that port forbids awaiting from inside `ensure()` for the same reason.
+    void inFlight.then(
       () => {
         preparing.delete(operation.id)
         context.report?.(operation.id, UPDATE_STEP_PREPARE, {
@@ -1728,8 +1752,10 @@ async function writeWaveRounds(
   operation: Operation,
   context: UpdateOperationContext,
 ): Promise<void> {
-  const rounds = await mergedWaveRounds(operation, context.updates)
-  if (rounds) context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
+  const rounds = mergedWaveRounds(operation, context.updates)
+  // Awaited: this is the last instant before the answer goes back to the engine,
+  // and a round only counts as written down once the row has it.
+  if (rounds) await context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
 }
 
 const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
@@ -2159,12 +2185,12 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       }
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
-      context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+      await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
     } else if (context.createDatabaseSnapshot) {
       try {
         databaseSnapshotPath = context.createDatabaseSnapshot(fromVersion, details.target.version)
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
-        context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+        await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
@@ -2255,7 +2281,7 @@ const webRunner: StepRunner<UpdateOperationContext> = {
          * map. `web` hands its work to a publisher it does not own, so the fence
          * is the engine's answer instead: the step is no longer in flight.
          */
-        until: () => !(context.stepActive?.(operation.id, UPDATE_STEP_WEB) ?? true),
+        until: async () => !((await context.stepActive?.(operation.id, UPDATE_STEP_WEB)) ?? true),
         // A rebuild is a compile too: minutes of nothing, and the stamp on disk
         // only changes at the very end (POD-2101).
         heartbeat: (elapsedMs) => ({
@@ -2446,8 +2472,8 @@ export function createUpdateFleetBridge(deps: {
         channel: details.channel,
         appVersion: () => details.fromVersion ?? '',
         ...(deps.now ? { now: deps.now } : {}),
-        recordOperationDetails: (id, patch) => {
-          deps.engine.recordDetails(id, patch)
+        recordOperationDetails: async (id, patch) => {
+          await deps.engine.recordDetails(id, patch)
         },
       }
 

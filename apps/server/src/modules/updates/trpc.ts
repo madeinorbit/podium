@@ -327,8 +327,12 @@ export function updateOperationContext(input: {
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
+    // `…Locked`, and AWAITED: a runner is invoked from inside the operation's
+    // chain, so queueing here would be waiting for ourselves — and the server
+    // step has to have its snapshot path durable before it asks this process to
+    // restart, which is the one thing this port exists for.
     recordOperationDetails: async (operationId, patch) => {
-      await input.operations.engine.recordDetails(operationId, patch)
+      await input.operations.engine.recordDetailsLocked(operationId, patch)
     },
     ...(input.requestCoordinatorRestart
       ? { requestCoordinatorRestart: input.requestCoordinatorRestart }

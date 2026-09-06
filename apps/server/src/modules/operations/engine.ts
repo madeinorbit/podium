@@ -344,10 +344,42 @@ export class OperationEngine {
 
   /**
    * Persist kind-owned facts that must survive before a runner triggers an
-   * external boundary. The update server step uses this synchronously between
-   * publishing its database snapshot and requesting the process restart.
+   * external boundary — for a caller that does NOT already hold the chain.
+   *
+   * `drive`/`driveLocked` split for the same reason, and this one earned it the
+   * hard way. The body below is a read-modify-write of the WHOLE operation:
+   * `OperationStore.update` has no field-wise form by contract, so a merge of
+   * `details` necessarily writes back every step as it stood at the read. While
+   * the store was synchronous that read and that write were one uninterruptible
+   * span. They are not any more, and the fleet bridge — the one caller here with
+   * no chain under it — used the gap to write a pre-stall step list back over a
+   * stall the deadline had just recorded, losing both the `stalled` state and
+   * the stall count. Queueing puts the read and the write on the same side of
+   * every other writer, which is what made it safe before.
    */
   async recordDetails(
+    operationId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Operation | undefined> {
+    let recorded: Operation | undefined
+    await this.enqueue(operationId, async () => {
+      recorded = await this.recordDetailsLocked(operationId, patch)
+    })
+    return recorded
+  }
+
+  /**
+   * `recordDetails` for a caller that ALREADY holds the operation's chain — a
+   * step runner, which is invoked from inside it.
+   *
+   * Such a caller must NOT queue: it would be waiting for itself. It also does
+   * not need to, which is the whole point of holding the chain — no other writer
+   * can land between this read and this write. The update server step uses it
+   * between publishing its database snapshot and requesting the process restart,
+   * and awaits it, because the path has to be durable before this process can be
+   * told to go away.
+   */
+  async recordDetailsLocked(
     operationId: string,
     patch: Record<string, unknown>,
   ): Promise<Operation | undefined> {

@@ -1259,7 +1259,19 @@ async function harness(options: HarnessOptions = {}) {
    * the same shape — `operations?.engine` is optional there for the same reason.
    */
   let engine: OperationEngine | undefined
-  let targetChanged: ((channel: UpdateChannel) => void) | undefined
+  let targetChanged: ((channel: UpdateChannel) => void | Promise<void>) | undefined
+  /**
+   * WHAT A FIRE-AND-FORGET NOTIFICATION LEFT BEHIND.
+   *
+   * `UpdatesService.onTargetChanged` is a `void` port and the composition root
+   * hands it the fleet bridge, whose handler is async now — so the service
+   * announces the change and carries straight on while the bridge is still
+   * reading history and restating promises. That is the production ordering and
+   * this harness keeps it. What a test cannot do is assert on work that has not
+   * happened yet, so the promise is kept here and `settleTargetChanges()` is how
+   * a test says "and then the listener finished".
+   */
+  const targetNotifications: Promise<void>[] = []
   const requireEngine = (): OperationEngine => {
     if (!engine) throw new Error('harness engine is not constructed yet')
     return engine
@@ -1289,7 +1301,10 @@ async function harness(options: HarnessOptions = {}) {
       exclusiveOperationActive: async () => (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      onTargetChanged: (channel) => targetChanged?.(channel),
+      onTargetChanged: (channel) => {
+        const settled = targetChanged?.(channel)
+        if (settled !== undefined) targetNotifications.push(settled)
+      },
     })
     if (initialTarget) await service.setTarget('dev', initialTarget)
     return service
@@ -1297,7 +1312,7 @@ async function harness(options: HarnessOptions = {}) {
   const updates = await newUpdatesService(() => engine)
 
   /** Deferred work the watchers schedule; drained explicitly, never slept on. */
-  const scheduled: Array<() => void> = []
+  const scheduled: Array<() => void | Promise<void>> = []
   const contextOver = (
     service: UpdatesService,
     driver: () => OperationEngine,
@@ -1313,8 +1328,10 @@ async function harness(options: HarnessOptions = {}) {
       ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
       : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
-    recordOperationDetails: (id, patch) => {
-      driver().recordDetails(id, patch)
+    // Wired exactly as `updateOperationContext` wires it: the `…Locked` form,
+    // because a runner already holds the chain this context is used from.
+    recordOperationDetails: async (id, patch) => {
+      await driver().recordDetailsLocked(id, patch)
     },
     ...(options.servedWebDigest ? { servedWebDigest: options.servedWebDigest } : {}),
     ...(options.requestDestBundle ? { requestDestBundle: options.requestDestBundle } : {}),
@@ -1362,18 +1379,29 @@ async function harness(options: HarnessOptions = {}) {
     clock,
     sent,
     context,
-    setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+    setTargetChanged(listener: (channel: UpdateChannel) => void | Promise<void>): void {
       targetChanged = listener
+    },
+    /** Await every listener the target changes above have started. */
+    async settleTargetChanges(): Promise<void> {
+      for (let guard = 0; guard < 20 && targetNotifications.length > 0; guard++) {
+        await Promise.all(targetNotifications.splice(0, targetNotifications.length))
+      }
     },
     get engine() {
       return requireEngine()
     },
     /** Run everything the watchers queued, and whatever that queues in turn. */
     async drain(): Promise<void> {
+      // AWAITED, ONE TICK AT A TIME. A watcher's tick is async now — it awaits
+      // the engine's `stepActive` fence, which is a real store read — so firing
+      // it and moving on returns here BEFORE the tick has decided anything and,
+      // crucially, before it has re-armed itself. The queue then reads empty and
+      // the drain stops on a wave that was still mid-step. Awaiting each fn is
+      // what makes "everything the watchers queued" true again.
       for (let guard = 0; guard < 20 && scheduled.length > 0; guard++) {
         const due = scheduled.splice(0, scheduled.length)
-        for (const fn of due) fn()
-        await Promise.resolve()
+        for (const fn of due) await fn()
       }
     },
     async read(id = 'op_1'): Promise<Operation> {
@@ -1397,7 +1425,7 @@ async function harness(options: HarnessOptions = {}) {
       engine: OperationEngine
       updates: UpdatesService
       context: () => UpdateOperationContext
-      setTargetChanged: (listener: (channel: UpdateChannel) => void) => void
+      setTargetChanged: (listener: (channel: UpdateChannel) => void | Promise<void>) => void
     }> {
       const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
       // `seedTarget: undefined` is the honest shape of a successor that has not
@@ -1411,7 +1439,7 @@ async function harness(options: HarnessOptions = {}) {
         engine: nextEngine,
         updates: nextUpdates,
         context: () => contextOver(nextUpdates, () => nextEngine),
-        setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+        setTargetChanged(listener: (channel: UpdateChannel) => void | Promise<void>): void {
           targetChanged = listener
         },
       }
@@ -1915,7 +1943,7 @@ describe('the step runners', () => {
       version: '0.4.1',
       detail: 'cannot converge: dirty-working-tree',
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const operation = await h.read()
@@ -2037,11 +2065,12 @@ describe('the step runners', () => {
       version: '0.4.1',
       detail: `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     expect((await h.read()).state).toBe('running')
     fleet.push(machine({ id: 'podium', name: 'podium' }))
 
     await boot.updates.setTarget('dev', target)
+    await h.settleTargetChanges()
     await boot.engine.whenSettled('op_1')
 
     const operation = await h.read()
@@ -2129,7 +2158,7 @@ describe('the step runners', () => {
       version: '0.4.1',
       detail: 'cannot converge: dirty-working-tree',
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect((await h.read()).state).toBe('failed')
 
@@ -2170,7 +2199,7 @@ describe('the step runners', () => {
         version: '0.4.1',
         detail: 'cannot converge: dirty-working-tree',
       })
-      bridge.onFleetChanged()
+      await bridge.onFleetChanged()
     }
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
@@ -2520,7 +2549,7 @@ describe('surviving the coordinator restart', () => {
     })
     h.clock.advance(3_000)
     fleet[0] = machine({ id: 'vmi', name: 'vmi3407763' })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await boot.engine.whenSettled('op_1')
 
     // A grant, three seconds after the reconnect — not ten minutes after it.
@@ -2894,14 +2923,14 @@ describe('the fleet bridge', () => {
       now: () => h.clock.clock.now(),
     })
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps'])
     expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
     const before = h.clock.clock.now()
 
     fleet[2] = machine({ id: 'laptop' })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps', 'laptop'])
@@ -2941,13 +2970,13 @@ describe('the fleet bridge', () => {
       updates: h.updates,
       now: () => h.clock.clock.now(),
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('done')
     expect((await h.read()).state).toBe('running')
 
     fleet[1] = machine({ id: 'laptop' })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
@@ -3032,7 +3061,7 @@ describe('the fleet bridge', () => {
       version: '0.4.1',
       detail: 'artifact address unreachable: https://source.test/a.tgz — ECONNREFUSED',
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const operation = await h.read()
@@ -3132,6 +3161,7 @@ describe('the fleet bridge', () => {
 
     // Retention will sweep this operation's tarballs under the ordinary window.
     await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([
@@ -3145,7 +3175,7 @@ describe('the fleet bridge', () => {
     // …and when it finally wakes, nothing grants it the old target under this
     // operation's name. The ordinary reconciler owns it from here.
     fleet[0] = machine({ id: 'laptop' })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.sent).toEqual([])
     expect((await h.read()).deferred).toEqual([
@@ -3197,6 +3227,7 @@ describe('the fleet bridge', () => {
 
     h.clock.advance(5_000)
     await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
     await h.engine.whenSettled('op_2')
 
@@ -3230,6 +3261,7 @@ describe('the fleet bridge', () => {
     h.setTargetChanged(() => bridge.onTargetChanged())
 
     h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([
@@ -3259,6 +3291,7 @@ describe('the fleet bridge', () => {
     // A re-resolve of the SAME version also fires the target hook. The machine
     // really will update when it reconnects, so the note must not be touched.
     await h.updates.setTarget('dev', packedTarget())
+    await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
@@ -3540,7 +3573,7 @@ describe('a silent grant, with nobody watching', () => {
         version: '0.4.1',
         percent,
       })
-      bridge.onFleetChanged()
+      await bridge.onFleetChanged()
       await h.engine.whenSettled('op_1')
 
       const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
@@ -3570,7 +3603,7 @@ describe('a silent grant, with nobody watching', () => {
       version: '0.4.1',
       percent: 62,
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
@@ -3578,7 +3611,7 @@ describe('a silent grant, with nobody watching', () => {
       state: 'restarting',
       version: '0.4.1',
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const place = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.places?.[0]
@@ -3613,7 +3646,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
     state: 'current',
     version: 'dev+abc1234',
   })
-  bridge.onFleetChanged()
+  await bridge.onFleetChanged()
   await h.engine.whenSettled('op_1')
 
   const machinesStep = (await h.read()).steps?.find((step) => step.id === UPDATE_STEP_MACHINES)
@@ -3629,7 +3662,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
 
   const canary = fleet[0]
   if (canary) canary.version = 'dev+abc1234'
-  bridge.onFleetChanged()
+  await bridge.onFleetChanged()
   await h.engine.whenSettled('op_1')
 
   expect(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary', 'b'])
@@ -3690,7 +3723,7 @@ describe('two machines, one of them dead', () => {
         // The canary's own frame goes through the bridge in production, and it
         // is what first projects the widened wave — so this is where the two
         // newly granted machines get their clocks.
-        bridge.onFleetChanged()
+        await bridge.onFleetChanged()
         await h.engine.whenSettled('op_1')
       },
     }
@@ -3720,7 +3753,7 @@ describe('two machines, one of them dead', () => {
   /** One machine reports a fresh percentage; the others say nothing, ever. */
   const reports = async (
     h: Awaited<ReturnType<typeof harness>>,
-    bridge: { onFleetChanged: () => void },
+    bridge: { onFleetChanged: () => Promise<void> },
     id: string,
     percent: number,
   ) => {
@@ -3731,11 +3764,11 @@ describe('two machines, one of them dead', () => {
       version: '0.4.1',
       percent,
     })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
   }
   const busyReports = async (
     h: Awaited<ReturnType<typeof harness>>,
-    bridge: { onFleetChanged: () => void },
+    bridge: { onFleetChanged: () => Promise<void> },
     percent: number,
   ) => await reports(h, bridge, 'busy', percent)
 
@@ -3855,7 +3888,7 @@ describe('two machines, one of them dead', () => {
     // A raw directory mutation is only observable once the reconnect event
     // reaches the operation bridge. That proof opens the wave; the optimistic
     // status above never does so by itself.
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
 
@@ -3907,12 +3940,12 @@ describe('a machine that says why, and then goes quiet', () => {
       detail: 'dirty-working-tree',
     })
     if (order === 'reported first') {
-      bridge.onFleetChanged()
+      await bridge.onFleetChanged()
       await h.engine.whenSettled('op_1')
     }
     // The operator restarts that daemon to go and look at the checkout.
     fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
-    bridge.onFleetChanged()
+    await bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     return await h.read()
   }
