@@ -1817,6 +1817,53 @@ WHAT DOES WORK WITHOUT TYPES is exhausting ONE confirmed-async function: POD-346
 `engine.active(` call site in the repo and found only the two above. Note `relay.ts:2742` reads wrong at
 a glance and is FINE — `await` binds tighter than `!==`.
 
+### Rule 54 — AWAITING CORRECTLY IS NOT THE SAME AS BEING SAFE TO AWAIT: check-then-act across a new await
+
+[POD-3469, 2026-09-06, measured on POD-3263's tip. It had previously certified that same code CLEAN for
+rule 52 — and it was: every call awaits properly, no promise sits in a boolean. This is a different
+defect entirely, and it appeared only when it probed for CONCURRENCY rather than reading for truthiness.]
+
+THE CLASS. Adding an await between a CHECK and the ACT it guards turns a previously atomic sequence
+into a race. The code is correct as written and correct as read; what changed is that the function now
+yields in the middle, so a second entrant can pass the same check before the first has acted.
+
+MEASURED, not argued — the same byte-identical test on both trees:
+
+    POD-3263 tip 46e2975c1   attachDaemon called 2 TIMES   FAIL
+    POD-3469 branch          attachDaemon called 1 time    pass
+
+Two hello frames delivered in ONE tick admit the daemon TWICE. Verified in
+`packages/protocol/src/handshake/acceptor.ts`:
+
+    :156   if (state === 'established') …          CHECK — refuses a second hello
+    :218   const outcome = await strategy.authenticate({…})   YIELD
+    :242   state = 'established'                   ACT — too late
+
+`daemon-socket.ts` repeats it one level up: `if (principal === undefined)` → `await
+receiveDaemonFrame` → `principal = outcome.principal`. The handler is async and nothing serializes it.
+
+IT IS REACHABLE BY THE PEER. An attacker writes two hellos back to back and controls whether they land
+in one read. Beyond the double admission it permits concurrent unbounded credential lookups on a socket
+that has not authenticated.
+
+WHY NO TEST SAW IT, and this is the reusable part: the existing case, "refuses a second handshake on a
+live connection", AWAITS its first hello before sending the second. It is SEQUENTIAL BY CONSTRUCTION,
+so it cannot express two frames in flight, and it passes on both shapes. The assertion was never wrong.
+The DELIVERY could not see the bug. Same shape as a vacuous fail-closed test: check what the harness is
+capable of expressing before trusting what it reports.
+
+THE OBLIGATION. Every time you add an await to a function that GUARDS something — an admission, a
+single-flight, a "have we already done this", a cache fill, a lock acquisition — find the check it sits
+between and ask what happens if a second caller arrives during the yield. Then WRITE THE TEST THAT
+DELIVERS TWO IN ONE TICK, without awaiting the first. If your existing test awaits between the two, it
+is testing sequence, not concurrency, and it will pass either way.
+
+THE FIX IS NOT A CAP. Bounding a queue limits how much can pile up; it does not make the admission
+single-flight. Either mark the connection as in-progress SYNCHRONOUSLY before the first await, or
+serialize entry at the boundary (POD-3469's `preAuthSerial` chain). It mutation-checked that its own
+guard is load-bearing: replacing `preAuthSerial` with `Promise.resolve()` reproduces "called 2 times"
+exactly.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
