@@ -25,8 +25,11 @@ export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
 export interface MemoryLedger {
-  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T>
-  reconcile(entity: 'conversation', rows: { id: string; value: unknown }[]): MetadataChange[]
+  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
+  reconcile(
+    entity: 'conversation',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 export interface MemoryServiceDeps {
@@ -182,7 +185,7 @@ export class MemoryService {
         : {}),
       ...(curated.get(conversation.id) ?? {}),
     }))
-    this.deps.ledger.commit({
+    await this.deps.ledger.commit({
       write: async () => {
         await this.deps.store.conversations.index.upsert(
           conversations.map((conversation) => ({
@@ -231,8 +234,8 @@ export class MemoryService {
     return enriched
   }
 
-  reconcileConversationList(): void {
-    this.deps.ledger.reconcile(
+  async reconcileConversationList(): Promise<void> {
+    await this.deps.ledger.reconcile(
       'conversation',
       this.latestConversations.read().map((conversation) => ({
         id: conversation.id,
@@ -288,7 +291,7 @@ export class MemoryService {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
     }
-    this.deps.ledger.commit({
+    await this.deps.ledger.commit({
       write: async () => await this.deps.store.conversations.index.setMeta(input.id, input),
       changes: () => [
         {
