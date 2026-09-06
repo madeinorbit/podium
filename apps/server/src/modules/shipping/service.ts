@@ -285,8 +285,14 @@ export interface ResourceLease {
    * comment about (POD-3488). `renew?: () => boolean | Promise<boolean>` let a
    * caller write `if (!lease.renew())` and typecheck: the only implementation
    * returns a promise, `!promise` is always false, and a lease whose renewal had
-   * FAILED was reported as still held. A port that states one thing makes the
-   * missing `await` a type error at every reader instead of a silent pass.
+   * FAILED was reported as still held.
+   *
+   * WHAT THE NARROWING BUYS, precisely, because it is less than it looks: it
+   * stops an IMPLEMENTATION from being synchronous, so the port has one shape and
+   * every reader knows it must await. It does NOT make a missing `await` a type
+   * error — negating a promise is legal at every type, so a caller that drops it
+   * still compiles. The caller side is guarded by the boundary test in
+   * `service.test.ts`, not by the compiler [POD-3221 rule 52b, as amended].
    */
   renew?: () => Promise<boolean>
   timer?: ReturnType<typeof setInterval>
