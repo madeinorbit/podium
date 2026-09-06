@@ -58,3 +58,30 @@ Resolve at merge by taking POD-3467's port rename and async-step typing, then de
 whether `followUpAfterCommit` must await inline (POD-3468's no-span path) or only register (the
 in-span path) — and pin whichever with a test that fails when the await is removed. Do not let a
 textual merge pick.
+
+## 3. CONFLICT: `modules/messaging/service.ts` — B1 and POD-3467 both converted it
+
+Verified with `git merge-tree` on 2026-09-06: merging POD-3467 onto B1 produces exactly ONE content
+conflict, and this is it.
+
+| branch | commits touching the file | diffstat |
+|---|---|---|
+| B1 `3263` | `4439fa19a` await messaging request ports, `000e7b672` await messaging event lookups, `8608e2824` (coordinator wip) | +89 −70 |
+| POD-3467 | `822bf97d6` settings hydration, `a20d6a954` thread resolution, `12e7fc343` durable notice topic lookup, `1ebaead73` drop redundant re-read guard | +143 −69 |
+
+HOW IT HAPPENED, so the lesson is recorded rather than the blame: `MessagingService` was assigned to
+POD-3467, but B1's in-flight tree already contained messaging conversions when its codex session
+wedged, and I committed that tree as `8608e2824` to protect it before restarting. Two workers
+converting one file independently is the cost of the boundary relaxation, and it is the coordinator's
+to resolve, not theirs.
+
+RESOLUTION AT MERGE — DO NOT LET A TEXTUAL MERGE PICK. POD-3467 is the assigned owner and its version
+is both larger and carries deliberate design decisions (the boot-hydrate / settings.changed producer
+PAIR required by rule 51a; the awaited durable notice topic lookup). Take POD-3467's file as the base,
+then walk B1's three commits hunk by hunk and graft any conversion POD-3467 did not make — B1's are
+mechanical awaits on request ports and event lookups, so a missing one shows up as a compiler error
+rather than silently.
+
+AFTER GRAFTING, RE-RUN THE CENSUS. A conversion dropped in this merge is exactly the shape rule 52
+warns about: the call still compiles, and the promise is used as a value. `messaging/service.ts` must
+be at zero errors on the merged tree before the flip is called green.
