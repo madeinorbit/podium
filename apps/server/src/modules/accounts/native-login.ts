@@ -27,8 +27,12 @@ export class NativeLoginService {
       bus: EventBus
       /** Refusal reason for using a machine, with the owner resolved once
        *  (rule 18) and grant checks bound to start()'s per-pass lease (rule 46). */
-      authorizerFor(ownerUserId: UserId): (machineId: MachineId) => string | undefined
-      cwdForMachine(machineId: MachineId): string
+      authorizerFor(
+        ownerUserId: UserId,
+      ):
+        | ((machineId: MachineId) => string | undefined)
+        | Promise<(machineId: MachineId) => string | undefined>
+      cwdForMachine(machineId: MachineId): string | Promise<string>
     },
   ) {
     deps.bus.on('session.exited', ({ sessionId, code }) => this.onExit(sessionId, code))
@@ -79,7 +83,7 @@ export class NativeLoginService {
     // checks use the explicit read scope opened by start() (rule 46). Candidate
     // filtering and the selected-machine recheck therefore share one lease
     // snapshot; the next start() opens a new lease and re-reads.
-    const authorize = this.deps.authorizerFor(input.ownerUserId)
+    const authorize = await this.deps.authorizerFor(input.ownerUserId)
     const authorized = input.machineId
       ? candidates
       : candidates.filter((candidate) => authorize(candidate.id) === undefined)
@@ -97,7 +101,7 @@ export class NativeLoginService {
     const spawned = await this.deps.sessions.createSession({
       agentKind: 'shell',
       loginHarness: input.harness,
-      cwd: this.deps.cwdForMachine(machine.id),
+      cwd: await this.deps.cwdForMachine(machine.id),
       title: `${input.harness} login`,
       name: `${input.harness} login`,
       machineId: asMachineId(machine.id),

@@ -88,9 +88,9 @@ describe('NativeLoginService', () => {
     expect(f.createSession).toHaveBeenCalledTimes(1)
   })
 
-  it('starts one purpose-labelled shell PTY from the harness manifest lane', () => {
+  it('starts one purpose-labelled shell PTY from the harness manifest lane', async () => {
     const f = fixture()
-    const attempt = f.service.start({
+    const attempt = await f.service.start({
       harness: 'codex',
       machineId: MACHINE,
       ownerUserId: OWNER,
@@ -108,9 +108,9 @@ describe('NativeLoginService', () => {
     )
   })
 
-  it('refreshes inventory on exit and reports the observed login result', () => {
+  it('refreshes inventory on exit and reports the observed login result', async () => {
     const f = fixture()
-    f.service.start({ harness: 'codex', ownerUserId: OWNER })
+    await f.service.start({ harness: 'codex', ownerUserId: OWNER })
 
     f.bus.emit('session.exited', { sessionId: SESSION, code: 0 })
     expect(f.toMachine).toHaveBeenCalledWith('machine-a', { type: 'inventoryRequest' })
@@ -121,6 +121,7 @@ describe('NativeLoginService', () => {
 
     f.setLogin('in')
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a'), inventory: true })
+    await Promise.resolve()
     expect(f.service.attempt('codex')?.status).toBe('succeeded')
   })
 })
