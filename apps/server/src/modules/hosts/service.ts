@@ -84,17 +84,17 @@ export interface HostSessionView {
 }
 
 export interface HostsDeps {
-  getSettings(): PodiumSettings
+  getSettings(): PodiumSettings | Promise<PodiumSettings>
   /** Connected client fan-out (hostMetricsChanged — live-only, message-class). */
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** Display name for a machineId — stamps inbound samples. */
-  machineName(id: string): string
+  machineName(id: string): string | Promise<string>
   /** Live sessions, projected — the auto-hibernate candidate pool. */
-  sessions(): Iterable<HostSessionView>
-  hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
-    ok: boolean
-    reason?: string
-  }
+  sessions(): Iterable<HostSessionView> | Promise<Iterable<HostSessionView>>
+  hibernateSession(input: {
+    sessionId: SessionId
+    requireTerminalProof?: boolean
+  }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
   /**
    * Park a live shell for the idle-shell policy: kill the process, keep the
    * row inspectable. Shells need no resume ref (a fresh spawn is recovery).
@@ -102,11 +102,11 @@ export interface HostsDeps {
    */
   parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
   parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
-  hasScheduledWakeup(sessionId: SessionId, now: number): boolean
+  hasScheduledWakeup(sessionId: SessionId, now: number): boolean | Promise<boolean>
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
-  hasValidTerminalProof(sessionId: SessionId): boolean
+  hasValidTerminalProof(sessionId: SessionId): boolean | Promise<boolean>
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
-  terminalProofMissing(sessionId: SessionId): boolean
+  terminalProofMissing(sessionId: SessionId): boolean | Promise<boolean>
   /**
    * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
    * port instead of a locally re-declared function type.
@@ -171,11 +171,14 @@ export class HostsService {
 
   /** Inbound daemon hostMetrics sample: tag it with the reporting machine so clients
    *  can attribute it and the per-machine cooldown/candidate scoping works. */
-  onHostMetrics(machineId: MachineId, sample: Omit<HostMetricsWire, 'machineId' | 'name'>): void {
+  async onHostMetrics(
+    machineId: MachineId,
+    sample: Omit<HostMetricsWire, 'machineId' | 'name'>,
+  ): Promise<void> {
     const tagged: HostMetricsWire = {
       ...sample,
       machineId,
-      name: this.deps.machineName(machineId),
+      name: await this.deps.machineName(machineId),
     }
     // ONE READ SCOPE PER SAMPLE [POD-3261]. `maybeAutoHibernate` asks
     // `deps.sessions()` four to six times per machine — idle-live counting,
@@ -186,8 +189,8 @@ export class HostsService {
     // memo that lived for one synchronous turn. The memo is now held by the read
     // scope, so this is the pass that has to open one: without it the memo has
     // nothing to live in once these calls acquire awaits, and the scans return.
-    withReadScope(() => {
-      const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
+    await withReadScope(async () => {
+      const idleCapUnmet = await this.maybeAutoHibernate(machineId, tagged)
       this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     })
     this.broadcastHostMetrics()
@@ -220,8 +223,11 @@ export class HostsService {
    *  off the payload meant a `?? '__local__'` fallback on all three of these methods,
    *  i.e. a scope that silently collapsed to a placeholder if the tag were ever
    *  dropped. Passing it down cannot. */
-  private maybeAutoHibernate(machineId: MachineId, sample: HostMetricsWire): number | undefined {
-    const cfg = this.deps.getSettings().hibernation
+  private async maybeAutoHibernate(
+    machineId: MachineId,
+    sample: HostMetricsWire,
+  ): Promise<number | undefined> {
+    const cfg = (await this.deps.getSettings()).hibernation
     if (!cfg.enabled) {
       this.lastCapUnmetByMachine.delete(machineId)
       this.lastUnobservedCountByMachine.delete(machineId)
@@ -308,15 +314,17 @@ export class HostsService {
         // the next safely parkable session: re-read the live projection after
         // every attempt.
         while (true) {
-          const target = this.eligibleCandidates(
-            machineId,
-            cfg.idleMinutes,
-            now,
-            failed,
-            cfg.idleShellMinutes,
+          const target = (
+            await this.eligibleCandidates(
+              machineId,
+              cfg.idleMinutes,
+              now,
+              failed,
+              cfg.idleShellMinutes,
+            )
           )[0]
           if (!target) break
-          if (!this.tryHibernateCandidate(target, failed)) continue
+          if (!(await this.tryHibernateCandidate(target, failed))) continue
           this.lastAutoHibernateMsByMachine.set(machineId, now)
           log.info('memory pressure — hibernating an idle session', {
             hostname: sample.hostname,
@@ -342,15 +350,17 @@ export class HostsService {
 
     if (loadReady) {
       while (true) {
-        const target = this.eligibleCandidates(
-          machineId,
-          cfg.idleMinutes,
-          now,
-          failed,
-          cfg.idleShellMinutes,
+        const target = (
+          await this.eligibleCandidates(
+            machineId,
+            cfg.idleMinutes,
+            now,
+            failed,
+            cfg.idleShellMinutes,
+          )
         )[0]
         if (!target) break
-        if (!this.tryHibernateCandidate(target, failed)) continue
+        if (!(await this.tryHibernateCandidate(target, failed))) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
         log.info('load pressure — hibernating an idle session', {
           hostname: sample.hostname,
@@ -364,23 +374,23 @@ export class HostsService {
 
     // Shells never enter hibernateSession (no resume ref). Explicit opt-in.
     if (cfg.idleShellMinutes !== null) {
-      this.applyShellIdlePressure(machineId, cfg.idleShellMinutes, now, failed)
+      await this.applyShellIdlePressure(machineId, cfg.idleShellMinutes, now, failed)
     }
 
     if (cfg.backstopMinutes !== null) {
-      this.applyIdleBackstop(machineId, cfg.backstopMinutes, now, failed)
+      await this.applyIdleBackstop(machineId, cfg.backstopMinutes, now, failed)
     }
 
     // Unobserved quiet sessions are IN the idle-live cap when some active policy
     // could park them, and named in the log either way. Log stays so first
     // deploy after step 2 is still inspectable.
-    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now, cfg.idleShellMinutes)
+    await this.reportUnobservedCounted(machineId, cfg.idleMinutes, now, cfg.idleShellMinutes)
 
     if (cfg.maxIdleSessions === null) {
       this.lastCapUnmetByMachine.delete(machineId)
       return
     }
-    return this.applyCountPressure(
+    return await this.applyCountPressure(
       machineId,
       cfg.idleMinutes,
       cfg.maxIdleSessions,
@@ -393,13 +403,16 @@ export class HostsService {
   /** Hibernation refuses without a resume ref. Unobserved agents that have one
    *  skip terminal proof — no observer ran, so the long quiet window is the
    *  safety gate. */
-  private tryHibernateCandidate(target: HostSessionView, failed: Set<string>): boolean {
+  private async tryHibernateCandidate(
+    target: HostSessionView,
+    failed: Set<string>,
+  ): Promise<boolean> {
     if (!target.resume) {
       failed.add(target.sessionId)
       return false
     }
     const unobserved = this.isUnobservedPhase(target)
-    const result = this.deps.hibernateSession({
+    const result = await this.deps.hibernateSession({
       sessionId: target.sessionId,
       requireTerminalProof: !unobserved,
     })
@@ -410,27 +423,27 @@ export class HostsService {
     return true
   }
 
-  private applyCountPressure(
+  private async applyCountPressure(
     machineId: MachineId,
     idleMinutes: number,
     targetCount: number,
     now: number,
     failed: Set<string>,
     idleShellMinutes: number | null,
-  ): number | undefined {
+  ): Promise<number | undefined> {
     const budget = this.countBudgetFor(machineId, now)
 
     while (true) {
       // Re-read after every success: hibernateSession synchronously changes the
       // session status, and the target is convergence rather than a snapshot batch.
-      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
+      const idleLive = await this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
       const overage = idleLive.length - targetCount
       if (overage <= 0) {
         this.lastCapUnmetByMachine.delete(machineId)
         return
       }
 
-      const candidates = this.eligibleCandidates(
+      const candidates = await this.eligibleCandidates(
         machineId,
         idleMinutes,
         now,
@@ -438,7 +451,7 @@ export class HostsService {
         idleShellMinutes,
       )
       if (candidates.length === 0) {
-        this.reportCapUnmet(machineId, targetCount, overage)
+        await this.reportCapUnmet(machineId, targetCount, overage)
         return overage
       }
 
@@ -451,10 +464,10 @@ export class HostsService {
 
       const target = candidates[0]
       if (!target) return undefined
-      if (!this.tryHibernateCandidate(target, failed)) continue
+      if (!(await this.tryHibernateCandidate(target, failed))) continue
       budget.tokens -= 1
       log.info('idle-session target exceeded — hibernating an idle session', {
-        machine: this.deps.machineName(machineId),
+        machine: await this.deps.machineName(machineId),
         targetCount,
         sessionId: target.sessionId,
       })
@@ -465,14 +478,14 @@ export class HostsService {
    * Park the oldest quiet live shell when idleShellMinutes is set. One per sample
    * (same one-park discipline as memory/load), oldest quiet first.
    */
-  private applyShellIdlePressure(
+  private async applyShellIdlePressure(
     machineId: MachineId,
     idleShellMinutes: number,
     now: number,
     failed: Set<string>,
-  ): void {
+  ): Promise<void> {
     const cutoff = now - idleShellMinutes * 60_000
-    const target = [...this.deps.sessions()]
+    const target = [...(await this.deps.sessions())]
       .filter((session) => {
         if (session.machineId !== machineId || session.status !== 'live') return false
         if (session.agentKind !== 'shell') return false
@@ -488,31 +501,40 @@ export class HostsService {
       return
     }
     log.info('idle-shell threshold reached — parking a shell session', {
-      machine: this.deps.machineName(machineId),
+      machine: await this.deps.machineName(machineId),
       idleShellMinutes,
       sessionId: target.sessionId,
     })
   }
 
   /** Last-resort process bound: complete quiet authorizes parking without terminal proof. */
-  private applyIdleBackstop(
+  private async applyIdleBackstop(
     machineId: MachineId,
     backstopMinutes: number,
     now: number,
     failed: Set<string>,
-  ): void {
+  ): Promise<void> {
     const cutoff = now - backstopMinutes * 60_000
-    const target = [...this.deps.sessions()]
-      .filter(
-        (session) =>
-          session.machineId === machineId &&
-          session.status === 'live' &&
-          !failed.has(session.sessionId) &&
-          !session.autoHibernateProtected &&
-          this.fullyQuietSinceMs(session) <= cutoff &&
-          !this.deps.hasScheduledWakeup(session.sessionId, now),
-      )
-      .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
+    // `hasScheduledWakeup` is a durable read now, and it was the LAST conjunct of
+    // a short-circuiting predicate. An async callback handed to `.filter` is
+    // always truthy, so the cheap machine-local gates stay the synchronous
+    // predicate and the port is asked only for the sessions that reached it —
+    // the same call set, in the same order, as the `&&` chain made.
+    const quiet = [...(await this.deps.sessions())].filter(
+      (session) =>
+        session.machineId === machineId &&
+        session.status === 'live' &&
+        !failed.has(session.sessionId) &&
+        !session.autoHibernateProtected &&
+        this.fullyQuietSinceMs(session) <= cutoff,
+    )
+    const unscheduled: HostSessionView[] = []
+    for (const session of quiet) {
+      if (!(await this.deps.hasScheduledWakeup(session.sessionId, now))) unscheduled.push(session)
+    }
+    const target = unscheduled.sort(
+      (a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b),
+    )[0]
     if (!target) return
     const result =
       target.agentKind === 'shell'
@@ -523,7 +545,7 @@ export class HostsService {
       return
     }
     log.info('idle backstop reached — parking a session', {
-      machine: this.deps.machineName(machineId),
+      machine: await this.deps.machineName(machineId),
       backstopMinutes,
       sessionId: target.sessionId,
     })
@@ -559,14 +581,14 @@ export class HostsService {
    * still names every unobserved quiet session, which is the whole point of
    * POD-565.
    */
-  private idleLiveSessions(
+  private async idleLiveSessions(
     machineId: MachineId,
     idleMinutes: number,
     now: number,
     idleShellMinutes: number | null,
-  ): HostSessionView[] {
+  ): Promise<HostSessionView[]> {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    return [...this.deps.sessions()].filter((session) => {
+    return [...(await this.deps.sessions())].filter((session) => {
       if (session.machineId !== machineId || session.status !== 'live') return false
       const phase = session.agentState?.phase
       // needs_user is idle fleet load too, but deliberately protected from parking.
@@ -584,60 +606,72 @@ export class HostsService {
     return session.resume !== undefined
   }
 
-  private eligibleCandidates(
+  /**
+   * A SEQUENTIAL LOOP, NOT AN ASYNC `.filter` PREDICATE.
+   *
+   * `hasValidTerminalProof` is the atomically revalidated two-pass check, so it
+   * is not a pure read: asking it for a session that the cheap gates above would
+   * have rejected is an extra revalidation the `&&` chain never performed.
+   * Resolving the whole set up front with `Promise.all` would do exactly that,
+   * and handing an async callback to `.filter` would disable the predicate
+   * outright (a promise is always truthy). Awaiting in order preserves both the
+   * call set and the sequence the short-circuiting predicate had.
+   */
+  private async eligibleCandidates(
     machineId: MachineId,
     idleMinutes: number,
     now: number,
     excluded: ReadonlySet<string>,
     idleShellMinutes: number | null,
-  ): HostSessionView[] {
+  ): Promise<HostSessionView[]> {
     const idleCutoff = now - idleMinutes * 60_000
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    return this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
-      .filter((session) => {
-        if (excluded.has(session.sessionId)) return false
-        // Shells never go through hibernateSession — idleShellMinutes owns them.
-        if (session.agentKind === 'shell') return false
-        // No resume ref → hibernateSession would refuse. Counted, never eligible.
-        if (session.resume === undefined) return false
+    const pool = await this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
+    const eligible: HostSessionView[] = []
+    for (const session of pool) {
+      if (excluded.has(session.sessionId)) continue
+      // Shells never go through hibernateSession — idleShellMinutes owns them.
+      if (session.agentKind === 'shell') continue
+      // No resume ref → hibernateSession would refuse. Counted, never eligible.
+      if (session.resume === undefined) continue
 
-        const phase = session.agentState?.phase
-        if (phase === 'idle' || phase === 'ended') {
-          const phaseEligible =
-            this.effectiveIdleSinceMs(session) <= idleCutoff &&
-            // A foreground turn can end while a background task keeps painting its
-            // TUI. A full quiet minute keeps that work protected.
-            now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
-          if (!phaseEligible) return false
-          if (this.deps.hasValidTerminalProof(session.sessionId)) {
-            this.missingProofLogged.delete(session.sessionId)
-            return true
-          }
-          if (
-            this.deps.terminalProofMissing(session.sessionId) &&
-            !this.missingProofLogged.has(session.sessionId)
-          ) {
-            this.missingProofLogged.add(session.sessionId)
-            log.warn(
-              'auto-hibernate skipped a terminal candidate — missing durable terminal proof (possible mixed-version observer)',
-              { sessionId: session.sessionId },
-            )
-          }
-          return false
+      const phase = session.agentState?.phase
+      if (phase === 'idle' || phase === 'ended') {
+        const phaseEligible =
+          this.effectiveIdleSinceMs(session) <= idleCutoff &&
+          // A foreground turn can end while a background task keeps painting its
+          // TUI. A full quiet minute keeps that work protected.
+          now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
+        if (!phaseEligible) continue
+        if (await this.deps.hasValidTerminalProof(session.sessionId)) {
+          this.missingProofLogged.delete(session.sessionId)
+          eligible.push(session)
+          continue
         }
+        if (
+          (await this.deps.terminalProofMissing(session.sessionId)) &&
+          !this.missingProofLogged.has(session.sessionId)
+        ) {
+          this.missingProofLogged.add(session.sessionId)
+          log.warn(
+            'auto-hibernate skipped a terminal candidate — missing durable terminal proof (possible mixed-version observer)',
+            { sessionId: session.sessionId },
+          )
+        }
+        continue
+      }
 
-        // Unobserved harness agent with a resume ref: long quiet substitutes for
-        // terminal proof — no observer ever ran.
-        if (this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)) {
-          return true
-        }
-        return false
-      })
-      .sort(
-        (a, b) =>
-          this.lifecycleTier(a) - this.lifecycleTier(b) ||
-          this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b),
-      )
+      // Unobserved harness agent with a resume ref: long quiet substitutes for
+      // terminal proof — no observer ever ran.
+      if (this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)) {
+        eligible.push(session)
+      }
+    }
+    return eligible.sort(
+      (a, b) =>
+        this.lifecycleTier(a) - this.lifecycleTier(b) ||
+        this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b),
+    )
   }
 
   /**
@@ -698,12 +732,16 @@ export class HostsService {
     return budget
   }
 
-  private reportCapUnmet(machineId: MachineId, targetCount: number, overage: number): void {
+  private async reportCapUnmet(
+    machineId: MachineId,
+    targetCount: number,
+    overage: number,
+  ): Promise<void> {
     const signature = `${targetCount}:${overage}`
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)
     log.info('idle-session cap unmet — protected or ineligible sessions remain', {
-      machine: this.deps.machineName(machineId),
+      machine: await this.deps.machineName(machineId),
       overage,
       targetCount,
     })
@@ -724,14 +762,14 @@ export class HostsService {
    * re-hide exactly the tail POD-565 exists to expose, and reporting only the
    * total would claim a cap pressure that is not being applied.
    */
-  private reportUnobservedCounted(
+  private async reportUnobservedCounted(
     machineId: MachineId,
     idleMinutes: number,
     now: number,
     idleShellMinutes: number | null,
-  ): void {
+  ): Promise<void> {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    const quiet = [...this.deps.sessions()].filter(
+    const quiet = [...(await this.deps.sessions())].filter(
       (session) =>
         session.machineId === machineId &&
         session.status === 'live' &&
@@ -751,7 +789,7 @@ export class HostsService {
         ? ` — ${unparkable} of them cannot be parked by any policy that is on (shells need idleShellMinutes; agents need a resume ref), so they are NOT in the cap`
         : ''
     log.info('idle-session cap is counting unobserved quiet sessions (phase unknown)', {
-      machine: this.deps.machineName(machineId),
+      machine: await this.deps.machineName(machineId),
       counted,
       quiet: quiet.length,
       quietHours,

@@ -103,7 +103,12 @@ export interface UpdatesDaemonPort {
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;
  *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
-  onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
+  /** Async since the sweep reads settings and the session projection durably; the
+   *  mux SCHEDULES it (a sample is delivered, never answered) and logs a rejection. */
+  onHostMetrics(
+    machineId: MachineId,
+    sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>,
+  ): void | Promise<void>
   onMemoryBreakdownResult(machineId: MachineId, msg: DaemonFrame<'memoryBreakdownResult'>): void
   onReclaimDiskEstimateResult(
     machineId: MachineId,
