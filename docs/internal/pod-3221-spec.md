@@ -1556,6 +1556,42 @@ KNOWN SITE TO REPAIR: `relay.test.ts`, "keeps registry boot alive when the recov
 where `expect(() => { registry = SessionRegistry.create(...) }).not.toThrow()` was collapsed to a bare
 `registry = await SessionRegistry.create(...)` during the flip. Restore the matcher form.
 
+### Rule 51a — case 3 resolved: move the await to the PRODUCER, never fire-and-forget from the handler
+
+[First genuine rule 51 case 3, raised by POD-3263 on `SuperagentDefaultSeeder`, 2026-09-05. Its
+`seed()` is invoked from an awaited boot path AND from the synchronous void-returning
+`machine.metadataChanged` bus handler.]
+
+THE ANSWER IS THE PRODUCER, and POD-3263's own instinct was right. Await the seed at the async
+boundary that PRODUCES the event — `recordInventory`, which already writes and is already async —
+rather than inside the subscriber. Every other subscriber then observes an already-seeded state,
+failure surfaces on the write path instead of vanishing, and no non-yielding handler is made to yield.
+
+TWO SHAPES REFUSED, and the second is the trap:
+
+1. **Fire-and-forget from the handler** (`void seed()`), even with `seed` made async. It preserves
+   non-blocking emission and loses everything else: the failure is unobserved, and nothing orders the
+   seed against the next event. An unobserved rejection in an event handler is the silent-failure
+   shape this epic has now been bitten by twice.
+
+2. **Boot hydrate ALONE.** This one looks tidy and CONTRADICTS THE DOCUMENTED REASON THE HANDLER
+   EXISTS. `relay.ts` says it in as many words: *"An inventory report is the ONLY moment new
+   availability becomes known, and a daemon that connects minutes after boot is the ordinary case —
+   so the seed runs on the report rather than once at startup."* Seeding only at boot silently drops
+   every daemon that connects afterwards, which is the NORMAL case, not an edge one.
+
+SO BOTH HALVES ARE REQUIRED: awaited at the producer for each inventory report, AND awaited once at
+boot hydrate for the install whose daemon reported before this process started. The existing code has
+exactly that pair for exactly that reason; keep the pair.
+
+PRESERVE THE GUARD AND THE IDEMPOTENCE. The `inventory` flag exists so a rename or a machine-name
+change does not re-run the seed, and the seed is idempotent because its guard reads the fields its own
+write fills. Neither property may be lost in the move.
+
+AND CHECK THE PROPERTY IS PINNED. If no test asserts that a daemon connecting AFTER boot gets seeded,
+say so — that is the behaviour this whole shape exists to protect, and moving it without a test
+watching is how it disappears in the next refactor.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
