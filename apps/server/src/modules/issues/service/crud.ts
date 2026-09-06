@@ -27,7 +27,7 @@ import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { followUpAfterCommit } from '../../../store/executor/synchronous-span'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
@@ -429,7 +429,7 @@ export class IssueCrudModule {
     const store = this.store.deps.artifacts
     const terminalEvidence = input.terminalEvidence === true
     const session = opts?.actorSessionId
-      ? findSessionById(this.store.deps, opts.actorSessionId)
+      ? await findSessionByIdAsync(this.store.deps, opts.actorSessionId)
       : undefined
 
     if (input.sourceRoot && !terminalEvidence) {

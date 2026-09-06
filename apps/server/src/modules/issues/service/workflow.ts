@@ -19,7 +19,7 @@ import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -1455,7 +1455,7 @@ export class IssueGitWorkflowModule {
    *  so they resurface exactly when there's something new (the issue mirror of a
    *  session's `snoozedUntil: null` snooze). */
   async onSessionAttention(sessionId: SessionId): Promise<void> {
-    const sess = findSessionById(this.store.d, sessionId)
+    const sess = await findSessionByIdAsync(this.store.d, sessionId)
     if (!sess) return
     for (const row of [...this.store.rows.values()]) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -1502,7 +1502,7 @@ export class IssueGitWorkflowModule {
     const touched = this.gitTouchedBySession.get(sessionId) ?? new Set<string>()
     for (const f of activity.touched ?? []) touched.add(f)
     this.gitTouchedBySession.set(sessionId, touched)
-    const resolved = this.issueForSession(sessionId)
+    const resolved = await this.issueForSession(sessionId)
     if (!resolved) return undefined
     if (activity.commits?.length || !this.store.gitStates.has(resolved.row.id)) {
       return await this.refreshGitState(resolved.row.id, resolved.sess.cwd)
@@ -1527,7 +1527,7 @@ export class IssueGitWorkflowModule {
   }
 
   private async sessionTurnEndRefresh(sessionId: SessionId): Promise<void | undefined> {
-    const resolved = this.issueForSession(sessionId)
+    const resolved = await this.issueForSession(sessionId)
     if (!resolved) return undefined
     return await this.refreshGitState(resolved.row.id, resolved.sess.cwd)
   }
@@ -1546,7 +1546,7 @@ export class IssueGitWorkflowModule {
    * attribution ledger immediately; if its issue remains visible, queue a fresh
    * derived state so commits/files from the departed session do not linger. */
   async onSessionRemovedOrArchived(sessionId: SessionId): Promise<void> {
-    const resolved = this.issueForSession(sessionId)
+    const resolved = await this.issueForSession(sessionId)
     const removedCommits = this.gitCommitsBySession.delete(sessionId)
     const removedTouched = this.gitTouchedBySession.delete(sessionId)
     if ((!removedCommits && !removedTouched) || !resolved) return
@@ -1561,8 +1561,10 @@ export class IssueGitWorkflowModule {
   }
 
   /** The issue a session works: explicit attachment or worktree membership. */
-  private issueForSession(sessionId: SessionId): { row: IssueRow; sess: SessionMeta } | null {
-    const sess = findSessionById(this.store.d, sessionId)
+  private async issueForSession(
+    sessionId: SessionId,
+  ): Promise<{ row: IssueRow; sess: SessionMeta } | null> {
+    const sess = await findSessionByIdAsync(this.store.d, sessionId)
     if (!sess) return null
     const row = [...this.store.rows.values()].find(
       (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
