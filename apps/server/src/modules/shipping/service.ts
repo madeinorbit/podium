@@ -425,8 +425,8 @@ export class ShippingService {
     const issue = await this.deps.issues.get(input.issueId)
     const policy = await this.deps.policy.resolve(issue)
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
-      await this.deps.resolveBranchTip(issue),
-      await this.deps.resolveRefTip(issue, policy.targetBranch),
+      this.deps.resolveBranchTip(issue),
+      this.deps.resolveRefTip(issue, policy.targetBranch),
     ])
     const evidenceKey = {
       issueId: issue.id,
@@ -524,8 +524,8 @@ export class ShippingService {
       throw new ShippingAdmissionError('evidence', 'accepted review evidence is required by policy')
     }
     const [currentSourceHead, currentTargetHead] = await Promise.all([
-      await this.deps.resolveBranchTip(issue),
-      await this.deps.resolveRefTip(issue, policy.targetBranch),
+      this.deps.resolveBranchTip(issue),
+      this.deps.resolveRefTip(issue, policy.targetBranch),
     ])
     if (
       currentSourceHead !== input.approved.sourceHeadSha ||
@@ -3257,8 +3257,8 @@ export class ShippingService {
       )
     }
     const [sourceHead, targetHead, ...descendantHeads] = await Promise.all([
-      await this.deps.resolveBranchTip(issue),
-      await this.deps.resolveRefTip(issue, targetBranch),
+      this.deps.resolveBranchTip(issue),
+      this.deps.resolveRefTip(issue, targetBranch),
       ...descendants.map(async (child) => await this.deps.resolveBranchTip(child)),
     ])
     const liveDescendants = descendants.map((child, index) => ({
