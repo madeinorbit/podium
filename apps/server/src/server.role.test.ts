@@ -200,7 +200,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       credential: { kind: 'daemonSecret', secret: handle.bootstrapToken },
       claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
     })
-    const attachment = handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
+    const attachment = await handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
     expect(attachment.established).toBe(true)
     if (!attachment.established) throw new Error('local daemon handshake failed')
 
