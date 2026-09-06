@@ -2976,3 +2976,57 @@ is the same sentence before and after; "no longer throws" is not.
 split; this adds that a 48a re-spelling is listed in the handoff with the before and after
 text, so a reviewer can check the sentence for themselves rather than trusting that it was
 checked. POD-3499 did exactly that and it is why the conflict surfaced at all.
+
+### Rule 58 — the FIFTH class: a Promise baked into a DECLARED type
+
+Found by V5 in the flip review, and it is the first of these classes where **nothing flows
+wrong at all**. The declaration itself is wrong.
+
+```ts
+output: ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>        // WRONG
+output: Awaited<ReturnType<(typeof SUPERAGENT_COMMANDS)[N]['handler']>>  // every sibling
+```
+
+Once the handler became `async`, `ReturnType<>` of it *is* `Promise<T>`. The tRPC output
+type therefore declares a promise, and the server is perfectly consistent with itself: the
+handler returns a promise, the declared output says promise, nothing is misused. Three
+sites had it — `modules/workflows/trpc.ts:93` and `:125`, `modules/automations/trpc.ts:86` —
+against the `Awaited<>` spelling every other module already used.
+
+**WHY NO INSTRUMENT SEES IT.** TS2801, `lint:promise-truthiness` and the boundary lint all
+look for a promise being *read* as something it is not. Here no value is read wrongly. The
+type is simply declared one level off, and inside `apps/server` that is internally
+coherent. The compiler has nothing to object to.
+
+**IT SURFACES ONLY IN A CONSUMER, ONE PACKAGE AWAY:**
+
+```
+apps/web  src/features/workflows/use-workflows.ts(163,68): error TS2345
+  Argument of type 'Promise<{ workflow: {...}; revisions: {...}[] }>' is not assignable
+  to parameter of type 'SetStateAction<{...} | null>'
+```
+
+So the defect lives in `apps/server` and the red appears in `apps/web` — and this epic's
+headline number is *apps/server typechecks at 0*. Both statements were true at once for the
+whole flip.
+
+**AND THE GATE COULD NOT HAVE TOLD YOU.** `bun run typecheck` fail-fasts at `apps/daemon`
+and reports 22 of 26 projects, so it reached neither `apps/web` nor `@podium/scripts`. That
+is the same truncation that hid POD-3508's 93 errors. **A per-project census, with turbo
+bypassed, is the only thing that finds this class** — filed as POD-3516, with POD-3517 for
+the gate itself.
+
+**THE SEARCH.** Grep for `ReturnType<` not preceded by `Awaited<` across every type-level
+position, then check each against how its siblings spell it. Inconsistency between sibling
+modules is the tell, because the correct spelling was already the majority here — three
+sites were wrong out of a dozen. Where a codebase is uniformly wrong there is no tell at
+all, which is why the per-project census matters more than the grep.
+
+**THE GENERAL LESSON, and it is the one to carry into R4.** Every class from 52b onward has
+been a promise that some *declaration* made invisible: a union port, an inferred return, a
+`void` port, and now a missing `Awaited<>`. The compiler is only ever as good as what it was
+told. A sixth shape found the same night makes the point bluntly — `session-wiring.ts:87` is
+`const bag = life as any`, and all thirteen store calls beneath it are unchecked by
+construction, unawaited, against methods that are all async, with `apps/server` still
+reporting zero. **Treat every escape hatch as a hole in every gate downstream of it**, and
+audit what is under one before trusting a green.
