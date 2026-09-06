@@ -48,20 +48,20 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
-    const execute = () =>
-      def.handler(
+    const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
+      await def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),
         input,
-      ) as ReturnType<D['handler']>
-    if (def.conflict !== 'exp-rev') return execute()
+      ) as Awaited<ReturnType<D['handler']>>
+    if (def.conflict !== 'exp-rev') return await execute()
 
     const envelope = (input ?? {}) as { expectedRevision?: number }
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
-    if (ref == null) return execute()
+    if (ref == null) return await execute()
     const issue = await this.deps.issues.reports.get(ref)
-    if (!issue) return execute()
+    if (!issue) return await execute()
 
-    return this.deps.arbitration.run(
+    return await this.deps.arbitration.run(
       {
         command: `issues.${name}`,
         issueId: issue.id,
