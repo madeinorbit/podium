@@ -1721,6 +1721,13 @@ flags — it escaped only because the port was a union. POD-3488's was `!lease.r
 TS2801 does not flag at all. The union defeats the compiler's own check, which is the strongest
 argument yet for rule 52b.
 
+AND THE TWO LIVE DEFECTS SIT ON OPPOSITE SIDES OF THE TS2801 LINE, which is why either one alone
+would have taught the wrong lesson. POD-3487 was a spelling the compiler DOES flag, escaping only
+through the union. POD-3488 was a spelling it NEVER flags. Read only the first and you conclude the
+union is the whole problem; read only the second and you conclude the compiler is useless here. Both
+together give the actual shape: the compiler covers most spellings, the union defeats it entirely, and
+the negation and loop forms are unguarded regardless.
+
 TWO CONSEQUENCES. TS2801 only protects a checkout whose typecheck is ALREADY GREEN, so it protects
 nothing on a red slice mid-flip — which is exactly when this class is introduced. And the union port is
 simultaneously the spelling the compiler cannot see and the one this epic keeps writing.
