@@ -137,3 +137,100 @@ pre-migrated schema image, keyed on a hash of the migration manifest and built o
 checkout. An A/B inside one checkout cannot distinguish "the code is red" from "this
 checkout's cached image is bad". The dev/mw arm below has its own node_modules and so
 rebuilds its own image, which answers this and the attribution question in one run.
+
+---
+
+# ATTRIBUTION: all 56 are regressions of this epic. None predates it.
+
+Control arm at **dev/mw = 2e06fa9a4**, which is also the merge-base of the integration
+branch (`git merge-base dev/mw HEAD` = 2e06fa9a4 — the integration branch has not been
+rebased onto a moved dev/mw, so "the base" is unambiguous). Own detached worktree
+`/home/mgw/pod3526-base-devmw`, own `bun install --frozen-lockfile`, own
+`node_modules/.cache` — so this arm also rebuilds POD-523's schema image from scratch and
+retires the shared-cache confound noted above.
+
+The shard boundary MOVED, so the base arm is two shards, not one. At the base the store
+shard is 41 files; at the tip it is 91. Two of the failing files (`authz-matrix.test.ts`,
+`modules/operations/engine.test.ts`) were in the **contracts** shard at the base and are in
+**store** now, because their import closure now reaches `src/store` (shardOf rule 5). Both
+base shards were run.
+
+| arm | files | tests | failed |
+|---|---|---|---|
+| base `test:store` | 41 | 338 | 1 |
+| base `test:contracts` | 98 | — | 3 (3 files) |
+| tip `test:store` | 91 | 1269 | 56 |
+
+**Not one of the 56 names appears at the base.** The base's own four failures are
+different tests in different files (`per-user-state-family`, `modules/shipping/queue`,
+`modules/updates/local-participant`, `session-projection.audit`) and none of them is in
+the 56 — those four ARE pre-existing on dev/mw, and they are somebody else's finding, not
+this one.
+
+## Per file
+
+| file | failed | at the base | attribution |
+|---|---|---|---|
+| `migrations/restore.test.ts` | 19 | present, 6 epic commits, +89/-80 | **regression** — all 19 observed passing at base |
+| `store/runtime-events.test.ts` | 11 | **did not exist** | new file, red |
+| `migrations/snapshot-verifier.test.ts` | 9 | **did not exist** | new file, red |
+| `modules/operations/engine.test.ts` | 5 | present, 8 epic commits, +333/-125 | **regression** ×4 observed passing at base; 1 is a new test |
+| `authz-matrix.test.ts` | 3 | present, 1 epic commit, +9/-9 | **regression** — all 3 observed passing at base |
+| `modules/automations/scheduler.single-flight.test.ts` | 3 | **did not exist** | new file, red |
+| `store/user-preferences.test.ts` | 1 | present, 6 epic commits | **regression** — observed passing at base |
+| `store/repos-read-cost.test.ts` | 1 | present, 9 epic commits | **regression** — observed passing at base |
+| `store/maintenance.golden.test.ts` | 1 | **did not exist** | new file, red |
+| `store/executor/span-side-effects.test.ts` | 1 | **did not exist** | new file, red |
+| `migrations/snapshot-verifier-boundary.test.ts` | 1 | **did not exist** | new file, red |
+| `migrations/pre-migrated-fixture.test.ts` | 1 | present, 2 epic commits | **regression** — observed passing at base |
+
+  **29** existed at the base and are OBSERVED PASSING there
+  **27** did not exist at the base (26 in six files the epic added, plus one new test in
+         `engine.test.ts`)
+  **0**  predate the epic
+
+Zero of the failing files is unchanged since the base. Every one was either added by the
+epic or rewritten by it.
+
+## The canary, because "did not fail" and "did not run" look identical
+
+The whole-shard base arm only tells you a name is absent from a failure list. So each of
+the six pre-existing files was ALSO run at the base under `--reporter=verbose`, which
+prints passing test titles, and the tip's failing titles were intersected with the base's
+PASSING titles:
+
+    base store canary     4 files, 4 passed  -> 22 of 22 tip failures observed PASSING
+    base contracts canary 2 files, 2 passed  ->  7 of  8 tip failures observed PASSING
+                                                 (the 8th, 'names the outcome with the
+                                                  attempts and stalls that produced it',
+                                                  is a test the epic added)
+
+29 positive observations, not 29 absences.
+
+## A second harness fact, found on the way and NOT the cause of anything here
+
+`cd apps/server && bun run test` prints the five-shard roster and **exits 0 having executed
+no tests**. Verified on the tip: "444 unit files across 5 shards", exit 0, 5s. That is a
+runner that can be invoked in a way that lies — but it lies in the opposite direction to
+this issue's hypothesis (it under-reports work done, it does not manufacture failures), and
+under Turbo the aggregate `test` task's `dependsOn` runs all five shards, so the lane is
+honest where it is actually gated. It did not affect any measurement here.
+
+## WHAT I AM NOT CLAIMING
+
+- **Not a cause for any of the 56.** This issue asked whether they are real; it did not ask
+  which commit made each one red, and I did not bisect. "The epic did it" is a statement
+  about the interval dev/mw..tip, not about a commit.
+- **Not that the 27 new-file failures are regressions.** They are tests written during the
+  epic that do not pass on the tip. Whether each is a red product or a red test is a
+  question for its owner; a new test failing is not the same defect class as a test that
+  used to pass.
+- **Nothing about services or boundary.** POD-3506 owns those; I did not run them.
+- **Not that the hang set is stable.** It is not: 9 tests crossed 20000ms in both of my
+  arms, POD-3506 saw 10, and the tenth ('keeps live-tail and completion-reconcile overlap
+  exact after reload') fails in my arms at ~10.2s. The FAILING set was perfectly stable
+  across two arms; the HANGING subset of it was not.
+- **Not measured on a quiet box.** flatblock was at load average 7-19 throughout, with other
+  sessions' vitest runs. Every arm here is same-box and the arms were never concurrent with
+  each other, but a 20s timeout is a wall-clock threshold and the 9/10 disagreement above is
+  probably exactly that.
