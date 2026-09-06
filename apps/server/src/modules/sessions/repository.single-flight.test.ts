@@ -98,7 +98,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     expect(upserted).toEqual(['flush-0', 'flush-0'])
   })
 
-  it('releases the fence when a persist throws', () => {
+  it('releases the fence when a persist throws', async () => {
     const { repo, rows } = fixture(1)
     rows[0]!.terminal.recordResumeActivity()
 
@@ -108,8 +108,8 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
       throw new Error('ledger is gone')
     })
 
-    expect(() => repo.flushActivity()).toThrow('ledger is gone')
-    expect(() => repo.flushActivity()).toThrow('ledger is gone')
+    await expect(repo.flushActivity()).rejects.toThrow('ledger is gone')
+    await expect(repo.flushActivity()).rejects.toThrow('ledger is gone')
     expect(calls).toBe(2)
     spy.mockRestore()
   })

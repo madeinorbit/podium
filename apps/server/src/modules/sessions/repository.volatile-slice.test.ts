@@ -110,7 +110,7 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
     expect(wire.mock.results.map((result) => result.value.title)).toEqual(['title-0', 'newest'])
   })
 
-  it('keeps a failed slice pending and schedules the existing retry', () => {
+  it('keeps a failed slice pending and schedules the existing retry', async () => {
     vi.useFakeTimers()
     const { repo, rows, capture, runScheduledBroadcast } = fixture(2)
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
@@ -122,7 +122,7 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
       throw new Error('ledger unavailable')
     })
 
-    expect(() => repo.drainVolatileCaptureSlice()).toThrow('ledger unavailable')
+    await expect(repo.drainVolatileCaptureSlice()).rejects.toThrow('ledger unavailable')
     expect(repo.hasPendingVolatile()).toBe(true)
     vi.advanceTimersByTime(999)
     expect(runScheduledBroadcast).not.toHaveBeenCalled()
