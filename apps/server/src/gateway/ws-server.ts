@@ -253,6 +253,17 @@ export function attachWebSockets(
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
   const clientsByCredential = new Map<string, Set<NativeGatewaySocket>>()
   const credentialValidity = new Map<string, { valid: boolean; refreshedAt: number }>()
+  /**
+   * Revocation generation per credential. A maintenance pass reads the store
+   * asynchronously, so an explicit revoke can land while that read is in flight
+   * and the pass would then write back the `valid: true` its pre-revoke read saw
+   * — resurrecting a credential the operator just killed. The pass captures the
+   * generation before its read and discards its own result if a revoke bumped it,
+   * so a revocation always wins the race. Fail closed (rule 49).
+   */
+  const credentialRevocations = new Map<string, number>()
+  const revocationGeneration = (credentialId: string): number =>
+    credentialRevocations.get(credentialId) ?? 0
   const now = deps.now ?? Date.now
   let credentialMaintenance = Promise.resolve()
 
@@ -263,12 +274,15 @@ export function attachWebSockets(
       .then(async () => {
         await Promise.all(
           credentialIds.map(async (credentialId) => {
+            const generation = revocationGeneration(credentialId)
             let valid = false
             try {
               valid = (await auth.maintainClientCredential?.(credentialId)) === true
             } catch {
               valid = false
             }
+            // A revoke landed while this pass was reading; its verdict stands.
+            if (revocationGeneration(credentialId) !== generation) return
             credentialValidity.set(credentialId, { valid, refreshedAt: now() })
             if (!valid) {
               for (const socket of clientsByCredential.get(credentialId) ?? []) socket.terminate()
@@ -455,6 +469,7 @@ export function attachWebSockets(
         : new Response('WebSocket upgrade failed', { status: 400 })
     },
     revokeClientCredential(credentialId) {
+      credentialRevocations.set(credentialId, revocationGeneration(credentialId) + 1)
       credentialValidity.set(credentialId, { valid: false, refreshedAt: now() })
       const sockets = clientsByCredential.get(credentialId)
       if (!sockets) return

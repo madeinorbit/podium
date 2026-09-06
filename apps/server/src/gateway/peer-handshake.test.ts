@@ -148,6 +148,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      [],
     )
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
@@ -387,6 +388,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      [],
     )
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })

@@ -206,14 +206,18 @@ describe('daemon socket auth', () => {
       ownerUserId: asUserId('user:sole'),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' }))
     await ws.emit('close')
-    // Close detaches against THIS socket's send fn, so a superseded socket's late
-    // close can't evict a daemon that has already reconnected.
-    expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
+    // Close detaches against THIS socket's transport, so a superseded socket's late
+    // close can't evict a daemon that has already reconnected. Pin the identity:
+    // the object handed to detach must be the one this socket attached with.
+    expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.anything())
+    // toHaveBeenCalledWith compares structurally, so identity needs its own check.
+    expect(detach.mock.calls[0]?.[1]).toBe(attach.mock.calls[0]?.[1])
   })
 
   it('does not detach when the socket closes before it ever attached', async () => {
