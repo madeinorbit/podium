@@ -247,7 +247,7 @@ describe('development web build', () => {
       stamps: [{ sourceSha: 'old' }, { sourceSha: 'old' }, { sourceSha: 'aaaaaaa' }],
       runStep: run,
     })
-    const both = Promise.all([await web.ensure('aaaaaaa'), await web.ensure('aaaaaaa')])
+    const both = Promise.all([web.ensure('aaaaaaa'), web.ensure('aaaaaaa')])
     await both
     expect(run).toHaveBeenCalledTimes(DEV_WEB_BUILD_STEPS.length)
   })

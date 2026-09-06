@@ -191,7 +191,7 @@ describe('D12 — a blocked aggregate never stalls another, and never stalls ano
       close('BLOCKED', { attribution: GRACE, partitionKey: 'issue:BLOCKED' }),
     )
 
-    await Promise.all([await ada.outbox.drain(), await grace.outbox.drain()])
+    await Promise.all([ada.outbox.drain(), grace.outbox.drain()])
 
     expect(stateOf(ada.outbox, adaBlocked.mutationId)).toBe('accepted')
     expect(stateOf(ada.outbox, adaBehind.mutationId)).toBe('queued')

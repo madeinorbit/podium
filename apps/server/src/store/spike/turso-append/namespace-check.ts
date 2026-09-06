@@ -152,7 +152,7 @@ async function bothAtOnce(
       child.on('close', (code) => resolve({ code: code ?? -1, output: `run ${n}: ${output}` }))
     })
 
-  const results = await Promise.all([await run(1), await run(2)])
+  const results = await Promise.all([run(1), run(2)])
   let green = 0
   let red = 0
   for (const result of results) {

@@ -257,7 +257,7 @@ describe('single-flight (P6)', () => {
       }),
     )
 
-    const [a, b] = await Promise.all([await engine.start('test'), await engine.start('test')])
+    const [a, b] = await Promise.all([engine.start('test'), engine.start('test')])
     const outcomes = [a, b]
     expect(outcomes.filter((r) => r.started)).toHaveLength(1)
     expect(outcomes.find((r) => !r.started)).toMatchObject({ alreadyRunning: 'op_1' })

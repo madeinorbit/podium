@@ -26,8 +26,8 @@ function shortSha(raw: string): string {
 
 async function assertSnapshotIdentity(root: string, approvedSha: string): Promise<void> {
   const [head, changed] = await Promise.all([
-    await git(root, ['rev-parse', '--short=7', 'HEAD']),
-    await git(root, ['status', '--porcelain=v1', '--untracked-files=no']),
+    git(root, ['rev-parse', '--short=7', 'HEAD']),
+    git(root, ['status', '--porcelain=v1', '--untracked-files=no']),
   ])
   if (shortSha(head) !== shortSha(approvedSha)) {
     throw new Error(

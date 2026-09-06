@@ -1490,8 +1490,8 @@ describe('the update operation, driven', () => {
   it('gives two concurrent starts one operation', async () => {
     const h = await harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
     const [first, second] = await Promise.all([
-      await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
-      await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
+      h.engine.start(UPDATE_OPERATION_KIND, h.context()),
+      h.engine.start(UPDATE_OPERATION_KIND, h.context()),
     ])
     const ids = [first, second].map((r) =>
       r.started ? r.operation.id : 'alreadyRunning' in r ? r.alreadyRunning : 'refused',

@@ -97,9 +97,9 @@ export async function releaseProposalFacts(input: {
   const rangeBase = await resolveBaselineSha(input, run)
   const range = `${rangeBase}..${input.headSha}`
   const [branchRaw, commitsRaw, migrationsRaw] = await Promise.all([
-    await run(['rev-parse', '--abbrev-ref', 'HEAD']),
-    await run(['log', '-z', '--format=%H%x00%s', range]),
-    await run([
+    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    run(['log', '-z', '--format=%H%x00%s', range]),
+    run([
       'diff',
       '--diff-filter=A',
       '--name-only',

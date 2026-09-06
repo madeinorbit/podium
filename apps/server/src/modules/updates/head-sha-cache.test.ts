@@ -220,7 +220,7 @@ describe('the cache', () => {
       },
       stamp: async () => 'stamp-1',
     })
-    const all = Promise.all([await cache.read(), await cache.read(), await cache.read()])
+    const all = Promise.all([cache.read(), cache.read(), cache.read()])
     release()
     expect(await all).toEqual(['aaaaaaa', 'aaaaaaa', 'aaaaaaa'])
     expect(reads).toBe(1)

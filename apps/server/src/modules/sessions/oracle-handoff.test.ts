@@ -1071,11 +1071,11 @@ describe('oracle: duplicate dispatch', () => {
     const f = await handoffFixture()
 
     const settled = await Promise.allSettled([
-      await f.reg.modules.issueSessionLifecycle.handoffSession(
+      f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
-      await f.reg.modules.issueSessionLifecycle.handoffSession(
+      f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),

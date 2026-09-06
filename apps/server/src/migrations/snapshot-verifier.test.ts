@@ -428,7 +428,7 @@ describe('SnapshotVerifier', () => {
       }
     })
 
-    await Promise.all([await verifier.verify(first), await verifier.verify(second)])
+    await Promise.all([verifier.verify(first), verifier.verify(second)])
 
     expect(peak).toBe(1)
   })

@@ -2419,6 +2419,118 @@ export function checkAsyncBooleanPredicate(file: string, source: string): Violat
   return violations
 }
 
+/**
+ * An `await` INSIDE AN ARRAY LITERAL passed to `Promise.all` / `allSettled` /
+ * `race` / `any` runs the elements ONE AT A TIME.
+ *
+ * ```ts
+ * await Promise.all([f(), f()])              // concurrent — two calls in flight
+ * await Promise.all([await f(), await f()])  // SEQUENTIAL — one, then the other
+ * ```
+ *
+ * Array literal elements are evaluated left to right, and an `await` suspends
+ * before the next element is constructed. `Promise.all` then receives values
+ * that have already settled and has nothing left to interleave.
+ *
+ * THIS IS NOT A MISSING AWAIT AND NOT A DECLINED ONE (POD-3221 rules 57 and 59).
+ * The await is locally harmless — same value, same type, clean under biome and
+ * the compiler. What it changes is the semantics of the ENCLOSING expression, so
+ * the tell is never the call site; it is the `Promise.all` a line or two above.
+ * Nothing else in this repo's toolchain looks at that.
+ *
+ * THE DAMAGE IS WORST WHERE IT IS SILENT. The async flip `9f0d5c33e` made this
+ * edit across sibling test files, and every site it touched was a test whose
+ * named property IS concurrency — single-flight, dedup, in-flight guards,
+ * two-tab collisions. Some went red. `updates/operation.test.ts` ("gives two
+ * concurrent starts one operation") stayed GREEN: run sequentially, the second
+ * start still hits the already-running branch, so the assertion holds while the
+ * race it is named for is no longer exercised. A concurrency test quietly
+ * converted into a sequential one is worse than a deleted one, because it goes
+ * on reporting success. The class was found twice by accident, months apart, and
+ * never by a gate — which is why it is a gate now.
+ *
+ * WHAT THIS RULE DELIBERATELY DOES NOT FLAG, so the ceiling is stated rather
+ * than discovered:
+ *   - an await inside a NESTED FUNCTION BODY in an element (`(async () => await
+ *     f())()`). That await runs when the function runs; it does not serialise
+ *     the literal. The scan stops at function boundaries for this reason.
+ *   - a non-literal argument (`Promise.all(list)`). Resolving `list` needs types
+ *     and a whole-program pass; `check-promise-truthiness.ts` is where that kind
+ *     of check lives.
+ *   - `.map(async …)` yielding promises, which is the correct idiom.
+ */
+const PROMISE_COMBINATORS = new Set(['all', 'allSettled', 'race', 'any'])
+
+export function checkSequentialPromiseCombinator(file: string, source: string): Violation[] {
+  if (!/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(\s*\[/.test(source)) return []
+  const violations: Violation[] = []
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+
+  /**
+   * EVERY `await` this element evaluates before the next element is built —
+   * not just the first. A conditional element holds one per branch
+   * (`shared ? await a() : await b()`, which is how `git-state.ts:135` spelled
+   * it), each is separately serialising, and each is a separate `await` a
+   * reader has to delete. Reporting only the first would under-report the fix.
+   *
+   * Nested function bodies are NOT entered: their awaits are deferred to
+   * whenever that function is called, so they cost no concurrency here. That
+   * exemption is the difference between this rule and a text scan.
+   */
+  const serialisingAwaits = (element: ts.Node): ts.AwaitExpression[] => {
+    const found: ts.AwaitExpression[] = []
+    const scan = (node: ts.Node): void => {
+      if (
+        ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node)
+      ) {
+        return
+      }
+      if (ts.isAwaitExpression(node)) found.push(node)
+      ts.forEachChild(node, scan)
+    }
+    scan(element)
+    return found
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Promise' &&
+      PROMISE_COMBINATORS.has(node.expression.name.text) &&
+      node.arguments.length > 0 &&
+      ts.isArrayLiteralExpression(node.arguments[0] as ts.Node)
+    ) {
+      const combinator = node.expression.name.text
+      const literal = node.arguments[0] as ts.ArrayLiteralExpression
+      for (const element of literal.elements) {
+        for (const offender of serialisingAwaits(element)) {
+        const line = sourceFile.getLineAndCharacterOfPosition(offender.getStart(sourceFile)).line + 1
+        violations.push({
+          file,
+          specifier: `Promise.${combinator}`,
+          rule: 'sequential-promise-combinator',
+          message: `${file}:${line}: this element of the array passed to 'Promise.${combinator}()' is AWAITED, so it finishes before the next element is even started — the calls run one at a time and 'Promise.${combinator}' receives values that have already settled. Nothing here is concurrent. Delete the inner 'await' (the combinator already awaits); if you meant these to run in sequence, use separate statements and say so. (POD-3221 spec rule 59.)`,
+        })
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 export function checkFile(file: string, source: string): Violation[] {
   return [
     ...checkReplicaDirection(file, source),
@@ -2426,6 +2538,7 @@ export function checkFile(file: string, source: string): Violation[] {
     ...checkRepositoryDbCapture(file, source),
     ...checkProjectionSqlIdentifiers(file, source),
     ...checkAsyncBooleanPredicate(file, source),
+    ...checkSequentialPromiseCombinator(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
@@ -2962,6 +3075,78 @@ function main(): void {
       process.exit(3)
     }
     console.log('probe: manifest-retired-path refuses 3/3 import forms and 1/1 re-created file')
+
+    // POD-3519 — `sequential-promise-combinator` proves it can still fire, and
+    // proves it still stays quiet. The rule's whole job is to notice something
+    // that typechecks clean and reads correctly, so nothing in the tree tells us
+    // when it stops noticing: once the nine real sites are fixed, a broken rule
+    // and a clean repo are the same green. The fixture is the only thing that
+    // can tell them apart.
+    //
+    // BOTH HALVES are asserted. A check that fires on everything is as useless
+    // as one that fires on nothing, and the quiet half carries the exact forms a
+    // careless widening would start flagging — a deferred await inside a nested
+    // function body, a `.map(async …)`, a non-literal argument. If the loud
+    // count is right and the quiet count is not, the rule got broader, not
+    // better.
+    //
+    // EXIT CODE 4, on the same reasoning as the retired-path probe above: 1 is
+    // already spoken for by the harness probe's deliberate violation, so a
+    // distinct code keeps 'the guard is dead' from reading as 'the guard fired'.
+    const seqProbeSource = readFileSync(
+      join(repoRoot, 'scripts/fixtures/sequential-promise-all-probe.ts.txt'),
+      'utf8',
+    )
+    const seqProbe = checkSequentialPromiseCombinator(
+      'apps/server/src/__sequential-promise-probe.ts',
+      seqProbeSource,
+    )
+    const seqLines = seqProbe
+      .map((v) => Number(/:(\d+):/.exec(v.message)?.[1] ?? 0))
+      .sort((a, b) => a - b)
+    // Derived from the fixture rather than written down: every line of the LOUD
+    // function that carries a planted `await` inside a combinator literal. A
+    // hand-copied line list is the thing this epic's rule 59 exists to distrust,
+    // and it would go stale the first time someone edits a fixture comment.
+    const loudBody = seqProbeSource.slice(
+      seqProbeSource.indexOf('export async function loud'),
+      seqProbeSource.indexOf('export async function quiet'),
+    )
+    const loudOffset = seqProbeSource.slice(0, seqProbeSource.indexOf('export async function loud'))
+      .split('\n').length
+    const expectedLines = loudBody
+      .split('\n')
+      .map((text, i) => ({ text, line: loudOffset + i }))
+      .filter((l) => /Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(\s*\[/.test(l.text))
+      .flatMap((l) => {
+        const inner = l.text.slice(l.text.indexOf('['))
+        return Array.from(inner.matchAll(/\bawait\b/g)).map(() => l.line)
+      })
+      .sort((a, b) => a - b)
+    const quiet = checkSequentialPromiseCombinator(
+      'apps/server/src/__sequential-promise-quiet.ts',
+      seqProbeSource.slice(seqProbeSource.indexOf('export async function quiet')),
+    )
+    if (
+      seqLines.length !== expectedLines.length ||
+      seqLines.some((l, i) => l !== expectedLines[i]) ||
+      quiet.length !== 0
+    ) {
+      console.error(
+        `\nPROBE FAILED (sequential-promise-combinator): loud [${seqLines.join(', ')}] ` +
+          `but the fixture plants [${expectedLines.join(', ')}]; quiet ${quiet.length}/0` +
+          (quiet.length > 0 ? ` — ${quiet.map((v) => v.message).join(' | ')}` : '') +
+          '. The rule can no longer separate a sequentialised Promise combinator from a ' +
+          'correct one — fix checkSequentialPromiseCombinator in scripts/check-boundaries.ts ' +
+          'before trusting any green from this check (POD-3221 rule 59).',
+      )
+      process.exit(4)
+    }
+    console.log(
+      `probe: sequential-promise-combinator flags ${seqLines.length}/${expectedLines.length} ` +
+        `planted awaits (all/allSettled/race/any, conditional, nested, member) and ` +
+        `stays quiet on ${(quiet.length === 0 ? 'all' : 'not all')} 6 correct forms`,
+    )
   }
   // ONE allowlist, but the two rule families must be applied to their OWN
   // violations: applyAllowlist calls any entry with no matching violation stale,

@@ -1045,7 +1045,7 @@ describe('single-flight drain', () => {
     const { outbox, authority } = await harness(() => applied)
     const record = await outbox.enqueue(close('POD-1'))
 
-    await Promise.all([await outbox.drain(), await outbox.drain(), await outbox.drain()])
+    await Promise.all([outbox.drain(), outbox.drain(), outbox.drain()])
 
     expect(authority.attempts(record.mutationId)).toBe(1)
   })
@@ -1158,8 +1158,8 @@ describe('review round 1 — the blockers, each with the test that would have ca
     store.delayNextWrites = 1
 
     const [a, b] = await Promise.all([
-      await outbox.enqueue(close('POD-1')),
-      await outbox.enqueue(close('POD-2')),
+      outbox.enqueue(close('POD-1')),
+      outbox.enqueue(close('POD-2')),
     ])
 
     expect(outbox.all().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
@@ -1835,8 +1835,8 @@ describe('review round 3 — concurrent writers, deterministically', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.allSettled([
-      await ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
-      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
+      ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
+      grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
     ])
     await Promise.resolve()
     release()
@@ -1871,7 +1871,7 @@ describe('review round 3 — concurrent writers, deterministically', () => {
     await tabB.outbox.enqueue(close('POD-2'))
 
     const release = store.holdNextApplies(2)
-    const both = Promise.allSettled([await tabA.outbox.discard(record.mutationId), await tabB.outbox.drain()])
+    const both = Promise.allSettled([tabA.outbox.discard(record.mutationId), tabB.outbox.drain()])
     await Promise.resolve()
     release()
     const [discarded, drained] = await both
@@ -1911,8 +1911,8 @@ describe('review round 3 — concurrent writers, deterministically', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.allSettled([
-      await ada.outbox.enqueue(close('POD-1', { attribution: ADA })),
-      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE })),
+      ada.outbox.enqueue(close('POD-1', { attribution: ADA })),
+      grace.outbox.enqueue(close('POD-2', { attribution: GRACE })),
     ])
     await Promise.resolve()
     release()
@@ -2207,7 +2207,7 @@ describe('review round 5 — store-level transaction isolation', () => {
 
     const release = store.holdNextApplies(2)
     const both = Promise.all([
-      await uowOne.transact(async (span) => {
+      uowOne.transact(async (span) => {
         await store.apply(
           {
             put: [
@@ -2227,7 +2227,7 @@ describe('review round 5 — store-level transaction isolation', () => {
           span,
         )
       }),
-      await uowTwo.transact(async (span) => {
+      uowTwo.transact(async (span) => {
         await store.apply(
           {
             put: [
