@@ -179,7 +179,25 @@ MERGE INSTRUCTION, therefore:
    `f37110d11`** — the synchronous acceptor and synchronous strategies. That IS POD-3469's design; its
    shape requires the acceptor to stay sync. Do not carry B1's async versions across.
 3. Keep `packages/protocol/src/messages/local-link.ts` from POD-3469 — its one legitimate change there.
-4. Then re-verify all three properties that decided this: `MAX_QUEUED_PREAUTH_FRAMES` still present and
+4. Then re-verify all three properties that decided this. POD-3469 has since made ALL THREE
+   automatic (`5bcc88b9b`, `d33784354`), so this is now running two commands rather than reading code:
+
+   - `bun x tsgo --noEmit` in `apps/server` — the split is pinned by a `@ts-expect-error` type
+     assertion at `peer-handshake.test.ts:51`. If the two interfaces collapse, the directive stops
+     being used and TS2578 names that line. VERIFIED BY THE COORDINATOR: baseline 84 errors with
+     TS2578 absent; widening the resolved slot to accept a promise gives 103 errors and
+     `peer-handshake.test.ts(51,1): error TS2578: Unused '@ts-expect-error' directive`. Restored
+     byte-identical. A runtime test could not cover this — if the interfaces collapse every runtime
+     test still passes, which is the exact back-door failure this ruling guards against.
+   - the `peer-handshake` suite — the bound is mutation-checked both ways: raising
+     `MAX_QUEUED_PREAUTH_FRAMES` from 1 to 8 fails, and replacing the overflow arm with a bare return
+     (dropping the FRAME instead of the CONNECTION) fails.
+   - the `daemon-fail-closed` suite — `d33784354` catches the two-hellos-in-one-tick double attach.
+     THIS IS THE ONE TO WATCH: a textual merge that keeps POD-3469's `daemon-socket.ts` but takes B1's
+     acceptor would PASS THE TYPECHECK and still double-attach. Both files are already listed in
+     `test-shards.json`, so they run.
+
+   Original wording, kept because it states what the checks are for: `MAX_QUEUED_PREAUTH_FRAMES` still present and
    still 1; POD-3469's TS2322 substitution probe still refuses; and the two-hellos-in-one-tick case in
    `daemon-fail-closed.test.ts` (`d33784354`) still passes. POD-3469 mutation-checked that last one —
    replacing `preAuthSerial` with `Promise.resolve()` reproduces "called 2 times" exactly.
