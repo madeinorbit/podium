@@ -51,6 +51,28 @@
  * proved by an instrument that ran over nothing is the failure mode a gate like
  * this dies of, and the count is the only thing that separates the two.
  *
+ * AND A RUN THAT COULD NOT HAVE FAILED IS THE SAME FAILURE ONE LEVEL UP
+ * [POD-3426]. A statement count above zero says the instrument RAN; it does not
+ * say the instrument could have DISAGREED. FATAL is `write-declared-read` and
+ * nothing else produces one, so a corpus in which no repository declared `read`
+ * reports FATAL 0 arithmetically, before a single query executes.
+ *
+ * POD-3391 shipped into exactly that state and it took a planted defect to
+ * notice: after B1 a converted repository reaches the driver through
+ * `storeQueriesOver`, whose proxy callback maps drizzle's `run`, `get` and `all`
+ * terminals alike onto the write-declaring client verbs. So every converted
+ * statement declares `write`, POD-3321's defect — a write whose terminal is
+ * `.all()` — is invisible because the terminal no longer chooses the
+ * declaration, and the gate printed the same comfortable zero with the defect
+ * planted as without it. Measured, twice, byte-identical.
+ *
+ * So the gate now REFUSES a corpus with no reach, in the voice it already uses
+ * for a lane that did not run clean: this run proves nothing either way, exit 2,
+ * distinct from exit 1's "I found something wrong". Executor-owned statements do
+ * not count toward reach — proving the instrument can say yes is `--probe`'s
+ * job, and scaffolding holding the gate green while every repository it watches
+ * is structurally unable to fail is the precise thing being refused.
+ *
  * ---------------------------------------------------------------------------
  * THE TWO ERRORS ARE GRADED, NOT COUNTED TOGETHER
  * ---------------------------------------------------------------------------
@@ -96,8 +118,9 @@ import {
  */
 const CORPUS = 'apps/server/src/store/'
 
-interface LaneReport {
+export interface LaneReport {
   totals: { examined: number; derivedWrite: number; derivedRead: number; inconclusive: number }
+  reach: { gradedReadDeclarations: number; fromOutsideTheExecutor: number }
   findings: IntentFinding[]
 }
 
@@ -136,6 +159,7 @@ function runCorpus(repoRoot: string): { report: LaneReport; workers: number } {
     const lines = readFileSync(reportPath, 'utf8').split('\n').filter(Boolean)
     const report: LaneReport = {
       totals: { examined: 0, derivedWrite: 0, derivedRead: 0, inconclusive: 0 },
+      reach: { gradedReadDeclarations: 0, fromOutsideTheExecutor: 0 },
       findings: [],
     }
     for (const line of lines) {
@@ -144,6 +168,8 @@ function runCorpus(repoRoot: string): { report: LaneReport; workers: number } {
       report.totals.derivedWrite += worker.totals.derivedWrite
       report.totals.derivedRead += worker.totals.derivedRead
       report.totals.inconclusive += worker.totals.inconclusive
+      report.reach.gradedReadDeclarations += worker.reach.gradedReadDeclarations
+      report.reach.fromOutsideTheExecutor += worker.reach.fromOutsideTheExecutor
       report.findings.push(...worker.findings)
     }
     return { report, workers: lines.length }
@@ -234,12 +260,96 @@ async function probe(): Promise<string[]> {
   if (audit.totals.examined !== 6) {
     broken.push(`the audit examined ${audit.totals.examined} of the 6 statements it was given`)
   }
+
+  // Reach, both halves [POD-3426]. A refusal that only ever fires is as useless
+  // as one that never does, so the probe plants a corpus WITH read declarations
+  // and one WITHOUT, and reports either answer coming back wrong.
+  //
+  // Three of the six declared `read`: the two planted INSERTs and the honest
+  // `get`. They were issued from this file, which is not under store/executor/.
+  if (audit.reach.gradedReadDeclarations !== 3) {
+    broken.push(
+      `three of the six statements declared \`read\`, and reach counted` +
+        ` ${audit.reach.gradedReadDeclarations}`,
+    )
+  }
+  if (audit.reach.fromOutsideTheExecutor !== 3) {
+    broken.push(
+      'the gate issued three read declarations from scripts/, and reach attributed' +
+        ` ${audit.reach.fromOutsideTheExecutor} of them outside store/executor/`,
+    )
+  }
+  const writeOnly = new IntentAudit()
+  for (const sql of ['SELECT 1', "INSERT INTO notes (body) VALUES ('x')"]) {
+    writeOnly.observe({ sql, intent: 'write', issueStack: 'Error\n    at (apps/server/x.ts:1:1)' })
+  }
+  if (
+    writeOnly.reach.fromOutsideTheExecutor !== 0 ||
+    writeOnly.reach.gradedReadDeclarations !== 0
+  ) {
+    broken.push(
+      'a corpus that declared `write` for everything reported reach' +
+        ` ${JSON.stringify(writeOnly.reach)}, not zero — the refusal cannot fire`,
+    )
+  }
   return broken
 }
 
 // ---------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------
+
+/**
+ * THE GATE'S DECISION, as a pure function of the summed report.
+ *
+ * Separated from {@link main} so the three ways this check REFUSES are covered
+ * by tests rather than by having been read. Two of them are refusals of the
+ * corpus, not findings against the code, and they exit 2 for the same reason
+ * `runCorpus` does when the lane is red: "I am not in a position to tell you"
+ * is a different answer from "I found something wrong", and a caller that
+ * cannot distinguish them will eventually treat one as the other.
+ *
+ * Exit 1 is reserved for a FATAL finding and for the corpus running over
+ * nothing at all, which POD-3391 already graded as a broken instrument.
+ */
+export function gateVerdict(report: LaneReport): { code: 0 | 1 | 2; refusal?: string } {
+  const { examined } = report.totals
+  const fatal = report.findings.filter((f) => f.fatal)
+  if (examined === 0) {
+    return {
+      code: 1,
+      refusal:
+        'THE GATE EXAMINED NOTHING. An absence proved by an instrument that ran over no' +
+        ' statements is not a pass; the corpus or the report sink is broken.',
+    }
+  }
+  if (report.reach.fromOutsideTheExecutor === 0) {
+    return {
+      code: 2,
+      refusal:
+        `NO STATEMENT IN THIS CORPUS COULD HAVE CARRIED A FATAL. ${examined} statements ran` +
+        ' through the audit and not one of them was declared `read` by anything outside' +
+        ' store/executor/, so `write-declared-read` was arithmetically impossible before the' +
+        ' run started. The FATAL 0 above is a fact about the corpus, not about the code, and' +
+        ' this run proves nothing either way.\n\n' +
+        '  TWO THINGS PUT IT IN THIS STATE, both measured under POD-3426, and either one alone' +
+        ' is enough:\n' +
+        '  1. A converted repository declares `write` for everything, its reads included.' +
+        ' `storeQueriesOver`\u2019s proxy callback maps drizzle\u2019s `run`, `get` and `all`' +
+        ' terminals alike onto the write-declaring client verbs (`run`/`writeGet`/`writeAll`),' +
+        ' so the terminal a call site chose no longer reaches the declaration at all.\n' +
+        '  2. A converted repository\u2019s statements are not in the corpus. The lane audit is' +
+        ' attached in `store/executor/harness.ts`, and repository tests build their store' +
+        ' through `test-support/stage-a-seam.ts` -> `createBunStoreExecutor`, which attaches' +
+        ' the attribution probe and not this one.\n\n' +
+        '  Neither is fixed by relaxing this refusal. For (1), drizzle hands its own builder' +
+        ' type (`select`/`insert`/`update`/`delete`) to `SQLiteRemoteSession.prepareQuery` and' +
+        ' drops it before calling our `RemoteCallback` \u2014 that is a declaration, not an' +
+        ' inference from SQL text, so rule 16 permits carrying it through.',
+    }
+  }
+  return { code: fatal.length === 0 ? 0 : 1 }
+}
 
 async function main(): Promise<void> {
   const broken = await probe()
@@ -251,7 +361,8 @@ async function main(): Promise<void> {
   if (process.argv.includes('--probe')) {
     console.log(
       'probe: a read-declared INSERT is FATAL with both values named, a write-declared SELECT is' +
-        ' reported and not fatal, and honest traffic is quiet.',
+        ' reported and not fatal, honest traffic is quiet, and reach separates a corpus that' +
+        ' could have failed from one that could not.',
     )
     return
   }
@@ -268,20 +379,20 @@ async function main(): Promise<void> {
   console.log(`  text is evidence of a write: ${derivedWrite}`)
   console.log(`  text is evidence of a read:  ${derivedRead}`)
   console.log(`  not graded by text (PRAGMA/EXPLAIN/…): ${inconclusive}`)
+  console.log(
+    `Reach — statements that COULD have carried a FATAL (declared \`read\`, gradable text):` +
+      ` ${report.reach.gradedReadDeclarations}, of which ${report.reach.fromOutsideTheExecutor}` +
+      ' issued from outside store/executor/.',
+  )
 
   console.log(`\n## FATAL — a write declared as a read (${fatal.length})`)
   console.log(fatal.length ? fatal.map(renderFinding).join('\n') : '(none)')
   console.log(`\n## Reported, not fatal — a read declared as a write (${over.length})`)
   console.log(over.length ? over.map(renderFinding).join('\n') : '(none)')
 
-  if (examined === 0) {
-    console.error(
-      '\nTHE GATE EXAMINED NOTHING. An absence proved by an instrument that ran over no' +
-        ' statements is not a pass; the corpus or the report sink is broken.',
-    )
-    process.exit(1)
-  }
-  process.exit(fatal.length === 0 ? 0 : 1)
+  const verdict = gateVerdict(report)
+  if (verdict.refusal) console.error(`\n${verdict.refusal}`)
+  process.exit(verdict.code)
 }
 
 if (import.meta.main) await main()

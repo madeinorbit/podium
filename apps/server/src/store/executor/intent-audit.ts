@@ -117,6 +117,46 @@ export interface IntentAuditTotals {
   readonly inconclusive: number
 }
 
+/**
+ * WHETHER A FATAL WAS REACHABLE AT ALL — the audit's answer to "could this
+ * corpus have failed me?" [POD-3426].
+ *
+ * A `write-declared-read` needs a call site that declared `read`. Nothing else
+ * produces one. So a corpus in which NO statement declared `read` reports FATAL
+ * 0 before it runs a single query, and that zero is a fact about the corpus, not
+ * about the code — the exact shape of comfortable-zero the gate's `examined ===
+ * 0` refusal already guards the other end of.
+ *
+ * IT IS MEASURED SEPARATELY FROM {@link IntentAuditTotals} BECAUSE IT IS A
+ * DIFFERENT QUESTION. The totals grade what the audit saw; this says whether the
+ * audit was ever in a position to disagree.
+ *
+ * POD-3426 measured why the counter is split in two. Post-B1 a converted
+ * repository reaches the driver through `storeQueriesOver`, whose proxy callback
+ * maps every drizzle terminal — `run`, `get` and `all` alike — onto the
+ * write-declaring client verbs, so a repository declares `read` for NOTHING. The
+ * only read declarations left in the corpus are the executor's own tests calling
+ * `client.get`/`client.all` directly, and counting those as reach would let the
+ * scaffolding hold the gate green while every repository it exists to watch
+ * stayed structurally unable to produce a finding. Proving the instrument can
+ * say yes is `--probe`'s job; the corpus check has to be about the corpus's
+ * SUBJECT.
+ */
+export interface FatalReach {
+  /**
+   * Statements whose call site declared `read` AND whose text the audit grades.
+   *
+   * Gradable, because a `read` declaration over a `PRAGMA` is a slot no finding
+   * could ever have come out of either.
+   */
+  readonly gradedReadDeclarations: number
+  /**
+   * Of those, the ones issued from OUTSIDE `store/executor/` — by a repository
+   * rather than by the executor's own scaffolding. This is what the gate reads.
+   */
+  readonly fromOutsideTheExecutor: number
+}
+
 const WRITE_HEADS = new Set(['INSERT', 'UPDATE', 'DELETE', 'REPLACE'])
 
 /**
@@ -271,6 +311,40 @@ const OBSERVER_FRAME = /store[/\\]executor[/\\][^/\\]*$/
 const TEST_FRAME = /\.test\.tsx?$/
 
 /**
+ * ANY frame under `store/executor/`, test files included.
+ *
+ * Deliberately NOT {@link OBSERVER_FRAME}, and the difference is the whole point
+ * of having two. `OBSERVER_FRAME` keeps executor TEST files so a finding can
+ * name the line that issued it — an audit that attributes everything to
+ * `unattributed` is one nobody can act on. Reach asks the opposite question:
+ * whether anything but the scaffolding declared a read, and there the executor's
+ * own tests are exactly what must not count.
+ */
+const EXECUTOR_FRAME = /store[/\\]executor[/\\]/
+
+/**
+ * Was this statement issued by something that is not the executor?
+ *
+ * A repository test reaches the driver through the repository, so its stack
+ * carries `store/<repository>.ts` and the test file above it. An executor test
+ * has nothing between itself and the seam, so every frame it owns is under
+ * `store/executor/` and the rest are vitest's, inside `node_modules`. Absent a
+ * stack the answer is `false`: reach is the claim that the gate can fail, and an
+ * unprovable claim must not be counted as proved.
+ */
+function issuedOutsideTheExecutor(stack: string | undefined): boolean {
+  if (!stack) return false
+  for (const line of stack.split('\n').slice(1)) {
+    const at = /\(?([^()\s]+\.(?:ts|tsx|js|mjs)):\d+:\d+\)?$/.exec(line.trim())
+    const file = at?.[1]
+    if (file === undefined || file.includes('node_modules')) continue
+    if (EXECUTOR_FRAME.test(file)) continue
+    return true
+  }
+  return false
+}
+
+/**
  * `file:line` of the nearest frame that is not this observer.
  *
  * Only ever called once a finding exists, so the cost of building a stack is
@@ -308,6 +382,8 @@ export class IntentAudit {
   private derivedWrite = 0
   private derivedRead = 0
   private inconclusiveCount = 0
+  private gradedReadDeclarations = 0
+  private readDeclarationsOutsideTheExecutor = 0
   private readonly found: IntentFinding[] = []
 
   /**
@@ -333,6 +409,18 @@ export class IntentAudit {
     if (evidence === 'write') this.derivedWrite += 1
     else if (evidence === 'read') this.derivedRead += 1
     else this.inconclusiveCount += 1
+
+    // Reach, counted BEFORE the comparison and independently of its outcome: the
+    // question is whether a FATAL was possible here, and a slot that happened to
+    // agree is still a slot. Parsing the stack is much cheaper than the
+    // `new Error().stack` the seam already built for every statement once any
+    // probe asked for sites, and only `read` declarations reach it at all.
+    if (observation.intent === 'read' && evidence !== 'inconclusive') {
+      this.gradedReadDeclarations += 1
+      if (issuedOutsideTheExecutor(observation.issueStack)) {
+        this.readDeclarationsOutsideTheExecutor += 1
+      }
+    }
     const finding = auditStatement(
       { sql: observation.sql, intent: observation.intent },
       // Resolved HERE rather than in `auditStatement`, so the pure comparison
@@ -348,6 +436,14 @@ export class IntentAudit {
       derivedWrite: this.derivedWrite,
       derivedRead: this.derivedRead,
       inconclusive: this.inconclusiveCount,
+    }
+  }
+
+  /** Whether this corpus could have produced a FATAL at all. See {@link FatalReach}. */
+  get reach(): FatalReach {
+    return {
+      gradedReadDeclarations: this.gradedReadDeclarations,
+      fromOutsideTheExecutor: this.readDeclarationsOutsideTheExecutor,
     }
   }
 

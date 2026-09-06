@@ -23,6 +23,7 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { OPERATOR } from './test-support/capabilities'
+import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
 
 const registries: SessionRegistry[] = []
@@ -42,7 +43,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+  await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
         registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {

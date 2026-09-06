@@ -112,6 +112,95 @@ describe('IntentAudit counts what it examined', () => {
   })
 })
 
+/**
+ * REACH — whether the corpus could have failed at all [POD-3426].
+ *
+ * The audit's claim is an absence, and POD-3391 shipped it into a corpus where
+ * the absence was guaranteed: post-B1 every converted repository declares
+ * `write` for everything, so `write-declared-read` could not occur and FATAL 0
+ * was arithmetic rather than evidence. Planting the POD-3321 defect in two
+ * converted repositories produced a byte-identical report.
+ *
+ * These pin the counter the gate refuses on, and the half that is easy to get
+ * wrong is the SECOND one: if the executor's own tests counted as reach, this
+ * very file would hold the gate green while no repository could fail it.
+ */
+describe('IntentAudit reach', () => {
+  const outside = 'Error: statement issued\n    at (/repo/apps/server/src/store/notes.ts:12:9)'
+
+  it('counts a read declaration issued outside the executor — a slot a FATAL could have used', () => {
+    const audit = new IntentAudit()
+    audit.observe({ sql: 'SELECT * FROM notes', intent: 'read', issueStack: outside })
+    expect(audit.reach).toEqual({ gradedReadDeclarations: 1, fromOutsideTheExecutor: 1 })
+  })
+
+  it("counts no reach for a corpus that declared `write` for everything — today's converted state", () => {
+    const audit = new IntentAudit()
+    audit.observe({ sql: 'SELECT * FROM notes', intent: 'write', issueStack: outside })
+    audit.observe({
+      sql: "INSERT INTO notes (body) VALUES ('x')",
+      intent: 'write',
+      issueStack: outside,
+    })
+    expect(audit.totals.examined).toBe(2)
+    expect(audit.reach).toEqual({ gradedReadDeclarations: 0, fromOutsideTheExecutor: 0 })
+  })
+
+  /**
+   * WITHOUT A STACK THE CLAIM IS UNPROVABLE, AND UNPROVABLE IS NOT PROVED.
+   *
+   * A probe attached without `wantsIssueSite` sees no `issueStack`, and reach is
+   * the assertion that the gate COULD have failed. Defaulting that to true would
+   * make a corpus with no site capture at all look maximally checkable — the
+   * refusal would never fire again, silently, in the direction that reads as
+   * success.
+   */
+  it('credits no reach to a statement whose issuer it cannot place', () => {
+    const audit = new IntentAudit()
+    audit.observe({ sql: 'SELECT * FROM notes', intent: 'read' })
+    expect(audit.reach).toEqual({ gradedReadDeclarations: 1, fromOutsideTheExecutor: 0 })
+  })
+
+  it('does not count a read the audit cannot grade — no finding could have come out of it', () => {
+    const audit = new IntentAudit()
+    audit.observe({ sql: 'PRAGMA user_version', intent: 'read', issueStack: outside })
+    expect(audit.reach).toEqual({ gradedReadDeclarations: 0, fromOutsideTheExecutor: 0 })
+  })
+
+  /**
+   * THE EXCLUSION, THROUGH A REAL DRIVER FROM A REAL EXECUTOR FILE.
+   *
+   * Not a synthetic stack: this test file lives in `store/executor/`, so the
+   * statement it issues below has no frame outside the executor between itself
+   * and the seam — which is exactly the shape of every read declaration left in
+   * the corpus today. Remove the `EXECUTOR_FRAME` skip and this test is the one
+   * that notices; a probe issuing from `scripts/` cannot.
+   */
+  it("does not credit the executor's own scaffolding with reach", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-3426-'))
+    const raw = openDatabase(join(dir, 'reach.db'))
+    raw.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
+    const hub = new StatementProbeHub()
+    const audit = new IntentAudit()
+    hub.attach(audit.probe, { wantsIssueSite: true })
+    const driver = instrumentDriver(createBunSqliteDriver({ database: raw }), hub)
+    const session = await driver.open('write')
+    const client = driver.client(
+      async (statement) => await session.execute(statement),
+      async (statements) => await session.executeBatch(statements),
+    )
+    await client.all('SELECT * FROM notes')
+    await session.close()
+    await driver.close()
+    rmSync(dir, { recursive: true, force: true })
+
+    // It WAS a read declaration on gradable text...
+    expect(audit.reach.gradedReadDeclarations).toBe(1)
+    // ...and it still buys the gate nothing, because the executor issued it.
+    expect(audit.reach.fromOutsideTheExecutor).toBe(0)
+  })
+})
+
 describe('callSite', () => {
   const stack = [
     'Error: statement issued',

@@ -16,6 +16,7 @@ import { SessionRegistry } from './relay'
 import { withReadScope } from './store/executor/read-scope'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
@@ -38,19 +39,16 @@ async function regWithTwoDaemons() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const inventory = JSON.stringify({
-    os: 'linux',
-    arch: 'x64',
+  const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
-    tools: [],
   })
-  await store.machines.setMachineInventory('m1', inventory)
-  await store.machines.setMachineInventory('m2', inventory)
+  await store.machines.setMachineInventory('m1', JSON.stringify(inventory))
+  await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
-  reg.gateway.attachDaemon('m1', (msg) => m1.push(msg))
-  reg.gateway.attachDaemon('m2', (msg) => m2.push(msg))
+  await attachDaemonWithInventory(reg, 'm1', (msg) => m1.push(msg), inventory)
+  await attachDaemonWithInventory(reg, 'm2', (msg) => m2.push(msg), inventory)
   return { reg, m1, m2 }
 }
 
@@ -475,14 +473,11 @@ async function handoffRegistry(
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const inventory = JSON.stringify({
-    os: 'linux',
-    arch: 'x64',
+  const inventory = fixtureInventory({
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
-    tools: [],
   })
-  await store.machines.setMachineInventory('m1', inventory)
-  await store.machines.setMachineInventory('m2', inventory)
+  await store.machines.setMachineInventory('m1', JSON.stringify(inventory))
+  await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
   const sourceRepoId = (await store.repos.listRepos(asMachineId('m1')))[0]?.repoId
   if (!sourceRepoId) throw new Error('source repo id not minted')
@@ -493,7 +488,7 @@ async function handoffRegistry(
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const sha = 'a'.repeat(40)
-  reg.gateway.attachDaemon('m1', (msg) => {
+  await attachDaemonWithInventory(reg, 'm1', (msg) => {
     source.push(msg)
     if (msg.type === 'repoOpRequest') {
       const exists = msg.args?.ref === 'main'
@@ -572,7 +567,7 @@ async function handoffRegistry(
         observationGeneration: 2,
       })
   })
-  reg.gateway.attachDaemon('m2', (msg) => {
+  await attachDaemonWithInventory(reg, 'm2', (msg) => {
     target.push(msg)
     if (msg.type === 'browseDirsRequest')
       reg.gateway.routeDaemonFrame('m2', {

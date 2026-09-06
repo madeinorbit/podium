@@ -76,6 +76,7 @@ export {
   callSite,
   deriveWriteEvidence,
   type EvidenceVerdict,
+  type FatalReach,
   IntentAudit,
   type IntentAuditTotals,
   type IntentDisagreement,

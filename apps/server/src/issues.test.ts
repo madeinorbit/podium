@@ -6102,3 +6102,140 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     expect((await h.svc.get(clean))!.branch).toBe(`issue/${clean}`)
   })
 })
+
+/**
+ * POD-3500 — ports declared `void` over async implementations.
+ *
+ * A slot typed `(args) => void` ACCEPTS an `(args) => Promise<void>`, so the
+ * compiler is silent by construction: `requireMachineForRepo`, its homing twin
+ * and the hierarchy port's `setParentForUpdate` were all declared `void` while
+ * the wired implementation was already async, and no call site awaited. TS2801
+ * and `lint:promise-truthiness` see nothing either, because nothing reads the
+ * promise as a value.
+ *
+ * THE EXISTING COVERAGE COULD NOT SEE IT. Every test above that exercises these
+ * guards installs a double that throws SYNCHRONOUSLY, and a synchronous throw
+ * propagates through an un-awaited call exactly as it would through an awaited
+ * one. So those tests pass against the defect. The doubles here REJECT, which is
+ * what the production implementations do, and that is the only shape that can
+ * tell a guard which is waited for from one which is not.
+ */
+describe('POD-3500 — async guards behind void ports', () => {
+  /** The refusal the relay's `machines.requireMachineForRepo` actually raises. */
+  const OFFLINE = "machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin"
+  /** The refusal `machines.requireRepoHostStructure` actually raises. */
+  const NO_DAEMON = "machine 'phone' runs no Podium daemon and can never hold a worktree"
+
+  it('start: a REJECTING requireMachineForRepo refuses the start', async () => {
+    const { svc, deps } = await harness()
+    deps.requireMachineForRepo = vi.fn(async () => {
+      throw new Error(OFFLINE)
+    })
+    const created = await svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
+    // The guard's whole purpose: nothing downstream of it may have run.
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+  })
+
+  it('ensureWorktree: a REJECTING requireMachineForRepo refuses the recreate', async () => {
+    const { svc, deps } = await harness()
+    const created = await svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    // A branch and no recorded path is the recreate case: the status probe is
+    // skipped and the pre-flight is the next thing the method does.
+    await svc.update(created.id, { branch: 'issue/1-remote' })
+    deps.requireMachineForRepo = vi.fn(async () => {
+      throw new Error(OFFLINE)
+    })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockClear()
+    await expect(svc.ensureWorktree(created.id, asMachineId('mach-b'))).rejects.toThrow(
+      /machine 'laptop' is offline/,
+    )
+    expect(deps.repoOp).not.toHaveBeenCalled()
+  })
+
+  it('addSession: a REJECTING requireMachineForRepo refuses the add', async () => {
+    const { svc, deps } = await harness()
+    const created = await svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    await svc.start(created.id)
+    deps.requireMachineForRepo = vi.fn(async () => {
+      throw new Error("machine 'laptop' has no repo registered at /r")
+    })
+    ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
+    await expect(svc.addSession(created.id)).rejects.toThrow(/no repo registered/)
+    // The guard sits immediately above the spawn; un-awaited it does not gate it.
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+  })
+
+  it('addSession: a REJECTING spawnSession reaches the caller', async () => {
+    const { svc, deps } = await harness()
+    const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    await svc.start(created.id)
+    deps.spawnSession = vi.fn(async () => {
+      throw new Error('no agent runtime available for claude-code')
+    })
+    await expect(svc.addSession(created.id)).rejects.toThrow(/no agent runtime available/)
+  })
+
+  it('create: a REJECTING requireIssueHomeMachine refuses the homing', async () => {
+    const { svc, deps } = await harness()
+    deps.requireIssueHomeMachine = vi.fn(async () => {
+      throw new Error(NO_DAEMON)
+    })
+    await expect(
+      svc.create({
+        repoPath: '/r',
+        title: 'Homed on a phone',
+        startNow: false,
+        machineId: asMachineId('mach-phone'),
+      }),
+    ).rejects.toThrow(/runs no Podium daemon/)
+  })
+
+  it('update: a REJECTING requireIssueHomeMachine refuses the pin, and the pin does not land', async () => {
+    const { svc, deps } = await harness()
+    const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    deps.requireIssueHomeMachine = vi.fn(async () => {
+      throw new Error(NO_DAEMON)
+    })
+    await expect(svc.update(created.id, { machineId: asMachineId('mach-phone') })).rejects.toThrow(
+      /runs no Podium daemon/,
+    )
+    // Refusing the PROPERTY is the point (POD-2700 §2.5): a guard that cannot say
+    // no leaves the pin sitting there and dead-ends every later action on it.
+    expect((await svc.get(created.id))!.machineId).toBeFalsy()
+  })
+
+  it('update: setParentForUpdate is waited for, so a containment cycle is refused', async () => {
+    const { svc } = await harness()
+    const parent = await svc.create({ repoPath: '/r', title: 'parent', startNow: false })
+    const child = await svc.create({
+      repoPath: '/r',
+      title: 'child',
+      startNow: false,
+      parentId: parent.id,
+    })
+    // Making the parent a child of its own child is the cycle the hierarchy port
+    // exists to refuse. Un-awaited, the refusal settles as an unhandled rejection
+    // after update() has already returned its wire.
+    await expect(svc.update(parent.id, { parentId: child.id })).rejects.toThrow(
+      /would create a containment cycle/,
+    )
+    expect((await svc.get(parent.id))!.parentId).toBeFalsy()
+  })
+})

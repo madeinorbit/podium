@@ -2839,3 +2839,140 @@ fix the test passes for the wrong reason — nobody waited, so nobody saw the re
 probe is: make the wired implementation REJECT, and show a named test failing with **the guard's own
 refusal message**. A kill that reports a timeout, an unhandled rejection, or a generic assertion is
 not the same claim (mutation: read the reason code, not the red).
+
+### Rule 56a — CORRECTION to 56: on the control arm the guard's own message CANNOT appear
+
+Rule 56 ends by demanding that a guard's break-test fail with **the guard's own refusal
+message**, and calls a generic assertion "not the same claim". POD-3500 applied the rule and
+found that clause is impossible to satisfy as written. It is right, and this is the amendment.
+
+On the control arm the guard **never refuses** — that is the whole defect. So its message
+cannot appear there, and every honest control-arm failure reads as the generic
+
+```
+AssertionError: promise resolved "{ …(45) }" instead of rejecting
+```
+
+Verified independently at landing: dropping the await at `workflow.ts:394` kills exactly
+`start: a REJECTING requireMachineForRepo refuses the start` and nothing else, with that
+generic message; dropping it at `crud.ts:1159` kills exactly the containment-cycle test and
+additionally surfaces an **Unhandled Rejection**, which is the production symptom — the
+refusal escaping onto a later tick after `update()` already returned its wire.
+
+**THE DISCRIMINATION IS PROVED FROM THE OTHER SIDE.** Keep the fix, and mutate the injected
+double to reject with an *unrelated* message. A test that merely awaits now still passes; a
+test that pins the refusal fails naming the pattern it requires:
+
+```
+expected [Function] to throw error matching /machine 'laptop' is offline/
+  but got 'PROBE: some other error entirely'
+```
+
+So the pair is: the control arm proves the await is load-bearing, and the message-pinning
+mutation proves the test is asserting the right refusal rather than any rejection. Neither
+alone is sufficient — a test that awaits but accepts any rejection passes both the fixed and
+a wrongly-guarded implementation.
+
+A refusal raised in production code rather than by a double (POD-3500's seventh test asserts
+`/would create a containment cycle/`, thrown at `hierarchy.ts:94`) is pinned by construction:
+no double can fake it, so the message mutation does not apply and the control arm is enough.
+
+**AND THE PORT ITSELF NEEDS ITS OWN MUTATION.** Reverting `requireMachineForRepo` from
+`Promise<void>` back to `void` at `types.ts:238`, with all six awaits left in place, produces
+**zero typecheck errors**. The awaits survive under the narrow port and nothing enforces them,
+which is rule 56's claim demonstrated rather than argued: the widening is the load-bearing
+half, and a reviewer who mutates only the call sites has not tested the fix.
+
+**ASYNC-UNDER-VOID IS NECESSARY BUT NOT SUFFICIENT.** POD-3500's census of the same interface
+found eight more bare-`void` ports and cleared all eight. One is genuinely async — `relay.ts`'s
+`stopClosedIssue` — but its body is `void stopClosedIssueNow(…).catch(log.warn)`, a deliberate
+fire-and-forget that can never reject. Widening it would assert that the caller waits for a
+stop it deliberately does not. The test for a site is not "is the implementation async" but
+**can the promise reject, or carry a result the caller needs**. Two others reach `EventBus.emit`,
+which is `: void` and isolates listener rejections itself.
+
+### Rule 57 — the FOURTH class: an added await at a DELIBERATELY fire-and-forget site
+
+Rules 52, 55 and 56 each describe a promise the compiler cannot see. This one is the
+opposite mistake and the **dual of rule 53**: not a missing await, but an await added where
+the previous author had deliberately declined to wait. It typechecks clean, reads as a
+correctness improvement, and in the one confirmed instance it **wedges the write lane
+permanently**.
+
+**THE INSTANCE.** The flip commit `9f0d5c33e` changed `retire(runner)` to
+`await retire(runner)` in `executor.ts`'s `transact` (now the `finally` at line 701). That
+`finally` runs INSIDE `scheduler.run('write', …)`, so the single write slot is held while
+`retire` awaits `effectsSettled()`. An external effect that issues a root store write routes
+through `ambientRouter` to `scheduler.run` and queues behind the very slot `retire` is
+holding. `retire` waits for the effect; the effect waits for the slot; there is no timeout
+anywhere. Even without the cycle it serialises the write lane behind every slow socket.
+
+**IT CONTRADICTS THE FILE'S OWN STATED CONTRACT.** `post-commit.ts` lines 21-24 say the
+promise `transact` returns "resolves after the COMMIT, after every commit application, and
+after every durable follow-up … **It does not wait for external effects.**" The await made it
+wait for external effects. As with rule 56's `sync-drizzle.ts`, the code had come to
+contradict a comment that was still correct.
+
+**WHY NO INSTRUMENT CAUGHT IT.** Adding an await to a call that returns a promise is always
+type-correct, so nothing static can object. And the test that detects it —
+`executor.test.ts`'s "sends a late external effect to the root, not to its released lease" —
+is BYTE-IDENTICAL before and after the flip and passed before it. The regression is invisible
+in the diff of the test file, which is why it survived review: a reviewer diffing tests sees
+nothing, and a reviewer diffing source sees an await being added, which looks like a fix.
+
+**THE GENERAL SHAPE.** A mechanical await pass cannot distinguish a *forgotten* await from a
+*declined* one, because in source they are the same absence. The information lives only in
+the author's intent, and if it is not written down the next pass destroys it.
+
+**THE REMEDY, and it is a requirement for the rest of this epic.** A deliberate
+fire-and-forget must be spelled so that it cannot be read as an oversight:
+
+```ts
+void retire(runner)   // NOT awaited: see post-commit.ts's waiting rule
+```
+
+The `void` operator plus a comment naming the contract it is honouring. Any await pass that
+meets a bare `void`-prefixed call must leave it alone and report it, never convert it.
+Sites already converted must be audited against this rule rather than assumed correct —
+POD-3506 found one; the pass ran over hundreds.
+
+**THE SEARCH IS FOR DECLINED AWAITS, NOT MISSING ONES**, so it inverts every technique used
+so far: instead of asking which call sites drop a promise, ask which awaits the flip ADDED,
+and for each, whether anything downstream of it is now waited for that previously was not.
+`git log -S` over the flip's commits against the deferral primitives (`retire`, effect
+registration, the post-commit drain) is the cheap first pass.
+
+**LANDING RULE while this is open:** nothing that adds or reorders post-commit effects lands
+until POD-3506's fix does. A second site of this class would compound into a deadlock nobody
+can attribute.
+
+### Rule 48c — the preamble's "no assertion changes" bar does NOT cover the 48a conversion
+
+POD-3499 flagged that commit `94a0be79b` converted an existing assertion —
+
+```ts
+expect(() => …).toThrow(ShippingOrderAccessError)
+await expect(…).rejects.toThrow(ShippingOrderAccessError)
+```
+
+— and that the worker preamble says a conversion commit may not modify an existing test
+assertion. It was right to flag it, and the conversion was right to make. The two rules
+were in genuine conflict and this settles it.
+
+**THE BAR EXISTS TO STOP A CONVERSION FROM MOVING THE GOALPOSTS**: weakening a matcher,
+loosening an expected value, or deleting a case that the new code no longer satisfies.
+Rule 48a's sync-to-`rejects` spelling does none of those. The error type and the
+triggering condition transfer verbatim; only sync-throw versus rejection changes, and
+that change is forced by the subject having become async. Refusing it would mean deleting
+the test instead, which is strictly worse.
+
+**SO THE BAR IS ON THE CLAIM, NOT THE CHARACTERS.** An assertion may be re-spelled when
+the subject's mechanism changed under it and the claim is identical; it may not be
+re-aimed. The test is whether you can state the assertion in prose and have the sentence
+come out the same on both sides. "Refuses a nested issue with `ShippingOrderAccessError`"
+is the same sentence before and after; "no longer throws" is not.
+
+**AND IT MUST BE REPORTED, NOT ABSORBED.** Rule 50 already asks for the mechanism/behaviour
+split; this adds that a 48a re-spelling is listed in the handoff with the before and after
+text, so a reviewer can check the sentence for themselves rather than trusting that it was
+checked. POD-3499 did exactly that and it is why the conflict surfaced at all.

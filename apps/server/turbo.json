@@ -1926,6 +1926,7 @@
         "src/test-support/capabilities.ts",
         "src/test-support/capture-logs.ts",
         "src/test-support/client-transport.ts",
+        "src/test-support/daemon-inventory.ts",
         "src/test-support/features.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/open-test-store.ts",
