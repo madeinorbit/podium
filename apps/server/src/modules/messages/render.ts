@@ -154,7 +154,7 @@ export interface MessageRenderDeps {
   sessionById?(sessionId: SessionId): SessionMeta | undefined
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
-  machineName?(id: string): string
+  machineName?(id: string): string | Promise<string>
 }
 
 export class MessageRenderer {
@@ -183,7 +183,7 @@ export class MessageRenderer {
    *  issue-addressed bodies render as an inbox pointer instead of inline. */
   async renderFor(message: MessageRow, receiverSessionId?: SessionId): Promise<string> {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
-      return this.pointerText([message])
+      return await this.pointerText([message])
     }
     // Operator bodies are UNWRAPPED and rendered verbatim: the human's own words
     // land as their own words, with no envelope and no id around them.
@@ -222,14 +222,14 @@ export class MessageRenderer {
       { ...message, body },
       await this.fromLabel(message),
       await this.toLabel(message),
-      this.crossMachineNote(message, receiverSessionId),
+      await this.crossMachineNote(message, receiverSessionId),
       { turnClose: message.toKind !== 'operator' },
     )
   }
 
   /** The coalesced pointer rendering (also used for oversized bodies). */
-  pointerText(rows: MessageRow[]): string {
-    const senders = [...new Set(rows.map(async (m) => await this.fromLabel(m)))]
+  async pointerText(rows: MessageRow[]): Promise<string> {
+    const senders = [...new Set(await Promise.all(rows.map(async (m) => await this.fromLabel(m))))]
     // The pointer path leads to the same interrupted-turn problem the envelope's
     // TURN_CLOSE_RULE covers [POD-604] — reading the inbox is still a turn that
     // buries the summary the human was coming back to. Said in one line here
@@ -246,13 +246,16 @@ export class MessageRenderer {
    *  DIFFERENT machine than the receiver, say so and how to inspect its working
    *  state — built only from what podium already knows (session machineIds),
    *  zero storage. */
-  private crossMachineNote(message: MessageRow, receiverSessionId?: SessionId): string | undefined {
+  private async crossMachineNote(
+    message: MessageRow,
+    receiverSessionId?: SessionId,
+  ): Promise<string | undefined> {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
     const find = (id: SessionId) => findSessionById(this.deps, id)
     const senderMachine = find(message.fromSession)?.machineId
     const receiverMachine = find(receiverSessionId)?.machineId
     if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
-    const name = this.deps.machineName?.(senderMachine) ?? senderMachine
+    const name = (await this.deps.machineName?.(senderMachine)) ?? senderMachine
     return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`
   }
 

@@ -274,7 +274,7 @@ export interface MessageDeliveryDeps {
   notifyOperator?(input: { messageId: string; reason: string; body: string }): void
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
-  machineName?(id: string): string
+  machineName?(id: string): string | Promise<string>
   /**
    * APPLY-TIME RE-AUTHORIZATION (ADR 3 D8 / Amendment 1 D16, POD-728).
    *
@@ -1966,7 +1966,7 @@ export class MessageDeliveryService {
       const r = push(
         {
           sessionId: session.sessionId,
-          text: this.render.pointerText(pointerRows),
+          text: await this.render.pointerText(pointerRows),
           inputOrigin: 'mail',
           principal: {
             kind: 'system',
