@@ -711,9 +711,19 @@ export async function startServer(
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
   // without a restart when it is.
+  let telemetryMachineCount = (await registry.modules.machines.listMachines()).length
+  const refreshTelemetryMachineCount = (): void => {
+    void registry.modules.machines
+      .listMachines()
+      .then((rows) => {
+        telemetryMachineCount = rows.length
+      })
+      .catch(() => {})
+  }
+  registry.modules.bus.on('machine.metadataChanged', refreshTelemetryMachineCount)
   const telemetry = wireTelemetry({
     bus: registry.modules.bus,
-    machineCount: async () => (await registry.modules.machines.listMachines()).length,
+    machineCount: () => telemetryMachineCount,
   })
   const repos = new RepoRegistry(registry, store)
   // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
