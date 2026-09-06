@@ -427,7 +427,9 @@ describe('development artifact route', () => {
         artifactToken: 'random-token',
         signingKey: 'test-key',
         setTarget: async () => {},
-        setTargetUnavailable: (reason) => unavailable.push(reason),
+        setTargetUnavailable: async (reason) => {
+          unavailable.push(reason)
+        },
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},

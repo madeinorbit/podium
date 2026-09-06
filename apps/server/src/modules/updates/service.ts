@@ -113,7 +113,7 @@ export interface UpdatesDeps {
    */
   exclusiveOperationVersion?(channel: UpdateChannel): Promise<string | undefined>
   /** A packaged rollback may be reported before target resolution finishes. */
-  onTargetChanged?(channel: UpdateChannel): void
+  onTargetChanged?(channel: UpdateChannel): void | Promise<void>
   /**
    * THE DURABLE HALF OF "WHO AUTHORIZED THIS" (POD-2907).
    *
@@ -381,7 +381,7 @@ export class UpdatesService {
    * converged are untouched — this removes the offer, it does not roll anything
    * back.
    */
-  setTargetUnavailable(channel: UpdateChannel, reason: string): void {
+  async setTargetUnavailable(channel: UpdateChannel, reason: string): Promise<void> {
     this.unavailableReasons.set(channel, reason)
     this.targets.delete(channel)
     this.rollouts.delete(channel)
@@ -408,7 +408,7 @@ export class UpdatesService {
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
       })
     }
-    this.deps.onTargetChanged?.(channel)
+    await this.deps.onTargetChanged?.(channel)
   }
 
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
@@ -418,7 +418,9 @@ export class UpdatesService {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
-    this.setTargetResolved(channel, target, { active: false })
+    if (this.setTargetResolved(channel, target, { active: false })) {
+      this.deps.onTargetChanged?.(channel)
+    }
   }
 
   async setTargetFromProducer(channel: UpdateChannel, target: UpdateTarget): Promise<void>
@@ -434,14 +436,16 @@ export class UpdatesService {
       this.deps.exclusiveOperationActive?.() ?? Promise.resolve(false),
       this.deps.exclusiveOperationVersion?.(channel) ?? Promise.resolve(undefined),
     ])
-    this.setTargetResolved(channel, target, { active, version })
+    if (this.setTargetResolved(channel, target, { active, version })) {
+      await this.deps.onTargetChanged?.(channel)
+    }
   }
 
   private setTargetResolved(
     channel: UpdateChannel,
     target: UpdateTarget,
     operation: { active: boolean; version?: string },
-  ): void {
+  ): boolean {
     // Re-publishing the same label replaces its artifact descriptor without
     // invalidating the proof already made for that target: a dev+ identity
     // gaining its packed tarball is the SAME update acquiring its bytes it is
@@ -459,18 +463,17 @@ export class UpdatesService {
     if (this.isSameUpdate(channel, target.version, operation.version)) {
       const standing = this.targets.get(channel)
       if (standing && hasHeadlessBytes(standing) && !hasHeadlessBytes(target)) {
-        return
+        return false
       }
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
       this.replayTerminalStatuses(channel, target.version)
-      this.deps.onTargetChanged?.(channel)
-      return
+      return true
     }
 
     if (operation.active) {
       this.nextTargets.set(channel, target)
-      return
+      return false
     }
 
     this.unavailableReasons.delete(channel)
@@ -483,8 +486,9 @@ export class UpdatesService {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
     this.replayTerminalStatuses(channel, target.version)
-    this.deps.onTargetChanged?.(channel)
+    return true
   }
+
   /**
    * Replay only terminal reports that name the target just resolved. Reports
    * for another release are stale and must not influence a later operation.
@@ -559,7 +563,9 @@ export class UpdatesService {
       // Guarded, not asserted: if something else already moved this channel
       // onto that version, re-applying it would reset a wave for no reason.
       if (this.targets.get(channel)?.version === target.version) continue
-      this.setTargetResolved(channel, target, { active: false })
+      if (this.setTargetResolved(channel, target, { active: false })) {
+        this.deps.onTargetChanged?.(channel)
+      }
       published.push(channel)
     }
     return published

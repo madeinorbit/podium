@@ -802,12 +802,12 @@ describe('UpdatesService', () => {
 })
 
 describe('setTargetUnavailable', () => {
-  it('withdraws the stale target and explains why the channel has none', () => {
+  it('withdraws the stale target and explains why the channel has none', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
     svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
     expect(svc.target('dev')?.version).toBe('dev+aaaaaaa')
 
-    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+    await svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
 
     // Nothing may still be handed dev+aaaaaaa once HEAD has moved past it.
     expect(svc.target('dev')).toBeUndefined()
@@ -817,14 +817,14 @@ describe('setTargetUnavailable', () => {
     )
   })
 
-  it('ends an in-flight rollout observably instead of stranding it', () => {
+  it('ends an in-flight rollout observably instead of stranding it', async () => {
     const machines = [m('a', { channel: 'dev' })]
     const { svc } = make(machines)
     svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
     svc.authorize('dev')
     expect(svc.fleet().find((machine) => machine.id === 'a')?.state).toBe('granted')
 
-    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+    await svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
 
     // Without this the row keeps saying "granted" forever: the pending record
     // is gone, so nothing can ever age it and no status report is accepted.
@@ -847,9 +847,9 @@ describe('setTargetUnavailable', () => {
     )
   })
 
-  it('is cleared by the next successful publication', () => {
+  it('is cleared by the next successful publication', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
-    svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
+    await svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
     svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
 
     expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')

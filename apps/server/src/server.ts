@@ -848,7 +848,8 @@ export async function startServer(
     ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     artifactToken: devArtifactToken,
     setTarget: async (target) => await registry.modules.updates.setTargetFromProducer(target),
-    setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
+    setTargetUnavailable: async (reason) =>
+      await registry.modules.updates.setTargetUnavailable('dev', reason),
     // The publish handoff (spec §6 step 4). Publisher and updater share this
     // process on a source host, so "go and pull what I just wrote" is a call.
     refreshDevTarget: async () => await registry.modules.updates.refreshTarget('dev'),

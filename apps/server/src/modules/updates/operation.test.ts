@@ -2756,7 +2756,7 @@ describe('a version published mid-operation', () => {
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     expect(updates.nextTarget('dev')).toBeDefined()
-    updates.setTargetUnavailable('dev', 'nothing published for this commit')
+    await updates.setTargetUnavailable('dev', 'nothing published for this commit')
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
 })
@@ -3230,7 +3230,7 @@ describe('the fleet bridge', () => {
     })
     h.setTargetChanged(() => bridge.onTargetChanged())
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([
@@ -3265,7 +3265,7 @@ describe('the fleet bridge', () => {
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  it('refuses to admit a deferred place while the channel is offering nothing', () => {
+  it('refuses to admit a deferred place while the channel is offering nothing', async () => {
     const fleet = [machine({ id: 'laptop' })]
     const h = harness({ machines: fleet, target: packedTarget() })
     const operation = {
@@ -3276,7 +3276,7 @@ describe('the fleet bridge', () => {
     } as Operation
     const details = { target: packedTarget(), channel: 'dev' as const }
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
 
     expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
