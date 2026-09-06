@@ -1,0 +1,62 @@
+// PROBE FIXTURE for the `sequential-promise-combinator` rule (POD-3221 rule 59,
+// POD-3519). Not real source — `.txt` so the walker never reads it as code;
+// check-boundaries --probe feeds it to checkSequentialPromiseCombinator and
+// REQUIRES an exact set of violations. If this file stops producing them the
+// rule stopped working, and the probe fails rather than the tree quietly going
+// unguarded.
+//
+// The LOUD half plants one site per spelling that has actually occurred, and
+// the QUIET half plants the correct forms that a widened rule would start
+// flagging. A check that fires on everything is as useless as one that fires on
+// nothing, so both halves are asserted by count.
+
+declare function f(n?: number): Promise<number>
+declare function g(): Promise<string>
+declare const shared: boolean
+
+export async function loud(): Promise<unknown> {
+  // 1. the canonical shape: the flip commit's edit, every element awaited.
+  const a = await Promise.all([await f(), await f()])
+  // 2. ONE awaited element is enough — it serialises everything after it.
+  const b = await Promise.all([f(), await f(), f()])
+  // 3. allSettled. The coordinator's own grep matched only Promise.all, which is
+  //    how oracle-handoff.test.ts stayed off the derived list (POD-3519).
+  const c = await Promise.allSettled([await f(), await g()])
+  // 4. race — awaiting the elements means the first one always wins, so the
+  //    race resolves to element zero no matter which call is actually faster.
+  const d = await Promise.race([await f(), await f()])
+  // 5. any.
+  const e = await Promise.any([await f(), await f()])
+  // 6. the await buried inside a larger element expression, not at its head.
+  const h = await Promise.all([f(), (await f()) + 1])
+  // 7. a CONDITIONAL element: git-state.ts:135 spelled it exactly this way.
+  const i = await Promise.all([f(), shared ? await f(1) : await f(2)])
+  // 8. a member access on the awaited value.
+  const j = await Promise.all([f(), (await g()).length])
+  return [a, b, c, d, e, h, i, j]
+}
+
+export async function quiet(): Promise<unknown> {
+  // The correct idiom: unawaited calls, one await on the combinator.
+  const a = await Promise.all([f(), f()])
+  // Promises captured into variables first — the calls are already in flight,
+  // so this is concurrent and must NOT be flagged.
+  const p1 = f()
+  const p2 = f()
+  const b = await Promise.all([p1, p2])
+  // `.map(async …)` yielding promises is the correct idiom the async-boolean
+  // rule deliberately exempts; the array here is not a literal at all.
+  const c = await Promise.all([1, 2].map(async (n) => (await f(n)) + 1))
+  // An await inside a nested FUNCTION BODY is deferred to when that function
+  // runs — it does not serialise the array literal. This is the false positive
+  // a naive text scan produces, and it is why the rule stops at function
+  // boundaries.
+  const d = await Promise.all([f(), (async () => await f())()])
+  // A non-literal argument: the rule reads array literals only, said here so
+  // the ceiling is a stated exemption rather than an accident.
+  const list = [f(), f()]
+  const e = await Promise.all(list)
+  // An await OUTSIDE the array literal but inside the enclosing statement.
+  const g2 = await Promise.all([f(), f()]).then(async (r) => (await f()) + r[0])
+  return [a, b, c, d, e, g2]
+}
