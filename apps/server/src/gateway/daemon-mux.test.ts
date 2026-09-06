@@ -376,7 +376,7 @@ describe('attach / detach orchestration', () => {
       // boot, so an attaching daemon has nothing to claim — it becomes reachable.
       'machines.flushQueued',
       'sessions.onMachineAttached',
-      'machines.broadcastMachines',
+      'machines.scheduleBroadcastMachines',
     ])
     expect(bus.emit).toHaveBeenCalledWith('machine.connected', { machineId: 'local' })
   })
@@ -401,7 +401,7 @@ describe('attach / detach orchestration', () => {
     expect(calls.map((c) => `${c.port}.${c.method}`)).toEqual([
       'machines.detach',
       'sessions.onMachineDetached',
-      'machines.broadcastMachines',
+      'machines.scheduleBroadcastMachines',
     ])
     expect(order).toEqual(['bus.machine.disconnected'])
   })
@@ -417,7 +417,7 @@ describe('attach / detach orchestration', () => {
           calls.push('detach')
           return false
         },
-        broadcastMachines: () => calls.push('broadcastMachines'),
+        scheduleBroadcastMachines: () => calls.push('scheduleBroadcastMachines'),
       },
       sessions: { onMachineDetached: () => calls.push('onMachineDetached') },
     } as unknown as DaemonFeaturePorts

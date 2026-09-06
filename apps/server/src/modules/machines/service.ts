@@ -33,6 +33,7 @@ import type {
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
+import { createLogger } from '@podium/logger'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -45,6 +46,8 @@ import type { Send } from '../sessions/session'
 import type { EnrollmentHost } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
+
+const log = createLogger('server:machines')
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -207,7 +210,10 @@ export interface MachinesDeps {
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
-  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): MachineListing[]
+  machinesForPrincipal(
+    principal: ClientPrincipal,
+    machines: MachinesService,
+  ): MachineListing[] | Promise<MachineListing[]>
 }
 
 /**
@@ -270,7 +276,7 @@ export class MachinesService {
         this.invalidateMachineCache()
       },
       broadcastMachines: () => {
-        this.broadcastMachines()
+        this.scheduleBroadcastMachines()
       },
     }
   }
@@ -328,7 +334,7 @@ export class MachinesService {
   async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
     if (!await this.deps.store.machines.addMachineComponent(machineId, component)) return
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Register the parent-backed update participant for this host. A daemon socket may
@@ -968,14 +974,14 @@ export class MachinesService {
     await this.deps.onInventoryRecorded?.()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Persist a daemon's advisory build report and offered delivery capabilities. */
   async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Route a daemon-local warning with machine scope supplied by the transport. */
@@ -992,7 +998,7 @@ export class MachinesService {
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -1001,9 +1007,9 @@ export class MachinesService {
    * cached projection is wrong for all of them at once — invalidate and push,
    * exactly as a per-machine change does for one.
    */
-  refreshFleetChannel(): void {
+  async refreshFleetChannel(): Promise<void> {
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Persist the selected source independently for every joined machine.
@@ -1015,7 +1021,7 @@ export class MachinesService {
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   async shareMachine(
@@ -1048,7 +1054,7 @@ export class MachinesService {
       actorId,
       onBehalfOf: attribution.onBehalfOf,
     })
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): Promise<void> {
@@ -1057,7 +1063,7 @@ export class MachinesService {
       throw new Error('only the machine owner may change sharing')
     }
     await this.deps.store.grants.remove('machine', id, grantee, verb)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -1097,7 +1103,7 @@ export class MachinesService {
     this.updateParticipants.delete(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -1155,14 +1161,29 @@ export class MachinesService {
     return id
   }
 
-  broadcastMachines(): void {
+  async broadcastMachines(): Promise<void> {
     // Classified live-only (@podium/protocol message-class): re-served in full on attach.
+    // Sequential, not Promise.all: the projection is per-principal and reads
+    // through the same machine cache, so resolving them one at a time is what
+    // lets the first client's read populate it for the rest.
     for (const c of this.deps.clients()) {
       const msg: LiveServerMessage = {
         type: 'machinesChanged',
-        machines: this.deps.machinesForPrincipal(c.principal, this),
+        machines: await this.deps.machinesForPrincipal(c.principal, this),
       }
       c.send(msg)
     }
+  }
+
+  /**
+   * The fan-out for a caller that cannot yield (rule 51b): a socket attach/detach
+   * and the deps bridge below hand this over and move on. Nothing waits for a
+   * live-only push to land — but the rejection still has to go somewhere, or a
+   * failed projection read is an unhandled rejection with no machine on it.
+   */
+  scheduleBroadcastMachines(): void {
+    void this.broadcastMachines().catch((err: unknown) => {
+      log.warn('machines broadcast failed', { err })
+    })
   }
 }

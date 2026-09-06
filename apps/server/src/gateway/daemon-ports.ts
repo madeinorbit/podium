@@ -75,7 +75,9 @@ export interface MachinesDaemonPort {
   attach(machineId: MachineId, transport: DaemonControlPeer, caps?: readonly string[]): void
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
-  broadcastMachines(): void
+  /** Live-only fan-out. A socket attach/detach cannot yield, so it schedules
+   *  this and the service logs any rejection (rule 51b). */
+  scheduleBroadcastMachines(): void
   recordInventory(
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],

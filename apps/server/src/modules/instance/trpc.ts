@@ -36,7 +36,7 @@ const instanceService = (state: {
   caller: { userId: UserId }
   modules?:
     | {
-        machines: { refreshFleetChannel(): void }
+        machines: { refreshFleetChannel(): void | Promise<void> }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
     | undefined
@@ -60,7 +60,7 @@ const instanceService = (state: {
           // Order matters: load the new channel's target FIRST, then broadcast.
           // Broadcasting first would ship the new channel with the old target.
           await state.modules?.updates.refreshTarget(channel)
-          state.modules?.machines.refreshFleetChannel()
+          await state.modules?.machines.refreshFleetChannel()
         }
       : undefined,
   })
