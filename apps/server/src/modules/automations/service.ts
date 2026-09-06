@@ -94,9 +94,11 @@ export interface AutomationsDeps {
   /** Sessions currently running — the overlap check's input. */
   liveSessionIds(): Promise<Set<SessionId>> | Set<SessionId>
   /** Re-resolve the creator account on every fire; disabled/removed means no principal. */
-  principalForOwner(ownerUserId: UserId): CommandPrincipal | undefined
+  principalForOwner(
+    ownerUserId: UserId,
+  ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
   /** Re-check the creator's current use grant on the selected machine. */
-  mayUseDefaultMachine(principal: CommandPrincipal): boolean
+  mayUseDefaultMachine(principal: CommandPrincipal): boolean | Promise<boolean>
   now(): Date
   /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
   homeDir?(): string
@@ -614,11 +616,11 @@ export class AutomationsService {
    * mutation id.
    */
   private async spawn(automation: AutomationRow, runId: string): Promise<SessionId> {
-    const principal = this.deps.principalForOwner(automation.ownerUserId)
+    const principal = await this.deps.principalForOwner(automation.ownerUserId)
     if (!principal) {
       throw new AutomationSpawnError('automation creator account is disabled or missing', null)
     }
-    if (!this.deps.mayUseDefaultMachine(principal)) {
+    if (!await this.deps.mayUseDefaultMachine(principal)) {
       throw new AutomationSpawnError('automation creator no longer has machine use access', null)
     }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
