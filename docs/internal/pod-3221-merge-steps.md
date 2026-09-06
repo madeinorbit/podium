@@ -221,6 +221,21 @@ that work in the sub-issue filed for it; POD-3469 does the whole thing in one co
 because `updates/service.ts` is one of the twelve hand-resolved files and churn there beforehand is
 exactly what the resolution cannot absorb.
 
+**DONE, AND THE SITE NEEDED ONE MORE LINE THAN THIS SAID** (POD-3485, 2026-09-06). The forecast above
+reads the expression as returning `Promise<void> | undefined`. It did not. The slot it forwards to was
+itself declared `void`:
+
+    let targetChanged: ((channel: UpdateChannel) => void) | undefined      // relay.ts:657
+    targetChanged = () => updateFleetBridge.onTargetChanged()              // relay.ts:2762 — async
+
+so the expression's type was `void`, and the bridge's promise was already being dropped ONE LEVEL
+FURTHER OUT than the port. That matters because it changes what the fix has to be: wrapping line 790 in
+an `async` arrow alone would have satisfied the tightened `Promise<void>` port while awaiting a `void`
+— a green typecheck over a notification that still floats, and the two call sites that DO await
+(`withdrawTarget`, `setTargetFromProducer`) would have gone on awaiting nothing. Both lines were
+tightened to `Promise<void>` together. Same class as rule 52b's opening observation, one frame up: a
+`void` slot accepts a promise-returning function and says nothing.
+
 ## 6. MERGE ORDER AND THE THREE SLICE-TO-SLICE OVERLAPS
 
 Forecast on 2026-09-06 with `git merge-tree` against B1's tip, plus each slice's TRUE changed-file set

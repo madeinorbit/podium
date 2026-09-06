@@ -112,8 +112,21 @@ export interface UpdatesDeps {
    * transition. Absent, or `undefined`, degrades to the memory test alone.
    */
   exclusiveOperationVersion?(channel: UpdateChannel): Promise<string | undefined>
-  /** A packaged rollback may be reported before target resolution finishes. */
-  onTargetChanged?(channel: UpdateChannel): void | Promise<void>
+  /**
+   * A packaged rollback may be reported before target resolution finishes.
+   *
+   * `Promise<void>`, NOT `void | Promise<void>` (rule 52b). The union was a
+   * deliberate stop-short, not a design: the provider has returned a promise
+   * since before this epic, and tightening the port meant editing `relay.ts`,
+   * which the pass that widened it was fenced out of. The distinction matters
+   * because a `void` slot ACCEPTS a promise-returning function — which is why
+   * all three of this port's call sites were floating at the merge-base and
+   * nothing in the type said so. A strict `Promise<void>` refuses the
+   * synchronous spelling, so the compiler enumerates the callers: each one now
+   * either awaits, or defers explicitly through
+   * {@link UpdatesService.notifyTargetChangedDeferred} and handles rejection.
+   */
+  onTargetChanged?(channel: UpdateChannel): Promise<void>
   /**
    * THE DURABLE HALF OF "WHO AUTHORIZED THIS" (POD-2907).
    *
@@ -419,8 +432,30 @@ export class UpdatesService {
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
     if (this.setTargetResolved(channel, target, { active: false })) {
-      this.deps.onTargetChanged?.(channel)
+      this.notifyTargetChangedDeferred(channel)
     }
+  }
+
+  /**
+   * DELIBERATELY DEFERRED, AND THE REJECTION IS HANDLED (rule 51b).
+   *
+   * Its two callers are synchronous and must stay that way. {@link setTarget}
+   * is the compatibility shim the fixtures and the development publisher call,
+   * and {@link publishNextTargets} answers with the channels it published;
+   * making either async would break those callers. Neither needs to await,
+   * either: they SCHEDULE the notification rather than answer with it, which
+   * is the shape rule 51b permits deferring. Every OTHER caller awaits.
+   *
+   * What deferring does not excuse, and what the accidental float never did,
+   * is the rejection. The listener re-reads the store, so it can reject; until
+   * this the failure took the process's unhandled-rejection path and the
+   * operator was told nothing at all. Deferring without handling a rejection
+   * is the same defect wearing a different spelling.
+   */
+  private notifyTargetChangedDeferred(channel: UpdateChannel): void {
+    void this.deps.onTargetChanged?.(channel)?.catch((error) => {
+      log.warn('target change notification failed', { channel, err: error })
+    })
   }
 
   async setTargetFromProducer(channel: UpdateChannel, target: UpdateTarget): Promise<void>
@@ -567,7 +602,7 @@ export class UpdatesService {
       // onto that version, re-applying it would reset a wave for no reason.
       if (this.targets.get(channel)?.version === target.version) continue
       if (this.setTargetResolved(channel, target, { active: false })) {
-        this.deps.onTargetChanged?.(channel)
+        this.notifyTargetChangedDeferred(channel)
       }
       published.push(channel)
     }

@@ -1,3 +1,4 @@
+import { addSink, resetLogging, setLogLevel } from '@podium/logger'
 import {
   asMachineId,
   DEFAULT_FLEET_UPDATE_CHANNEL,
@@ -5,7 +6,7 @@ import {
   type UpdateChannel,
 } from '@podium/model'
 import { resolveUpdateChannel } from '@podium/runtime/config'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
 import { UpdatesService } from './service'
@@ -1910,5 +1911,143 @@ describe('the machine this coordinator runs on', () => {
     svc.markAuthorized('dev')
 
     expect(await svc.tick('dev')).toEqual(['a-ludovico'])
+  })
+})
+
+/**
+ * DEFERRING IS NOT THE SAME AS DROPPING.
+ *
+ * Two call sites cannot await `onTargetChanged`, because their callers are
+ * synchronous by contract: `setTarget` is the compatibility shim for fixtures
+ * and the development publisher, and `publishNextTargets` answers with the
+ * channels it published. Rule 51b lets a site that SCHEDULES rather than
+ * answers defer — provided the deferral is deliberate AND the rejection is
+ * handled. Before this, both sites floated the promise: the listener reads the
+ * store, so it can reject, and the rejection went to the process's unhandled
+ * handler where no operator would ever see it.
+ *
+ * These cases watch the LOG, because the log is the whole difference between a
+ * handled deferral and a dropped one. Remove either `.catch` from
+ * `notifyTargetChangedDeferred` and both go red by name.
+ */
+describe('deferred target-change notification', () => {
+  const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+  /** A rejecting listener plus a sink over the module logger's `warn` output. */
+  const withFailingListener = (over: Record<string, unknown> = {}) => {
+    const warnings: Array<{ msg: string; fields: Record<string, unknown> }> = []
+    resetLogging()
+    setLogLevel('debug')
+    addSink({
+      name: 'deferred-target-change',
+      write: (record) => {
+        if (record.level === 'warn') {
+          warnings.push({ msg: record.msg, fields: record as unknown as Record<string, unknown> })
+        }
+      },
+    })
+    const failure = new Error('target listener could not read the store')
+    const onTargetChanged = vi.fn(async () => {
+      throw failure
+    })
+    const svc = new UpdatesService({
+      machines: () => [],
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      fleetChannel: () => 'dev',
+      onTargetChanged,
+      ...over,
+    } as never)
+    return { svc, warnings, failure, onTargetChanged }
+  }
+
+  /** The rejection is delivered a microtask later; nothing here sleeps on it. */
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  afterEach(() => {
+    resetLogging()
+  })
+
+  it('logs the rejection the sync setTarget shim cannot await', async () => {
+    const { svc, warnings, onTargetChanged } = withFailingListener()
+
+    // Synchronous by contract: it returns before the listener has rejected.
+    svc.setTarget('edge', target)
+    expect(onTargetChanged).toHaveBeenCalledWith('edge')
+    await settle()
+
+    const logged = warnings.find((w) => w.msg === 'target change notification failed')
+    expect(logged).toBeDefined()
+    expect(logged?.fields.channel).toBe('edge')
+    expect((logged?.fields.err as Error).message).toBe('target listener could not read the store')
+  })
+
+  it('logs the rejection publishNextTargets cannot await', async () => {
+    // An operation holds the lifecycle group, so the publication is QUEUED
+    // rather than applied — which is the only way to reach the second site.
+    let active = true
+    const { svc, warnings, onTargetChanged } = withFailingListener({
+      exclusiveOperationActive: async () => active,
+    })
+    svc.setTarget('dev', target)
+    await settle()
+    onTargetChanged.mockClear()
+
+    await svc.setTargetFromProducer('dev', {
+      version: '0.4.3',
+      critical: false,
+      artifacts: {},
+    } as never)
+    expect(onTargetChanged).not.toHaveBeenCalled()
+    expect(svc.nextTarget('dev')).toBeDefined()
+
+    active = false
+    warnings.length = 0
+    expect(svc.publishNextTargets()).toEqual(['dev'])
+    expect(onTargetChanged).toHaveBeenCalledWith('dev')
+    await settle()
+
+    const logged = warnings.find((w) => w.msg === 'target change notification failed')
+    expect(logged).toBeDefined()
+    expect(logged?.fields.channel).toBe('dev')
+  })
+
+  /**
+   * THE OTHER HALF OF "HANDLED": a rejection that is logged must not ALSO be
+   * unhandled. A `.catch` that re-threw, or a `.then`-shaped handler, would
+   * satisfy the two cases above and still crash the process.
+   */
+  it('leaves no unhandled rejection behind', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      // A PLAIN async function, deliberately not a `vi.fn`: the spy wrapper
+      // observes its own returned promise to record the call's outcome, which
+      // marks the rejection handled and would make this case pass vacuously.
+      let called = 0
+      const svc = new UpdatesService({
+        machines: () => [],
+        send: vi.fn(),
+        now: () => 1_000,
+        nextGrantId: () => 'g1',
+        concurrency: 3,
+        fleetChannel: () => 'dev',
+        onTargetChanged: async () => {
+          called += 1
+          throw new Error('target listener could not read the store')
+        },
+      } as never)
+
+      svc.setTarget('edge', target)
+      expect(called).toBe(1)
+      await settle()
+      await settle()
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 })
