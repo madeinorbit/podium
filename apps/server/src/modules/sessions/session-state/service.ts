@@ -47,6 +47,7 @@ import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
+import type { IssueRow } from '../../../store/types'
 import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
@@ -89,8 +90,14 @@ export type SessionStateDraft = Pick<
  * staleness unobservable.
  */
 export interface SessionOwnerMemo {
-  /** Issue rows by id. */
-  issues: Map<string, unknown>
+  /** Issue rows by id. `null` records a LOOKED-UP-AND-ABSENT id, which is not
+   *  the same as a `has()` miss — see `SessionAuthz.memoIssueOwner`.
+   *
+   *  This was `Map<string, unknown>` and `unknown` accepts a promise, so the
+   *  unawaited `memo.issues.set(id, store.issues.getIssue(id))` that the async
+   *  flip created typechecked clean and the read back answered "no owner"
+   *  [POD-3507]. */
+  issues: Map<string, IssueRow | null>
   /** Grantee lists by `${resourceKind}:${resourceId}`. */
   grants: Map<string, string[]>
 }

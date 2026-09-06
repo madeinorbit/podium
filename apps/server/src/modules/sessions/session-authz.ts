@@ -5,7 +5,7 @@
  */
 
 
-import type { SessionId, UserId, IssueId } from '@podium/model'
+import type { SessionId, UserId, IssueId, UserRole } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
@@ -18,11 +18,47 @@ import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipFromMachines, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
+import type { IssueRow, SessionRow } from '../../store/types'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
 import type { SessionOwnerMemo } from './session-state/service'
+
+/**
+ * The store reads this module makes, spelled with the signatures the store
+ * ACTUALLY has [POD-3507].
+ *
+ * This was `store: any` while every one of these methods was synchronous, and
+ * `any` cost nothing then. The async flip changed all seven to return promises
+ * and `any` was the reason no check anywhere noticed: two sites crashed at
+ * runtime (`found.get is not a function`, `edges.filter is not a function`) and
+ * three more silently answered "this session has no owner", which is an
+ * authorization question decided wrongly with nothing logged. Spec rule 56's
+ * lesson is that the PORT is what makes the compiler blind; widen it first and
+ * the compiler names the sites. Keep these signatures async — narrowing one
+ * back to a bare value re-opens exactly this hole.
+ */
+export interface SessionAuthzStorePort {
+  readonly users: {
+    get(userId: UserId): Promise<unknown>
+    roleOf(userId: UserId): Promise<UserRole | undefined>
+  }
+  readonly sessions: {
+    getSession(sessionId: SessionId): Promise<SessionRow | undefined>
+  }
+  readonly issues: {
+    getIssue(id: string): Promise<IssueRow | null>
+    getIssues(ids: readonly string[]): Promise<Map<string, IssueRow>>
+  }
+  readonly grants: {
+    listForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]>
+    listForResources(
+      resourceKind: string,
+      resourceIds: readonly string[],
+    ): Promise<Map<string, GrantRow[]>>
+  }
+}
 
 export interface SessionAuthzPorts {
   clientControl: any
@@ -30,8 +66,13 @@ export interface SessionAuthzPorts {
   listSessions: any
   sessionById: any
   machines: any
-  sessions: any
-  store: any
+  /** The LIVE registry — an in-memory map, synchronous and staying that way.
+   *  Typed rather than `any` because every durable fallback in this file is
+   *  spelled `live ?? store.sessions.getSession(id)`, and an `any` on the left
+   *  of `??` makes the whole expression `any` — which is how three unawaited
+   *  durable reads survived the flip unseen [POD-3507]. */
+  sessions: { get(sessionId: SessionId): Session | undefined }
+  store: SessionAuthzStorePort
 }
 
 /**
