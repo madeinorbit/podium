@@ -256,8 +256,8 @@ export interface ShippingServiceDeps {
   evidence: ShippingEvidencePort
   policy: ShippingPolicyResolver
   resourceAdmission?: ShippingResourceAdmissionPort
-  machineFor(issue: IssueWire): MachineId
-  machineCapabilities?(machineId: MachineId): readonly string[]
+  machineFor(issue: IssueWire): MachineId | Promise<MachineId>
+  machineCapabilities?(machineId: MachineId): readonly string[] | Promise<readonly string[]>
   resolveBranchTip(issue: IssueWire): Promise<string>
   resolveRefTip(issue: IssueWire, ref: string): Promise<string>
   isAncestor(issue: IssueWire, ancestorSha: string, descendantSha: string): Promise<boolean>
@@ -483,7 +483,7 @@ export class ShippingService {
       throw new ShippingAdmissionError('missing-repository', `issue ${issue.id} has no repository`)
     }
     const policy = this.deps.policy.resolve(issue)
-    const machineId = this.deps.machineFor(issue)
+    const machineId = await this.deps.machineFor(issue)
     const validationProfile = {
       ...policy.validationProfile,
       resourceLocks: [...new Set(policy.validationProfile.resourceLocks)].sort(),
@@ -1764,17 +1764,17 @@ export class ShippingService {
     const tail = train.orders.at(-1)
     if (!tail || !(await this.trainPrefixStillExact(train.orders.slice(0, -1), tail))) return false
     try {
-      const tailMachine = this.deps.machineFor(await this.deps.issues.get(tail.issueId))
+      const tailMachine = await this.deps.machineFor(await this.deps.issues.get(tail.issueId))
       if (
         train.orders.length > 1 &&
         (!this.deps.machineCapabilities ||
-          !this.deps.machineCapabilities(tailMachine).includes(SHIPPING_TRAIN_CAPABILITY))
+          !(await this.deps.machineCapabilities(tailMachine)).includes(SHIPPING_TRAIN_CAPABILITY))
       ) {
         return false
       }
       for (const order of train.orders) {
         const issue = await this.deps.issues.get(order.issueId)
-        if (this.deps.machineFor(issue) !== tailMachine) return false
+        if ((await this.deps.machineFor(issue)) !== tailMachine) return false
         this.deps.authorization.reauthorize({
           order,
           issue,
@@ -2348,7 +2348,7 @@ export class ShippingService {
           expectedState: order.state as Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>,
           expectedAttemptId: previous?.id ?? null,
           expectedGeneration: previous?.leaseGeneration ?? 0,
-          machineId: this.deps.machineFor(issue),
+          machineId: await this.deps.machineFor(issue),
           startedAt,
         }),
       changes: async () => await this.projectionSpecs(),
