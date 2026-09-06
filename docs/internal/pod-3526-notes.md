@@ -73,3 +73,23 @@ whole-shard A/B in progress.
 flatblock is shared and was at load average 7.7-11 with ~35 other vitest processes when
 these arms started. A 20s timeout is a wall-clock threshold. Both arms ran sequentially,
 never concurrently with each other, but not on a quiet box.
+
+## The strict-mode allowlist, measured rather than recalled
+
+A throwaway two-package workspace in the session scratchpad, run with the SAME turbo binary
+(`node_modules/.bin/turbo`, 2.10.5) and a task whose script is `env | sort`, invoked with
+`PODIUM_TEST_WORKERS=1 PODIUM_LOG_LEVEL=trace PODIUM_HOME=/x FOO_PROBE=bar turbo run envdump`:
+
+  none of PODIUM_TEST_WORKERS, PODIUM_LOG_LEVEL, PODIUM_HOME or FOO_PROBE reaches the script.
+
+What does survive is exactly turbo's system allowlist plus its own and the package manager's
+vars: COLORTERM, COREPACK_ENABLE_AUTO_PIN, DBUS_SESSION_BUS_ADDRESS, HOME, LANG, NODE, PATH,
+PWD, SHELL, SHLVL, TERM, TURBO_HASH, TURBO_INVOCATION_DIR, USER, XDG_DATA_DIRS,
+XDG_RUNTIME_DIR, npm_*.
+
+FOO_PROBE is the canary: an unrelated name proves the dump is showing a filtered environment
+and not merely an environment that happened to lack the Podium vars.
+
+So: under Turbo the store shard runs at vitest's `DEFAULT_TEST_WORKERS` of 2. Run directly
+from an agent session it runs at `maxWorkers: 1`. That is a real, mechanical difference in
+how a lane whose failures are 20s wall-clock timeouts is executed.
