@@ -58,41 +58,41 @@ export class IssueAttentionModule {
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
-  async defer(...args: Parameters<IssueCrudModule['defer']>): Promise<ReturnType<IssueCrudModule['defer']>> {
+  async defer(...args: Parameters<IssueCrudModule['defer']>): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
     return await this.crud().defer(...args)
   }
 
-  async undefer(...args: Parameters<IssueCrudModule['undefer']>): Promise<ReturnType<IssueCrudModule['undefer']>> {
+  async undefer(...args: Parameters<IssueCrudModule['undefer']>): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
     return await this.crud().undefer(...args)
   }
 
   async setNeedsHuman(
     ...args: Parameters<IssueCrudModule['setNeedsHuman']>
-  ): Promise<ReturnType<IssueCrudModule['setNeedsHuman']>> {
+  ): Promise<Awaited<ReturnType<IssueCrudModule['setNeedsHuman']>>> {
     return await this.crud().setNeedsHuman(...args)
   }
 
   async clearNeedsHuman(
     ...args: Parameters<IssueCrudModule['clearNeedsHuman']>
-  ): Promise<ReturnType<IssueCrudModule['clearNeedsHuman']>> {
+  ): Promise<Awaited<ReturnType<IssueCrudModule['clearNeedsHuman']>>> {
     return await this.crud().clearNeedsHuman(...args)
   }
 
   async markIssueRead(
     ...args: Parameters<IssueCrudModule['markIssueRead']>
-  ): Promise<ReturnType<IssueCrudModule['markIssueRead']>> {
+  ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueRead']>>> {
     return await this.crud().markIssueRead(...args)
   }
 
   async markIssueUnread(
     ...args: Parameters<IssueCrudModule['markIssueUnread']>
-  ): Promise<ReturnType<IssueCrudModule['markIssueUnread']>> {
+  ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueUnread']>>> {
     return await this.crud().markIssueUnread(...args)
   }
 
   async setIssueTucked(
     ...args: Parameters<IssueCrudModule['setIssueTucked']>
-  ): Promise<ReturnType<IssueCrudModule['setIssueTucked']>> {
+  ): Promise<Awaited<ReturnType<IssueCrudModule['setIssueTucked']>>> {
     return await this.crud().setIssueTucked(...args)
   }
   /** Re-home a session onto another issue (agent self-organization).

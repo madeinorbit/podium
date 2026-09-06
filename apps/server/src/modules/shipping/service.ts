@@ -783,7 +783,7 @@ export class ShippingService {
     }
   }
 
-  async queue(): Promise<ReturnType<typeof shippingQueue>> {
+  async queue(): Promise<Awaited<ReturnType<typeof shippingQueue>>> {
     return shippingQueue(
       await this.deps.repository.listOrders(),
       await this.deps.repository.listReceipts(),

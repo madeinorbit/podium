@@ -684,7 +684,7 @@ export class IssueReportsModule {
   async listEvents(
     sinceId: number,
     opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
-  ): Promise<ReturnType<SessionStore['events']['listEventsSince']>> {
+  ): Promise<Awaited<ReturnType<SessionStore['events']['listEventsSince']>>> {
     return await this.store.deps.store.events.listEventsSince(sinceId, opts)
   }
 

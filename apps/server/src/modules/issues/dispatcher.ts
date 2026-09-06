@@ -47,7 +47,7 @@ export class IssueCommandDispatcher {
     name: string,
     def: D,
     input: z.infer<D['input']>,
-  ): Promise<ReturnType<D['handler']>> {
+  ): Promise<Awaited<ReturnType<D['handler']>>> {
     const execute = () =>
       def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),

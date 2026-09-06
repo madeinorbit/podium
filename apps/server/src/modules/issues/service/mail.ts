@@ -19,7 +19,7 @@ export class IssueCommentsMailModule {
 
   async comments(
     ...args: Parameters<IssueReportsModule['comments']>
-  ): Promise<ReturnType<IssueReportsModule['comments']>> {
+  ): Promise<Awaited<ReturnType<IssueReportsModule['comments']>>> {
     return await this.reports().comments(...args)
   }
   /**
