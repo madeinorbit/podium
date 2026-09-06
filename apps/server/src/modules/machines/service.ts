@@ -682,6 +682,7 @@ export class MachinesService {
   /** Project ledger owners and revocations onto the machines table (D19.4d).
    *  See {@link credentials.reconcileOwnersFromLedger}. */
   reconcileOwnersFromLedger(): void {
+    if (this.presenceReadOnly) return
     credentials.reconcileOwnersFromLedger(this.enrollmentHost)
   }
 

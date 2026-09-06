@@ -1288,6 +1288,18 @@ exec "$CANARY_REAL_CLI" "$@"
       for (const spec of specs) packagedSpecs.push({ executable, spec })
       const read = (spec: InstanceSpec, path: string): any =>
         JSON.parse(readFileSync(join(spec.stateDir, path), 'utf8'))
+      const daemonReady = (spec: InstanceSpec, endpoint: string): boolean => {
+        try {
+          const health = readDaemonHealth(spec.stateDir)
+          return (
+            health?.state === 'connected' &&
+            health.serverUrl === endpoint &&
+            health.processId === read(spec, 'run/daemon.pid').pid
+          )
+        } catch {
+          return false
+        }
+      }
       const run = async (spec: InstanceSpec, args: string[], env: Record<string, string> = {}) => {
         const result = await runPackagedCli(executable, spec, args, env)
         expect(
@@ -1371,6 +1383,13 @@ exec "$CANARY_REAL_CLI" "$@"
             ) && rows.find((row) => row.id === targetId)?.serverMoveEligibility?.eligible === true
           )
         }, `${label} real transfer eligibility`)
+        // Supervisor presence precedes agent transport. Endpoint handoff correctly
+        // leaves offline machines behind, so every intended participant must have
+        // a real current daemon connection before the transfer snapshots the fleet.
+        await waitForTransfer(
+          () => specs.every((spec) => daemonReady(spec, sourceUrl)),
+          `${label} source target and observer daemon readiness`,
+        )
         const started = await sourceApi.machines.moveServer.mutate({
           targetMachineId: targetId,
           publicUrl,
@@ -1410,14 +1429,10 @@ exec "$CANARY_REAL_CLI" "$@"
             async () => (await version(target)) !== undefined,
             `${label} restarted target`,
           )
-          await waitForTransfer(() => {
-            const health = readDaemonHealth(target.stateDir)
-            return (
-              health?.state === 'connected' &&
-              health.serverUrl === sourceUrl &&
-              health.processId === read(target, 'run/daemon.pid').pid
-            )
-          }, `${label} target recovery daemon reconnected to sealed source`)
+          await waitForTransfer(
+            () => daemonReady(target, sourceUrl),
+            `${label} target recovery daemon reconnected to sealed source`,
+          )
           await expect(
             sourceApi.issues.create.mutate({
               repoPath: TEST_ROOT,
@@ -1508,9 +1523,10 @@ exec "$CANARY_REAL_CLI" "$@"
           const file = Bun.file(join(spec.stateDir, 'logs/server.log'))
           if (!(await file.exists())) continue
           const tail = await file.slice(Math.max(0, file.size - 262_144)).text()
-          expect(tail, `${label}: readonly write in ${spec.stateDir}`).not.toContain(
-            'attempt to write a readonly database',
-          )
+          expect(
+            tail.includes('attempt to write a readonly database'),
+            `${label}: readonly write in ${spec.stateDir}; see bounded failure diagnostics`,
+          ).toBe(false)
         }
         console.log(
           `PASS ${label}: compiled transfer, three endpoint rebinds, durable assignments, finalized restarts${interrupted ? ', sealed-source refusal and target restart during recovery' : ''}`,

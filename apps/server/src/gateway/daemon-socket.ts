@@ -315,7 +315,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         },
       }
       if (recoveryTransportOnly(registry)) {
-        registry.modules.machines.attach(principal.machine, send)
+        registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
         registry.modules.machines.flushQueued(principal.machine)
       } else {
         registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
