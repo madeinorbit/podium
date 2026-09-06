@@ -5,7 +5,7 @@ use std::cmp::Ordering as VersionOrdering;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
@@ -602,64 +602,162 @@ fn progress_after_chunk(
     })
 }
 
-fn supervisor_control(
+// Socket operations must yield: startup recovery can be waiting on a stale endpoint
+// while the shell exits or the parent spends minutes bringing its daemon online.
+async fn supervisor_control(
     path: &str,
     body: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, UpdateError> {
-    use std::io::{Read, Write};
-    let endpoint_path = crate::bootstrap::state_dir().join("runtime/machine-update-control.json");
-    let endpoint: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(endpoint_path).map_err(|_| UpdateError::updater_unavailable())?,
-    )
-    .map_err(|_| UpdateError::updater_unavailable())?;
-    let socket = endpoint["socketPath"]
-        .as_str()
-        .ok_or_else(UpdateError::updater_unavailable)?;
-    let token = endpoint["token"]
-        .as_str()
-        .ok_or_else(UpdateError::updater_unavailable)?;
-    #[cfg(unix)]
-    let mut stream = {
-        let stream = std::os::unix::net::UnixStream::connect(socket)
+    supervisor_control_at(&crate::bootstrap::state_dir().join("runtime"), path, body).await
+}
+
+async fn supervisor_control_at(
+    runtime: &std::path::Path,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, UpdateError> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // Re-read on every attempt. A dead parent leaves its endpoint behind; its
+    // successor publishes a different PID, socket and authentication token.
+    let request = async {
+        let endpoint: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(runtime.join("machine-update-control.json"))
+                .map_err(|_| UpdateError::updater_unavailable())?,
+        )
+        .map_err(|_| UpdateError::updater_unavailable())?;
+        let socket = endpoint["socketPath"]
+            .as_str()
+            .ok_or_else(UpdateError::updater_unavailable)?;
+        let token = endpoint["token"]
+            .as_str()
+            .ok_or_else(UpdateError::updater_unavailable)?;
+        #[cfg(unix)]
+        let mut stream = tokio::net::UnixStream::connect(socket)
+            .await
             .map_err(|_| UpdateError::updater_unavailable())?;
+        #[cfg(windows)]
+        let mut stream = tokio::net::windows::named_pipe::ClientOptions::new()
+            .open(socket)
+            .map_err(|_| UpdateError::updater_unavailable())?;
+        let payload = body.map(|value| value.to_string()).unwrap_or_default();
+        let method = if body.is_some() { "POST" } else { "GET" };
+        let request = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len());
         stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-            .ok();
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|_| UpdateError::updater_unavailable())?;
+        let mut response = String::new();
         stream
-            .set_write_timeout(Some(std::time::Duration::from_secs(30)))
-            .ok();
-        stream
+            .read_to_string(&mut response)
+            .await
+            .map_err(|_| UpdateError::updater_unavailable())?;
+        let (headers, data) = response
+            .split_once("\r\n\r\n")
+            .ok_or_else(UpdateError::updater_unavailable)?;
+        if !headers.starts_with("HTTP/1.1 2") {
+            return Err(UpdateError::new(UpdateErrorCode::InstallFailed, data));
+        }
+        serde_json::from_str(data).map_err(|_| UpdateError::updater_unavailable())
     };
-    #[cfg(windows)]
-    let mut stream = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(socket)
-        .map_err(|_| UpdateError::updater_unavailable())?;
-    let payload = body.map(|value| value.to_string()).unwrap_or_default();
-    let method = if body.is_some() { "POST" } else { "GET" };
-    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len())
-        .map_err(|_| UpdateError::updater_unavailable())?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|_| UpdateError::updater_unavailable())?;
-    let (headers, data) = response
-        .split_once("\r\n\r\n")
-        .ok_or_else(UpdateError::updater_unavailable)?;
-    if !headers.starts_with("HTTP/1.1 2") {
-        return Err(UpdateError::new(UpdateErrorCode::InstallFailed, data));
+    tokio::time::timeout(Duration::from_secs(30), request)
+        .await
+        .unwrap_or_else(|_| Err(UpdateError::updater_unavailable()))
+}
+
+static EXECUTING: AtomicBool = AtomicBool::new(false);
+struct ExecutionGuard;
+impl ExecutionGuard {
+    fn acquire() -> Result<Self, UpdateError> {
+        EXECUTING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| UpdateError::install_failed())
     }
-    // Node emits Content-Length for these one-shot JSON responses.
-    serde_json::from_str(data).map_err(|_| UpdateError::updater_unavailable())
+}
+impl Drop for ExecutionGuard {
+    fn drop(&mut self) {
+        EXECUTING.store(false, Ordering::Release);
+    }
+}
+
+fn pending_native_update(state: &serde_json::Value) -> bool {
+    state["grant"]["target"]["native"].is_object()
+        && matches!(
+            state["phase"].as_str(),
+            Some("accepted" | "downloading" | "prepared" | "activating" | "restarting")
+        )
+}
+
+// Less than the native adapter's ten-minute command budget, but comfortably
+// beyond the parent's initial 60-second boot gate (including a long daemon boot).
+const RECOVERY_READINESS_BUDGET: Duration = Duration::from_secs(9 * 60);
+
+async fn wait_for_recovery_supervisor(
+    runtime: &std::path::Path,
+    grant: &serde_json::Value,
+    budget: Duration,
+) -> Result<bool, UpdateError> {
+    wait_for_recovery_status(grant, budget, || {
+        supervisor_control_at(runtime, "/status", None)
+    })
+    .await
+}
+
+async fn wait_for_recovery_status<F, Fut>(
+    grant: &serde_json::Value,
+    budget: Duration,
+    mut probe: F,
+) -> Result<bool, UpdateError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<serde_json::Value, UpdateError>>,
+{
+    tokio::time::timeout(budget, async {
+        let mut backoff = Duration::from_millis(250);
+        loop {
+            if let Ok(state) = probe().await {
+                // A canceled, completed or superseded journal is final for this
+                // recovery task. It must never mint another grant for that target.
+                return pending_native_update(&state) && state["grant"] == *grant;
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(Duration::from_secs(5));
+        }
+    })
+    .await
+    .map_err(|_| {
+        UpdateError::new(
+            UpdateErrorCode::UpdaterUnavailable,
+            "Native update recovery timed out waiting for its supervisor.",
+        )
+    })
+}
+
+async fn until_shutdown<T>(
+    shutting_down: &AtomicBool,
+    work: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    tokio::pin!(work);
+    loop {
+        if shutting_down.load(Ordering::Acquire) {
+            return None;
+        }
+        tokio::select! {
+            result = &mut work => return Some(result),
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+        }
+    }
 }
 
 // This is an authorized-artifact receipt, not a success flag. Some platform
 // installers terminate the old shell inside install(); only a successor whose
 // actual package version matches may use it as the artifact witness.
-fn persist_native_receipt(runtime: &std::path::Path, version: &str) -> Result<(), UpdateError> {
+async fn persist_native_receipt(
+    runtime: &std::path::Path,
+    version: &str,
+) -> Result<(), UpdateError> {
     use std::io::Write;
-    let state = supervisor_control("/status", None)?;
+    let state = supervisor_control("/status", None).await?;
     let receipt = serde_json::json!({ "version": version, "digest": state["prepared"]["digest"] });
     let path = runtime.join("native-installed.json");
     let pending = runtime.join("native-installed.json.pending");
@@ -698,52 +796,73 @@ async fn download_and_install_with_progress<F>(
 where
     F: Fn(UpdateProgress) + Clone,
 {
-    static EXECUTING: AtomicBool = AtomicBool::new(false);
-    if EXECUTING
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        return Err(UpdateError::install_failed());
-    }
-    struct ExecutionGuard;
-    impl Drop for ExecutionGuard {
-        fn drop(&mut self) {
-            EXECUTING.store(false, Ordering::Release);
-        }
-    }
-    let _guard = ExecutionGuard;
+    let guard = ExecutionGuard::acquire()?;
+    execute_native_update(app, update, channel, report, None, guard).await
+}
+
+async fn execute_native_update<F>(
+    app: &AppHandle,
+    update: &Update,
+    channel: UpdateChannel,
+    report: F,
+    recovery_grant: Option<&serde_json::Value>,
+    _guard: ExecutionGuard,
+) -> Result<(), UpdateError>
+where
+    F: Fn(UpdateProgress) + Clone,
+{
     let runtime = crate::bootstrap::state_dir().join("runtime");
     let artifact = runtime.join("native-update-artifact");
     let started = Instant::now();
-    let issued_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let grant_id = format!("native-{}-{issued_at}", std::process::id());
     let native = serde_json::json!({ "url": update.download_url.as_str(), "signature": update.signature, "version": update.version, "channel": channel.as_str() });
-    let grant = serde_json::json!({
-        "type": "updateGrant", "grantId": grant_id, "issuedAt": issued_at,
-        "target": { "version": update.version, "critical": false,
-            "native": native,
-            "artifacts": { "desktop": { "delivery": "feed", "platforms": {
-                "native": { "url": update.download_url.as_str(), "signature": update.signature, "digest": "native-signature-verified" }
-            } } }
-        }
+    let grant = recovery_grant.cloned().unwrap_or_else(|| {
+        let issued_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let grant_id = format!("native-{}-{issued_at}", std::process::id());
+        serde_json::json!({
+            "type": "updateGrant", "grantId": grant_id, "issuedAt": issued_at,
+            "target": { "version": update.version, "critical": false,
+                "native": native,
+                "artifacts": { "desktop": { "delivery": "feed", "platforms": {
+                    "native": { "url": update.download_url.as_str(), "signature": update.signature, "digest": "native-signature-verified" }
+                } } }
+            }
+        })
     });
-    let previous = supervisor_control("/status", None)?;
+    let previous = supervisor_control("/status", None).await?;
     let resuming = previous["grant"]["target"]["native"] == native
         && matches!(
             previous["phase"].as_str(),
             Some("accepted" | "downloading" | "prepared" | "activating" | "restarting")
         );
-    if !resuming {
-        supervisor_control("/grant", Some(&grant))?;
+    if let Some(expected) = recovery_grant {
+        if !pending_native_update(&previous) || previous["grant"] != *expected {
+            return Ok(());
+        }
+        if !resuming {
+            return Err(UpdateError::install_failed());
+        }
     }
+    if !resuming {
+        if pending_native_update(&previous) {
+            return Err(UpdateError::install_failed());
+        }
+        supervisor_control("/grant", Some(&grant)).await?;
+    }
+    let active_grant = if resuming { &previous["grant"] } else { &grant };
     let mut downloaded: Option<Vec<u8>> = None;
     loop {
-        let command = supervisor_control("/native/work", None)?;
+        let command = supervisor_control("/native/work", None).await?;
         if command.is_null() {
-            let state = supervisor_control("/status", None)?;
+            let state = supervisor_control("/status", None).await?;
+            if state["grant"] != *active_grant {
+                return Err(UpdateError::install_failed());
+            }
+            if state["phase"].as_str() == Some("current") {
+                return Ok(());
+            }
             if matches!(
                 state["phase"].as_str(),
                 Some("rejected" | "stuck" | "canceled")
@@ -758,7 +877,7 @@ where
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             continue;
         }
-        if command["grant"]["target"]["native"] != native {
+        if command["grant"] != *active_grant {
             return Err(UpdateError::update_target_changed(
                 &update.version,
                 command["grant"]["target"]["version"]
@@ -774,27 +893,34 @@ where
                 let state = Arc::new(Mutex::new(ProgressState::default()));
                 let chunk_state = state.clone();
                 let chunk_report = report.clone();
-                let command_id = id.to_string();
                 let download = begin_install_for_app(app, || {
                     update.download(
-                    move |chunk, total| {
-                        let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        if let Some(progress) = chunk_state.lock().ok().and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms)) {
-                            let _ = supervisor_control("/native/progress", Some(&serde_json::json!({ "id": command_id, "percent": progress.percent })));
-                            chunk_report(progress);
-                        }
-                    }, || {},
-                )
+                        move |chunk, total| {
+                            let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                            if let Some(progress) = chunk_state.lock().ok().and_then(|mut state| {
+                                progress_after_chunk(&mut state, chunk, total, now_ms)
+                            }) {
+                                chunk_report(progress);
+                            }
+                        },
+                        || {},
+                    )
                 })?;
                 tokio::pin!(download);
                 let mut cancellation_poll =
                     tokio::time::interval(std::time::Duration::from_millis(100));
+                let mut reported_percent = None;
                 let bytes = loop {
                     tokio::select! {
                         result = &mut download => break result.map_err(|error| update_error(&error, Some(&update.download_url))),
                         _ = cancellation_poll.tick() => {
-                            let current = supervisor_control("/native/work", None)?;
+                            let current = supervisor_control("/native/work", None).await?;
                             if current["id"].as_str() != Some(id) { break Err(UpdateError::new(UpdateErrorCode::InstallFailed, "Native update canceled before activation.")); }
+                            let percent = state.lock().ok().and_then(|state| state.last_percent);
+                            if percent != reported_percent {
+                                let _ = supervisor_control("/native/progress", Some(&serde_json::json!({ "id": id, "percent": percent }))).await;
+                                reported_percent = percent;
+                            }
                         }
                     }
                 };
@@ -823,7 +949,7 @@ where
                     .take()
                     .or_else(|| std::fs::read(&artifact).ok())
                     .ok_or_else(UpdateError::no_pending_update)?;
-                persist_native_receipt(&runtime, &update.version)?;
+                persist_native_receipt(&runtime, &update.version).await?;
                 update
                     .install(bytes)
                     .map_err(|error| update_error(&error, Some(&update.download_url)))
@@ -839,51 +965,72 @@ where
             Ok(()) => serde_json::json!({ "id": id }),
             Err(error) => serde_json::json!({ "id": id, "error": error.message }),
         };
-        supervisor_control("/native/result", Some(&result))?;
+        supervisor_control("/native/result", Some(&result)).await?;
         outcome?;
     }
 }
 
 /// Resume only the durable exact target with the configured native verifier.
 /// Rolling-feed availability and discovery ordering are not recovery authority.
-pub async fn resume_supervisor_update(app: AppHandle) {
-    let path = crate::bootstrap::state_dir().join("runtime/machine-update.json");
-    let state: serde_json::Value = match std::fs::read(path)
+pub fn start_supervisor_recovery(app: AppHandle, shutting_down: Arc<AtomicBool>) {
+    let runtime = crate::bootstrap::state_dir().join("runtime");
+    let state: serde_json::Value = match std::fs::read(runtime.join("machine-update.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
     {
-        Some(value) => value,
-        None => return,
+        Some(value) if pending_native_update(&value) => value,
+        _ => return,
     };
-    if !matches!(
-        state["phase"].as_str(),
-        Some("accepted" | "downloading" | "prepared" | "activating" | "restarting")
-    ) {
+    // Reserve synchronously during setup, before either the page or native
+    // fallback can install. The guard spans readiness and the command loop.
+    let Ok(guard) = ExecutionGuard::acquire() else {
         return;
-    }
+    };
+    tauri::async_runtime::spawn(async move {
+        let work = async {
+            if wait_for_recovery_supervisor(&runtime, &state["grant"], RECOVERY_READINESS_BUDGET)
+                .await?
+            {
+                resume_supervisor_update(&app, &state, guard).await?;
+            }
+            Ok::<(), UpdateError>(())
+        };
+        match until_shutdown(&shutting_down, work).await {
+            Some(Err(error)) => log::error!("native supervisor recovery: {}", error.message),
+            None => log::info!("native supervisor recovery stopped with shell shutdown"),
+            _ => {}
+        }
+    });
+}
+
+async fn resume_supervisor_update(
+    app: &AppHandle,
+    state: &serde_json::Value,
+    guard: ExecutionGuard,
+) -> Result<(), UpdateError> {
     let native = &state["grant"]["target"]["native"];
     let Some(version) = native["version"].as_str() else {
-        return;
+        return Ok(());
     };
     if version == app.package_info().version.to_string() && native_installed_digest().is_some() {
-        return;
+        return Ok(());
     }
     let Some(channel_name) = native["channel"].as_str() else {
-        return;
+        return Ok(());
     };
     let Ok(channel) = channel_from_name(channel_name) else {
-        return;
+        return Ok(());
     };
     // Recovery has all release metadata in the durable grant. Building the plugin
     // directly also avoids depending on the current rolling-feed configuration.
     let Ok(updater) = app.updater_builder().build() else {
-        return;
+        return Ok(());
     };
     let Some(url) = native["url"].as_str() else {
-        return;
+        return Ok(());
     };
     let Some(signature) = native["signature"].as_str() else {
-        return;
+        return Ok(());
     };
     let update = match updater.update_from_release(serde_json::json!({
         "version": version,
@@ -893,18 +1040,19 @@ pub async fn resume_supervisor_update(app: AppHandle) {
         Ok(update) => update,
         Err(error) => {
             log::error!("native recovery target is invalid: {error}");
-            return;
+            return Ok(());
         }
     };
     let progress_app = app.clone();
-    if let Err(error) =
-        download_and_install_with_progress(&app, &update, channel, move |progress| {
-            emit_update_progress(&progress_app, progress)
-        })
-        .await
-    {
-        log::error!("native supervisor recovery: {}", error.message);
-    }
+    execute_native_update(
+        app,
+        &update,
+        channel,
+        move |progress| emit_update_progress(&progress_app, progress),
+        Some(&state["grant"]),
+        guard,
+    )
+    .await
 }
 
 fn emit_update_progress(app: &AppHandle, progress: UpdateProgress) {
@@ -1177,6 +1325,178 @@ pub async fn check_and_prompt_update(app: AppHandle, persisted_channel: Option<U
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recovery_state(phase: &str) -> serde_json::Value {
+        serde_json::json!({ "phase": phase, "grant": {
+            "grantId": "persisted", "issuedAt": 42,
+            "target": { "version": "1.2.3", "native": {
+                "version": "1.2.3", "channel": "dev", "url": "https://example.test/exact",
+                "signature": "persisted-signature"
+            }}
+        }})
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recovery_waits_beyond_initial_daemon_boot_gate() {
+        let state = recovery_state("downloading");
+        let start = tokio::time::Instant::now();
+        let mut attempts = 0;
+        let ready = wait_for_recovery_status(&state["grant"], RECOVERY_READINESS_BUDGET, || {
+            attempts += 1;
+            std::future::ready(if start.elapsed() < Duration::from_secs(75) {
+                Err(UpdateError::updater_unavailable())
+            } else {
+                Ok(state.clone())
+            })
+        })
+        .await
+        .unwrap();
+        assert!(ready);
+        assert!(start.elapsed() >= Duration::from_secs(75));
+        assert!(start.elapsed() < Duration::from_secs(80));
+        assert!(attempts < 25, "readiness must back off instead of spinning");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recovery_deadline_cancels_a_hung_status_request() {
+        let state = recovery_state("prepared");
+        let start = tokio::time::Instant::now();
+        let result = wait_for_recovery_status(&state["grant"], RECOVERY_READINESS_BUDGET, || {
+            std::future::pending::<Result<serde_json::Value, UpdateError>>()
+        })
+        .await;
+        assert_eq!(
+            result.unwrap_err().code,
+            UpdateErrorCode::UpdaterUnavailable
+        );
+        assert_eq!(start.elapsed(), RECOVERY_READINESS_BUDGET);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recovery_stops_for_terminal_missing_or_superseded_grants() {
+        let expected = recovery_state("accepted");
+        let mut states = vec![serde_json::Value::Null];
+        for phase in ["current", "canceled", "rejected", "stuck"] {
+            states.push(recovery_state(phase));
+        }
+        let mut replaced = expected.clone();
+        replaced["grant"]["grantId"] = "replacement-same-target".into();
+        states.push(replaced);
+        let mut changed = expected.clone();
+        changed["grant"]["target"]["native"]["signature"] = "different".into();
+        states.push(changed);
+        for state in states {
+            let mut calls = 0;
+            assert!(!wait_for_recovery_status(
+                &expected["grant"],
+                RECOVERY_READINESS_BUDGET,
+                || {
+                    calls += 1;
+                    std::future::ready(Ok(state.clone()))
+                }
+            )
+            .await
+            .unwrap());
+            assert_eq!(calls, 1);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recovery_shutdown_releases_exclusive_installer_while_waiting() {
+        let shutting_down = AtomicBool::new(false);
+        let guard = ExecutionGuard::acquire().unwrap();
+        assert!(
+            ExecutionGuard::acquire().is_err(),
+            "ordinary installer must not steal recovery"
+        );
+        let work = async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+        };
+        let stop = async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            shutting_down.store(true, Ordering::Release);
+        };
+        let (result, ()) = tokio::join!(until_shutdown(&shutting_down, work), stop);
+        assert!(result.is_none());
+        assert!(ExecutionGuard::acquire().is_ok());
+        let mut polled = false;
+        assert!(until_shutdown(&shutting_down, async {
+            polled = true;
+        })
+        .await
+        .is_none());
+        assert!(!polled, "termination must not start another request");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn recovery_rereads_stale_dead_parent_endpoint() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Fixture(std::env::temp_dir().join(format!(
+                "native-recovery-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )));
+        std::fs::create_dir_all(&root.0).unwrap();
+        let endpoint = root.0.join("machine-update-control.json");
+        let socket = root.0.join("control.sock");
+        assert!(supervisor_control_at(&root.0, "/status", None)
+            .await
+            .is_err());
+        std::fs::write(
+            &endpoint,
+            serde_json::json!({
+                "pid": 2147483647, "socketPath": root.0.join("dead.sock"), "token": "dead-token"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let state = recovery_state("prepared");
+        let publish = async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+            std::fs::write(
+                &endpoint,
+                serde_json::json!({
+                    "pid": std::process::id(), "socketPath": socket, "token": "successor-token"
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            let request = std::str::from_utf8(&request[..read]).unwrap();
+            assert!(request.starts_with("GET /status HTTP/1.1"));
+            assert!(request.contains("Authorization: Bearer successor-token"));
+            let body = state.to_string();
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        };
+        let (result, ()) = tokio::join!(
+            wait_for_recovery_supervisor(&root.0, &state["grant"], Duration::from_secs(5)),
+            publish
+        );
+        assert!(result.unwrap());
+    }
 
     #[test]
     fn critical_is_read_from_the_structured_field() {

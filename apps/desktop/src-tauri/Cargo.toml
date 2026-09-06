@@ -47,7 +47,7 @@ serde = { version = "1", features = ["derive"] }
 # applying Podium's explicit dev > edge prerelease tiers.
 semver = "1"
 # Bound native download cancellation to the supervisor command lifetime.
-tokio = { version = "1", features = ["time", "macros"] }
+tokio = { version = "1", features = ["time", "macros", "net", "io-util"] }
 # Required by tauri::generate_context! once plugins.updater config is embedded.
 # Also renders the native NDJSON log records (src/logging.rs), which is why the
 # escaping of a stack trace into a log line is somebody else's solved problem.
@@ -64,6 +64,7 @@ log = "0.4"
 libc = "0.2"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 # Integration tests (tests/) see only the crate and its DEV dependencies, never
 # its ordinary ones — so the panic-hook runtime check needs its own serde_json
 # to read back the NDJSON record it forced onto disk.

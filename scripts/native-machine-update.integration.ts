@@ -33,8 +33,9 @@ const tauri = join(repo, "apps/desktop/src-tauri");
 const signer = join(repo, "apps/desktop/node_modules/.bin/tauri");
 const app = join(root, "Podium");
 const target = join(root, "Podium-target");
+const startupDelayedOnly = process.argv.includes("--startup-delayed-only");
 const output = resolve(
-  process.argv[2] ?? ".tmp/native-machine-update-evidence.json"
+  process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? ".tmp/native-machine-update-evidence.json"
 );
 const oldVersion = "0.1.1-dev.1000";
 const newVersion = "0.1.1-dev.1001";
@@ -186,7 +187,7 @@ try {
         plugins: { updater: { pubkey } },
       }),
     });
-    cpSync(join(tauri, "target/debug/Podium"), destination);
+    cpSync(join(process.env.CARGO_TARGET_DIR ?? join(tauri, "target"), "debug/Podium"), destination);
     chmodSync(destination, 0o755);
   }
   run(signer, [
@@ -345,7 +346,17 @@ try {
     "--outfile",
     join(payload, "podium-cli"),
   ]);
-  writeFileSync(join(payload, "podium"), launcherShim(), { mode: 0o755 });
+  const delayMarker = join(root, "delay-supervisor-once");
+  const delayedMarker = join(root, "supervisor-delay-started");
+  // Delay the actual sidecar launch, outside CLI boot wiring. Once consumed,
+  // app.restart() starts its successor normally from the same private payload.
+  const delayedLauncher = launcherShim().replace("#!/bin/sh", `#!/bin/sh
+if [ -f '${delayMarker}' ]; then
+  rm '${delayMarker}'
+  touch '${delayedMarker}'
+  sleep 75
+fi`);
+  writeFileSync(join(payload, "podium"), delayedLauncher, { mode: 0o755 });
   writeFileSync(join(payload, "VERSION"), oldVersion + "\n");
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env))
@@ -392,7 +403,10 @@ try {
   });
   const oldBytes = readFileSync(app);
   const oldDigest = digest(app);
-  for (const mode of ["current", "older", "empty", "unavailable"] as const) {
+  const feedCases = startupDelayedOnly ? [] :
+    (["current", "older", "empty", "unavailable"] as const).map((mode) => ({ mode, delayed: false }));
+  feedCases.push({ mode: "unavailable", delayed: true });
+  for (const { mode, delayed } of feedCases) {
     feedMode = mode;
     const feed = await fetch(origin + "/manifest", {
       tls: { ca: readFileSync(ca, "utf8") },
@@ -454,37 +468,53 @@ try {
         },
       },
     });
-    await requestMachineUpdate(runtime, "/grant", grant("invalid-signature"));
-    await stopShell();
-    launch(env);
-    await until(
-      () => readMachineUpdateJournal(runtime),
-      (journal) => journal?.phase === "rejected",
-      "real Tauri signature rejection"
-    );
-    if (digest(app) !== oldDigest)
-      throw new Error(
-        "verification failure changed the running shell artifact"
+    if (!delayed) {
+      await requestMachineUpdate(runtime, "/grant", grant("invalid-signature"));
+      await stopShell();
+      launch(env);
+      await until(
+        () => readMachineUpdateJournal(runtime),
+        (journal) => journal?.phase === "rejected",
+        "real Tauri signature rejection"
       );
-    observed.push("real-minisign-rejection-without-install");
-    // Also reject altered artifact bytes with a structurally valid approved signature.
-    corruptArtifact = true;
-    await requestMachineUpdate(runtime, "/grant", grant(signature));
-    await stopShell();
-    launch(env);
-    await until(
-      () => readMachineUpdateJournal(runtime),
-      (journal) => journal?.phase === "rejected",
-      `real Tauri tampered-byte rejection with ${mode} feed`
-    );
-    corruptArtifact = false;
-    if (digest(app) !== oldDigest)
-      throw new Error("tampered signed artifact changed the running shell");
-    observed.push("real-minisign-tampered-bytes-rejection-without-install");
+      if (digest(app) !== oldDigest)
+        throw new Error(
+          "verification failure changed the running shell artifact"
+        );
+      observed.push("real-minisign-rejection-without-install");
+      // Also reject altered artifact bytes with a structurally valid approved signature.
+      corruptArtifact = true;
+      await requestMachineUpdate(runtime, "/grant", grant(signature));
+      await stopShell();
+      launch(env);
+      await until(
+        () => readMachineUpdateJournal(runtime),
+        (journal) => journal?.phase === "rejected",
+        `real Tauri tampered-byte rejection with ${mode} feed`
+      );
+      corruptArtifact = false;
+      if (digest(app) !== oldDigest)
+        throw new Error("tampered signed artifact changed the running shell");
+      observed.push("real-minisign-tampered-bytes-rejection-without-install");
+    }
     const accepted = grant(signature);
     await requestMachineUpdate(runtime, "/grant", accepted);
+    const staleEndpoint = readFileSync(join(runtime, "machine-update-control.json"));
     await stopShell();
+    if (delayed) {
+      writeFileSync(delayMarker, "delay once");
+      writeFileSync(join(runtime, "machine-update-control.json"), staleEndpoint);
+    }
+    const recoveryStarted = Date.now();
     launch(env);
+    if (delayed) {
+      await until(() => existsSync(delayedMarker), Boolean, "actual supervisor launch delayed");
+      await pause(10_000);
+      if (artifactRequests !== beforeArtifact)
+        throw new Error("installer ran before its delayed supervisor became ready");
+      if (readMachineUpdateJournal(runtime)?.grant.grantId !== accepted.grantId)
+        throw new Error("waiting for readiness changed the persisted authority");
+    }
     const journal = await until(
       () => readMachineUpdateJournal(runtime),
       (journal) => {
@@ -493,7 +523,7 @@ try {
         return journal?.phase === "current";
       },
       "native replacement and successor confirmation",
-      120000
+      delayed ? 180000 : 120000
     );
     if (readFileSync(join(state, "running-version"), "utf8") !== newVersion)
       throw new Error("actual shell version did not change");
@@ -519,9 +549,14 @@ try {
       throw new Error("native update introduced a server or daemon");
     if (manifestRequests !== beforeManifest)
       throw new Error(`recovery consulted the ${mode} rolling feed`);
-    if (artifactRequests - beforeArtifact !== 3)
-      throw new Error(`expected three exact artifact downloads for ${mode}`);
+    if (artifactRequests - beforeArtifact !== (delayed ? 1 : 3))
+      throw new Error(`unexpected exact artifact download count for ${mode}`);
+    if (delayed && Date.now() - recoveryStarted < 75_000)
+      throw new Error("startup-delay boundary was not exercised");
     cases.push({
+      startupDelayMs: delayed ? 75_000 : 0,
+      recoveryElapsedMs: Date.now() - recoveryStarted,
+      staleEndpointReplaced: delayed,
       feedMode: mode,
       feedStatus: feed.status,
       feedVersion: feedBody?.version ?? null,
@@ -552,8 +587,9 @@ try {
         oldDigest,
         targetDigest: digest(target),
         cases,
-        scope:
-          "Real native verifier (invalid signature and tampered bytes refused), Linux executable install primitive, app restart and exact-grant recovery with current/older/204/503 rolling feeds and zero recovery manifest requests. Debug ELF builds; does not cover AppImage packaging/FUSE, macOS bundles or Windows installers.",
+        scope: startupDelayedOnly
+          ? "One real signed Linux Tauri recovery after 75s sidecar startup delay and stale dead-parent endpoint, unavailable feed, zero recovery manifest reads and one exact artifact download. Debug ELF; excludes AppImage/FUSE, macOS and Windows."
+          : "Real native verifier (invalid signature and tampered bytes refused), Linux executable install primitive, app restart and exact-grant recovery with current/older/204/503 feeds, plus 75s delayed sidecar readiness with stale endpoint. Zero recovery manifest requests. Debug ELF; excludes AppImage/FUSE, macOS and Windows.",
       },
       null,
       2

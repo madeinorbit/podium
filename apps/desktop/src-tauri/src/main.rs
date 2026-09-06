@@ -1522,6 +1522,7 @@ fn main() {
             let update_ownership: updater::UpdateOwnership = Arc::new(AtomicBool::new(false));
             app.manage(update_ownership.clone());
             app.manage(updater::PendingUpdate::default());
+            updater::start_supervisor_recovery(app.handle().clone(), shutting_down.clone());
 
             // Child slot is always managed so the window-event / exit handlers can reap whatever
             // (if anything) we spawned. ClientOnly leaves it None.
@@ -2299,8 +2300,6 @@ fn main() {
                             let _ = std::fs::create_dir_all(&state_dir);
                             let _ = std::fs::write(path, if native { "native" } else { "page" });
                         }
-                        let recovery_handle = updater_handle.clone();
-                        tauri::async_runtime::spawn(async move { crate::updater::resume_supervisor_update(recovery_handle).await; });
                         if native {
                             crate::updater::check_and_prompt_update(
                                 updater_handle,
