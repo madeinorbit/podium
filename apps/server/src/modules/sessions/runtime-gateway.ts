@@ -91,7 +91,9 @@ export interface RuntimeDurableQueuePort {
     sourceMessageId?: string
     /** Only the existing recovery interaction may cross a terminal provider failure. */
     allowErrored?: boolean
-  }): { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
+  }): Promise<
+    { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
+  >
 }
 
 /**
@@ -233,7 +235,7 @@ export class SessionRuntimeGateway {
       }
     }
     if (input.delivery === 'queue' || input.delivery === 'steer') {
-      const queued = this.ports.queue.enqueue({
+      const queued = await this.ports.queue.enqueue({
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,

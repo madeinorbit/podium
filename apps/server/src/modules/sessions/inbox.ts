@@ -266,7 +266,11 @@ export interface InboxAttentionPort {
     next: AgentRuntimeState
     observation?: AgentObservation
   }): void
-  answered(input: { ownerUserId: UserId; sessionId: SessionId; attribution: Attribution }): void
+  answered(input: {
+    ownerUserId: UserId
+    sessionId: SessionId
+    attribution: Attribution
+  }): Promise<void>
   /** A queued input was not witnessed before its bounded confirmation window. */
   promptFailed(input: {
     ownerUserId?: UserId
@@ -274,7 +278,7 @@ export interface InboxAttentionPort {
     text: string
     reason: string
     initialPrompt: boolean
-  }): void
+  }): Promise<void>
 }
 
 export interface SessionInboxDeps {
@@ -1325,11 +1329,11 @@ export class SessionInbox {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
     }
-    const reportPromptFailure = (
+    const reportPromptFailure = async (
       current: Session | undefined,
       head: QueuedInboxMessage,
       reason: string,
-    ): void => {
+    ): Promise<void> => {
       if (!isCurrent()) return
       if (!this.reportedPromptFailures.has(head.id)) {
         this.reportedPromptFailures.add(head.id)
@@ -1343,7 +1347,7 @@ export class SessionInbox {
           }
         }
         const ownerUserId = this.deps.ownerOf(sessionId)
-        this.deps.attention.promptFailed({
+        await this.deps.attention.promptFailed({
           ...(ownerUserId ? { ownerUserId } : {}),
           sessionId,
           text: head.text,
@@ -1393,7 +1397,7 @@ export class SessionInbox {
 
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             initialPrompt
@@ -1405,7 +1409,7 @@ export class SessionInbox {
         }
         const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
         if (blockedReason) {
-          reportPromptFailure(current, head, blockedReason)
+          await reportPromptFailure(current, head, blockedReason)
           stop()
           return
         }
@@ -1420,7 +1424,7 @@ export class SessionInbox {
         if (!current.transcriptAvailable && this.needsInputReadiness(current)) {
           const now = this.deps.now()
           if (now >= deadline) {
-            reportPromptFailure(
+            await reportPromptFailure(
               current,
               head,
               `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
@@ -1439,7 +1443,7 @@ export class SessionInbox {
           // Held, not lost. Give up only at the ceiling, and leave the row
           // exactly where a later re-arm finds it — with its attempts intact.
           if (now >= heldUntil) {
-            reportPromptFailure(
+            await reportPromptFailure(
               current,
               head,
               initialPrompt
@@ -1461,7 +1465,7 @@ export class SessionInbox {
         // prompt is never retyped after an unconfirmed attempt: the original
         // bytes may still be sitting in the native composer.
         if (initialPrompt) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             'the agent transcript did not confirm the creation prompt before the deadline',
@@ -1469,7 +1473,7 @@ export class SessionInbox {
           return
         }
         if (attempt >= MAX_DELIVERY_ATTEMPTS) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             'the agent transcript did not confirm this input after the retry budget was exhausted',
@@ -1493,7 +1497,7 @@ export class SessionInbox {
       const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           firstPromptNeedsProof
@@ -1505,7 +1509,7 @@ export class SessionInbox {
       }
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        reportPromptFailure(current, head, blockedReason)
+        await reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
@@ -1595,7 +1599,7 @@ export class SessionInbox {
       // the bytes even when the server never saw a transcript turn — retyping
       // would turn one uncertain prompt into two in the composer.
       if (transcriptCreatingWrite && head.attempts > 0) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           firstPromptNeedsProof
@@ -1619,7 +1623,7 @@ export class SessionInbox {
       // gives it the WHOLE normalized text and `tailUserTurnMatches` compares
       // it exactly, so "ok" is still witnessable without a prefix.
       if (needsReadinessProof && needle === null) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           `this ${this.deps.harnessName(current.agentKind)} input is too short to witness in the transcript`,
@@ -1646,7 +1650,7 @@ export class SessionInbox {
         // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
         // would answer the wrong question. Keep the row and report the blocked
         // delivery so the operator has a visible recovery handle.
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           current.agentState?.phase === 'needs_user'
@@ -1666,7 +1670,7 @@ export class SessionInbox {
       if (needle !== null && (witnessable || transcriptCreatingWrite || needsReadinessProof)) {
         confirm(head, needle, attempt)
       } else if (needsReadinessProof) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           `the agent transcript did not confirm this ${this.deps.harnessName(current.agentKind)} input`,
@@ -1686,7 +1690,7 @@ export class SessionInbox {
       const head = (await this.deps.queue.list(sessionId))[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -1699,7 +1703,7 @@ export class SessionInbox {
       }
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        if (head) reportPromptFailure(current, head, blockedReason)
+        if (head) await reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
@@ -1839,7 +1843,7 @@ export class SessionInbox {
       // Contract delivery above has its own typed receipts; this budget applies
       // only to the terminal path.
       if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           isInitialPromptRow(sessionId, head)
@@ -1879,7 +1883,7 @@ export class SessionInbox {
       const head = (await this.deps.queue.list(sessionId))[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -1893,7 +1897,7 @@ export class SessionInbox {
       const now = this.deps.now()
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        if (head) reportPromptFailure(current, head, blockedReason)
+        if (head) await reportPromptFailure(current, head, blockedReason)
         else stop()
         return
       }
@@ -1952,7 +1956,7 @@ export class SessionInbox {
         }
       } else if (now >= deadline) {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -2021,12 +2025,12 @@ export class SessionInbox {
    * not answer stay on their first row, and the closing CR would commit those
    * rows as if the operator had picked them. The caller surfaces the reason.
    */
-  answerAskUserQuestion(input: {
+  async answerAskUserQuestion(input: {
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string } {
+  }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     // Attention is per-owner. An unresolved owner is not an invitation to send
@@ -2078,7 +2082,7 @@ export class SessionInbox {
     }
     // Answering the agent's question is always a person acting.
     this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
-    this.deps.attention.answered({
+    await this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
       attribution,

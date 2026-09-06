@@ -98,7 +98,7 @@ export interface MessageMailboxDeps {
     input: MessageSendInput,
     opts?: MessageSendOptions,
   ): MessageSendResult | Promise<MessageSendResult>
-  cancelQueuedInput(message: MessageRow): void | Promise<void>
+  cancelQueuedInput(message: MessageRow): Promise<void>
   /** The transition ledger — a read is a status transition like any other. */
   emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
   /** The rendered sender label, for a reminder's render-ready row. */

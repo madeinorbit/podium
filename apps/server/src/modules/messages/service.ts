@@ -204,21 +204,24 @@ export interface MessageDeliveryDeps {
     sessionRoutingFacts?(): SessionRoutingFacts[]
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
-    queuedMessagePosition?(sessionId: SessionId, sourceMessageId: string): number | undefined
-    sendText(input: InboxDeliveryInput): {
+    queuedMessagePosition?(
+      sessionId: SessionId,
+      sourceMessageId: string,
+    ): Promise<number | undefined>
+    sendText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
-    queueText(input: InboxDeliveryInput): {
+    }>
+    queueText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
-    cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
-    hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
+    }>
+    cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
+    hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
     /** Whether a composer draft is typed into the agent's own prompt line on
      *  this deployment (draft injection, the `draft-sync` experiment). It is the
      *  only condition under which a draft and the prompt line are the same text,
@@ -571,10 +574,10 @@ export class MessageDeliveryService {
           }
         : {}),
       send: async (from, input, opts) => await this.send(from, input, opts),
-      cancelQueuedInput: (message) => {
+      cancelQueuedInput: async (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
-        if (sessionId) deps.sessions.cancelQueuedMessage?.(asSessionId(sessionId), message.id)
+        if (sessionId) await deps.sessions.cancelQueuedMessage?.(asSessionId(sessionId), message.id)
       },
       emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
       fromLabel: async (message) => await this.render.fromLabel(message),
@@ -1735,7 +1738,8 @@ export class MessageDeliveryService {
             // injectedAt for retry suppression, so the physical PTY queue is
             // the final discriminator: never let the startup idle edge confirm
             // (and hide) text that is still waiting to cross that boundary.
-            if (this.deps.sessions.hasQueuedMessage?.(session.sessionId, message.id)) continue
+            if (await this.deps.sessions.hasQueuedMessage?.(session.sessionId, message.id))
+              continue
             if (this.render.isPointer(message)) continue
             await this.markDelivered(message, session.sessionId, 'boundary')
           }
@@ -1808,7 +1812,7 @@ export class MessageDeliveryService {
     // behind the first. The drain owns the row until it settles it; this is the
     // same discriminator the turn-boundary confirm already uses.
     const sessionId = m.deliveredTo ? asSessionId(m.deliveredTo) : undefined
-    if (sessionId && this.deps.sessions.hasQueuedMessage?.(sessionId, m.id)) return true
+    if (sessionId && (await this.deps.sessions.hasQueuedMessage?.(sessionId, m.id))) return true
     // NO ECHO WILL EVER COME for an unwrapped operator body (POD-1703): it
     // carries no `[podium message <id>]` frame, so ECHO_ID_RE cannot match it in
     // any transcript. Only the durable-queue path reaches here with one — a
@@ -2089,7 +2093,7 @@ export class MessageDeliveryService {
       message.deliveredTo ??
       (message.toKind === 'session' && message.toId ? asSessionId(message.toId) : undefined)
     if (!sessionId) return undefined
-    const physical = this.deps.sessions.queuedMessagePosition?.(sessionId, message.id)
+    const physical = await this.deps.sessions.queuedMessagePosition?.(sessionId, message.id)
     if (physical !== undefined) return physical
     if (message.injectedAt != null) return undefined
     return await this.deps.messages.queuedPositionForSession(sessionId, message.id)

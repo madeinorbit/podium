@@ -368,8 +368,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sourceMessageId: row.sourceMessageId,
         })
       },
-      list: (sessionId) =>
-        store.sync.listQueuedMessages(sessionId).map((row: QueuedMessageRow) => ({
+      list: async (sessionId) =>
+        (await store.sync.listQueuedMessages(sessionId)).map((row: QueuedMessageRow) => ({
           id: row.id,
           text: row.text,
           attempts: row.attempts,
@@ -390,7 +390,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).
-      sessionsWithPending: () => [...store.sync.queuedMessageCounts().keys()],
+      sessionsWithPending: async () => [...(await store.sync.queuedMessageCounts()).keys()],
     },
     daemon: {
       sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
@@ -412,21 +412,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     attention: {
       stateChanged: (input) => bag.bus.emit('session.stateChanged', input),
-      answered: ({ ownerUserId, sessionId, attribution }) => {
-        store.events.appendEvent({
+      answered: async ({ ownerUserId, sessionId, attribution }) => {
+        await store.events.appendEvent({
           ts: new Date(bag.now()).toISOString(),
           kind: 'session.inbox.answered',
           subject: sessionId,
           payload: { sessionId, ownerUserId, attribution },
         })
       },
-      promptFailed: ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
+      promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
         const title = initialPrompt ? 'Initial prompt not delivered' : 'Input not delivered'
         const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
         // Persist first. The bus attention event is intentionally only a live
         // notification; the event and queue are the recovery record even when
         // there is no owner or no connected client.
-        store.events.appendEvent({
+        await store.events.appendEvent({
           ts: new Date(bag.now()).toISOString(),
           kind: initialPrompt ? 'session.initial_prompt_failed' : 'session.input_unconfirmed',
           subject: sessionId,
@@ -604,7 +604,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
     // so it is resolved for a user. See `settingsViewer` below for why that
     // user is spelled out rather than defaulted.
-    isEnabled: () => store.settings.getSettingsFor(bag.settingsViewer()).autoContinue.enabled,
+    isEnabled: async () =>
+      (await store.settings.getSettingsFor(bag.settingsViewer())).autoContinue.enabled,
     sendContinue: (sessionId) => {
       bag.continueSession({ sessionId })
     },
@@ -630,8 +631,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * forwarding it would move that promise to the one place that cannot keep it.
    */
   const durableQueue: RuntimeDurableQueuePort = {
-    enqueue: (input) => {
-      const queued = bag.inbox.queueText({
+    enqueue: async (input) => {
+      const queued = await bag.inbox.queueText({
         sessionId: input.sessionId,
         text: input.text,
         inputOrigin: input.origin,
@@ -664,7 +665,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // The position is the table's real depth, read back rather than counted
         // here — a number that drifted from the table would be a promise about
         // ordering that nothing kept.
-        position: store.sync.listQueuedMessages(input.sessionId).length,
+        position: (await store.sync.listQueuedMessages(input.sessionId)).length,
       }
     },
   }
@@ -1019,7 +1020,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           )
           .map((s) => s.sessionId)
       : []
-    bag.autoContinue.onSettingsChanged(nowEnabled, ids)
+    // NOT awaited: a bus listener returns void and has no caller to answer
+    // (rule 57). Arming is best-effort; each loop re-reads the switch itself.
+    void bag.autoContinue.onSettingsChanged(nowEnabled, ids)
   })
   // Agent mail send-time nudge (issue #103): resolve membership and the
   // coordinator from the canonical issue id at delivery time. The nudge carries

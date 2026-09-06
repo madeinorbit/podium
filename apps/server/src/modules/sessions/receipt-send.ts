@@ -99,10 +99,10 @@ export interface ReceiptSendResult {
 /** The legacy verbs, as this seam needs them. Structurally satisfied by
  *  `SessionInbox`; named here so the module depends on what it uses. */
 export interface ReceiptSendLegacyPort {
-  sendText(input: ReceiptSendInput): ReceiptSendResult
-  queueText(input: ReceiptSendInput & { mutationId?: MutationId }): ReceiptSendResult
-  interruptText(input: ReceiptSendInput): ReceiptSendResult
-  resumeAndSend(input: ReceiptSendInput & { mutationId?: MutationId }): ReceiptSendResult
+  sendText(input: ReceiptSendInput): Promise<ReceiptSendResult>
+  queueText(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
+  interruptText(input: ReceiptSendInput): Promise<ReceiptSendResult>
+  resumeAndSend(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
 }
 
 /** The contract path's machine-crossing half. `queue` is absent on purpose —
@@ -353,12 +353,12 @@ export class ReceiptSender {
     return { ok: false, reason: detail }
   }
 
-  private enqueue(
+  private async enqueue(
     via: ReceiptSendVia,
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
-  ): ReceiptSendResult {
-    const queued = this.ports.queue.enqueue({
+  ): Promise<ReceiptSendResult> {
+    const queued = await this.ports.queue.enqueue({
       sessionId: input.sessionId,
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
@@ -400,16 +400,19 @@ export class ReceiptSender {
     return { ok: true, queued: true, position: queued.position }
   }
 
-  private legacy(via: ReceiptSendVia, input: ReceiptSendInput): ReceiptSendResult {
+  private async legacy(
+    via: ReceiptSendVia,
+    input: ReceiptSendInput,
+  ): Promise<ReceiptSendResult> {
     switch (via) {
       case 'now':
-        return this.ports.legacy.sendText(input)
+        return await this.ports.legacy.sendText(input)
       case 'interrupt':
-        return this.ports.legacy.interruptText(input)
+        return await this.ports.legacy.interruptText(input)
       case 'queue':
-        return this.ports.legacy.queueText(input)
+        return await this.ports.legacy.queueText(input)
       case 'wake':
-        return this.ports.legacy.resumeAndSend(input)
+        return await this.ports.legacy.resumeAndSend(input)
     }
   }
 }

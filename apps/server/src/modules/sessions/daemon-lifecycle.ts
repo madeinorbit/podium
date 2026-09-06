@@ -436,7 +436,7 @@ export class SessionDaemonLifecycle {
           // land together; the drain below still sees `live`, because the draft
           // is installed the moment the commit returns.
           await this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
-          this.autoContinue.onSessionLive(s.sessionId)
+          await this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
@@ -796,7 +796,7 @@ export class SessionDaemonLifecycle {
         // Snapshot and same-phase refresh update display/checkpoint only. Every
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
-        this.autoContinue.onStateChange(session.sessionId, next)
+        await this.autoContinue.onStateChange(session.sessionId, next)
         // The assistant digest is not part of the board/recency slice; keep its
         // legacy activity trigger until a later consumer migration owns replay.
         await this.ports.onSessionActivity(session.sessionId)
@@ -890,7 +890,7 @@ export class SessionDaemonLifecycle {
         session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId), draft)
         const next = draft.agentState ?? msg.state
         await this.persistDraft(session, draft)
-        this.autoContinue.onStateChange(msg.sessionId, next)
+        await this.autoContinue.onStateChange(msg.sessionId, next)
         // A dedicated per-session message — not broadcastSessions(). Hook events
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);
         // re-serializing and fanning out the whole session list each time is

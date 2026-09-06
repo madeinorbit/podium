@@ -1672,7 +1672,7 @@ export class SessionRegistry {
           // session, a race with the daemon's own bind — left the row waiting for
           // the next reconnect. Re-arming here costs a no-op when the bind path
           // already ran.
-          sessionsSvc.inbox.drain(sessionId)
+          await sessionsSvc.inbox.drain(sessionId)
         })
         .catch(async (err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
@@ -3175,7 +3175,8 @@ export class SessionRegistry {
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
     this.queuedInputSweep = setInterval(
-      () => sessionsSvc.inbox.sweepQueuedInputs(),
+      // NOT awaited: a backstop tick owns no caller to answer (rule 57).
+      () => void sessionsSvc.inbox.sweepQueuedInputs(),
       QUEUED_INPUT_SWEEP_MS,
     )
     this.queuedInputSweep.unref?.()
