@@ -64,8 +64,8 @@ import type { MutationId } from '@podium/model'
  */
 export interface AdvanceIdempotencyPort {
   /** The recorded result of an already-applied advance, or `undefined`. */
-  recall(key: string): string | undefined
-  record(key: string, result: string): void
+  recall(key: string): string | undefined | Promise<string | undefined>
+  record(key: string, result: string): void | Promise<void>
 }
 
 /**

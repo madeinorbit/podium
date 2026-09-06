@@ -70,7 +70,13 @@ export async function checkpointHandler(
     throw new Error('session is not assigned to this workflow step')
   }
   const observation = input.observation ?? null
-  const warnings = engine.observationWarningsForRun(run, step, caller, input.status, observation)
+  const warnings = await engine.observationWarningsForRun(
+    run,
+    step,
+    caller,
+    input.status,
+    observation,
+  )
   const assignedSessionId =
     step.assignedSessionId ?? (caller.actor.kind === 'session' ? caller.actor.id : null)
   await deps.store.updateStep({

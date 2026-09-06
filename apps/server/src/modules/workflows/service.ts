@@ -114,8 +114,8 @@ export interface WorkflowServiceDeps {
   store: WorkflowsRepository
   now(): string
   session(sessionId: SessionId): SessionInfo | undefined
-  issue(issueId: IssueId): IssueInfo | undefined
-  repoIdForPath(path: string): string | null
+  issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
+  repoIdForPath(path: string): string | null | Promise<string | null>
   notifyCoordinator?(sessionId: SessionId, text: string): void
 }
 
@@ -147,7 +147,7 @@ export interface WorkflowEngine {
     caller: WorkflowCaller,
     status: 'active' | 'blocked' | 'complete',
     observation: GitObservation | null,
-  ): string[]
+  ): string[] | Promise<string[]>
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
     input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
@@ -355,7 +355,10 @@ export class WorkflowService implements WorkflowEngine {
     const workflow = await this.deps.store.getWorkflow(revision.workflowId)
     if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
     if (workflow.scope === 'global') return
-    if (workflow.scope === 'repository' && workflow.scopeRef === this.deps.repoIdForPath(input.cwd))
+    if (
+      workflow.scope === 'repository' &&
+      workflow.scopeRef === (await this.deps.repoIdForPath(input.cwd))
+    )
       return
     if (
       workflow.scope === 'task' &&
@@ -377,7 +380,7 @@ export class WorkflowService implements WorkflowEngine {
       await this.assertRevisionMatchesStart(revision, input)
       return revision
     }
-    const repoId = this.deps.repoIdForPath(input.cwd)
+    const repoId = await this.deps.repoIdForPath(input.cwd)
     const candidates = [
       await this.deps.store.getBinding('session', input.sessionId),
       input.issueId ? await this.deps.store.getBinding('issue', input.issueId) : null,
@@ -606,13 +609,13 @@ export class WorkflowService implements WorkflowEngine {
     return { run, currentStep: current, nextStep: current, message, warnings }
   }
 
-  observationWarningsForRun(
+  async observationWarningsForRun(
     run: WorkflowRunWire,
     step: WorkflowRunStepWire,
     caller: WorkflowCaller,
     status: 'active' | 'blocked' | 'complete',
     observation: GitObservation | null,
-  ): string[] {
+  ): Promise<string[]> {
     const warnings: string[] = []
     const session = caller.actor.id ? this.deps.session(caller.actor.id) : undefined
     const profile = step.executionProfileSnapshot
@@ -635,7 +638,7 @@ export class WorkflowService implements WorkflowEngine {
       warnings.push('step completed with uncommitted worktree changes')
     }
     if (run.subjectKind === 'issue') {
-      const issue = this.deps.issue(asIssueId(run.subjectId))
+      const issue = await this.deps.issue(asIssueId(run.subjectId))
       if (
         issue?.worktreePath &&
         observation?.worktree &&
