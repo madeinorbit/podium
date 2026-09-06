@@ -594,3 +594,82 @@ Prefix gives the order; edges in the tracker give the real dependencies
 
 Ready at the start: H, 0.1 to 0.7, 0.11, B0.2, B0.3 (0.0 is closed). The Turso items wait on
 H. The placeholder A is filled at R1. Also in the table: 0.8 and 0.12 depend on V1.
+
+## 10. Early replan (2026-09-06), sequenced by FILE COLLISION
+
+Run at the operator's instruction, ahead of R4 proper. R4 as written cannot run yet: its
+exit gate lists *the synchronous helper deleted* and *the ADR amendments merged*, which are
+Phase B2 and still gated on V5. This is the smaller thing R4 could not be — a replan of the
+open work by **which files it touches**, so nothing overwrites anything else.
+
+Derived by extracting every file path named in the 37 open sub-issues' briefs and
+intersecting them. It is a floor, not a guarantee: a brief names the sites it knows about.
+
+### 10.1 The hard serialization point: `apps/server/src/store.ts`
+
+**Seven open issues name it** — POD-3264, 3265, 3266, 3267 (all of Phase B2), POD-3270,
+3271, 3272 (all of Phase E), and POD-3359. Six of the seven ALSO name
+`apps/server/src/migrations/per-user-state-family.test.ts`.
+
+So B2 cannot be parallelised internally and E cannot overlap B2. This is not a scheduling
+preference; it is the reason B2 was written as four issues rather than one, and the four
+must land **in order**. `store.ts` stays coordinator-owned: workers read it, mail POD-3221
+to change it, and the coordinator makes the edit once.
+
+**Sequence: 3264 → 3265 → 3266 → 3267, then 3270 → 3272 → 3271.** POD-3359 (worktree
+machine backfill) is small and touches only `store.ts`; land it in the gap **before** B2
+starts, not during.
+
+### 10.2 `store/executor/` — POD-3506 first, and alone
+
+POD-3506 (the confirmed production deadlock) owns the directory until it lands. Four issues
+queue behind it, and three of them are deletions that only make sense after it:
+
+| issue | file | note |
+|---|---|---|
+| POD-3506 | `executor.ts`, its three test files | **the deadlock — first, alone** |
+| POD-3502 | `sync-drizzle.ts` | carry drizzle's builder type through as declared intent |
+| POD-3503 | `harness.ts`, `stage-a-seam.ts` | put repository statements in the audit corpus |
+| POD-3327 | `synchronous-span.ts` | delete the bridge — also a **B2 exit-gate item** |
+| POD-3326 | `legacy-handle-probe.ts`, `statement-probe.ts` | delete the probe feed |
+| POD-3337 | `read-scope.ts` | delete the microtask turn scope |
+
+POD-3502 and POD-3503 together re-arm POD-3426's intent gate, which currently **refuses**
+by design; neither alone lifts the refusal. Run them as a pair, after 3506.
+
+### 10.3 `scripts/` — POD-3508 owns it broadly
+
+POD-3508's 93 errors span 16 files. Three open issues also reach into `scripts/`:
+POD-3326 and POD-3343 (`check-boundaries.ts`), POD-3489 (the awaitify keep-sync
+generators), POD-3503 (`check-statement-intent.ts`). **POD-3508 goes first**; the others
+rebase onto it. POD-3508 also owns making the gate able to *see* this package — `bun run
+typecheck` fail-fasts at `apps/daemon` and reports 22 of 26, never reaching
+`@podium/scripts`, which is why 93 errors sat invisible behind a headline of zero.
+
+### 10.4 Safe to run in parallel, today
+
+Disjoint file sets, no overlap with the above or each other:
+
+- **sessions/**: POD-3349 (`inbox.ts`), POD-3351 (`session-revival.ts`), POD-3353
+  (`issue-mail-nudge.ts`), POD-3507 (`session-authz.ts`) — four different files.
+- **issues service**: POD-3504 (`service/types.ts`) and POD-3505 (`service/crud.ts` +
+  `issue-session-lifecycle.ts`). Adjacent, not overlapping. **POD-3505 is under the
+  post-commit landing freeze** until POD-3506 lands.
+- **standalone**: POD-3376, POD-3378, POD-3379, POD-3385 (`packages/sync/`), POD-3389,
+  POD-3413, POD-3465, POD-3497, POD-3355, POD-3501 (`issues.test.ts`).
+
+### 10.5 Two collisions already avoided
+
+POD-3501 and POD-3507 were started within minutes of each other and **both name
+`apps/server/src/store/store.ts`**. Caught by this exercise before either edited it; both
+told to read-only it and mail for changes. POD-3502 claims `sync-drizzle.ts` while POD-3506
+owns that directory — queued behind it rather than started.
+
+### 10.6 What this does not cover
+
+Ownership by *file* does not catch ownership by *shape*. POD-3468 and POD-3499 independently
+made the same `followUpAfterCommit` fix in the same file, and merge-tree would have shown a
+conflict — but POD-3469's and POD-3467's slices merged **unconflicted** while disagreeing
+about a design, which is the hazard recorded in `pod-3221-merge-steps.md` §4a. File
+disjointness is necessary, not sufficient. Where two issues touch the same *invariant*, say
+so in both briefs.
