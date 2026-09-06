@@ -33,17 +33,39 @@
  * ORDER in which a connection is admitted (below).
  *
  * ---------------------------------------------------------------------------
- * ATTACH ORDER IS THE CONTIGUITY ARGUMENT, AND IT IS SYNCHRONOUS
+ * ATTACH ORDER IS THE CONTIGUITY ARGUMENT, AND ITS ENTRY POINTS ARE SYNCHRONOUS
  * ---------------------------------------------------------------------------
  *
- * A connection is admitted in one synchronous pass: read the world at the head,
- * send it as `feedBootstrap`, then attach the publisher AT THAT SAME `seq`. The
+ * A connection is admitted in one read scope: read the world at the head, send
+ * it as `feedBootstrap`, then attach the publisher AT THAT SAME `seq`. The
  * Authority appends only inside `commit`, so nothing can land between the read
  * and the attach — the first delta a connection receives certifies from exactly
  * where its bootstrap stopped. The pre-cutover bootstrap could not make that
  * claim: it was a set of lists with no position in them, so a client had to spend
  * a `sync.changesSince` round trip to find out where it stood and the window
  * between the two was covered by hope.
+ *
+ * THAT PASS USED TO BE SYNCHRONOUS AND NO LONGER IS (POD-3523). The world read
+ * is async after the store flip, while {@link attach} and {@link renegotiate}
+ * are reached only from Bun's `websocket.open` / `websocket.message` callbacks
+ * — synchronous transport handlers that cannot yield (rule 51 case 2; the full
+ * caller census is `docs/internal/pod-3523-attach-caller-census.md`). So the
+ * admission is DEFERRED rather than awaited, and the deferral is a contract
+ * this file states rather than an omission it hides:
+ *
+ *   - {@link defer} is the ONE place an admission is started without being
+ *     awaited. It holds the promise in {@link FeedServing.admissions}, reports a
+ *     rejection instead of leaking an unhandled one, and clears the slot on
+ *     settle.
+ *   - While an admission is in flight the peer counts as ADMITTED, so a second
+ *     entry cannot start a second one. Without that, a `hello` arriving inside
+ *     the window served the peer two worlds — measured, not argued.
+ *   - A peer that detaches inside the window is ABANDONED at the first check
+ *     after the read, so a socket that is already gone is neither framed nor
+ *     re-registered.
+ *   - {@link admissionSettled} is how an observer waits for the deferred work.
+ *     Nothing in production calls it; it exists because a deferral no caller can
+ *     see is a deferral no test can hold to its contract.
  *
  * ---------------------------------------------------------------------------
  * A REPLICA THAT ALREADY HAS THE WORLD IS NOT SENT ANOTHER (POD-2061)
@@ -95,6 +117,7 @@
  * {@link renegotiate}.
  */
 
+import { createLogger } from '@podium/logger'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import {
   asSubscriberId,
@@ -155,6 +178,8 @@ export const FEED_BOOTSTRAP_CHUNK_ROWS = 200
 /** Bound retained principal worlds: reuse is a latency optimisation, never authority. */
 const FEED_WORLD_CACHE_MAX_PRINCIPALS = 8
 
+const log = createLogger('server:gateway')
+
 type BootstrapCause = 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
 
 /**
@@ -210,6 +235,30 @@ export class FeedServing {
   private readonly edge: WireFeedEdge
   private readonly peers = new Map<string, FeedPeer>()
   private readonly connections = new Map<string, FeedConnection>()
+  /**
+   * EXCLUSION: the admission that currently speaks for a peer (POD-3523).
+   *
+   * A peer is in here from the moment {@link defer} starts its admission until
+   * that admission settles; it is in {@link connections} only once the admission
+   * has installed a position, which is the LAST thing {@link serveWorld} does.
+   * Between the flip and POD-3523 `connections` was the whole guard, so it
+   * answered "not yet admitted" for the entire duration of an async world read
+   * and a second entry in that window started a second admission.
+   *
+   * CLEARED BY {@link detach}, so a re-attach on a new socket is never refused by
+   * a slot whose admission has been abandoned.
+   */
+  private readonly admissions = new Map<string, Promise<void>>()
+  /**
+   * OBSERVATION: every admission still running, whether or not it still speaks
+   * for a peer.
+   *
+   * SEPARATE FROM {@link admissions} because `detach` clears that one, and an
+   * observer that read it would stop waiting the moment a peer detached — which
+   * is precisely the window {@link abandoned} exists to get right, so a test
+   * built on it would pass without ever reaching the code it means to pin.
+   */
+  private readonly inFlight = new Set<Promise<void>>()
   /** The wire version each connection's WORLD was expressed in. */
   private readonly servedVersion = new Map<string, number>()
   private readonly feedKeyByPeer = new Map<string, RoutingKey>()
@@ -257,8 +306,92 @@ export class FeedServing {
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
-    this.admit(peer, principal, routingPrincipal, 'attach', resumeFrom)
+    this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'attach', resumeFrom))
     return null
+  }
+
+  /**
+   * Did this peer go away while its admission was reading the world?
+   *
+   * BY ID, NOT BY OBJECT IDENTITY: `ClientMux.peerOf` mints a fresh peer object on
+   * every call, so a `hello` following an attach legitimately replaces the entry
+   * with an equal-but-different object, and an identity test would abandon a live
+   * admission. {@link detach} deleting the id is the only signal that means gone.
+   *
+   * Checked AFTER the read and BEFORE anything is published or installed, which is
+   * the only window that exists: a detach any earlier never started an admission,
+   * and one any later is `detach`'s own business. Without it a socket that closed
+   * during the read was still sent its whole world and still had a `FeedConnection`
+   * and a retained principal installed for it — a publisher framing forever for a
+   * peer nothing can deliver to (measured on the tip, POD-3523).
+   */
+  private abandoned(peer: FeedPeer): boolean {
+    if (this.peers.has(peer.id)) return false
+    log.debug('a peer detached while its admission was reading — nothing served', {
+      peer: peer.id,
+    })
+    return true
+  }
+
+  /**
+   * Start an admission WITHOUT waiting for it, and own the promise instead of
+   * dropping it (POD-3523).
+   *
+   * THE DEFERRAL IS A CONTRACT, NOT AN OMISSION — rule 57's requirement, applied
+   * to a rule 51 case-2 site. {@link attach} and {@link renegotiate} are reached
+   * only from `websocket.open` and `websocket.message`, Bun handlers whose return
+   * value the runtime discards; `ClientMux.attachClient` must return the minted
+   * connection id synchronously and `ClientMux.renegotiate` reads the refusal
+   * synchronously, so there is no frame between here and the socket that could
+   * await. Widening these entry points to return a promise would force that
+   * handler async and let frame N+1 begin before frame N finished — the wall
+   * POD-3499 hit with `runStep` and POD-3505 hit with `apply()`.
+   *
+   * The await cannot move EARLIER either: `worldFor` is keyed by the principal
+   * minted inside `attachClient`, and §3.5 requires it to be read inside this
+   * admission's scope, not before it.
+   *
+   * So the promise is deferred — and everything that made the dropped version a
+   * defect is answered here rather than left implicit:
+   *
+   *   OBSERVABLE   the promise is retained, and {@link admissionSettled} awaits it.
+   *   REPORTED     a rejection is logged. It was an unhandled rejection before,
+   *                so a world that failed to be read was a client waiting forever
+   *                for a bootstrap and nothing anywhere saying why.
+   *   EXCLUSIVE    the slot IS the "in flight" flag {@link spokenFor} reads, so a
+   *                second entry cannot race the first.
+   */
+  private defer(peerId: string, start: () => Promise<void>): void {
+    // THE ONE PLACE A SECOND ADMISSION IS REFUSED, for all three entry points.
+    // Deliberately not duplicated into the callers: a guard stated twice cannot be
+    // mutation-tested, because removing either copy leaves the other working.
+    if (this.admissions.has(peerId)) return
+    const admission: Promise<void> = start()
+      .catch((error: unknown) => {
+        log.error('a feed admission failed — the peer holds no position', { peer: peerId, error })
+      })
+      .then(() => {
+        // Only the admission that OWNS the slot may clear it: a detach-and-
+        // reattach inside the window puts a newer one there, and a late settle
+        // from the abandoned one must not free the new peer's exclusion.
+        if (this.admissions.get(peerId) === admission) this.admissions.delete(peerId)
+        this.inFlight.delete(admission)
+      })
+    this.admissions.set(peerId, admission)
+    this.inFlight.add(admission)
+  }
+
+  /**
+   * Wait for every admission still in flight. FOR OBSERVERS ONLY — no production
+   * path calls it, and none can (see {@link defer}).
+   *
+   * It exists because {@link defer}'s contract is otherwise unfalsifiable: a
+   * deferral nobody can wait on is indistinguishable from a promise on the floor,
+   * which is exactly the state POD-3523 found. Loops because settling one
+   * admission may start another (a `hello` re-serving at a new wire version).
+   */
+  async admissionSettled(): Promise<void> {
+    while (this.inFlight.size > 0) await Promise.all([...this.inFlight])
   }
 
   /**
@@ -279,7 +412,7 @@ export class FeedServing {
     routingPrincipal: Principal,
     cause: BootstrapCause,
     resumeFrom: FeedCursorField | undefined,
-  ): void {
+  ): Promise<void> {
     // ONE READ SCOPE OVER THE WHOLE ADMISSION [POD-3261, spec §3.5].
     //
     // Admission is a read followed by a registration that CLAIMS the position
@@ -299,7 +432,12 @@ export class FeedServing {
     //
     // `worldFor` reads the authorization revision inside this scope for the same
     // reason — it is the other half of what the cached world is validated on.
-    withReadScope(async () => {
+    // RETURNED, NOT DROPPED [POD-3523]. `withReadScope` is `<T>(fn: (scope) => T): T`,
+    // so with an async `fn` it hands back a `Promise<void>` — and this method used
+    // to be declared `void`, which threw it away silently at 0 typecheck errors
+    // (rule 56). The widening is the load-bearing half: an await added under the
+    // old `void` port typechecked identically with or without it.
+    return withReadScope(async () => {
       if (resumeFrom === undefined) {
         await this.serveWorld(peer, principal, routingPrincipal, cause)
         return
@@ -371,6 +509,7 @@ export class FeedServing {
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
     await this.deps.identity.resolve()
+    if (this.abandoned(peer)) return
     const identity = this.deps.identity.current()
     const resume: FeedResumeMessage = {
       type: 'feedResume',
@@ -439,6 +578,7 @@ export class FeedServing {
       countsByEntity[change.entity] = (countsByEntity[change.entity] ?? 0) + 1
     }
     const minAvailableSeq = (await this.deps.retention.minAvailableSeq()) ?? 0
+    if (this.abandoned(peer)) return
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
       const start = chunkIndex * chunkRows
       const bootstrap: FeedBootstrapMessage = {
@@ -621,7 +761,12 @@ export class FeedServing {
       // THE PATH EVERY PRODUCTION ADMISSION TAKES — see this file's header: the
       // pre-`hello` attach is refused on a per-principal server, so this is where
       // a reconnecting replica's cursor is honoured (POD-2061).
-      this.admit(peer, principal, routingPrincipal, 'hello', resumeFrom)
+      //
+      // The `connections` miss this branch tested is NOT sufficient on its own — a
+      // client that sends two `hello` frames (a retry, a reclaim) arrives here
+      // twice and the second lands inside the first's world read. {@link defer} is
+      // where that is refused, for every entry point at once.
+      this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'hello', resumeFrom))
       return null
     }
     // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
@@ -660,15 +805,25 @@ export class FeedServing {
     // The SECOND admission site, and it takes the same scope as {@link admit}
     // for the same reason: this one also reads a world and then installs the
     // position it was read at.
-    withReadScope(async () => {
-      await this.serveWorld(peer, principal, routingPrincipal, 'version-change')
-    })
+    //
+    // DEFERRED THROUGH THE SAME ONE PLACE [POD-3523]. This site dropped its
+    // promise exactly as {@link admit} did, and for the same reason: the caller
+    // is `ClientMux.renegotiate`, which is synchronous.
+    this.defer(peer.id, () =>
+      withReadScope(async () => {
+        await this.serveWorld(peer, principal, routingPrincipal, 'version-change')
+      }),
+    )
     return null
   }
 
   detach(peerId: string): void {
     this.releasePrincipal(peerId)
     this.edge.detach(peerId)
+    // BEFORE the `peers` delete reads as arbitrary and is not: `peers` is what
+    // {@link abandoned} tests, so clearing the slot first means a re-attach in
+    // the same tick is never refused by a slot its own admission no longer owns.
+    this.admissions.delete(peerId)
     this.peers.delete(peerId)
     this.servedVersion.delete(peerId)
     this.connections.get(peerId)?.disconnect()

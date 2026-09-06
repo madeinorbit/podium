@@ -56,6 +56,11 @@ describe('the shipped objects have one serving tail', () => {
       plumbing.routingPrincipal('peer'),
     )
     expect(refusal).toBeNull()
+    // THE ADMISSION IS DEFERRED [POD-3523]. `attach` is synchronous because its
+    // production caller — Bun's `websocket.open` — is, so the serving work it
+    // starts is not finished when it returns. An observer waits for it here; the
+    // promise used to be dropped entirely, and this assertion read an empty array.
+    await plumbing.serving.admissionSettled()
     // The ONLY input was a ledger commit. There is no feature, no publisher and
     // no list builder in this object graph, so an `issuesChanged` here can only
     // have been folded out of the feed.
