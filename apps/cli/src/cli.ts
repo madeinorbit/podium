@@ -1801,8 +1801,8 @@ export async function main(
           supervisorState.assignment = configuredAssignment
           saveSupervisorState(stateDir(), supervisorState)
         },
-        onGrant: (grant) => {
-          void updateRunner.accept(grant).catch((error) =>
+        onGrant: (grant, authority) => {
+          void updateRunner.accept(grant, true, false, authority).catch((error) =>
             supervisorConnection?.send({
               type: 'updateStatus',
               grantId: grant.grantId,
@@ -1835,9 +1835,12 @@ export async function main(
       ) {
         await updateRunner.confirmBoot(true)
       }
-      await parent.start()
-      updateControl = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter)
-      await updateRunner.confirmBoot(parent.isBootHealthy())
+      const { startParentWithUpdateConfirmation } = await import('./parent-boot-confirmation')
+      await startParentWithUpdateConfirmation(parent, updateRunner, async () => {
+        const control = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter)
+        if (parent.bootHealthSignal.aborted) await control.close()
+        else updateControl = control
+      })
       // Health-gated unit retirement: only the NEW parent proving healthy may
       // shed leftover units. A failed gate aborts onto the still-armed legacy set.
       // Skip when this parent is not a managed install (foreground tests, desktop).
