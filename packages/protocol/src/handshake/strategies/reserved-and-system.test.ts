@@ -5,10 +5,10 @@ import { createNodeReservedStrategy } from './node-reserved'
 import { createSystemStrategy, SYSTEM_JOBS, systemPrincipal } from './system'
 
 describe('node peer role — reserved and inert (ADR 5 D4/D5)', () => {
-  it('refuses with role-not-implemented, and does not throw', async () => {
+  it('refuses with role-not-implemented, and does not throw', () => {
     const strategy = createNodeReservedStrategy()
     const credential = { kind: 'nodeCredential' } as const
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential,
       hello: helloFor(credential, { peerRole: 'node', feedId: 'feed-1' }),
       transport: transportFacts({ endpoint: '/daemon' }),
@@ -16,8 +16,8 @@ describe('node peer role — reserved and inert (ADR 5 D4/D5)', () => {
     expect(outcome).toMatchObject({ ok: false, reason: 'role-not-implemented' })
   })
 
-  it('grants nothing — there is no principal on the refusal path', async () => {
-    const outcome = await createNodeReservedStrategy().authenticate({
+  it('grants nothing — there is no principal on the refusal path', () => {
+    const outcome = createNodeReservedStrategy().authenticate({
       credential: { kind: 'nodeCredential' },
       hello: helloFor({ kind: 'nodeCredential' }),
       transport: transportFacts(),
@@ -28,8 +28,8 @@ describe('node peer role — reserved and inert (ADR 5 D4/D5)', () => {
 })
 
 describe('system principals (ADR 3 Am.1 D21)', () => {
-  it('are not reachable from any transport', async () => {
-    const outcome = await createSystemStrategy().authenticate({
+  it('are not reachable from any transport', () => {
+    const outcome = createSystemStrategy().authenticate({
       credential: { kind: 'operatorChannel' },
       hello: helloFor({ kind: 'operatorChannel' }),
       // Even in-process: the class is constructed, never authenticated.

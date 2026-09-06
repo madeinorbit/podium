@@ -22,7 +22,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { UserId, UserRole } from '@podium/model'
+import type { MachineWire, UserId, UserRole } from '@podium/model'
 import { ClientPtyInputMetadata, decodeBinaryEnvelope, parseClientMessage } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 import { perfPrincipal } from '../modules/perf/principal'
@@ -39,6 +39,7 @@ export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
   userRole?: UserRole
+  machines?: readonly MachineWire[]
 }
 
 /**
@@ -75,6 +76,7 @@ export function wireClientSocket(
     sendBinaryStream: sink.sendBinaryLossy,
     userId: auth.userId,
     userRole: auth.userRole,
+    machines: auth.machines ?? [],
   })
   let failed = false
   ws.on('message', (raw) => {

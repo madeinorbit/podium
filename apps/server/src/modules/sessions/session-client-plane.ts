@@ -18,6 +18,7 @@ import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
+import type { MachineListing } from '../machines/service'
 import type { Session } from './session'
 
 const log = createLogger('server:sessions')
@@ -187,8 +188,12 @@ export class SessionClientPlane {
    * (POD-390). Entity bootstrap belongs exclusively to FeedServing; this hook
    * replays only session draft state and the machine list.
    */
-  onClientAttached(principal: ClientPrincipal, client: ClientConn): void {
-    this.ports.clientControl.onAttached(principal, client)
+  onClientAttached(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    machines: readonly MachineListing[],
+  ): void {
+    this.ports.clientControl.onAttached(principal, client, machines)
   }
 
   /** Feature-owned consequence of a successful stream-room join. */

@@ -24,10 +24,33 @@ import { PairingManager } from '../hub/pairing'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
 import { wireDaemonSocket } from './daemon-socket'
-import { createMachineDirectory } from './machine-directory'
+import {
+  createMachineDirectory,
+  type MachineAuthenticator,
+  type ResolvedMachineAuthenticator,
+} from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
+
+/**
+ * THE SPLIT IS A SAFETY PROPERTY, SO THE COMPILER GUARDS IT (POD-3469).
+ *
+ * The protocol acceptor is SYNCHRONOUS and decides admission with `if (machine)`
+ * on the directory's answer. A promise is always truthy, so if the async
+ * authenticator could ever satisfy the resolved slot, that `if` would admit
+ * every caller. The whole probe/replay design exists to keep those two apart:
+ * `MachineAuthenticator` is awaited once, before the acceptor is entered, and
+ * only `ResolvedMachineAuthenticator` is handed to the acceptor.
+ *
+ * This line fails the TYPECHECK, not a test run, if that ever collapses — if the
+ * assignment becomes legal the directive reports as unused. It is deliberately
+ * an assertion about the types alone, because a merge that quietly widened the
+ * resolved interface would leave every runtime test passing.
+ */
+// @ts-expect-error an async authenticator must never satisfy the resolved slot
+const RESOLVED_SLOT_REFUSES_ASYNC: ResolvedMachineAuthenticator = {} as MachineAuthenticator
+void RESOLVED_SLOT_REFUSES_ASYNC
 
 function fakeWs() {
   const binarySent: Uint8Array[] = []
@@ -148,6 +171,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      [],
     )
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
@@ -224,9 +248,9 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const healthy = fakeWs()
     wireDaemonSocket(bad as never, reg)
     wireDaemonSocket(healthy as never, reg)
-    bad.emit('message', Buffer.from([0, 0, 0, 0]))
+    await bad.emit('message', Buffer.from([0, 0, 0, 0]))
     expect(bad.terminate).toHaveBeenCalledOnce()
-    healthy.emit(
+    await healthy.emit(
       'message',
       frame({
         type: 'hello',
@@ -235,9 +259,40 @@ describe('the daemon socket speaks the permanent envelope', () => {
         hostname: 'box',
       }),
     )
-    healthy.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
+    await healthy.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
     expect(route).toHaveBeenCalledOnce()
     expect(healthy.terminate).not.toHaveBeenCalled()
+  })
+
+  it('bounds the unauthenticated queue to one frame behind credential preparation', async () => {
+    const reg = await registryWithMachine()
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
+    const authenticate = reg.modules.machines.authenticateDaemon.bind(reg.modules.machines)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(reg.modules.machines, 'authenticateDaemon').mockImplementation(async (request) => {
+      await blocked
+      return await authenticate(request)
+    })
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+
+    const credentialFrame = ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
+    const queuedFrame = ws.emit(
+      'message',
+      frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }),
+    )
+    await ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-2', code: 0 }))
+
+    expect(ws.terminate).toHaveBeenCalledOnce()
+    release()
+    await Promise.all([credentialFrame, queuedFrame])
+    expect(attach).not.toHaveBeenCalled()
   })
 
   it('terminates binary output after a handshake that did not negotiate it', async () => {
@@ -356,6 +411,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      [],
     )
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })
@@ -366,11 +422,17 @@ describe('handshake order at the real gateway', () => {
     const reg = await registryWithMachine()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
     const before = ws.sent.length
-    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     const after = ws.sent.slice(before).map((s) => JSON.parse(s) as { type: string })
     // A rejection, not a second helloOk — a live connection's principal is fixed.
     expect(after.some((m) => m.type === 'helloRejected')).toBe(true)
@@ -382,11 +444,17 @@ describe('handshake order at the real gateway', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // Wrong token first …
-    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }),
+    )
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
     // … then the right one on the SAME socket. The daemon treats a rejection as
     // terminal (daemon.ts blocks, no reconnect loop) and so does the gateway.
-    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     expect(attach).not.toHaveBeenCalled()
   })
 
@@ -395,7 +463,10 @@ describe('handshake order at the real gateway', () => {
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     await ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
     expect(onMsg).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),

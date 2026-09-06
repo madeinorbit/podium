@@ -44,8 +44,8 @@ export const createMachineTokenStrategy = (
   role: 'machine',
   credentialKind: 'machineToken',
   name: 'machine-token',
-  async authenticate({ credential, hello, transport }: AuthInput<Credential>): Promise<AuthOutcome> {
-    const machine = await deps.machines.verifyMachineToken(credential.token, credential.machineHint, {
+  authenticate({ credential, hello, transport }: AuthInput<Credential>): AuthOutcome {
+    const machine = deps.machines.verifyMachineToken(credential.token, credential.machineHint, {
       // Host metadata the directory records; never identity.
       ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
     })

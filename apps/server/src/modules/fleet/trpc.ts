@@ -117,7 +117,7 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
     // to forget; this is one, and `authz.ts`'s target table makes a new command
     // that declares a verb a COMPILE error until it says how its machine is
     // named.
-    const refusal = fleetAuthzFailure(name, input, await fleetAuthzDeps(ctx))
+    const refusal = await fleetAuthzFailure(name, input, await fleetAuthzDeps(ctx))
     if (refusal) throw refusal
     return run({ ctx, input, ports })
   })

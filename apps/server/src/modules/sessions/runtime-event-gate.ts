@@ -153,6 +153,7 @@ function turnEpochMatches(event: RuntimeEvent): boolean {
  */
 export class RuntimeEventGate {
   constructor(private readonly ports: RuntimeEventGatePorts) {}
+  private readonly readySessions = new Set<SessionId>()
   private projectionDrain: Promise<void> | undefined
   private projectionRequested = false
 
@@ -168,6 +169,7 @@ export class RuntimeEventGate {
     }
 
     const current = await this.ports.events.runtimeEventCheckpoint(sessionId)
+    if (current) this.readySessions.add(sessionId)
     // A brand-new generation-one stream can have an empty bootstrap snapshot.
     // Its first event is live; replacement generations still need bootstrap.
     if (!current && event.provenance !== 'bootstrap' && event.observerGeneration !== 1) {
@@ -242,6 +244,7 @@ export class RuntimeEventGate {
         await this.ports.events.saveRuntimeEventCheckpoint(next)
       },
     )
+    this.readySessions.add(sessionId)
     await this.ports.events.announceEvent(eventId)
     if (stateProjection) {
       this.ports.stateChanged?.({ sessionId, ...stateProjection })
@@ -250,8 +253,20 @@ export class RuntimeEventGate {
     return { kind: 'accepted', eventId }
   }
 
-  async ready(sessionId: SessionId): Promise<boolean> {
-    return (await this.ports.events.runtimeEventCheckpoint(sessionId)) !== null
+  async hydrateReady(sessionIds: Iterable<SessionId>): Promise<void> {
+    const resolved = await Promise.all(
+      [...sessionIds].map(async (sessionId) => ({
+        sessionId,
+        ready: (await this.ports.events.runtimeEventCheckpoint(sessionId)) !== null,
+      })),
+    )
+    for (const item of resolved) {
+      if (item.ready) this.readySessions.add(item.sessionId)
+    }
+  }
+
+  ready(sessionId: SessionId): boolean {
+    return this.readySessions.has(sessionId)
   }
 
   async recent(sessionId: SessionId): Promise<readonly RuntimeEvent[]> {

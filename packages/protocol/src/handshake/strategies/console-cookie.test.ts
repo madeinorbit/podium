@@ -24,9 +24,9 @@ const strategyWith = (sessions: Parameters<typeof fakeClientSessions>[0]) => {
 }
 
 describe('console cookie strategy', () => {
-  it('resolves a (user, device) principal from a per-user client session', async () => {
+  it('resolves a (user, device) principal from a per-user client session', () => {
     const { strategy } = strategyWith({ 'tok-a': clientSession('usr-ada', 'dev-laptop') })
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello,
       transport: transportFacts({ endpoint: '/client', cookies: { [SESSION_COOKIE]: 'tok-a' } }),
@@ -42,14 +42,14 @@ describe('console cookie strategy', () => {
     })
   })
 
-  it('is payload-inert: a hello asserting another user changes nothing', async () => {
+  it('is payload-inert: a hello asserting another user changes nothing', () => {
     const { strategy } = strategyWith({ 'tok-a': clientSession('usr-ada', 'dev-laptop') })
     const transport = transportFacts({
       endpoint: '/client',
       cookies: { [SESSION_COOKIE]: 'tok-a' },
     })
-    const honest = await strategy.authenticate({ credential: { kind: 'sessionCookie' }, hello, transport })
-    const forged = await strategy.authenticate({
+    const honest = strategy.authenticate({ credential: { kind: 'sessionCookie' }, hello, transport })
+    const forged = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello: {
         ...hello,
@@ -61,9 +61,9 @@ describe('console cookie strategy', () => {
     expect(forged.ok && forged.principal).toMatchObject({ user: 'usr-ada' })
   })
 
-  it('fails closed with no cookie on the transport — and mints nothing', async () => {
+  it('fails closed with no cookie on the transport — and mints nothing', () => {
     const { strategy, mint } = strategyWith({ 'tok-a': clientSession('usr-ada', 'dev-laptop') })
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello,
       transport: transportFacts({ endpoint: '/client' }),
@@ -72,9 +72,9 @@ describe('console cookie strategy', () => {
     expect(mint.minted).toEqual([])
   })
 
-  it('fails closed on an unknown cookie, with no fallback to an ambient operator', async () => {
+  it('fails closed on an unknown cookie, with no fallback to an ambient operator', () => {
     const { strategy } = strategyWith({ 'tok-a': clientSession('usr-ada', 'dev-laptop') })
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello,
       transport: transportFacts({
@@ -88,11 +88,11 @@ describe('console cookie strategy', () => {
     expect(outcome.ok ? outcome.principal : null).toBeNull()
   })
 
-  it('fails closed for a revoked or disabled account whose cookie is still valid', async () => {
+  it('fails closed for a revoked or disabled account whose cookie is still valid', () => {
     const { strategy } = strategyWith({
       'tok-a': clientSession('usr-ada', 'dev-laptop', /* userActive */ false),
     })
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello,
       transport: transportFacts({ endpoint: '/client', cookies: { [SESSION_COOKIE]: 'tok-a' } }),
@@ -100,11 +100,11 @@ describe('console cookie strategy', () => {
     expect(outcome).toMatchObject({ ok: false, reason: 'auth-failed' })
   })
 
-  it('refuses a cookie smuggled in the frame instead of the transport', async () => {
+  it('refuses a cookie smuggled in the frame instead of the transport', () => {
     // The console credential carries no material by design. A peer that puts a
     // token in the envelope must not authenticate with it.
     const { strategy } = strategyWith({ 'tok-a': clientSession('usr-ada', 'dev-laptop') })
-    const outcome = await strategy.authenticate({
+    const outcome = strategy.authenticate({
       credential: { kind: 'sessionCookie' },
       hello: {
         ...hello,

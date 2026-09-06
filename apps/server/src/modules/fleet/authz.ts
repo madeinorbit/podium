@@ -55,7 +55,7 @@ import {
   isMachineOwner,
   type MachineOwnershipIndex,
   machineAccessMessage,
-  ownershipFromMachines,
+  ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
@@ -174,10 +174,10 @@ export interface FleetAuthzDeps {
   role: UserRole | undefined
   /** `machines.defaultMachine()` — resolved lazily, so a command that names its
    *  machine never consults it. */
-  defaultMachine: () => MachineId
+  defaultMachine: () => Promise<MachineId>
   /** Every machine id this principal might touch on a fleet-wide command. */
-  allMachineIds: () => MachineId[]
-  machineName: (machineId: MachineId) => string | undefined
+  allMachineIds: () => Promise<MachineId[]>
+  machineName: (machineId: MachineId) => Promise<string | undefined>
   /**
    * The machine's owner AS THE LEDGER HAS IT — `machines.effectiveOwner`, which
    * reads the enrollment ledger first and falls back to the row (D19.4d rule 4).
@@ -192,7 +192,7 @@ export interface FleetAuthzDeps {
    * absent too — it is unowned, not unknown, and `machineRefusal` has already
    * decided the unknown-machine case before this ever runs.
    */
-  effectiveOwner: (machineId: MachineId) => string | null | undefined
+  effectiveOwner: (machineId: MachineId) => Promise<string | null | undefined>
 }
 
 /**
@@ -202,11 +202,11 @@ export interface FleetAuthzDeps {
  * request, and so the middleware has exactly one place that converts a decision
  * into an HTTP status.
  */
-export function fleetAuthzFailure(
+export async function fleetAuthzFailure(
   name: FleetContractName,
   input: unknown,
   deps: FleetAuthzDeps,
-): TRPCError | undefined {
+): Promise<TRPCError | undefined> {
   const contract = FLEET_CONTRACTS[name]
   const { policy } = contract
 
@@ -238,7 +238,7 @@ export function fleetAuthzFailure(
     case 'none':
       return undefined
     case 'machine': {
-      const refusal = machineRefusal(target.machineId, verb, deps)
+      const refusal = await machineRefusal(target.machineId, verb, deps)
       if (refusal) return refusal
       if (fleetPolicy.machineSharingAuthority === 'owner-only') {
         return machineOwnerRefusal(target.machineId, deps)
@@ -250,18 +250,18 @@ export function fleetAuthzFailure(
       // that reads as a single decision instead of two filters that happen
       // never to overlap.
       if (fleetPolicy.machineOwnerPrecondition === 'unowned') {
-        return machineUnownedRefusal(target.machineId, deps)
+        return await machineUnownedRefusal(target.machineId, deps)
       }
       return undefined
     }
     case 'default':
-      return machineRefusal(deps.defaultMachine(), verb, deps)
+      return await machineRefusal(await deps.defaultMachine(), verb, deps)
     case 'fleet-wide': {
       // A fan-out is narrowed, not refused — EXCEPT when it would touch nothing,
       // which is a refusal the caller must be able to tell from "no daemons
       // online". A principal holding the verb on no machine at all is told the
       // same thing it would be told about any single machine it cannot see.
-      const reachable = deps.allMachineIds().filter((id) => mayUse(id, verb, deps))
+      const reachable = (await deps.allMachineIds()).filter((id) => mayUse(id, verb, deps))
       return reachable.length > 0
         ? undefined
         : new TRPCError({
@@ -312,8 +312,11 @@ function machineOwnerRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPCEr
  * they differ in how the machine got here, not in whether anybody's claim is
  * being overridden, and in all three there is nobody to override.
  */
-function machineUnownedRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPCError | undefined {
-  const owner = deps.effectiveOwner(machineId)
+async function machineUnownedRefusal(
+  machineId: MachineId,
+  deps: FleetAuthzDeps,
+): Promise<TRPCError | undefined> {
+  const owner = await deps.effectiveOwner(machineId)
   if (owner === null || owner === undefined) return undefined
   return new TRPCError({
     code: 'FORBIDDEN',
@@ -321,14 +324,14 @@ function machineUnownedRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPC
   })
 }
 
-function machineRefusal(
+async function machineRefusal(
   machineId: MachineId,
   verb: MachineVerb,
   deps: FleetAuthzDeps,
-): TRPCError | undefined {
+): Promise<TRPCError | undefined> {
   const failure = checkMachineVerb(deps.principal, machineId, deps.ownership, verb)
   if (failure === undefined) return undefined
-  const message = machineAccessMessage(failure, machineId, deps.machineName(machineId))
+  const message = machineAccessMessage(failure, machineId, await deps.machineName(machineId))
   // Invisible and never-paired produce the SAME code and the SAME string.
   return failure === 'absent'
     ? new TRPCError({ code: 'NOT_FOUND', message })
@@ -356,7 +359,7 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
   })
   return {
     principal,
-    ownership: ownershipFromMachines(machines),
+    ownership: await ownershipSnapshotFromMachines(machines),
     role: await accountRoleOf(principal, ctx),
     defaultMachine: async () => await machines.defaultMachine(),
     allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),

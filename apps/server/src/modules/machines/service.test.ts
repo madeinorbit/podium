@@ -29,7 +29,7 @@ function makeService(): MachinesService {
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -278,7 +278,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       },
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -360,7 +360,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       hostMachineId: store.hostMachineId,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -744,7 +744,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         userExists: (id) => known.has(id),
         sessionsChangedForMachine: () => {},
         clients: () => [],
-        machinesForPrincipal: () => [],
+        machinesForPrincipal: async () => [],
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({

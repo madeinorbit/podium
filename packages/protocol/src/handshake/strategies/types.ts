@@ -104,7 +104,7 @@ export interface PeerAuthStrategy<C extends PeerCredential = PeerCredential> {
   readonly credentialKind: C['kind']
   /** Stable module name for logs and for the conformance suite's reports. */
   readonly name: string
-  authenticate(input: AuthInput<C>): AuthOutcome | Promise<AuthOutcome>
+  authenticate(input: AuthInput<C>): AuthOutcome
 }
 
 // ---------------------------------------------------------------------------
@@ -149,16 +149,13 @@ export interface ResolvedClientSession {
  */
 export interface MachineDirectory {
   /** ADR 5 D5, machine (local): verify the shared host secret. */
-  verifyDaemonSecret(
-    secret: string,
-    observed?: PeerObservations,
-  ): ResolvedMachine | null | Promise<ResolvedMachine | null>
+  verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null
   /** ADR 5 D5, machine (remote reconnect): verify a long-lived machine token. */
   verifyMachineToken(
     token: string,
     machineHint?: string,
     observed?: PeerObservations,
-  ): ResolvedMachine | null | Promise<ResolvedMachine | null>
+  ): ResolvedMachine | null
   /**
    * ADR 5 D5, machine (remote): redeem a one-shot pair code and mint a token.
    *
@@ -167,10 +164,7 @@ export interface MachineDirectory {
    * directory MUST NOT let a requested id rebind an EXISTING machine row — that
    * would let a pair code take over another machine's credential (POD-1125).
    */
-  redeemPairCode(
-    code: string,
-    request?: PairingRequest,
-  ): PairedMachine | null | Promise<PairedMachine | null>
+  redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null
 }
 
 /**

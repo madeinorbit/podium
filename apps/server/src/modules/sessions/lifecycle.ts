@@ -86,6 +86,7 @@ import {
 import type { AutoContinueController } from '../../auto-continue'
 import {
   type CommandPrincipal,
+  resolvePrincipal,
   resolvePrincipalAsync,
   systemPrincipal,
   userCommandPrincipal,
@@ -109,7 +110,7 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { machineUseDecision, ownershipFromMachines, ownershipSnapshotFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -129,6 +130,7 @@ import type { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionDaemonLifecycle } from './daemon-lifecycle'
 import type { SessionDaemonProjection } from './daemon-projection'
+import type { RuntimeEventGate } from './runtime-event-gate'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import {
@@ -273,6 +275,7 @@ export class SessionLifecycle {
   /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
    *  for the five machine verbs, the durable completion of `queue`, and the sink
    *  for the driver's causal stream. No caller routes through it until W4. */
+  readonly runtimeEventGate!: RuntimeEventGate
   readonly runtimeGateway!: SessionRuntimeGateway
   /** The in-progress turn's preview fold (POD-2293). Absent when the machine
    *  switch is off — the plane is not constructed at all, so an unflagged server
@@ -708,20 +711,21 @@ export class SessionLifecycle {
     return await this.sessionRevival.handoffSession(input, caller, issues)
   }
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
-  machineUseGate: (caller: HandoffCaller) => AssertMachineUse | Promise<AssertMachineUse> = async (caller) =>
+  machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
     machineUseGateFor({
       principal: await resolvePrincipalAsync(caller.capability, {
         // POD-381's delegation index, read from live rows: an agent's chain is
         // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
         // cannot carry a delegator its parent lacks (D16.2).
+        // One parser for the `session:<id>` tag (POD-362): it brands what it
+        // EXTRACTS while leaving the tag itself raw, which entities/session.ts
+        // records as deliberate. This was the third hand-rolled copy of the slice.
         parentSessionOf: async (sessionId) =>
           spawnedByParentSessionId(
             // POD-1646: one field, one visibility check — not a full pass.
             await this.sessionSpawnedBy(sessionId),
           ),
       }),
-      // Resolve the repository-backed rows before handing the coordinator its
-      // synchronous apply-time gate; the handoff entry point already yields.
       ownership: await ownershipSnapshotFromMachines(this.machines),
     })
   /** Wake a hibernated/exited session under the same id [spec:SP-9904]. */
@@ -832,9 +836,7 @@ export class SessionLifecycle {
       automations: values('automation'),
       automationRuns: values('automationRun'),
       diagnostics:
-        principal === DEVICE_GRADE_PRINCIPAL
-          ? (await this.deps.snapshotTail()).diagnostics
-          : [],
+        principal === DEVICE_GRADE_PRINCIPAL ? (await this.deps.snapshotTail()).diagnostics : [],
       cursor: sourceCursor,
       ...identity,
     }

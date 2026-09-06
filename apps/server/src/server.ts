@@ -72,7 +72,7 @@ import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
   createDaemonAcceptor,
-  receiveDaemonFrame,
+  prepareDaemonFrame,
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
@@ -783,7 +783,7 @@ export async function startServer(
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
   })
-  await messaging.configure()
+  messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
@@ -829,7 +829,7 @@ export async function startServer(
             pendingCoordinatorVersion = version
           },
         })
-  const devPublisher = await wireDevBundlePublisher({
+  const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
@@ -847,8 +847,9 @@ export async function startServer(
     proposalRunningVersion: appVersion,
     ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     artifactToken: devArtifactToken,
-    setTarget: (target) => registry.modules.updates.setTarget(target),
-    setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
+    setTarget: async (target) => await registry.modules.updates.setTargetFromProducer(target),
+    setTargetUnavailable: async (reason) =>
+      await registry.modules.updates.setTargetUnavailable('dev', reason),
     // The publish handoff (spec §6 step 4). Publisher and updater share this
     // process on a source host, so "go and pull what I just wrote" is a call.
     refreshDevTarget: async () => await registry.modules.updates.refreshTarget('dev'),
@@ -947,7 +948,7 @@ export async function startServer(
    * precede `serveNative` below, so no client can observe a stale operation this
    * boot was going to correct.
    */
-  const updateOperationBoot = async () =>
+  const updateOperationBoot = () =>
     updateOperationContext({
       updates: registry.modules.updates,
       operations: registry.modules.operations,
@@ -955,7 +956,7 @@ export async function startServer(
       // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
       // literal here also decided which channel a resumed operation was read
       // back against.
-      channel: await registry.modules.updates.operationChannel(hostMachineId),
+      channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       sourceDigest: serverBuildSourceDigest,
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
@@ -992,13 +993,13 @@ export async function startServer(
   // when rollback was refused. Cleared afterwards: the note is about THIS boot.
   const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
-    async () => ({
+    () => ({
       appVersion,
       servedWebDigest: websiteDigestReader(
         () => servedWebSourceDigest(desktopWebDir()),
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
-      machineDirectory: await registry.modules.updates.fleet(),
+      machineDirectory: registry.modules.updates.fleet(),
       ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),
@@ -1423,7 +1424,7 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        validateClientCredential: async (credentialId) =>
+        maintainClientCredential: async (credentialId) =>
           (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
           if (
@@ -1622,7 +1623,7 @@ export async function startServer(
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
         })
-        const outcome = await receiveDaemonFrame(acceptor, JSON.stringify(hello))
+        const { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
           const reply =
             outcome.kind === 'rejected'

@@ -212,7 +212,11 @@ export const machineTransferServerHandler = async ({
 }>) =>
   await mods(ctx).serverTransfer.transfer(input, {
     reauthorize: async () => {
-      const refusal = fleetAuthzFailure('machines.transferServer', input, await fleetAuthzDeps(ctx))
+      const refusal = await fleetAuthzFailure(
+        'machines.transferServer',
+        input,
+        await fleetAuthzDeps(ctx),
+      )
       if (refusal) throw refusal
     },
   })

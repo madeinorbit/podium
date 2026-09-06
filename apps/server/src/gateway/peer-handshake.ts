@@ -31,7 +31,13 @@ import {
   PeerHello,
   type PeerHelloReply,
 } from '@podium/protocol'
-import { createMachineDirectory, type MachineAuthenticator } from './machine-directory'
+import {
+  type MachineAuthenticationInput,
+  type MachineAuthenticator,
+  createResolvedMachineDirectory,
+  type ResolvedMachineAuthenticator,
+  resolvedMachineAuthenticator,
+} from './machine-directory'
 
 /**
  * Capability minting. Today's capabilities are minted per call by the existing
@@ -55,6 +61,16 @@ export interface DaemonAcceptorDeps {
   readonly connectionId: string
 }
 
+interface ResolvedDaemonAcceptorDeps {
+  readonly machines: ResolvedMachineAuthenticator
+  readonly connectionId: string
+}
+
+export interface PreparedDaemonAcceptor {
+  readonly kind: 'preparedDaemonAcceptor'
+  readonly deps: DaemonAcceptorDeps
+}
+
 /**
  * The `/daemon` acceptor. `preAuthNonHandshake: 'ignore'` preserves the semantics
  * this socket has shipped with — a pre-auth non-handshake frame is dropped on the
@@ -69,10 +85,10 @@ export interface DaemonAcceptorDeps {
  * would resolve every cookie to one ambient operator — the exact hole this work
  * removes.
  */
-export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
+const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
-      machines: createMachineDirectory(deps.machines),
+      machines: createResolvedMachineDirectory(deps.machines),
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [
@@ -89,6 +105,11 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
     },
     preAuthNonHandshake: 'ignore',
   })
+
+export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): PreparedDaemonAcceptor => ({
+  kind: 'preparedDaemonAcceptor',
+  deps,
+})
 
 export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }
@@ -122,12 +143,12 @@ export type DaemonFrameOutcome =
  * into what the socket must do, including the legacy reply shape when the peer
  * spoke legacy frames.
  */
-export const receiveDaemonFrame = async (
+const receiveResolvedDaemonFrame = (
   acceptor: HandshakeAcceptor,
   raw: string,
-): Promise<DaemonFrameOutcome> => {
+): DaemonFrameOutcome => {
   const legacy = asLegacyFrame(raw)
-  const step: AcceptorStep = await acceptor.receive(
+  const step: AcceptorStep = acceptor.receive(
     legacy === null ? raw : JSON.stringify(helloFromLegacyDaemonFrame(legacy)),
   )
   const reply = (envelope: PeerHelloReply): DaemonHandshakeReply | PeerHelloReply =>
@@ -173,6 +194,62 @@ export const receiveDaemonFrame = async (
       }
     }
   }
+}
+
+export interface PreparedDaemonFrame {
+  readonly acceptor?: HandshakeAcceptor
+  readonly outcome: DaemonFrameOutcome
+}
+
+/**
+ * Run the protocol's ordering/version checks synchronously to discover the one
+ * credential request, await that request outside the acceptor, then replay the
+ * frame through a one-shot resolved directory. Invalid and non-handshake frames
+ * never touch the store.
+ */
+export async function prepareDaemonFrame(
+  prepared: PreparedDaemonAcceptor,
+  raw: string,
+): Promise<PreparedDaemonFrame> {
+  let request: MachineAuthenticationInput | undefined
+  const probe = createResolvedDaemonAcceptor({
+    connectionId: prepared.deps.connectionId,
+    machines: {
+      hostMachineId: prepared.deps.machines.hostMachineId,
+      authenticateDaemon(frame) {
+        request = frame
+        return { ok: false, reason: 'credential resolution pending' }
+      },
+    },
+  })
+  const probed = receiveResolvedDaemonFrame(probe, raw)
+  const requested = request
+  if (requested === undefined) {
+    return probed.kind === 'rejected' ? { acceptor: probe, outcome: probed } : { outcome: probed }
+  }
+
+  const result = await prepared.deps.machines.authenticateDaemon(requested)
+  const acceptor = createResolvedDaemonAcceptor({
+    connectionId: prepared.deps.connectionId,
+    machines: resolvedMachineAuthenticator(prepared.deps.machines, requested, result),
+  })
+  return {
+    acceptor,
+    outcome: receiveResolvedDaemonFrame(acceptor, raw),
+  }
+}
+
+export function receiveDaemonFrame(acceptor: HandshakeAcceptor, raw: string): DaemonFrameOutcome
+export function receiveDaemonFrame(
+  acceptor: PreparedDaemonAcceptor,
+  raw: string,
+): Promise<DaemonFrameOutcome>
+export function receiveDaemonFrame(
+  acceptor: HandshakeAcceptor | PreparedDaemonAcceptor,
+  raw: string,
+): DaemonFrameOutcome | Promise<DaemonFrameOutcome> {
+  if ('receive' in acceptor) return receiveResolvedDaemonFrame(acceptor, raw)
+  return prepareDaemonFrame(acceptor, raw).then((prepared) => prepared.outcome)
 }
 
 const asLegacyFrame = (raw: string): DaemonHandshake | null => {

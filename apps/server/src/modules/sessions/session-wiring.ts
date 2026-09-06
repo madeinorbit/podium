@@ -735,6 +735,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     now: () => bag.now(),
   })
+  bag.runtimeEventGate = runtimeEventGate
   bag.runtimeGateway = new SessionRuntimeGateway({
     rpc: bag.rpc,
     queue: durableQueue,

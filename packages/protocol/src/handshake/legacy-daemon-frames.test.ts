@@ -70,8 +70,8 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     expect(isLegacyDaemonFrame('nope')).toBe(false)
   })
 
-  it('a legacy hello authenticates through the same strategy as an envelope peer', async () => {
-    const step = await acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(legacyHello)))
+  it('a legacy hello authenticates through the same strategy as an envelope peer', () => {
+    const step = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(legacyHello)))
     expect(step.action).toBe('establish')
     if (step.action !== 'establish') return
     expect(step.peer.strategy).toBe('machine-token')
@@ -83,7 +83,7 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     })
   })
 
-  it("a legacy hello's machineId becomes a hint, not the identity", async () => {
+  it("a legacy hello's machineId becomes a hint, not the identity", () => {
     const envelope = helloFromLegacyDaemonFrame(legacyHello)
     expect(envelope.credential).toEqual({
       kind: 'machineToken',
@@ -94,14 +94,14 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     // A stolen token presented with someone else's machineId resolves to the
     // token's own machine, not the claimed one.
     const forged = { ...legacyHello, machineId: asMachineId('mach-someone-elses') }
-    const step = await acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(forged)))
+    const step = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(forged)))
     expect(step.action === 'establish' && step.peer.principal).toMatchObject({
       machine: 'mach-vps',
     })
   })
 
-  it('a legacy pair mints a token once and reports the id the server resolved', async () => {
-    const step = await acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(legacyPair)))
+  it('a legacy pair mints a token once and reports the id the server resolved', () => {
+    const step = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(legacyPair)))
     expect(step.action).toBe('establish')
     if (step.action !== 'establish') return
     expect(legacyReplyFor(legacyPair, step.reply)).toEqual({
@@ -113,9 +113,9 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     })
   })
 
-  it('maps refusals back to the legacy reply the shipped daemon expects', async () => {
+  it('maps refusals back to the legacy reply the shipped daemon expects', () => {
     const badHello: DaemonHandshake = { ...legacyHello, token: 'tok-rotated' }
-    const step = await acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(badHello)))
+    const step = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(badHello)))
     expect(step.action).toBe('reject')
     if (step.action !== 'reject') return
     expect(legacyReplyFor(badHello, step.reply)).toEqual({
@@ -125,7 +125,7 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     })
 
     const badPair: DaemonHandshake = { ...legacyPair, code: 'expired' }
-    const pairStep = await acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(badPair)))
+    const pairStep = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(badPair)))
     expect(pairStep.action === 'reject' && legacyReplyFor(badPair, pairStep.reply)).toEqual({
       type: 'pairRejected',
       // The pairing ceremony keeps its human-readable UX.

@@ -43,8 +43,8 @@ const WAVE_CONTINUATION_CAUSE: GrantCause = {
 }
 
 export interface UpdatesDeps {
-  machines(): readonly WaveMachine[] | Promise<readonly WaveMachine[]>
-  channelFor?(machineId: MachineId): UpdateChannel | undefined | Promise<UpdateChannel | undefined>
+  machines(): readonly WaveMachine[]
+  channelFor?(machineId: MachineId): UpdateChannel | undefined
   send(machineId: MachineId, message: UpdateGrantMessage): void
   now(): number
   nextGrantId(): string
@@ -92,7 +92,7 @@ export interface UpdatesDeps {
    * let that publication mutate the running wave. Read per call, not captured —
    * the answer changes on every transition.
    */
-  exclusiveOperationActive?(): boolean | Promise<boolean>
+  exclusiveOperationActive?(): Promise<boolean>
   /**
    * Which version is the running exclusive operation DELIVERING on this channel?
    *
@@ -111,11 +111,9 @@ export interface UpdatesDeps {
    * Read per call, like {@link exclusiveOperationActive}: it changes on every
    * transition. Absent, or `undefined`, degrades to the memory test alone.
    */
-  exclusiveOperationVersion?(
-    channel: UpdateChannel,
-  ): string | undefined | Promise<string | undefined>
+  exclusiveOperationVersion?(channel: UpdateChannel): Promise<string | undefined>
   /** A packaged rollback may be reported before target resolution finishes. */
-  onTargetChanged?(channel: UpdateChannel): void
+  onTargetChanged?(channel: UpdateChannel): void | Promise<void>
   /**
    * THE DURABLE HALF OF "WHO AUTHORIZED THIS" (POD-2907).
    *
@@ -346,10 +344,10 @@ export class UpdatesService {
     return this.waveHistory.get(channel) ?? []
   }
 
-  async targetVersion(machineId?: MachineId): Promise<string | undefined> {
+  targetVersion(machineId?: MachineId): string | undefined {
     return machineId === undefined
       ? this.target('dev')?.version
-      : (await this.targetFor(machineId))?.version
+      : this.targetFor(machineId)?.version
   }
 
   /** The immutable descriptor currently published for one authority channel. */
@@ -358,14 +356,14 @@ export class UpdatesService {
   }
 
   /** Resolve a machine through its durable channel choice. */
-  async targetFor(machineId: MachineId): Promise<UpdateTarget | undefined> {
-    const channel = await this.channelForMachine(machineId)
+  targetFor(machineId: MachineId): UpdateTarget | undefined {
+    const channel = this.channelForMachine(machineId)
     return channel ? this.target(channel) : undefined
   }
 
   /** Explain why a machine's selected authority cannot currently advertise a target. */
-  async targetUnavailableReasonFor(machineId: MachineId): Promise<string | undefined> {
-    const channel = await this.channelForMachine(machineId)
+  targetUnavailableReasonFor(machineId: MachineId): string | undefined {
+    const channel = this.channelForMachine(machineId)
     if (!channel) return 'Machine is no longer registered.'
     if (this.target(channel)) return undefined
     return (
@@ -383,7 +381,7 @@ export class UpdatesService {
    * converged are untouched — this removes the offer, it does not roll anything
    * back.
    */
-  setTargetUnavailable(channel: UpdateChannel, reason: string): void {
+  async setTargetUnavailable(channel: UpdateChannel, reason: string): Promise<void> {
     this.unavailableReasons.set(channel, reason)
     this.targets.delete(channel)
     this.rollouts.delete(channel)
@@ -410,61 +408,72 @@ export class UpdatesService {
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
       })
     }
-    this.deps.onTargetChanged?.(channel)
+    await this.deps.onTargetChanged?.(channel)
   }
 
-  setTarget(channel: UpdateChannel, target: UpdateTarget): Promise<void>
-  /** Compatibility form for the existing development publisher. */
-  setTarget(target: UpdateTarget): Promise<void>
-  async setTarget(
+  setTarget(channel: UpdateChannel, target: UpdateTarget): void
+  /** Compatibility form for fixtures and the existing development publisher. */
+  setTarget(target: UpdateTarget): void
+  setTarget(channelOrTarget: UpdateChannel | UpdateTarget, maybeTarget?: UpdateTarget): void {
+    const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
+    const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
+    if (!target) throw new Error(`missing ${channel} update target`)
+    if (this.setTargetResolved(channel, target, { active: false })) {
+      this.deps.onTargetChanged?.(channel)
+    }
+  }
+
+  async setTargetFromProducer(channel: UpdateChannel, target: UpdateTarget): Promise<void>
+  async setTargetFromProducer(target: UpdateTarget): Promise<void>
+  async setTargetFromProducer(
     channelOrTarget: UpdateChannel | UpdateTarget,
     maybeTarget?: UpdateTarget,
   ): Promise<void> {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
+    const [active, version] = await Promise.all([
+      this.deps.exclusiveOperationActive?.() ?? Promise.resolve(false),
+      this.deps.exclusiveOperationVersion?.(channel) ?? Promise.resolve(undefined),
+    ])
+    if (this.setTargetResolved(channel, target, { active, version })) {
+      await this.deps.onTargetChanged?.(channel)
+    }
+  }
 
+  private setTargetResolved(
+    channel: UpdateChannel,
+    target: UpdateTarget,
+    operation: { active: boolean; version?: string },
+  ): boolean {
     // Re-publishing the same label replaces its artifact descriptor without
     // invalidating the proof already made for that target: a dev+ identity
-    // gaining its packed tarball is the SAME update acquiring the bytes it is
+    // gaining its packed tarball is the SAME update acquiring its bytes it is
     // about to deliver, and the running operation is waiting for exactly that.
-    // So it lands immediately even mid-operation — it is not a new version.
     //
     // TWO WITNESSES, because after a restart only the second one exists
     // (POD-2228): the version this coordinator has published, and the version
     // the running operation is delivering. A successor's `targets` map is empty,
     // so asking memory alone made the adopted operation's own package look like
-    // a rival publication — queued, never applied, and blocking the channel.
+    // a rival publication - queued, never applied, and blocking the channel.
     //
-    // WHAT IS GONE (POD-2098, spec §3.2/§10.2): this used to also `tick()` an
+    // WHAT IS GONE (POD-2098, spec section 3.2/10.2): this used to also `tick()` an
     // authorized wave from here, which made publishing a descriptor a way to
-    // start granting. Sequencing is the operation's job now — the `machines`
-    // step ticks explicitly, after `prepare`, exactly once, where a reader can
-    // see it happen.
-    if (await this.isSameUpdate(channel, target.version)) {
+    // start granting. Sequencing is the operation's job now.
+    if (this.isSameUpdate(channel, target.version, operation.version)) {
       const standing = this.targets.get(channel)
-      // The deliverable always comes from the feed. An identity for the same
-      // version names no bytes, and replacing the packed target with it is how
-      // a published package sat on "Waiting for the update package" — every
-      // `/version` poll re-publishes the identity, including mid-operation.
       if (standing && hasHeadlessBytes(standing) && !hasHeadlessBytes(target)) {
-        return
+        return false
       }
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
       this.replayTerminalStatuses(channel, target.version)
-      this.deps.onTargetChanged?.(channel)
-      return
+      return true
     }
 
-    // A DIFFERENT version arriving mid-operation is queued, never applied (P6,
-    // §3.2, §8's "a new version lands mid-update"). Mutating the wave under a
-    // running update is what made a mid-flight publication change what the panel
-    // was describing; the queued target re-surfaces as an OFFER once the
-    // operation terminates — it never becomes an operation by itself.
-    if (await this.deps.exclusiveOperationActive?.()) {
+    if (operation.active) {
       this.nextTargets.set(channel, target)
-      return
+      return false
     }
 
     this.unavailableReasons.delete(channel)
@@ -477,24 +486,21 @@ export class UpdatesService {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
     this.replayTerminalStatuses(channel, target.version)
-    this.deps.onTargetChanged?.(channel)
+    return true
   }
 
   /**
    * Replay only terminal reports that name the target just resolved. Reports
    * for another release are stale and must not influence a later operation.
    */
-  private async replayTerminalStatuses(
-    channel: UpdateChannel,
-    targetVersion: string,
-  ): Promise<void> {
-    await this.replayTerminalStatusesForKnownMachines()
+  private replayTerminalStatuses(channel: UpdateChannel, targetVersion: string): void {
+    this.replayTerminalStatusesForKnownMachines()
     const deferred = this.terminalStatusesBeforeTarget.get(channel)
     if (!deferred) return
     this.terminalStatusesBeforeTarget.delete(channel)
     for (const [machineId, message] of deferred) {
       if (message.targetVersion === targetVersion) {
-        await this.onStatus(asMachineId(machineId), message)
+        this.onStatus(asMachineId(machineId), message)
       }
     }
   }
@@ -504,9 +510,9 @@ export class UpdatesService {
    * Once the directory has it again, exact target fencing still decides whether
    * the report may affect the operation.
    */
-  private async replayTerminalStatusesForKnownMachines(): Promise<void> {
+  private replayTerminalStatusesForKnownMachines(): void {
     if (this.terminalStatusesBeforeMachine.size === 0) return
-    const machines = await this.deps.machines()
+    const machines = this.deps.machines()
     for (const [machineId, message] of this.terminalStatusesBeforeMachine) {
       const machine = machines.find((candidate) => candidate.id === machineId)
       if (!machine) continue
@@ -514,7 +520,7 @@ export class UpdatesService {
       if (!target) continue
       this.terminalStatusesBeforeMachine.delete(machineId)
       if (message.targetVersion === target.version) {
-        await this.onStatus(asMachineId(machineId), message)
+        this.onStatus(asMachineId(machineId), message)
       }
     }
   }
@@ -523,9 +529,13 @@ export class UpdatesService {
    * Is this arriving version the update already under way on this channel —
    * rather than a rival publication? See {@link UpdatesDeps.exclusiveOperationVersion}.
    */
-  private async isSameUpdate(channel: UpdateChannel, version: string): Promise<boolean> {
+  private isSameUpdate(
+    channel: UpdateChannel,
+    version: string,
+    exclusiveVersion?: string,
+  ): boolean {
     if (this.targets.get(channel)?.version === version) return true
-    return (await this.deps.exclusiveOperationVersion?.(channel)) === version
+    return exclusiveVersion === version
   }
 
   /**
@@ -546,14 +556,16 @@ export class UpdatesService {
    * started the finished operation was about the version that operation carried;
    * it is not consent to install whatever landed while it ran.
    */
-  async publishNextTargets(): Promise<UpdateChannel[]> {
+  publishNextTargets(): UpdateChannel[] {
     const published: UpdateChannel[] = []
     for (const [channel, target] of [...this.nextTargets]) {
       this.nextTargets.delete(channel)
       // Guarded, not asserted: if something else already moved this channel
       // onto that version, re-applying it would reset a wave for no reason.
       if (this.targets.get(channel)?.version === target.version) continue
-      await this.setTarget(channel, target)
+      if (this.setTargetResolved(channel, target, { active: false })) {
+        this.deps.onTargetChanged?.(channel)
+      }
       published.push(channel)
     }
     return published
@@ -650,7 +662,8 @@ export class UpdatesService {
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.
-      if (this.resolvedMayReplace(channel, resolved)) await this.setTarget(channel, resolved)
+      if (this.resolvedMayReplace(channel, resolved))
+        await this.setTargetFromProducer(channel, resolved)
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {
@@ -676,7 +689,7 @@ export class UpdatesService {
   async checkNow(): Promise<ChannelCheckRecord[]> {
     const window = this.deps.forcedCheckIntervalMs ?? FORCED_CHECK_INTERVAL_MS
     const results: ChannelCheckRecord[] = []
-    for (const channel of await this.channelsInUse()) {
+    for (const channel of this.channelsInUse()) {
       const cached = this.checks.get(channel)
       if (cached && this.deps.now() - cached.checkedAt < window) {
         results.push(cached)
@@ -699,9 +712,9 @@ export class UpdatesService {
    * be work nobody asked for, and omitting a pinned channel would leave the one
    * machine that cares about it on a boot-time target.
    */
-  async channelsInUse(): Promise<UpdateChannel[]> {
+  channelsInUse(): UpdateChannel[] {
     const inUse = new Set<UpdateChannel>([this.fleetDefaultChannel()])
-    for (const machine of await this.deps.machines()) inUse.add(this.channelOf(machine))
+    for (const machine of this.deps.machines()) inUse.add(this.channelOf(machine))
     return CHANNEL_ORDER.filter((channel) => inUse.has(channel))
   }
 
@@ -735,7 +748,7 @@ export class UpdatesService {
     this.checks.set(channel, { channel, checkedAt: this.deps.now(), outcome })
   }
 
-  async onStatus(machineId: MachineId, message: UpdateStatusMessage): Promise<void> {
+  onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
     /** What the machine said, for every line below that has to quote it. */
     const reported = {
       state: message.state,
@@ -746,7 +759,7 @@ export class UpdatesService {
       ...(message.percent !== undefined ? { percent: message.percent } : {}),
       ...(message.detail ? { detail: message.detail } : {}),
     }
-    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId)
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     if (!machine) {
       if (
         (message.state === 'rejected' || message.state === 'stuck') &&
@@ -965,12 +978,9 @@ export class UpdatesService {
   }
 
   /** Record the operator decision for one authority and start its controlled wave. */
-  async authorize(
-    channel: UpdateChannel = 'dev',
-    cause: GrantCause = WAVE_CONTINUATION_CAUSE,
-  ): Promise<string[]> {
+  authorize(channel: UpdateChannel = 'dev', cause: GrantCause = WAVE_CONTINUATION_CAUSE): string[] {
     this.markAuthorized(channel)
-    return await this.tick(channel, cause)
+    return this.tick(channel, cause)
   }
 
   /**
@@ -1056,11 +1066,11 @@ export class UpdatesService {
    * parameter the grant they issued was byte-identical, which is why the
    * 2026-08-31 restart could only be attributed by eliminating code paths.
    */
-  async authorizeMachine(machineId: MachineId, cause: GrantCause): Promise<MachineApplyOutcome> {
+  authorizeMachine(machineId: MachineId, cause: GrantCause): MachineApplyOutcome {
     // `project()`, because this issues a grant (POD-2180): a wave continued from
     // inside the lookup would move machines this row is not about, and then this
     // method would plan against the fleet as it was before that happened.
-    const machine = (await this.project()).machines.find((candidate) => candidate.id === machineId)
+    const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
     if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
     const channel = this.channelOf(machine)
@@ -1068,7 +1078,7 @@ export class UpdatesService {
     if (!target) {
       return {
         result: 'no-target',
-        reason: (await this.targetUnavailableReasonFor(machineId)) ?? 'No target is available.',
+        reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
       }
     }
     if (machine.version === target.version) {
@@ -1117,8 +1127,8 @@ export class UpdatesService {
    * is the purpose of repair. Every schema, signature, progress, restart and rollback
    * guard below the grant remains unchanged.
    */
-  async repairMachine(machineId: MachineId, cause: GrantCause): Promise<MachineApplyOutcome> {
-    const machine = (await this.project()).machines.find((candidate) => candidate.id === machineId)
+  repairMachine(machineId: MachineId, cause: GrantCause): MachineApplyOutcome {
+    const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
     if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
     const channel = this.channelOf(machine)
@@ -1126,7 +1136,7 @@ export class UpdatesService {
     if (!target) {
       return {
         result: 'no-target',
-        reason: (await this.targetUnavailableReasonFor(machineId)) ?? 'No target is available.',
+        reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
       }
     }
     const trustRefusal = this.trustRefusal(machine, target)
@@ -1144,10 +1154,7 @@ export class UpdatesService {
       : { result: 'offline' }
   }
 
-  async tick(
-    channel: UpdateChannel = 'dev',
-    cause: GrantCause = WAVE_CONTINUATION_CAUSE,
-  ): Promise<string[]> {
+  tick(channel: UpdateChannel = 'dev', cause: GrantCause = WAVE_CONTINUATION_CAUSE): string[] {
     const target = this.target(channel)
     const rollout = this.rollout(channel)
     if (!target || rollout.halted) return []
@@ -1158,7 +1165,7 @@ export class UpdatesService {
     // just issued — every widened machine selected, and granted, twice.
     // {@link project} is the same computation with that continuation removed,
     // which is what makes this method the only thing granting on this path.
-    const { machines } = await this.project()
+    const { machines } = this.project()
     const channelMachines = machines.filter((machine) => this.channelOf(machine) === channel)
     const decision = decideWave({
       machines: channelMachines,
@@ -1262,16 +1269,16 @@ export class UpdatesService {
    * second projection is the honest answer to "what is the fleet now", and the
    * work is one pass over the machine directory.
    */
-  async fleet(): Promise<WaveMachine[]> {
-    await this.replayTerminalStatusesForKnownMachines()
-    const { machines, continuing } = await this.project()
+  fleet(): WaveMachine[] {
+    this.replayTerminalStatusesForKnownMachines()
+    const { machines, continuing } = this.project()
     if (continuing.size === 0) return machines
-    for (const channel of continuing) await this.tick(channel, WAVE_CONTINUATION_CAUSE)
+    for (const channel of continuing) this.tick(channel, WAVE_CONTINUATION_CAUSE)
     // The re-read cannot continue anything further: a machine is only ever
     // `continuing` because its directory version proved the target while a
     // convergence record still stood, and the projection above deleted that
     // record. So this is a projection, not a second round of the same question.
-    return (await this.project()).machines
+    return this.project().machines
   }
 
   /**
@@ -1289,12 +1296,12 @@ export class UpdatesService {
    * Both are idempotent, both are true the moment the handshake landed, and
    * neither sends anything to a machine.
    */
-  private async project(): Promise<{
+  private project(): {
     machines: WaveMachine[]
     continuing: Set<UpdateChannel>
-  }> {
+  } {
     const channelsReadyToContinue = new Set<UpdateChannel>()
-    const fleet: WaveMachine[] = (await this.deps.machines()).map((machine) => {
+    const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
       const targetVersion = this.target(channel)?.version
       const state = this.machineStates.get(machine.id)
@@ -1336,13 +1343,13 @@ export class UpdatesService {
    * naming either. This writes the failure the fleet read model reports and the
    * dialog turns into retry guidance.
    */
-  async abandonWait(machineIds: readonly string[], detail: string): Promise<string[]> {
+  abandonWait(machineIds: readonly string[], detail: string): string[] {
     // Projected ONCE, outside the loop, and never through the read model: this
     // is cleanup, and a cleanup that continues a wave from inside its own lookup
     // is how the operation that just ended gets to grant one more machine
     // (POD-2180). Abandoning one machine does not change another's projection,
     // so one pass answers for all of them.
-    const { machines } = await this.project()
+    const { machines } = this.project()
     const abandoned: string[] = []
     for (const machineId of machineIds) {
       const machine = machines.find((candidate) => candidate.id === machineId)
@@ -1375,16 +1382,16 @@ export class UpdatesService {
    * that is not connected, and pretending otherwise would produce a fresh
    * deadline for a message nobody received.
    */
-  async reissueGrants(
+  reissueGrants(
     channel: UpdateChannel,
     machineIds: readonly string[] | undefined,
     cause: GrantCause,
-  ): Promise<string[]> {
+  ): string[] {
     // `project()`, for the sharpest form of POD-2180: this selects on IN_FLIGHT
     // and then re-grants what it selects. Reading through `fleet()` would let
     // the read's own wave continuation hand a machine its first grant and this
     // method immediately cancel and re-issue it.
-    const candidates = (await this.project()).machines.filter(
+    const candidates = this.project().machines.filter(
       (machine) =>
         this.channelOf(machine) === channel &&
         isPackagedRolloutTarget(machine) &&
@@ -1423,21 +1430,21 @@ export class UpdatesService {
    * The operation reaching a terminal state is exactly the moment nobody is
    * waiting for those grants any more.
    */
-  async releaseInFlightGrants(detail: string = GRANT_TIMED_OUT_DETAIL): Promise<string[]> {
+  releaseInFlightGrants(detail: string = GRANT_TIMED_OUT_DETAIL): string[] {
     // Projected, not read (POD-2180). The caller withdraws authorization before
     // reaching here precisely because this used to be able to grant from inside
     // its own lookup; that ordering still stands and is still right, but it is
     // no longer the only thing standing between a cancel and one more machine
     // being handed the update it cancelled.
-    const inFlight = (await this.project()).machines
-      .filter((machine) => IN_FLIGHT_STATES.has(machine.state))
+    const inFlight = this.project()
+      .machines.filter((machine) => IN_FLIGHT_STATES.has(machine.state))
       .map((machine) => machine.id)
-    return await this.abandonWait(inFlight, detail)
+    return this.abandonWait(inFlight, detail)
   }
 
   /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
-  async machineBootedAtTarget(machineId: MachineId, targetVersion: string): Promise<boolean> {
-    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId)
+  machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     return machine?.online === true && machine.version === targetVersion
   }
 
@@ -1452,11 +1459,8 @@ export class UpdatesService {
    * process crossed the restart boundary without trusting an optimistic status
    * report as proof that the new process booted successfully.
    */
-  async machineCrossedRestartBoundary(
-    machineId: MachineId,
-    targetVersion: string,
-  ): Promise<boolean> {
-    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId)
+  machineCrossedRestartBoundary(machineId: MachineId, targetVersion: string): boolean {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     const state = this.machineStates.get(machineId)
     const pending = this.pendingGrants.get(machineId)
     return (
@@ -1587,10 +1591,10 @@ export class UpdatesService {
    * registered". A registered machine always has a channel; that is what the
    * fleet default IS.
    */
-  private async channelForMachine(machineId: MachineId): Promise<UpdateChannel | undefined> {
-    const selected = await this.deps.channelFor?.(machineId)
+  private channelForMachine(machineId: MachineId): UpdateChannel | undefined {
+    const selected = this.deps.channelFor?.(machineId)
     if (selected) return selected
-    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId)
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     return machine ? this.channelOf(machine) : undefined
   }
 
@@ -1635,9 +1639,9 @@ export class UpdatesService {
    * elsewhere are scoped out at plan time and keep their own per-row action and
    * the standing reconciliation. What is fixed here is only *which* authority.
    */
-  async operationChannel(hostMachineId?: string): Promise<UpdateChannel> {
+  operationChannel(hostMachineId?: string): UpdateChannel {
     const host = hostMachineId
-      ? (await this.deps.machines()).find((candidate) => candidate.id === hostMachineId)
+      ? this.deps.machines().find((candidate) => candidate.id === hostMachineId)
       : undefined
     return host ? this.channelOf(host) : this.fleetDefaultChannel()
   }
@@ -1663,8 +1667,8 @@ export class UpdatesService {
    * proposal until an admin builds and publishes it. Only the standing target
    * pulled from that channel's feed can become an offer.
    */
-  async advertisedTarget(hostMachineId?: string): Promise<UpdateTarget | undefined> {
-    const channel = await this.operationChannel(hostMachineId)
+  advertisedTarget(hostMachineId?: string): UpdateTarget | undefined {
+    const channel = this.operationChannel(hostMachineId)
     const raw = this.target(channel)
     return raw ? withoutArtifactCredentials(raw) : undefined
   }

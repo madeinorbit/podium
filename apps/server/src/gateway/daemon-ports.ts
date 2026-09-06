@@ -72,16 +72,18 @@ export interface MachinesDaemonPort {
   /** `caps` is this SOCKET's negotiated capability set (POD-3239). Live, not
    *  durable: a machine that reconnects with an older daemon must lose the
    *  capability the previous one had, and a persisted list could not do that. */
-  attach(machineId: MachineId, transport: DaemonControlPeer, caps?: readonly string[]): void
+  attach(
+    machineId: MachineId,
+    transport: DaemonControlPeer,
+    caps?: readonly string[],
+  ): Promise<void>
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
-  /** Live-only fan-out. A socket attach/detach cannot yield, so it schedules
-   *  this and the service logs any rejection (rule 51b). */
-  scheduleBroadcastMachines(): void
+  broadcastMachines(): Promise<void>
   recordInventory(
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],
-  ): void
+  ): Promise<void>
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
@@ -105,12 +107,7 @@ export interface UpdatesDaemonPort {
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;
  *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
-  /** Async since the sweep reads settings and the session projection durably; the
-   *  mux SCHEDULES it (a sample is delivered, never answered) and logs a rejection. */
-  onHostMetrics(
-    machineId: MachineId,
-    sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>,
-  ): void | Promise<void>
+  onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
   onMemoryBreakdownResult(machineId: MachineId, msg: DaemonFrame<'memoryBreakdownResult'>): void
   onReclaimDiskEstimateResult(
     machineId: MachineId,

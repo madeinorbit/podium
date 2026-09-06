@@ -7,7 +7,7 @@
  * gateway's already-tested client and daemon protocol layers.
  */
 
-import type { ServerReadiness, UserId, UserRole } from '@podium/model'
+import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
 import { versionSupport } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
@@ -62,6 +62,7 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
+import { userClientPrincipal } from './client-principal'
 import { wireDaemonSocket } from './daemon-socket'
 import {
   CLIENT_PLANE_LIVENESS,
@@ -94,8 +95,11 @@ export interface WsAuthOptions {
       }
     | undefined
     | Promise<{ userId: UserId; userRole: UserRole; credentialId?: string } | undefined>
-  validateClientCredential?: (credentialId: string) => boolean
+  maintainClientCredential?: (credentialId: string) => Promise<boolean>
 }
+
+/** Credential validity fails closed if its heartbeat refresh is older than two ticks. */
+export const CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS = CLIENT_PLANE_LIVENESS.heartbeatIntervalMs * 2
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
@@ -167,6 +171,7 @@ export interface WsTransportDeps {
    * indistinguishable from every other reason a socket did not open, and a
    * deployment whose allow-list is wrong has nothing to read.
    */
+  now?: () => number
   onOriginRefused?: (info: {
     origin: string | undefined
     host: string | undefined
@@ -180,6 +185,7 @@ interface SocketData {
   userId?: UserId
   userRole?: UserRole
   credentialId?: string
+  machines?: readonly MachineWire[]
   socket?: NativeGatewaySocket
 }
 
@@ -246,6 +252,51 @@ export function attachWebSockets(
   const aliveClients = new WeakSet<HeartbeatSocket>()
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
   const clientsByCredential = new Map<string, Set<NativeGatewaySocket>>()
+  const credentialValidity = new Map<string, { valid: boolean; refreshedAt: number }>()
+  /**
+   * Revocation generation per credential. A maintenance pass reads the store
+   * asynchronously, so an explicit revoke can land while that read is in flight
+   * and the pass would then write back the `valid: true` its pre-revoke read saw
+   * — resurrecting a credential the operator just killed. The pass captures the
+   * generation before its read and discards its own result if a revoke bumped it,
+   * so a revocation always wins the race. Fail closed (rule 49).
+   */
+  const credentialRevocations = new Map<string, number>()
+  const revocationGeneration = (credentialId: string): number =>
+    credentialRevocations.get(credentialId) ?? 0
+  const now = deps.now ?? Date.now
+  let credentialMaintenance = Promise.resolve()
+
+  const maintainClientCredentials = (): void => {
+    const credentialIds = [...clientsByCredential.keys()]
+    if (!auth.maintainClientCredential || credentialIds.length === 0) return
+    credentialMaintenance = credentialMaintenance
+      .then(async () => {
+        await Promise.all(
+          credentialIds.map(async (credentialId) => {
+            const generation = revocationGeneration(credentialId)
+            let valid = false
+            try {
+              valid = (await auth.maintainClientCredential?.(credentialId)) === true
+            } catch {
+              valid = false
+            }
+            // A revoke landed while this pass was reading; its verdict stands.
+            if (revocationGeneration(credentialId) !== generation) return
+            credentialValidity.set(credentialId, { valid, refreshedAt: now() })
+            if (!valid) {
+              for (const socket of clientsByCredential.get(credentialId) ?? []) socket.terminate()
+            }
+          }),
+        )
+      })
+      .catch(() => {
+        for (const credentialId of credentialIds) {
+          credentialValidity.set(credentialId, { valid: false, refreshedAt: now() })
+          for (const socket of clientsByCredential.get(credentialId) ?? []) socket.terminate()
+        }
+      })
+  }
 
   const websocket: NativeWebSocketHandler<SocketData> = {
     data: {} as SocketData,
@@ -269,11 +320,13 @@ export function attachWebSockets(
         const current = clientsByCredential.get(native.data.credentialId)
         if (current) current.add(socket)
         else clientsByCredential.set(native.data.credentialId, new Set([socket]))
+        credentialValidity.set(native.data.credentialId, { valid: true, refreshedAt: now() })
       }
       aliveClients.add(socket)
       const id = wireClientSocket(socket, native.data.url, registry, {
         userId: native.data.userId,
         userRole: native.data.userRole,
+        machines: native.data.machines,
       })
       if (id === undefined) {
         clients.delete(socket)
@@ -305,8 +358,15 @@ export function attachWebSockets(
       } else {
         if (
           native.data.credentialId &&
-          auth.validateClientCredential &&
-          !auth.validateClientCredential(native.data.credentialId)
+          auth.maintainClientCredential &&
+          (() => {
+            const validity = credentialValidity.get(native.data.credentialId)
+            return (
+              validity === undefined ||
+              !validity.valid ||
+              now() - validity.refreshedAt > CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS
+            )
+          })()
         ) {
           native.terminate()
           return
@@ -329,7 +389,12 @@ export function attachWebSockets(
     },
   }
 
-  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(clients, aliveClients, deps.timers)
+  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(
+    clients,
+    aliveClients,
+    deps.timers,
+    maintainClientCredentials,
+  )
   const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemons, aliveDaemons, deps.timers)
 
   return {
@@ -381,11 +446,18 @@ export function attachWebSockets(
             headers: { connection: 'close' },
           })
         }
+        const machines =
+          userId === undefined || userRole === undefined
+            ? []
+            : await registry.modules.sessions.clientControl.prepareMachines(
+                userClientPrincipal('upgrade', userId, userRole),
+              )
         data = {
           kind: 'client',
           url: request.url,
           userId,
           userRole,
+          machines,
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
@@ -397,6 +469,8 @@ export function attachWebSockets(
         : new Response('WebSocket upgrade failed', { status: 400 })
     },
     revokeClientCredential(credentialId) {
+      credentialRevocations.set(credentialId, revocationGeneration(credentialId) + 1)
+      credentialValidity.set(credentialId, { valid: false, refreshedAt: now() })
       const sockets = clientsByCredential.get(credentialId)
       if (!sockets) return
       for (const socket of sockets) socket.terminate()
@@ -410,6 +484,7 @@ export function attachWebSockets(
       clients.clear()
       daemons.clear()
       clientsByCredential.clear()
+      credentialValidity.clear()
     },
   }
 }

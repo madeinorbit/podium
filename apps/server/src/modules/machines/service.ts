@@ -33,7 +33,6 @@ import type {
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
-import { createLogger } from '@podium/logger'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -46,8 +45,6 @@ import type { Send } from '../sessions/session'
 import type { EnrollmentHost } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
-
-const log = createLogger('server:machines')
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -165,11 +162,9 @@ export interface MachinesDeps {
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
    */
-  targetVersion?: (machineId: MachineId) => string | undefined | Promise<string | undefined>
+  targetVersion?: (machineId: MachineId) => string | undefined
   /** Actionable reason the selected authority has no trusted target. */
-  targetUnavailableReason?: (
-    machineId: MachineId,
-  ) => string | undefined | Promise<string | undefined>
+  targetUnavailableReason?: (machineId: MachineId) => string | undefined
   /**
    * The instance's fleet default update channel — what a machine with no pin of
    * its own follows (POD-1882). Injected rather than read from config here so the
@@ -212,10 +207,7 @@ export interface MachinesDeps {
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
-  machinesForPrincipal(
-    principal: ClientPrincipal,
-    machines: MachinesService,
-  ): MachineListing[] | Promise<MachineListing[]>
+  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): Promise<MachineListing[]>
 }
 
 /**
@@ -277,8 +269,8 @@ export class MachinesService {
       invalidateMachineCache: () => {
         this.invalidateMachineCache()
       },
-      broadcastMachines: () => {
-        this.scheduleBroadcastMachines()
+      broadcastMachines: async () => {
+        await this.broadcastMachines()
       },
     }
   }
@@ -891,23 +883,16 @@ export class MachinesService {
   }
 
   async listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): Promise<MachineListing[]> {
-    // A SEQUENTIAL LOOP, NOT `.map`. Both target lookups resolve the machine's
-    // channel durably now, and an async `.map` callback would build an array of
-    // PROMISES rather than of listings. The per-machine try/catch is the reason
-    // this is a loop rather than one Promise.all up front: a machine whose
-    // target cannot be resolved must degrade to `null` on its own row without
-    // taking the rest of the fleet's listing with it.
-    const listings: MachineListing[] = []
-    for (const m of await this.machineRecords()) {
+    return (await this.machineRecords()).map((m) => {
       let target: string | undefined
       let targetUnavailableReason: string | undefined
       try {
-        target = await this.deps.targetVersion?.(m.id)
-        targetUnavailableReason = await this.deps.targetUnavailableReason?.(m.id)
+        target = this.deps.targetVersion?.(m.id)
+        targetUnavailableReason = this.deps.targetUnavailableReason?.(m.id)
       } catch {
         target = undefined
       }
-      listings.push({
+      return {
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
         // omitted means NOT evaluated, and never "yes" by default.
@@ -938,9 +923,8 @@ export class MachinesService {
         // A durable snapshot remains useful while OFFLINE, but it is not evidence
         // about a newly attached daemon until that connection reports once.
         ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
-      })
-    }
-    return listings
+      }
+    })
   }
 
   /** Current login condition for a session's machine and harness. */
@@ -1180,28 +1164,29 @@ export class MachinesService {
   }
 
   async broadcastMachines(): Promise<void> {
-    // Classified live-only (@podium/protocol message-class): re-served in full on attach.
-    // Sequential, not Promise.all: the projection is per-principal and reads
-    // through the same machine cache, so resolving them one at a time is what
-    // lets the first client's read populate it for the rest.
-    for (const c of this.deps.clients()) {
+    // Resolve every authorization projection once for this pass. A failed
+    // projection is omitted rather than replaced with stale visibility.
+    const resolved = await Promise.all(
+      [...this.deps.clients()].map(async (client) => {
+        try {
+          return {
+            client,
+            machines: await this.deps.machinesForPrincipal(client.principal, this),
+          }
+        } catch {
+          return undefined
+        }
+      }),
+    )
+    // Classified live-only (@podium/protocol message-class): the fan-out itself
+    // remains one synchronous pass after all principal-scoped reads settle.
+    for (const item of resolved) {
+      if (item === undefined) continue
       const msg: LiveServerMessage = {
         type: 'machinesChanged',
-        machines: await this.deps.machinesForPrincipal(c.principal, this),
+        machines: item.machines,
       }
-      c.send(msg)
+      item.client.send(msg)
     }
-  }
-
-  /**
-   * The fan-out for a caller that cannot yield (rule 51b): a socket attach/detach
-   * and the deps bridge below hand this over and move on. Nothing waits for a
-   * live-only push to land — but the rejection still has to go somewhere, or a
-   * failed projection read is an unhandled rejection with no machine on it.
-   */
-  scheduleBroadcastMachines(): void {
-    void this.broadcastMachines().catch((err: unknown) => {
-      log.warn('machines broadcast failed', { err })
-    })
   }
 }

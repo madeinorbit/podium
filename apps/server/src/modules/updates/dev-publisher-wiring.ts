@@ -201,13 +201,13 @@ export async function wireDevBundlePublisher(deps: {
   readonly artifactSize?: (path: string) => Promise<number | undefined>
   readonly artifactToken: string
   readonly signingKey: string
-  readonly setTarget: (target: UpdateTarget) => void
+  readonly setTarget: (target: UpdateTarget) => Promise<void>
   /**
    * Retract the `dev` target and record a reason a client may be shown. Called
    * whenever this HEAD has no publishable bundle, so the read model never keeps
    * offering an older commit's.
    */
-  readonly setTargetUnavailable?: (reason: string) => void
+  readonly setTargetUnavailable?: (reason: string) => Promise<void>
   /**
    * Ask the updates service to re-resolve `dev` from its feed, right now.
    *
@@ -539,7 +539,7 @@ export async function wireDevBundlePublisher(deps: {
     } catch (error) {
       if (error instanceof DevBundleUnavailableError) {
         recordPublishFailure(error)
-        deps.setTargetUnavailable?.(error.publicReason)
+        await deps.setTargetUnavailable?.(error.publicReason)
       }
       throw error
     }

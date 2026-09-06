@@ -34,7 +34,7 @@ export interface EnrollmentHost {
   /** The row caches are derived from the machines table; every write here invalidates. */
   invalidateMachineCache(): void
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
-  broadcastMachines(): void | Promise<void>
+  broadcastMachines(): Promise<void>
 }
 
 /** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */

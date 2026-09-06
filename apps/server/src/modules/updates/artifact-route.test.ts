@@ -143,7 +143,7 @@ describe('development artifact route', () => {
       hasRemoteUpdateConsumers: async () => false,
       artifactToken: 'random-token',
       signingKey: 'unused-until-build',
-      setTarget: () => {},
+      setTarget: async () => {},
       locks: {
         acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
         cancel: () => {},
@@ -180,7 +180,7 @@ describe('development artifact route', () => {
         hasRemoteUpdateConsumers: async () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -287,7 +287,7 @@ describe('development artifact route', () => {
         hasRemoteUpdateConsumers: async () => true,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -336,7 +336,7 @@ describe('development artifact route', () => {
         hasRemoteUpdateConsumers: async () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -426,8 +426,10 @@ describe('development artifact route', () => {
         hasRemoteUpdateConsumers: async () => true,
         artifactToken: 'random-token',
         signingKey: 'test-key',
-        setTarget: () => {},
-        setTargetUnavailable: (reason) => unavailable.push(reason),
+        setTarget: async () => {},
+        setTargetUnavailable: async (reason) => {
+          unavailable.push(reason)
+        },
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},

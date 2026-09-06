@@ -58,7 +58,7 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
-  it('resolves a machine target without re-entering the enriched machine projection', async () => {
+  it('resolves a machine target without re-entering the enriched machine projection', () => {
     const machines = vi.fn(() => {
       throw new Error('wire projection re-entered')
     })
@@ -72,83 +72,83 @@ describe('UpdatesService', () => {
       concurrency: 3,
     })
 
-    await svc.setTarget('edge', target)
+    svc.setTarget('edge', target)
 
-    expect(await svc.targetFor(asMachineId('a'))).toBe(target)
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.targetFor(asMachineId('a'))).toBe(target)
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
     expect(machines).not.toHaveBeenCalled()
   })
 
-  it('issues no grants until a target is set', async () => {
+  it('issues no grants until a target is set', () => {
     const { svc, send } = make([m('a')])
-    await svc.tick()
+    svc.tick()
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('grants one canary on the first tick', async () => {
+  it('grants one canary on the first tick', () => {
     const { svc, send } = make([m('a'), m('b')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('does not widen until the canary reports current AT the target', async () => {
+  it('does not widen until the canary reports current AT the target', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
-    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('does not widen when the canary only reports target before reconnecting', async () => {
+  it('does not widen when the canary only reports target before reconnecting', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
-    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
-    expect((await svc.fleet())[0]).toMatchObject({ state: 'restarting' })
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting' })
   })
 
-  it('carries one authorization from the canary into the wider wave', async () => {
+  it('carries one authorization from the canary into the wider wave', () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
-    expect(await svc.authorize()).toEqual(['a'])
+    expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
 
     const canary = machines[0]
     if (canary) canary.version = '0.4.2'
-    await svc.fleet()
+    svc.fleet()
     expect(send).toHaveBeenCalledTimes(3)
   })
 
-  it('a rejected canary halts the wave entirely', async () => {
+  it('a rejected canary halts the wave entirely', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
-    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('treats a second global Apply as authority to retry a failed canary', async () => {
+  it('treats a second global Apply as authority to retry a failed canary', () => {
     const { svc, send } = make([m('a'), m('b')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    expect(await svc.authorize()).toEqual(['a'])
-    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    expect(svc.authorize()).toEqual(['a'])
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
     send.mockClear()
 
-    expect(await svc.authorize()).toEqual(['a'])
+    expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
-    expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
+    expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
   })
 
-  it('issues no grants when authorization is only remembered', async () => {
+  it('issues no grants when authorization is only remembered', () => {
     const { svc, send } = make([m('a')])
-    await svc.setTarget({
+    svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -169,9 +169,9 @@ describe('UpdatesService', () => {
    * were lost — is REPLACE the descriptor without resetting the proof already
    * made for that version.
    */
-  it('swaps a same-version descriptor in place without granting anything', async () => {
+  it('swaps a same-version descriptor in place without granting anything', () => {
     const { svc, send } = make([m('a')])
-    await svc.setTarget({
+    svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -179,7 +179,7 @@ describe('UpdatesService', () => {
     svc.markAuthorized()
     expect(send).not.toHaveBeenCalled()
 
-    await svc.setTarget({
+    svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -195,17 +195,17 @@ describe('UpdatesService', () => {
     // …and the authorization survived the swap, so the operation's own tick
     // will grant against the packed descriptor.
     expect(send).not.toHaveBeenCalled()
-    expect(await svc.tick('dev')).toEqual(['a'])
+    expect(svc.tick('dev')).toEqual(['a'])
   })
 
-  it('does not auto-grant when a same-version tarball appears without authorization', async () => {
+  it('does not auto-grant when a same-version tarball appears without authorization', () => {
     const { svc, send } = make([m('a')])
-    await svc.setTarget({
+    svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
     } as never)
-    await svc.setTarget({
+    svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -219,44 +219,44 @@ describe('UpdatesService', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('resets canary health when the target changes', async () => {
+  it('resets canary health when the target changes', () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
     const canary = machines[0]
     if (canary) canary.version = '0.4.2'
-    await svc.fleet()
-    await svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
+    svc.fleet()
+    svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
     send.mockClear()
-    await svc.tick()
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('reconciles a restarted machine from its reported target version', async () => {
+  it('reconciles a restarted machine from its reported target version', () => {
     const machines = [m('a'), m('b')]
     const { svc } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
 
     const first = machines[0]
     if (!first) throw new Error('test machine missing')
     first.version = '0.4.2'
-    expect((await svc.fleet())[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
   })
 
-  it('continues an authorized wave when the canary proves current by reconnecting', async () => {
+  it('continues an authorized wave when the canary proves current by reconnecting', () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
-    expect(await svc.authorize()).toEqual(['a'])
+    expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
 
     const canary = machines[0]
     if (!canary) throw new Error('test canary missing')
     canary.version = '0.4.2'
-    await svc.fleet()
+    svc.fleet()
 
     expect(send).toHaveBeenCalledTimes(3)
   })
@@ -275,12 +275,12 @@ describe('UpdatesService', () => {
    * delivery in flight when a NEWER grant id arrives, so the second grant
    * restarts every download the first one had already begun.
    */
-  it('grants each widened machine exactly once', async () => {
+  it('grants each widened machine exactly once', () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
-    expect(await svc.authorize()).toEqual(['a'])
+    expect(svc.authorize()).toEqual(['a'])
     const canary = machines[0]
     if (!canary) throw new Error('test canary missing')
     // The canary proves the target by RECONNECTING: the directory, not a status
@@ -288,7 +288,7 @@ describe('UpdatesService', () => {
     canary.version = '0.4.2'
     send.mockClear()
 
-    expect(await svc.tick()).toEqual(['b', 'c'])
+    expect(svc.tick()).toEqual(['b', 'c'])
     expect(send.mock.calls.map(([machineId]) => machineId)).toEqual(['b', 'c'])
   })
 
@@ -301,107 +301,107 @@ describe('UpdatesService', () => {
    * microsecond after b was handed an update will plan against that, which is
    * how the duplicate above was issued in the first place.
    */
-  it('reports the grants it issued from inside a fleet read', async () => {
+  it('reports the grants it issued from inside a fleet read', () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.authorize()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
 
     const canary = machines[0]
     if (!canary) throw new Error('test canary missing')
     canary.version = '0.4.2'
 
-    const seen = new Map((await svc.fleet()).map((machine) => [machine.id, machine.state]))
+    const seen = new Map(svc.fleet().map((machine) => [machine.id, machine.state]))
     expect(seen.get('a')).toBe('current')
     expect(seen.get('b')).toBe('granted')
     expect(seen.get('c')).toBe('granted')
   })
 
-  it('requires the raw reconnect identity instead of optimistic current status', async () => {
+  it('requires the raw reconnect identity instead of optimistic current status', () => {
     const machines = [m('a')]
     const { svc } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.authorize()
-    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
-    expect((await svc.fleet())[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
-    expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
+    expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
 
     const machine = machines[0]
     if (!machine) throw new Error('test machine missing')
     machine.version = '0.4.2'
-    expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+    expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
   })
 
-  it('proves a restart handoff only after a correlated restart report and disconnect', async () => {
+  it('proves a restart handoff only after a correlated restart report and disconnect', () => {
     const machines = [m('a')]
     const { svc } = make(machines)
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.authorize()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
 
-    await svc.onStatus(asMachineId('a'), {
+    svc.onStatus(asMachineId('a'), {
       type: 'updateStatus',
       grantId: 'wrong-grant',
       state: 'restarting',
       version: '0.4.1',
     })
     machines[0] = m('a', { online: false })
-    expect(await svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
 
     machines[0] = m('a')
-    await svc.onStatus(asMachineId('a'), {
+    svc.onStatus(asMachineId('a'), {
       type: 'updateStatus',
       grantId: 'g1',
       state: 'restarting',
       version: '0.4.1',
     })
-    expect(await svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
 
     machines[0] = m('a', { online: false })
-    expect(await svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(true)
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(true)
   })
 
   describe('per-machine apply outcomes', () => {
     const target = { version: '0.4.2', critical: false, artifacts: {} } as never
 
-    it('names why no grant was issued instead of returning an empty list', async () => {
+    it('names why no grant was issued instead of returning an empty list', () => {
       const { svc } = make([
         m('current', { version: '0.4.2' }),
         m('offline', { online: false }),
         m('flying'),
       ])
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect(await svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toEqual({
+      expect(svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toEqual({
         result: 'already-current',
         version: '0.4.2',
       })
-      expect(await svc.authorizeMachine(asMachineId('offline'), TEST_APPLY)).toEqual({ result: 'offline' })
-      expect(await svc.authorizeMachine(asMachineId('missing'), TEST_APPLY)).toEqual({ result: 'unknown-machine' })
+      expect(svc.authorizeMachine(asMachineId('offline'), TEST_APPLY)).toEqual({ result: 'offline' })
+      expect(svc.authorizeMachine(asMachineId('missing'), TEST_APPLY)).toEqual({ result: 'unknown-machine' })
 
-      expect(await svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toMatchObject({ result: 'granted' })
+      expect(svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toMatchObject({ result: 'granted' })
       // A second apply while the first is still converging is not a failure.
-      expect(await svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toEqual({
+      expect(svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toEqual({
         result: 'in-flight',
         state: 'granted',
       })
     })
 
-    it('refuses a source checkout explicitly without issuing a grant', async () => {
+    it('refuses a source checkout explicitly without issuing a grant', () => {
       const { svc, send } = make([m('source', { installKind: 'source' })])
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect(await svc.authorizeMachine(asMachineId('source'), TEST_APPLY)).toEqual({
+      expect(svc.authorizeMachine(asMachineId('source'), TEST_APPLY)).toEqual({
         result: 'source-checkout',
       })
       expect(send).not.toHaveBeenCalled()
     })
 
-    it('grants an equal-version payload when the operator requests repair', async () => {
+    it('grants an equal-version payload when the operator requests repair', () => {
       const { svc, send } = make([m('current', { version: '0.4.2' })])
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect(await svc.repairMachine(asMachineId('current'), TEST_REPAIR)).toEqual({
+      expect(svc.repairMachine(asMachineId('current'), TEST_REPAIR)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -411,26 +411,26 @@ describe('UpdatesService', () => {
       )
     })
 
-    it('explains an unresolved authority rather than reporting a missing grant', async () => {
+    it('explains an unresolved authority rather than reporting a missing grant', () => {
       const { svc } = make([m('a')])
-      expect(await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toMatchObject({ result: 'no-target' })
+      expect(svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toMatchObject({ result: 'no-target' })
     })
 
     /** The regression behind repro 2: retry was permanently impossible. */
-    it('lets a human retry a machine the planner had excluded forever', async () => {
+    it('lets a human retry a machine the planner had excluded forever', () => {
       const { svc, send } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         state: 'stuck',
         version: '0.4.1',
         detail: 'did not come back',
       })
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'stuck' })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
       send.mockClear()
 
-      expect(await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toEqual({
+      expect(svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -453,29 +453,29 @@ describe('UpdatesService', () => {
      * one machine refuses on something local (a dirty checkout), the operator
      * fixes it and clicks Apply on that row.
      */
-    it('keeps widening after a human applies one refused machine', async () => {
+    it('keeps widening after a human applies one refused machine', () => {
       const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
       const { svc } = make(machines)
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect(await svc.tick()).toEqual(['a'])
+      expect(svc.tick()).toEqual(['a'])
       // The canary holds the target: the bundle is proven for this channel.
       const canary = machines[0]
       if (canary) canary.version = '0.4.2'
-      expect(await svc.tick()).toEqual(['b', 'c', 'd'])
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
       const b = machines[1]
       const c = machines[2]
       if (b) b.version = '0.4.2'
       if (c) c.version = '0.4.2'
-      await svc.fleet()
-      await svc.onStatus(asMachineId('d'), {
+      svc.fleet()
+      svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
         version: '0.4.1',
         detail: 'machine-dirty-checkout',
       })
 
-      expect(await svc.authorizeMachine(asMachineId('d'), TEST_APPLY)).toEqual({
+      expect(svc.authorizeMachine(asMachineId('d'), TEST_APPLY)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -484,7 +484,7 @@ describe('UpdatesService', () => {
       // Apply — so this is the whole window the regression lives in. The two
       // machines that have never been granted are still owed the rest of the
       // concurrency budget.
-      expect(await svc.tick()).toEqual(['e', 'f'])
+      expect(svc.tick()).toEqual(['e', 'f'])
     })
 
     /**
@@ -493,21 +493,21 @@ describe('UpdatesService', () => {
      * channel, and §6.2 says a wave that re-opens starts by proving one machine
      * before it moves the rest.
      */
-    it('still re-proves a canary when the retry is fleet-wide', async () => {
+    it('still re-proves a canary when the retry is fleet-wide', () => {
       const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
       const { svc } = make(machines)
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect(await svc.tick()).toEqual(['a'])
+      expect(svc.tick()).toEqual(['a'])
       const canary = machines[0]
       if (canary) canary.version = '0.4.2'
-      expect(await svc.tick()).toEqual(['b', 'c', 'd'])
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
       const b = machines[1]
       const c = machines[2]
       if (b) b.version = '0.4.2'
       if (c) c.version = '0.4.2'
-      await svc.fleet()
-      await svc.onStatus(asMachineId('d'), {
+      svc.fleet()
+      svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
         version: '0.4.1',
@@ -515,7 +515,7 @@ describe('UpdatesService', () => {
 
       // Same fleet, same moment — but the human pressed the channel's Apply, not
       // one row's. Exactly one machine is granted.
-      expect(await svc.authorize()).toEqual(['d'])
+      expect(svc.authorize()).toEqual(['d'])
     })
   })
 
@@ -543,67 +543,67 @@ describe('UpdatesService', () => {
       return { svc, send, tick: (ms: number) => (clock += ms) }
     }
 
-    it('does not age a grant from a fleet read, however long it is left silent', async () => {
+    it('does not age a grant from a fleet read, however long it is left silent', () => {
       const { svc, tick } = makeClock([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
+      svc.setTarget(target)
+      svc.authorize()
+      expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
 
       // An hour of wall clock and a dozen readers: reading is not the passage
       // of time, and this service no longer pretends otherwise.
       tick(60 * 60_000)
-      for (let i = 0; i < 12; i++) expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
+      for (let i = 0; i < 12; i++) expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
     })
 
-    it('records an abandoned wait so giving up is visible, not silent', async () => {
+    it('records an abandoned wait so giving up is visible, not silent', () => {
       const { svc } = makeClock([m('a'), m('b', { version: '0.4.2' })])
-      await svc.setTarget(target)
-      await svc.authorize()
+      svc.setTarget(target)
+      svc.authorize()
 
-      expect(await svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'stuck', detail: 'the server stopped waiting' })
+      expect(svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
+      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck', detail: 'the server stopped waiting' })
     })
 
-    it('releases every grant still in flight when the operation that owned them ends', async () => {
+    it('releases every grant still in flight when the operation that owned them ends', () => {
       // Otherwise deleting the ageing would strand the row forever: excluded
       // from every future wave, and `operationActive` true for good.
       const { svc } = makeClock([m('a'), m('b')])
-      await svc.setTarget(target)
+      svc.setTarget(target)
       // One canary first, so exactly one machine is mid-grant here.
-      await svc.authorize()
+      svc.authorize()
       expect(svc.operationActive('dev')).toBe(true)
 
-      expect(await svc.releaseInFlightGrants()).toEqual(['a'])
-      expect((await svc.fleet())[0]).toMatchObject({
+      expect(svc.releaseInFlightGrants()).toEqual(['a'])
+      expect(svc.fleet()[0]).toMatchObject({
         state: 'stuck',
         detail: 'The machine stopped reporting progress while updating.',
       })
       expect(svc.operationActive('dev')).toBe(false)
     })
 
-    it('re-issues the grant for a machine the planner would otherwise skip', async () => {
+    it('re-issues the grant for a machine the planner would otherwise skip', () => {
       // The one automatic retry. `tick()` cannot do this: the planner excludes
       // a machine it believes is mid-grant, so the retry would grant nobody.
       const { svc, send } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'downloading',
         version: '0.4.1',
       })
       send.mockClear()
-      expect(await svc.tick('dev')).toEqual([])
+      expect(svc.tick('dev')).toEqual([])
 
-      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
       expect(send).toHaveBeenCalledTimes(1)
       expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
     })
 
-    it('does not replay a terminal boot report for a different target', async () => {
+    it('does not replay a terminal boot report for a different target', () => {
       const { svc } = makeClock([m('a')])
-      await svc.onStatus(asMachineId('a'), {
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         targetVersion: '0.4.3',
@@ -612,16 +612,16 @@ describe('UpdatesService', () => {
         detail: 'belongs to another release',
       })
 
-      await svc.setTarget(target)
+      svc.setTarget(target)
 
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'current', version: '0.4.1' })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.1' })
     })
 
-    it('keeps a packaged crash report after the coordinator replaced its grant', async () => {
+    it('keeps a packaged crash report after the coordinator replaced its grant', () => {
       const { svc } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'restarting',
@@ -631,8 +631,8 @@ describe('UpdatesService', () => {
       // The operation spends its bounded retry while the crashed packaged
       // process is down, so g2 is now the coordinator's correlation id. The
       // durable marker that survives the process crash still names g1.
-      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
-      await svc.onStatus(asMachineId('a'), {
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         targetVersion: '0.4.2',
@@ -641,7 +641,7 @@ describe('UpdatesService', () => {
         detail: 'attempt 2 of 2 did not reach 0.4.2 (running 0.4.1); applying again will retry it',
       })
 
-      const failed = (await svc.fleet())[0]
+      const failed = svc.fleet()[0]
       expect(failed).toMatchObject({
         state: 'rejected',
         version: '0.4.1',
@@ -651,19 +651,19 @@ describe('UpdatesService', () => {
       expect(svc.operationActive('dev')).toBe(false)
     })
 
-    it('does not apply a recovered crash report to a different packaged target', async () => {
+    it('does not apply a recovered crash report to a different packaged target', () => {
       const { svc } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'restarting',
         version: '0.4.1',
       })
-      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
 
-      await svc.onStatus(asMachineId('a'), {
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         targetVersion: '0.4.3',
@@ -672,33 +672,33 @@ describe('UpdatesService', () => {
         detail: 'belongs to another release',
       })
 
-      expect((await svc.fleet())[0]).toMatchObject({
+      expect(svc.fleet()[0]).toMatchObject({
         state: 'granted',
         version: '0.4.1',
       })
-      expect((await svc.fleet())[0]).not.toHaveProperty('detail')
+      expect(svc.fleet()[0]).not.toHaveProperty('detail')
       expect(svc.operationActive('dev')).toBe(true)
     })
 
-    it('does not re-grant a source checkout from legacy in-flight state', async () => {
+    it('does not re-grant a source checkout from legacy in-flight state', () => {
       const source = { ...m('a'), installKind: 'installed' }
       const { svc, send } = make([source])
-      await svc.setTarget(target)
-      await svc.authorize()
+      svc.setTarget(target)
+      svc.authorize()
       source.installKind = 'source'
       send.mockClear()
 
-      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
       expect(send).not.toHaveBeenCalled()
     })
 
-    it('does not re-grant a machine that is offline or already at the target', async () => {
+    it('does not re-grant a machine that is offline or already at the target', () => {
       const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
-      await svc.setTarget(target)
-      await svc.authorize()
+      svc.setTarget(target)
+      svc.authorize()
       send.mockClear()
 
-      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
       expect(send).not.toHaveBeenCalled()
     })
   })
@@ -707,11 +707,11 @@ describe('UpdatesService', () => {
   describe('progress heartbeats', () => {
     const target = { version: '0.4.2', critical: false, artifacts: {} } as never
 
-    it('carries a percentage from the daemon onto the fleet projection', async () => {
+    it('carries a percentage from the daemon onto the fleet projection', () => {
       const { svc } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'downloading',
@@ -720,19 +720,19 @@ describe('UpdatesService', () => {
         phaseDetail: 'downloading',
       })
 
-      expect((await svc.fleet())[0]).toMatchObject({
+      expect(svc.fleet()[0]).toMatchObject({
         state: 'downloading',
         percent: 62,
         phaseDetail: 'downloading',
       })
     })
 
-    it('accepts a repeat of the same state as a new report', async () => {
+    it('accepts a repeat of the same state as a new report', () => {
       const { svc } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
+      svc.setTarget(target)
+      svc.authorize()
       for (const percent of [10, 35, 90]) {
-        await svc.onStatus(asMachineId('a'), {
+        svc.onStatus(asMachineId('a'), {
           type: 'updateStatus',
           grantId: 'g1',
           state: 'downloading',
@@ -741,62 +741,62 @@ describe('UpdatesService', () => {
         })
       }
 
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'downloading', percent: 90 })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'downloading', percent: 90 })
     })
 
-    it('drops the percentage when the phase moves on', async () => {
+    it('drops the percentage when the phase moves on', () => {
       // A stale 62% sitting under `restarting` is worse than no number at all.
       const { svc } = make([m('a')])
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'downloading',
         version: '0.4.1',
         percent: 62,
       })
-      await svc.onStatus(asMachineId('a'), {
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'restarting',
         version: '0.4.1',
       })
 
-      expect((await svc.fleet())[0]).not.toHaveProperty('percent')
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
     })
 
-    it('converges a daemon that reports no percentage at all', async () => {
+    it('converges a daemon that reports no percentage at all', () => {
       const machines = [m('a')]
       const { svc } = make(machines)
-      await svc.setTarget(target)
-      await svc.authorize()
-      await svc.onStatus(asMachineId('a'), {
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'downloading',
         version: '0.4.1',
       })
-      expect((await svc.fleet())[0]).not.toHaveProperty('percent')
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
 
-      await svc.onStatus(asMachineId('a'), {
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
         state: 'current',
         version: '0.4.2',
       })
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
       const machine = machines[0]
       if (machine) machine.version = '0.4.2'
-      expect((await svc.fleet())[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
     })
   })
 
-  it('is idempotent: a second tick with nothing changed grants nothing new', async () => {
+  it('is idempotent: a second tick with nothing changed grants nothing new', () => {
     const { svc, send } = make([m('a'), m('b')])
-    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
-    await svc.tick()
-    await svc.tick()
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
@@ -804,15 +804,15 @@ describe('UpdatesService', () => {
 describe('setTargetUnavailable', () => {
   it('withdraws the stale target and explains why the channel has none', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
-    await svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
     expect(svc.target('dev')?.version).toBe('dev+aaaaaaa')
 
-    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+    await svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
 
     // Nothing may still be handed dev+aaaaaaa once HEAD has moved past it.
     expect(svc.target('dev')).toBeUndefined()
-    expect(await svc.targetVersion()).toBeUndefined()
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+    expect(svc.targetVersion()).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
       'The source checkout has 2 uncommitted changes.',
     )
   })
@@ -820,15 +820,15 @@ describe('setTargetUnavailable', () => {
   it('ends an in-flight rollout observably instead of stranding it', async () => {
     const machines = [m('a', { channel: 'dev' })]
     const { svc } = make(machines)
-    await svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
-    await svc.authorize('dev')
-    expect((await svc.fleet()).find((machine) => machine.id === 'a')?.state).toBe('granted')
+    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    svc.authorize('dev')
+    expect(svc.fleet().find((machine) => machine.id === 'a')?.state).toBe('granted')
 
-    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+    await svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
 
     // Without this the row keeps saying "granted" forever: the pending record
     // is gone, so nothing can ever age it and no status report is accepted.
-    const row = (await svc.fleet()).find((machine) => machine.id === 'a')
+    const row = svc.fleet().find((machine) => machine.id === 'a')
     expect(row?.state).toBe('stuck')
     /**
      * TOKENIZED, AND THIS FIXTURE IS WHY (POD-2241). The reason is free prose
@@ -842,18 +842,18 @@ describe('setTargetUnavailable', () => {
     expect(classifyMachineFailure(row?.detail)).toBe('update-withdrawn')
     // The CHANNEL's reason stays bare: there it is the whole answer, not one
     // machine's verdict.
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
       'The source checkout has 2 uncommitted changes.',
     )
   })
 
   it('is cleared by the next successful publication', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
-    svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
-    await svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
+    await svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
+    svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
 
     expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
   })
 })
 
@@ -915,11 +915,11 @@ describe('channel resolution', () => {
    * fallback literal is stated twice by necessity. This is the assertion that
    * keeps the two copies one value.
    */
-  it('the model fallback is the same channel runtime resolves with nothing configured', async () => {
+  it('the model fallback is the same channel runtime resolves with nothing configured', () => {
     expect(resolveUpdateChannel({}, {})).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
   })
 
-  it('the fleet default is the channel an unpinned machine lands on', async () => {
+  it('the fleet default is the channel an unpinned machine lands on', () => {
     expect(build({}, 'edge').fleetDefaultChannel()).toBe('edge')
     expect(build({}).fleetDefaultChannel()).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
   })
@@ -930,7 +930,7 @@ describe('channel resolution', () => {
    * `resolveMachineChannel` is what both call; asserting the identity here is
    * cheaper and more honest than asserting a grep.
    */
-  it('resolves an unpinned machine identically through the service and the shared helper', async () => {
+  it('resolves an unpinned machine identically through the service and the shared helper', () => {
     const svc = build({}, 'edge')
     expect(svc.channelOf(m('a') as never)).toBe(resolveMachineChannel(undefined, 'edge'))
     expect(svc.channelOf(m('a') as never)).toBe(svc.fleetDefaultChannel())
@@ -1004,7 +1004,7 @@ describe('target refresh bookkeeping', () => {
     })
 
     await svc.refreshTarget('stable')
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
       'stable target unavailable: fetch failed',
     )
 
@@ -1013,7 +1013,7 @@ describe('target refresh bookkeeping', () => {
     await svc.refreshTarget('stable')
 
     expect(svc.target('stable')).toBe(target)
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
     expect(svc.channelChecks()).toEqual([
       { channel: 'stable', checkedAt: 1_000 + 24 * 60 * 60_000, outcome: { status: 'ok' } },
     ])
@@ -1038,7 +1038,7 @@ describe('target refresh bookkeeping', () => {
     await svc.refreshTarget('stable')
 
     expect(svc.target('stable')).toBe(target)
-    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
     expect(svc.channelChecks()[0]?.outcome).toEqual({
       status: 'unavailable',
       reason: 'stable target unavailable: fetch failed',
@@ -1121,22 +1121,8 @@ describe('target refresh bookkeeping', () => {
       const resolveTarget = vi.fn(() => resolving)
       const { svc } = build(resolveTarget as never)
 
-      // NOT AWAITED, DELIBERATELY. These calls have to be IN FLIGHT together —
-      // that overlap is the entire subject. Awaiting the first one parks this
-      // test on a promise only `finish` can settle, and `finish` is below, so
-      // the test deadlocks instead of failing. A mechanical await pass did that
-      // to all four of these (POD-3263); the promises are collected and awaited
-      // together after the resolver is released.
-      const first = svc.checkNow()
-      const second = svc.checkNow()
-      // …but the CALL COUNT is only observable once both have reached the
-      // resolver. `checkNow` awaits `channelsInUse()` first now (the machine
-      // directory is a durable read), so neither call has registered its
-      // in-flight entry at the point this used to assert. Draining microtasks
-      // moves the observation past that await without settling `resolving`,
-      // which only `finishResolve` below can do — so the two calls are still
-      // genuinely concurrent and the coalescing is still what is under test.
-      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve()
+      const first = await svc.checkNow()
+      const second = await svc.checkNow()
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finishResolve(target)
@@ -1185,16 +1171,10 @@ describe('target refresh bookkeeping', () => {
       const { resolveTarget, finish } = suspended()
       const { svc } = build(resolveTarget as never)
 
-      // NOT AWAITED, DELIBERATELY. These calls have to be IN FLIGHT together —
-      // that overlap is the entire subject. Awaiting the first one parks this
-      // test on a promise only `finish` can settle, and `finish` is below, so
-      // the test deadlocks instead of failing. A mechanical await pass did that
-      // to all four of these (POD-3263); the promises are collected and awaited
-      // together after the resolver is released.
       // The periodic tick (server.ts:440) — also the shape of boot and both fleet handlers.
-      const tick = svc.refreshTarget('stable')
+      const tick = await svc.refreshTarget('stable')
       // …and the user hits "Check now" while it is mid-flight.
-      const forced = svc.checkNow()
+      const forced = await svc.checkNow()
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finish()
@@ -1210,15 +1190,9 @@ describe('target refresh bookkeeping', () => {
       const { resolveTarget, finish } = suspended()
       const { svc } = build(resolveTarget as never)
 
-      // NOT AWAITED, DELIBERATELY. These calls have to be IN FLIGHT together —
-      // that overlap is the entire subject. Awaiting the first one parks this
-      // test on a promise only `finish` can settle, and `finish` is below, so
-      // the test deadlocks instead of failing. A mechanical await pass did that
-      // to all four of these (POD-3263); the promises are collected and awaited
-      // together after the resolver is released.
-      const forced = svc.checkNow()
+      const forced = await svc.checkNow()
       // machineApplyUpdateHandler / machineSetUpdateChannelHandler / onFleetChannelChanged.
-      const handler = svc.refreshTarget('stable')
+      const handler = await svc.refreshTarget('stable')
 
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       finish()
@@ -1230,9 +1204,7 @@ describe('target refresh bookkeeping', () => {
       const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
       const { svc } = build(resolveTarget as never)
 
-      // Same reason: `Promise.all([await a, await b])` runs them one after the
-      // other, so it cannot show that two CHANNELS do not share an in-flight slot.
-      await Promise.all([svc.refreshTarget('stable'), svc.refreshTarget('edge')])
+      await Promise.all([await svc.refreshTarget('stable'), await svc.refreshTarget('edge')])
 
       expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable', 'edge'])
     })
@@ -1276,31 +1248,31 @@ describe('target refresh bookkeeping', () => {
    * would strand the machine mid-download against a descriptor nobody publishes.
    */
   describe('operationActive', () => {
-    it('is false with no wave in flight', async () => {
+    it('is false with no wave in flight', () => {
       const { svc } = make([m('a')])
       expect(svc.operationActive('dev')).toBe(false)
     })
 
-    it('is true while a grant is outstanding on that channel, and only that channel', async () => {
+    it('is true while a grant is outstanding on that channel, and only that channel', () => {
       const { svc } = make([m('a')])
-      await svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
-      await svc.authorize('dev')
+      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      svc.authorize('dev')
 
       expect(svc.operationActive('dev')).toBe(true)
       expect(svc.operationActive('stable')).toBe(false)
     })
 
-    it('is false again once the machine reconnects at the target', async () => {
+    it('is false again once the machine reconnects at the target', () => {
       const machines = [m('a')]
       const { svc } = make(machines)
-      await svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
-      await svc.authorize('dev')
-      await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      svc.authorize('dev')
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
       expect(svc.operationActive('dev')).toBe(true)
       const machine = machines[0]
       if (machine) machine.version = '0.4.2'
-      await svc.fleet()
+      svc.fleet()
       expect(svc.operationActive('dev')).toBe(false)
     })
   })
@@ -1324,36 +1296,36 @@ describe('withdrawAuthorization', () => {
    * daemon's swap is crash-safe, so `a` finishes anyway and reconnects at the
    * target — and the next read of the fleet, from anywhere, granted `b`.
    */
-  it('stops the wave continuing after a machine finishes a cancelled grant', async () => {
+  it('stops the wave continuing after a machine finishes a cancelled grant', () => {
     const machines = [m('a'), m('b')]
     const { svc, send } = make(machines)
-    await svc.setTarget('dev', target)
-    await svc.authorize('dev')
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
     expect(send).toHaveBeenCalledTimes(1)
 
     // The operation terminates. This is what `onChanged` does, in its order.
     svc.withdrawAuthorization()
-    await svc.releaseInFlightGrants('The update was canceled while this machine was updating.')
+    svc.releaseInFlightGrants('The update was canceled while this machine was updating.')
 
     // `a`'s daemon swapped anyway and came back on the new version.
     machines[0] = m('a', { version: '0.4.2' })
     const granted = send.mock.calls.length
-    await svc.fleet()
-    await svc.fleet()
+    svc.fleet()
+    svc.fleet()
 
     expect(send).toHaveBeenCalledTimes(granted)
   })
 
   /** …and the cleanup itself must not be the thing that grants: it reads `fleet()`. */
-  it('is safe to call before releaseInFlightGrants, which is a fleet read', async () => {
+  it('is safe to call before releaseInFlightGrants, which is a fleet read', () => {
     const machines = [m('a', { version: '0.4.2', state: 'downloading' }), m('b')]
     const { svc, send } = make(machines)
-    await svc.setTarget('dev', target)
-    await svc.authorize('dev')
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
     const granted = send.mock.calls.length
 
     svc.withdrawAuthorization()
-    await svc.releaseInFlightGrants()
+    svc.releaseInFlightGrants()
 
     expect(send).toHaveBeenCalledTimes(granted)
   })
@@ -1362,19 +1334,19 @@ describe('withdrawAuthorization', () => {
    * A deliberate Apply is new authority, so the machinery must come back — the
    * withdrawal ends one operation's consent, it does not disable the channel.
    */
-  it('is restored by the next deliberate authorization', async () => {
+  it('is restored by the next deliberate authorization', () => {
     const machines = [m('a'), m('b')]
     const { svc, send } = make(machines)
-    await svc.setTarget('dev', target)
-    await svc.authorize('dev')
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
     svc.withdrawAuthorization()
 
     machines[0] = m('a', { version: '0.4.2' })
-    await svc.authorize('dev')
+    svc.authorize('dev')
     expect(send.mock.calls.length).toBeGreaterThan(1)
   })
 
-  it('says nothing about a channel that has no rollout at all', async () => {
+  it('says nothing about a channel that has no rollout at all', () => {
     const { svc } = make([m('a')])
     expect(() => svc.withdrawAuthorization()).not.toThrow()
     expect(() => svc.withdrawAuthorization('stable')).not.toThrow()
@@ -1406,22 +1378,22 @@ describe('UpdatesService.operationChannel', () => {
    * `DEFAULT_FLEET_UPDATE_CHANNEL` is `stable`, so the hardcoded `'dev'` sent
    * `planInputFrom` looking for a target that by construction was not there.
    */
-  it('is the shipped fleet default, not dev, when nothing is pinned', async () => {
+  it('is the shipped fleet default, not dev, when nothing is pinned', () => {
     const svc = shipped([m('host'), m('vps')])
-    expect(await svc.operationChannel('host')).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
-    expect(await svc.operationChannel('host')).not.toBe('dev')
+    expect(svc.operationChannel('host')).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+    expect(svc.operationChannel('host')).not.toBe('dev')
   })
 
-  it("follows the host's own pin", async () => {
+  it("follows the host's own pin", () => {
     const svc = shipped([m('host', { channel: 'edge' }), m('vps', { channel: 'stable' })])
-    expect(await svc.operationChannel('host')).toBe('edge')
+    expect(svc.operationChannel('host')).toBe('edge')
   })
 
   /** A development coordinator still gets a dev operation — the previous
    *  behaviour was not wrong, it was only ever right for one fleet. */
-  it('still answers dev where dev is what this installation follows', async () => {
+  it('still answers dev where dev is what this installation follows', () => {
     const svc = shipped([m('host')], 'dev')
-    expect(await svc.operationChannel('host')).toBe('dev')
+    expect(svc.operationChannel('host')).toBe('dev')
   })
 
   /**
@@ -1430,18 +1402,18 @@ describe('UpdatesService.operationChannel', () => {
    * matters because one composition root is the ADOPTION path, which runs
    * before the daemon gateway listens.
    */
-  it('falls back to the fleet default when the host is not in the directory yet', async () => {
+  it('falls back to the fleet default when the host is not in the directory yet', () => {
     const svc = shipped([], 'edge')
-    expect(await svc.operationChannel('host')).toBe('edge')
-    expect(await svc.operationChannel(undefined)).toBe('edge')
+    expect(svc.operationChannel('host')).toBe('edge')
+    expect(svc.operationChannel(undefined)).toBe('edge')
   })
 
   /** One answer, not two (POD-2100): this must agree with the authority that
    *  will actually grant, which is `channelOf` on the same row. */
-  it('agrees with channelOf for the host row', async () => {
+  it('agrees with channelOf for the host row', () => {
     const host = m('host', { channel: 'stable' })
     const svc = shipped([host], 'dev')
-    expect(await svc.operationChannel('host')).toBe(svc.channelOf(host as never))
+    expect(svc.operationChannel('host')).toBe(svc.channelOf(host as never))
   })
 })
 
@@ -1475,22 +1447,22 @@ describe('UpdatesService.advertisedTarget', () => {
   const t = (version: string) => ({ version, critical: false, artifacts: {} }) as never
 
   /** THE DEFECT: a stable-pinned host, a published stable release, no offer. */
-  it("advertises the host's own stable authority to a stable-pinned host", async () => {
+  it("advertises the host's own stable authority to a stable-pinned host", () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    await svc.setTarget('stable', t('0.1.3'))
+    svc.setTarget('stable', t('0.1.3'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  it('does not let a development feed speak for a stable-pinned host', async () => {
+  it('does not let a development feed speak for a stable-pinned host', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    await svc.setTarget('stable', t('0.1.3'))
-    await svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
+    svc.setTarget('stable', t('0.1.3'))
+    svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  it('advertises only a feed-published development target on a dev-pinned host', async () => {
+  it('advertises only a feed-published development target on a dev-pinned host', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
     const packed = {
       version: '0.1.2-dev.5+bbbbbbb',
@@ -1509,15 +1481,15 @@ describe('UpdatesService.advertisedTarget', () => {
         },
       },
     } as unknown as never
-    await svc.setTarget('dev', packed)
-    const advertised = (await svc.advertisedTarget('host'))
+    svc.setTarget('dev', packed)
+    const advertised = svc.advertisedTarget('host')
     expect(advertised?.artifacts.headless).toBeDefined()
     expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
   })
 
-  it('advertises no update when HEAD has only a pre-release proposal', async () => {
+  it('advertises no update when HEAD has only a pre-release proposal', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
-    expect(await svc.advertisedTarget('host')).toBeUndefined()
+    expect(svc.advertisedTarget('host')).toBeUndefined()
   })
 
   /**
@@ -1526,7 +1498,7 @@ describe('UpdatesService.advertisedTarget', () => {
    * must not ride the probe. The standing channel target keeps it — grants
    * read that, not the advertisement.
    */
-  it('does not put a tokenised artifact URL on the advertised target', async () => {
+  it('does not put a tokenised artifact URL on the advertised target', () => {
     const packed = {
       version: '0.1.2-dev.5+bbbbbbb',
       critical: false,
@@ -1544,9 +1516,9 @@ describe('UpdatesService.advertisedTarget', () => {
       },
     } as unknown as never
     const svc = shipped([m('host', { channel: 'dev' })])
-    await svc.setTarget('dev', packed)
+    svc.setTarget('dev', packed)
 
-    const advertised = (await svc.advertisedTarget('host'))
+    const advertised = svc.advertisedTarget('host')
     const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
     expect(advertisedUrl).toBeDefined()
     expect(advertisedUrl).not.toContain('token=')
@@ -1556,12 +1528,12 @@ describe('UpdatesService.advertisedTarget', () => {
     )
   })
 
-  it('follows an edge-pinned host onto edge', async () => {
+  it('follows an edge-pinned host onto edge', () => {
     const svc = shipped([m('host', { channel: 'edge' })])
-    await svc.setTarget('edge', t('0.2.0'))
-    await svc.setTarget('dev', t('dev+aaaaaaa'))
+    svc.setTarget('edge', t('0.2.0'))
+    svc.setTarget('dev', t('dev+aaaaaaa'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.2.0')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.2.0')
   })
 
   /**
@@ -1569,22 +1541,22 @@ describe('UpdatesService.advertisedTarget', () => {
    * fallback `operationChannel` makes, because this must never answer a
    * different authority than the action would grant.
    */
-  it('agrees with operationChannel, including before the host is registered', async () => {
+  it('agrees with operationChannel, including before the host is registered', () => {
     const svc = shipped([], 'stable')
-    await svc.setTarget('stable', t('0.1.3'))
+    svc.setTarget('stable', t('0.1.3'))
 
-    expect(await svc.operationChannel('host')).toBe('stable')
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
-    expect((await svc.advertisedTarget(undefined))?.version).toBe('0.1.3')
+    expect(svc.operationChannel('host')).toBe('stable')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget(undefined)?.version).toBe('0.1.3')
   })
 
   /** Nothing published on the host's authority is still nothing: an absent
    *  target must not fall back to some other channel's version. */
-  it('advertises nothing rather than another channel when its own has none', async () => {
+  it('advertises nothing rather than another channel when its own has none', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    await svc.setTarget('dev', t('dev+aaaaaaa'))
+    svc.setTarget('dev', t('dev+aaaaaaa'))
 
-    expect(await svc.advertisedTarget('host')).toBeUndefined()
+    expect(svc.advertisedTarget('host')).toBeUndefined()
   })
 })
 
@@ -1621,7 +1593,7 @@ describe('a channel this server also publishes into', () => {
 
   it('holds its own newer identity against an older release from the feed', async () => {
     const svc = publisherHost(async () => versioned('0.1.2-dev.4+aaaaaaa'))
-    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     expect(await svc.refreshTarget('dev')).toBe(true)
 
@@ -1633,7 +1605,7 @@ describe('a channel this server also publishes into', () => {
 
   it('takes a NEWER release from the feed, which is the whole point of pulling', async () => {
     const svc = publisherHost(async () => versioned('0.1.2-dev.6+ccccccc'))
-    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -1654,7 +1626,7 @@ describe('a channel this server also publishes into', () => {
       },
     } as unknown as never
     const svc = publisherHost(async () => packed)
-    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -1669,7 +1641,7 @@ describe('a channel this server also publishes into', () => {
    * descriptor is how an already-published package sat on "Waiting for the
    * update package" until the machines step timed out.
    */
-  it('does not let an identity overwrite a published feed target of the same version', async () => {
+  it('does not let an identity overwrite a published feed target of the same version', () => {
     const packed = {
       version: '0.1.2-dev.5+bbbbbbb',
       critical: false,
@@ -1687,8 +1659,8 @@ describe('a channel this server also publishes into', () => {
     } as unknown as never
     const { svc } = make([m('a', { channel: 'dev' })])
 
-    await svc.setTarget('dev', packed)
-    await svc.setTarget('dev', identity)
+    svc.setTarget('dev', packed)
+    svc.setTarget('dev', identity)
 
     expect(svc.target('dev')?.artifacts.headless).toBeDefined()
     expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
@@ -1698,7 +1670,7 @@ describe('a channel this server also publishes into', () => {
 
   it('holds against an UNORDERABLE answer too, rather than guessing', async () => {
     const svc = publisherHost(async () => versioned('not-a-version'))
-    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -1717,7 +1689,7 @@ describe('a channel this server also publishes into', () => {
       locallyPublished: (channel) => channel === 'dev',
       fleetChannel: () => 'stable',
     })
-    await svc.setTarget('stable', versioned('0.4.2'))
+    svc.setTarget('stable', versioned('0.4.2'))
 
     await svc.refreshTarget('stable')
 
@@ -1754,46 +1726,46 @@ describe('a release that predates a machine', () => {
       ...over,
     })
 
-  it('is never granted to that machine by the standing wave', async () => {
+  it('is never granted to that machine by the standing wave', () => {
     const { svc, send } = make([mac()])
-    await svc.setTarget(linuxOnly)
-    await svc.tick()
+    svc.setTarget(linuxOnly)
+    svc.tick()
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('still waves the machines it was built for', async () => {
+  it('still waves the machines it was built for', () => {
     const { svc, send } = make([m('vps', { platform: 'linux-x86_64' }), mac()])
-    await svc.setTarget(linuxOnly)
-    await svc.tick()
+    svc.setTarget(linuxOnly)
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0]?.[0]).toBe('vps')
   })
 
   /** The per-row Apply is a human asking directly, and it gets a direct answer
    *  rather than a grant the machine will refuse minutes later. */
-  it('answers a per-row Apply with the platform fact instead of granting', async () => {
+  it('answers a per-row Apply with the platform fact instead of granting', () => {
     const { svc, send } = make([mac()])
-    await svc.setTarget(linuxOnly)
-    expect(await svc.authorizeMachine(asMachineId('mac'), TEST_APPLY)).toEqual({
+    svc.setTarget(linuxOnly)
+    expect(svc.authorizeMachine(asMachineId('mac'), TEST_APPLY)).toEqual({
       result: 'platform-not-in-release',
       platform: 'darwin-aarch64',
     })
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('answers a per-row Repair the same way, for the same reason', async () => {
+  it('answers a per-row Repair the same way, for the same reason', () => {
     const { svc, send } = make([mac()])
-    await svc.setTarget(linuxOnly)
-    expect(await svc.repairMachine(asMachineId('mac'), TEST_REPAIR)).toMatchObject({
+    svc.setTarget(linuxOnly)
+    expect(svc.repairMachine(asMachineId('mac'), TEST_REPAIR)).toMatchObject({
       result: 'platform-not-in-release',
     })
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('leaves a machine that has reported no platform alone', async () => {
+  it('leaves a machine that has reported no platform alone', () => {
     const { svc, send } = make([m('mute', { deliveryCaps: ['update.delivery.feed'] })])
-    await svc.setTarget(linuxOnly)
-    await svc.tick()
+    svc.setTarget(linuxOnly)
+    svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
@@ -1819,39 +1791,39 @@ describe('a machine that predates channel-keyed trust', () => {
       deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
     })
 
-  it('is never granted the instance-trusted feed by the standing wave', async () => {
+  it('is never granted the instance-trusted feed by the standing wave', () => {
     const { svc, send } = make([flatblock()])
-    await svc.setTarget(instanceTarget)
-    await svc.tick()
+    svc.setTarget(instanceTarget)
+    svc.tick()
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('answers direct Apply with the verifier-generation fact', async () => {
+  it('answers direct Apply with the verifier-generation fact', () => {
     const { svc, send } = make([flatblock()])
-    await svc.setTarget(instanceTarget)
-    expect(await svc.authorizeMachine(asMachineId('flatblock'), TEST_APPLY)).toEqual({
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('flatblock'), TEST_APPLY)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
     })
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('does not pretend an in-band Repair can bypass the same verifier', async () => {
+  it('does not pretend an in-band Repair can bypass the same verifier', () => {
     const { svc, send } = make([flatblock()])
-    await svc.setTarget(instanceTarget)
-    expect(await svc.repairMachine(asMachineId('flatblock'), TEST_REPAIR)).toEqual({
+    svc.setTarget(instanceTarget)
+    expect(svc.repairMachine(asMachineId('flatblock'), TEST_REPAIR)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
     })
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('continues to grant a current feed-only daemon', async () => {
+  it('continues to grant a current feed-only daemon', () => {
     const { svc, send } = make([
       m('current', { platform: 'linux-x86_64', deliveryCaps: ['update.delivery.feed'] }),
     ])
-    await svc.setTarget(instanceTarget)
-    expect(await svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toMatchObject({ result: 'granted' })
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toMatchObject({ result: 'granted' })
     expect(send).toHaveBeenCalledOnce()
   })
 })
@@ -1876,12 +1848,12 @@ describe('the machine this coordinator runs on', () => {
    */
   const coordinator = m('a-ludovico', { name: 'ludovico', coordinator: true })
 
-  it('is not the canary while a remote machine could prove the bundle instead', async () => {
+  it('is not the canary while a remote machine could prove the bundle instead', () => {
     const { svc } = make([coordinator, m('b-flatblock', { name: 'flatblock' })])
-    await svc.setTarget('dev', target)
+    svc.setTarget('dev', target)
     svc.markAuthorized('dev')
 
-    expect(await svc.tick('dev')).toEqual(['b-flatblock'])
+    expect(svc.tick('dev')).toEqual(['b-flatblock'])
   })
 
   /**
@@ -1889,26 +1861,26 @@ describe('the machine this coordinator runs on', () => {
    * live fleet selected `flatblock` and `ludovico` together, and `ludovico`
    * restarted 2.8 s later on top of flatblock's delivery.
    */
-  it('is not granted in the same widen round as a machine still behind', async () => {
+  it('is not granted in the same widen round as a machine still behind', () => {
     const { svc } = make([
       coordinator,
       m('b-flatblock', { name: 'flatblock' }),
       // Already at the target, so the canary gate is proved and the round widens.
       m('c-mac', { version: '0.4.2' }),
     ])
-    await svc.setTarget('dev', target)
+    svc.setTarget('dev', target)
     svc.markAuthorized('dev')
 
-    const granted = await svc.tick('dev')
+    const granted = svc.tick('dev')
     expect(granted).toEqual(['b-flatblock'])
     expect(granted).not.toContain('a-ludovico')
   })
 
-  it('takes the update once the rest of the fleet is at the target', async () => {
+  it('takes the update once the rest of the fleet is at the target', () => {
     const { svc } = make([coordinator, m('b-flatblock', { version: '0.4.2' })])
-    await svc.setTarget('dev', target)
+    svc.setTarget('dev', target)
     svc.markAuthorized('dev')
 
-    expect(await svc.tick('dev')).toEqual(['a-ludovico'])
+    expect(svc.tick('dev')).toEqual(['a-ludovico'])
   })
 })

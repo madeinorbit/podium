@@ -48,7 +48,7 @@ describe('deriveVersionState', () => {
       hostMachineId: asMachineId('host'),
       targetVersion: () => target,
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
 
     expect((await service.listMachines())[0]).toMatchObject({

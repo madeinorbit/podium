@@ -63,7 +63,7 @@ async function makeWorld(stateDir: string, opts: { dbPath?: string } = {}) {
     userExists: async (id) => await store.users.get(id) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   })
   return { store, machines, enrollment, pairing, stateDir }
 }
@@ -248,7 +248,7 @@ describe('D19.4 regression sequences', () => {
       userExists: async (id) => await afterReconcile.store.users.get(id) !== undefined,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
     expect((await hello(svc, machineId, token)).ok).toBe(false)
   })
@@ -348,7 +348,7 @@ describe('D19.4 regression sequences', () => {
       userExists: async (id) => id !== OTHER && await store.users.get(id) !== undefined,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
     expect((await hello(svc, machineId, token)).ok).toBe(true)
     const row = await store.machines.getMachine(machineId)
@@ -415,7 +415,7 @@ describe('D19.4 regression sequences', () => {
       userExists: async (id) => await restarted.store.users.get(id) !== undefined,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
     // Constructor ran reconcileOwnersFromLedger — row now shows NEW owner.
     expect((await restarted.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)

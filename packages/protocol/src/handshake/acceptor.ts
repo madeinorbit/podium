@@ -124,7 +124,7 @@ export interface AcceptorDeps {
 export interface HandshakeAcceptor {
   readonly state: HandshakeState
   readonly peer: EstablishedPeer | null
-  receive(raw: string): Promise<AcceptorStep>
+  receive(raw: string): AcceptorStep
 }
 
 const reject = (
@@ -140,26 +140,6 @@ const reject = (
 export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor => {
   let state: HandshakeState = 'awaiting-hello'
   let peer: EstablishedPeer | null = null
-  /**
-   * ADMISSION IS SINGLE-FLIGHT PER CONNECTION (POD-3263).
-   *
-   * `state` does not become `established` until AFTER the credential lookup
-   * resolves, and that lookup is a durable read now — so between the two, the
-   * `state === 'established'` guard above is blind. Two hellos written back to
-   * back by the same peer therefore both passed it, both authenticated, and both
-   * established: the gateway attached the daemon TWICE. `state` alone cannot
-   * express "a handshake is in flight", and the peer chooses whether its frames
-   * arrive in one read, so this is reachable by an unauthenticated caller.
-   *
-   * Set SYNCHRONOUSLY before the first await and cleared after it. Any frame
-   * that arrives in that window is refused and the connection is closed —
-   * which also bounds concurrent credential lookups on a socket that has not
-   * authenticated to one, closing the load-amplification half.
-   *
-   * Before the async flip `receive` was synchronous, so check-then-act here was
-   * atomic and no such flag was needed. It is needed now.
-   */
-  let authenticating = false
   const support = deps.support ?? localVersionSupport()
 
   const acceptor: HandshakeAcceptor = {
@@ -169,14 +149,9 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
     get peer() {
       return peer
     },
-    async receive(raw: string): Promise<AcceptorStep> {
+    receive(raw: string): AcceptorStep {
       if (state === 'closed')
         return reject('unexpected-frame', 'frame after the connection was refused')
-
-      if (authenticating) {
-        state = 'closed'
-        return reject('unexpected-frame', 'a frame arrived while the handshake was authenticating')
-      }
 
       if (state === 'established') {
         // Rule 3: a hello on a live connection is a protocol violation. Anything
@@ -240,33 +215,11 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
         )
       }
 
-      authenticating = true
-      let outcome: Awaited<ReturnType<typeof strategy.authenticate>>
-      try {
-        outcome = await strategy.authenticate({
-          credential: hello.credential,
-          hello,
-          transport: deps.transport,
-        })
-      } finally {
-        // Cleared before anything below runs, and everything below is
-        // synchronous — so by the time another frame can be received, `state` is
-        // already `established` or `closed` and the ordinary guards own it.
-        authenticating = false
-      }
-
-      // THE CONNECTION MAY HAVE BEEN CLOSED WHILE THIS WAS IN FLIGHT. The guard
-      // above refuses the intruding frame and closes, but that runs while this
-      // handshake is suspended — so without this check the original hello
-      // resumes and writes `established` straight over the `closed` the refusal
-      // just set, re-admitting the connection the refusal was there to reject.
-      if (state === 'closed') {
-        return reject(
-          'unexpected-frame',
-          'the connection was closed while this hello authenticated',
-        )
-      }
-
+      const outcome = strategy.authenticate({
+        credential: hello.credential,
+        hello,
+        transport: deps.transport,
+      })
       if (!outcome.ok) {
         state = 'closed'
         return reject(outcome.reason, outcome.diagnostic, outcome.peerMessage)

@@ -43,12 +43,12 @@ describe('auth strategy registry', () => {
     expect(registry.lookup('console', 'operatorChannel')).toBeNull()
   })
 
-  it('registers an explicit refusal, not a gap, when a port is unwired', async () => {
+  it('registers an explicit refusal, not a gap, when a port is unwired', () => {
     // Production today: no per-user client sessions (POD-1075 not landed).
     const registry = createDefaultAuthRegistry({ machines: fakeMachines({}), mint: createRecordingMinter() })
     const console_ = registry.lookup('console', 'sessionCookie')
     expect(console_?.name).toBe('unavailable(console/sessionCookie)')
-    const outcome = await console_?.authenticate({
+    const outcome = console_?.authenticate({
       credential: { kind: 'sessionCookie' },
       hello: {
         type: 'peerHello',

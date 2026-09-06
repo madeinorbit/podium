@@ -51,7 +51,7 @@ function localOptions(
     serverUrl: 'ws://unused',
     identityDir: temp(),
     localLink: {
-      attach: ({ hello }) => {
+      attach: async ({ hello }) => {
         capture(hello)
         return {
           established: true,
@@ -187,7 +187,7 @@ describe('daemon connection credential state machine', () => {
     const firstOptions = localOptions(() => {}, { bootstrapToken: 'local-secret' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
@@ -204,7 +204,7 @@ describe('daemon connection credential state machine', () => {
 
     const secondOptions = localOptions(() => {}, { bootstrapToken: 'local-secret', identityDir })
     secondOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
@@ -223,7 +223,7 @@ describe('daemon connection credential state machine', () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: {
           ...ok,
@@ -260,7 +260,7 @@ describe('daemon connection credential state machine', () => {
     const options = localOptions(() => {}, { identityDir: temp() })
     const identityDir = options.identityDir as string
     options.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
@@ -284,7 +284,7 @@ describe('daemon connection credential state machine', () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: { ...ok, issuedToken: 'token-1', updatePubkey: original.publicKey },
         machineId: MACHINE_ID,
@@ -301,7 +301,7 @@ describe('daemon connection credential state machine', () => {
     const rotated = rotateUpdateSigningKey(signingDir)
     const secondOptions = localOptions(() => {}, { identityDir })
     secondOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: {
           ...ok,
@@ -326,7 +326,7 @@ describe('daemon connection credential state machine', () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: {
           ...ok,
@@ -346,7 +346,7 @@ describe('daemon connection credential state machine', () => {
 
     const secondOptions = localOptions(() => {}, { identityDir })
     secondOptions.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: true,
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
@@ -367,7 +367,7 @@ describe('daemon connection credential state machine', () => {
     const timers: ReconnectTimers = { setTimeout, clearTimeout: vi.fn() }
     const options = localOptions(() => {}, { pairCode: 'bad', reconnectTimers: timers })
     options.localLink = {
-      attach: () => ({
+      attach: async () => ({
         established: false,
         reply: { type: 'peerHelloRejected', reason: 'auth-failed', message: 'denied' },
       }),
@@ -663,7 +663,7 @@ it('delivers local typed output by reference without changing JSON sends', async
   const deliverOutput = vi.fn()
   const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
   options.localLink = {
-    attach: () => ({
+    attach: async () => ({
       established: true,
       reply: ok,
       machineId: MACHINE_ID,

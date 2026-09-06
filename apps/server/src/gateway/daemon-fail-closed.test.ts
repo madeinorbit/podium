@@ -31,9 +31,16 @@ function fakeWs() {
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => {
-      for (const handler of handlers[ev] ?? []) handler(...a)
+    emit: async (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) await handler(...a)
     },
+    /**
+     * Deliver WITHOUT awaiting, which is what the socket does when two frames
+     * arrive in one read. `emit` above awaits each handler and therefore makes
+     * every delivery sequential — it cannot express two frames in flight at once.
+     */
+    emitConcurrently: (ev: string, ...a: unknown[]): unknown[] =>
+      (handlers[ev] ?? []).map((handler) => handler(...a)),
   }
 }
 
@@ -73,9 +80,9 @@ describe('the instrument', () => {
     // Without this, every refusal below could be a socket that routes nothing at
     // all — a refusal-only suite that would pass against a broken wiring.
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
     expect(h.attach).toHaveBeenCalledTimes(1)
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).toHaveBeenCalledTimes(1)
   })
 })
@@ -83,7 +90,7 @@ describe('the instrument', () => {
 describe('a daemon that cannot prove who it is', () => {
   it('rejects an UNPAIRED machine and admits nothing', async () => {
     const h = await harness([])
-    h.ws.emit(
+    await h.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'ghost', token: 'whatever', hostname: 'ghost' }),
     )
@@ -103,7 +110,7 @@ describe('a daemon that cannot prove who it is', () => {
       tokenHash: sha256('rotated'),
       ownerUserId: asUserId('user:sole'),
     })
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
@@ -113,32 +120,32 @@ describe('a daemon that cannot prove who it is', () => {
       { id: 'm1', token: 'tok1' },
       { id: 'm2', token: 'tok2' },
     ])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm2', token: 'tok1', hostname: 'm2' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm2', token: 'tok1', hostname: 'm2' }))
     expect(h.attach).not.toHaveBeenCalled()
   })
 
   it('keeps a REJECTED socket rejected: later frames reach no feature port', async () => {
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     // A retry with the CORRECT token on the same socket must not succeed — a
     // socket that can retry into a usable connection is an oracle for guessing.
-    h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
+    await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     // And application traffic never routes.
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).not.toHaveBeenCalled()
   })
 
   it('drops pre-auth application traffic without creating a principal', async () => {
     const h = await harness([{ id: 'm1', token: 'tok' }])
-    h.ws.emit('message', frame(A_ROUTABLE_FRAME))
+    await h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).not.toHaveBeenCalled()
     expect(h.attach).not.toHaveBeenCalled()
     // Closing an unattached socket must not detach a machine that may have a
     // healthy daemon on another socket.
     const detach = vi.spyOn(h.reg.gateway, 'detachDaemon')
-    h.ws.emit('close')
+    await h.ws.emit('close')
     expect(detach).not.toHaveBeenCalled()
   })
 })
@@ -147,12 +154,12 @@ describe('the local socket confers no more than a remote pairing', () => {
   it('refuses the local machine with a bad credential, exactly as it refuses a remote', async () => {
     // M4, the all-in-one case: the local daemon has no bootstrap special case.
     const local = await harness([{ id: 'local', token: 'sekret' }])
-    local.ws.emit(
+    await local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'wrong', hostname: 'thishost' }),
     )
     const remote = await harness([{ id: 'm1', token: 'sekret' }])
-    remote.ws.emit(
+    await remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'box' }),
     )
@@ -167,12 +174,12 @@ describe('the local socket confers no more than a remote pairing', () => {
     // Same kind, same capability form, a per-connection device: nothing about
     // being local widens what the principal carries.
     const local = await harness([{ id: 'local', token: 'sekret' }])
-    local.ws.emit(
+    await local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'sekret', hostname: 'thishost' }),
     )
     const remote = await harness([{ id: 'm1', token: 'tok' }])
-    remote.ws.emit(
+    await remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'b' }),
     )
@@ -185,5 +192,33 @@ describe('the local socket confers no more than a remote pairing', () => {
     expect(localPrincipal.capability).toBe('cap:machine:local')
     expect(remotePrincipal.capability).toBe('cap:machine:m1')
     expect(localPrincipal.device).toMatch(/^daemon-\d+$/)
+  })
+})
+
+/**
+ * ADMISSION IS ONE-AT-A-TIME, EVEN WHEN THE FRAMES ARE NOT (POD-3469).
+ *
+ * Authenticating a hello is asynchronous — it reads the machines table — so the
+ * acceptor's "second hello on an established connection" refusal cannot help
+ * here: that state is only reached AFTER the credential lookup resolves. Two
+ * hellos delivered in the same tick would both pass the guard while the first
+ * lookup is still in flight, and the socket would attach the daemon twice.
+ *
+ * The socket closes that window by serializing pre-auth frames onto one chain,
+ * so the acceptor sees them strictly in order. The existing refusal test sends
+ * its second hello AFTER awaiting the first, so it is sequential by construction
+ * and cannot observe this; that is why this case is written separately.
+ */
+describe('two hello frames arriving in one tick', () => {
+  it('attaches the daemon exactly once', async () => {
+    const h = await harness([{ id: 'm1', token: 'tok' }])
+    const hello = frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' })
+
+    await Promise.all([
+      ...h.ws.emitConcurrently('message', hello),
+      ...h.ws.emitConcurrently('message', hello),
+    ])
+
+    expect(h.attach).toHaveBeenCalledTimes(1)
   })
 })
