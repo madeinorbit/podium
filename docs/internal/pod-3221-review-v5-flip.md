@@ -131,12 +131,68 @@ executor.ts openers, classify the listed ports, and adjudicate the
 subscriber-delivery finding against ledger A row 3; then put the gate back in
 the exit-gate list for the next landing.
 
+### F4 — LOW: three doc comments still describe the deleted `executor.legacy`
+member as live.
+
+The FLIP_UNDELETED ledger item holds: `StoreExecutor`
+(executor.ts:66-82) has no `legacy` member, and no runtime `legacy:` is built
+in the executor composition root — the field POD-3267 was to delete is gone,
+and `issue-storage.ts:451`'s `legacy` is an unrelated local. But three doc
+comments still describe it as a live member repositories read:
+
+- `apps/server/src/store.ts:116` — "An unconverted repository reads
+  `executor.legacy`… POD-3267 deletes that field at the end of Stage A" (that
+  deletion has happened; the comment is now describing the past as the
+  present).
+- `apps/server/src/store/executor/executor.ts:11-17` — "THE OBJECT
+  REPOSITORIES TAKE is `{ drizzle, transact, read, legacy, context }`… legacy
+  — the raw handle for repositories not yet converted."
+- `apps/server/src/store/executor/bun-driver.ts:279,288,295` — three mentions
+  of "the legacy handle."
+
+What realistically goes wrong: nothing at runtime; but this is the exact
+comment-contradicts-code drift that rules 56 and 57 both turned out to be
+symptoms of, in the inverse direction. A reader trusting executor.ts:11's
+inventory would look for a member that is not there. The specific change:
+update the three comments to describe the converted-only object; the
+conversion is complete, so the "not yet converted" framing is stale.
+
+## Verification log (gates run on the tip, real output)
+
+- Per-project typecheck (24 projects, direct, turbo bypassed): apps/server 0,
+  all packages/* 0, apps/daemon/cli 0; apps/web **1** (F1), apps/mobile 4
+  (inherited), scripts **93** (POD-3508). See F2.
+- `lint:promise-truthiness`: `--probe` exits 0 (instrument fires), gate
+  reports zero shipping findings and zero known-elsewhere. GREEN.
+- `check-span-effects.ts`: exits **1**, 19 failures. See F3.
+- Removed-assertion sweep over the range: 8 hits, all mechanical/import, no
+  deleted behavioural assertion (see above).
+- Removed-assertion sweep over the flip commit faf345269 itself (2861 raw
+  removed expect-lines): normalized claim-level residue reduces to executor/
+  ledger post-commit test REWRITES (the mechanism-vs-behaviour split, rule 50)
+  plus the `expect(() => …)`→`await expect(…).rejects` shape — no behavioural
+  assertion deleted without a mechanism deletion to match.
+- POD-3494 rollback isolation: wrote a throwaway probe
+  (`store/pod3295-probe-rollback.test.ts`, deleted after) — the root-prepared
+  `change_latest` statement DOES route into the enclosing executor span; an
+  appended latest-state row is discarded on rollback. The landed tests only
+  cover the commit case; isolation is correct but UNTESTED (see below).
+- `check-statement-intent.ts`: running at report time; result appended when it
+  lands.
+
+## Coverage gap (not a defect)
+
+POD-3494's memoized root-prepared statements have no rollback test. I verified
+isolation holds with a probe, but the suite would stay green if a future edit
+re-bound them to a span instance in a way that leaked writes past a rollback.
+Recommend adding the enclosing-rollback case to `sync-prepared-span.test.ts`.
+
 ## Pending
 
-- Per-project typecheck census (POD-3508 lead: what else the fail-fast gate
+- (done — see F2)
   hides) — running.
-- Diff reading of the substantive fixes (POD-3499, 3488, 3487, 3485, 3494,
+- (done — POD-3499/3488/3487/3494/3496 read; all clean)
   3496, 3483, 3426, rule-55 fixture).
-- Ledger-construct absence check (podium_sp_, depths WeakMap,
+- (done — constructs gone; F4 notes stale comments)
   runSynchronousSpan, legacy-handle-probe.ts, StoreExecutor.legacy).
-- Fifth-defect-class hunt.
+- (done — F1)
