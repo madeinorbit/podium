@@ -346,6 +346,123 @@ describe('the tables cannot rot quietly', () => {
   })
 })
 
+/*
+ * The two shapes that made this gate report FEWER spans than it claimed, both
+ * found at the V5 flip's tip [POD-3518]. Neither is a name the tables got
+ * wrong: in both, a declaration a call site resolves to stopped being the
+ * declaration the table names, and nothing but these two checks says so.
+ */
+describe('a declaration a call resolves to is not always the one you can see', () => {
+  /**
+   * `readonly createOrJoinTransaction: TransactionRunner` — the production
+   * shape of both store-query ports.
+   *
+   * The call site's resolved signature is the ALIAS's function type, so the
+   * opener row must be keyed on the alias. Keyed on the property, it matches
+   * nothing: the openings are not scanned AND the row reports as DEAD, which is
+   * the pair of symptoms the tip had.
+   */
+  const ALIASED_PORT: Record<string, string> = {
+    'apps/server/src/queries.ts': `
+      export type TransactionRunner = <T>(fn: () => T) => T
+      export type SomethingElse = <T>(fn: () => T) => T
+      export interface StoreQueries {
+        readonly createOrJoinTransaction: TransactionRunner
+        /** Same SHAPE, same alias form, and no opener row names it. */
+        readonly transaction: SomethingElse
+      }
+    `,
+  }
+  const SUBJECT = `
+    import type { StoreQueries } from './queries'
+    import type { FeedPort } from './ports'
+    export function go(queries: StoreQueries, feed: FeedPort): void {
+      queries.createOrJoinTransaction(() => { feed.announce(1) })
+    }
+  `
+
+  function analyzeWith(symbol: string): AnalysisResult {
+    const program = createFixtureProgram({
+      ...WORLD,
+      ...ALIASED_PORT,
+      'apps/server/src/subject.ts': SUBJECT,
+    })
+    return analyze(program, {
+      repoRoot: FIXTURE_ROOT,
+      roots: ['apps/server/src/'],
+      walk: ['apps/', 'packages/'],
+      openers: [
+        { file: 'apps/server/src/queries.ts', symbol, body: 'arg0', label: 'StoreQueries.open' },
+      ],
+      ports: FIXTURE_PORTS,
+    })
+  }
+
+  it('opens a span through a function-typed property keyed by its type alias', () => {
+    const result = analyzeWith('TransactionRunner')
+    expect(result.roots.map((root) => root.opener)).toEqual(['StoreQueries.open'])
+    expect(observableKeys(result)).toEqual(['apps/server/src/ports.ts#FeedPort.announce'])
+    expect(result.deadOpeners).toEqual([])
+  })
+
+  it('does not report the property that HOLDS a named opener as unnamed', () => {
+    // The fixture world's own `SessionStore.transact` is legitimately uncovered
+    // here — this arm names one opener — so the claim is about the property,
+    // named by file, and not about the count.
+    const queriesSites = (result: AnalysisResult): string[] =>
+      result.uncoveredOpeners
+        .filter((site) => site.file === 'apps/server/src/queries.ts')
+        .map((site) => `${site.file}:${site.line}`)
+    const sites = queriesSites(analyzeWith('TransactionRunner'))
+    // :5 is `createOrJoinTransaction: TransactionRunner`, whose alias IS the
+    // named opener.
+    expect(sites).not.toContain('apps/server/src/queries.ts:5')
+    // :7 is `transaction: SomethingElse` — the same shape, an alias no opener
+    // row names — and it IS reported. So this is resolution and not a blanket
+    // silence on alias-typed properties. (The discrimination for :5 itself is
+    // by mutation: deleting the `openerKeysBehind` clause from
+    // findUncoveredOpeners makes :5 appear too. Verified.)
+    expect(sites).toContain('apps/server/src/queries.ts:7')
+  })
+
+  it('keyed on the property instead, the openings vanish and the row reads dead', () => {
+    // The control arm, and it is the tip's own behavior: the same world, the
+    // same call, one word different in the table.
+    const result = analyzeWith('createOrJoinTransaction')
+    expect(result.roots).toEqual([])
+    expect(result.deadOpeners).toEqual(['apps/server/src/queries.ts#createOrJoinTransaction'])
+  })
+
+  /**
+   * `async repoIdResolver(): Promise<(path: string) => RepoId>` — what the flip
+   * did to two resolvers, and the reason their PORT_CAPABILITIES rows went
+   * stale in silence: a port table has no slack check, so a key that stops
+   * being produced is never reported.
+   */
+  it('names a resolver an async method hands back for the method, not <anonymous>', () => {
+    const result = run(
+      `
+        import { SessionStore } from './store'
+        import type { Resolvers } from './resolvers'
+        export async function go(store: SessionStore, resolvers: Resolvers): Promise<void> {
+          const resolve = await resolvers.make()
+          store.transact(() => { store.insert(String(resolve('x'))) })
+        }
+      `,
+      {
+        'apps/server/src/resolvers.ts': `
+          export interface Resolvers {
+            make(): Promise<(key: string) => number>
+          }
+        `,
+      },
+    )
+    expect([...result.unclassified.keys()]).toEqual([
+      'apps/server/src/resolvers.ts#Resolvers.make()',
+    ])
+  })
+})
+
 describe('the production tables', () => {
   it('classifies every port member with a reason, not just a kind', () => {
     for (const [key, rule] of Object.entries(PORT_CAPABILITIES)) {

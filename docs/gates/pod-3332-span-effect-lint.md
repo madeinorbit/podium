@@ -121,7 +121,7 @@ none is silently passed.
   work, not this rule's.
 
 - **An `any`-typed port defeats a type-checker rule exactly as a closure defeats a scan.**
-  403 calls in the scanned tree have no resolvable signature; 8 of them are reachable from a
+  417 calls in the scanned tree have no resolvable signature; 8 of them are reachable from a
   span body, all in `apps/server/src/modules/issue-session-lifecycle.ts`, through the
   `SessionAuthzPorts` interface whose seven members are declared `any`. The report prints
   this per file, worst first, so the blindness is locatable rather than notional.
@@ -136,10 +136,45 @@ Two more properties worth naming because they are choices, not oversights:
   POD-3259's (ledger §D). Both are classified `exempt` here with that reason, so this rule
   does not pre-empt a model another issue is choosing.
 
-## After the flip
+## After the flip — what this section predicted, and what happened (POD-3518)
 
-The `runSynchronousSpan` bridge is an instrument and its deletion is POD-3327. When it goes,
-`SPAN_OPENERS` loses two entries (`runSynchronousSpan`, `transaction(db, fn)`) and gains the
-executor's own `transact` — which `NOT_A_SPAN_OPENER` already names, with that sentence, so
-the change is one table edit rather than a rediscovery. The `DEAD span opener` check is what
-makes the edit impossible to forget.
+The prediction was: `SPAN_OPENERS` loses `runSynchronousSpan` and `transaction(db, fn)`, and
+GAINS the executor's own `transact`. Half right, and the wrong half is worth keeping.
+
+The two losses happened. `runSynchronousSpan` was retired by POD-3263 and its declaration is
+gone, so its row is deleted. `transaction(db, fn)` still exists but no file under
+`apps/server/src` or `packages/sync/src` calls it any more — the only caller left in the repo
+is `migrations/restore.test.ts`. Its row moved to `NOT_A_SPAN_OPENER` rather than being
+deleted, so a production caller coming back is an `UNNAMED transaction opener` on the next
+run instead of a span nobody scans. Buying that property is why the completeness scan now
+covers the whole walk scope and not just the two root directories; measured, that costs
+exactly one declaration outside the roots — this one.
+
+The executor's `transact` did NOT become an opener, and the reason is the shape the flip
+actually took. A repository opens its unit of work through
+`StoreQueries.createOrJoinTransaction`, whose implementation in `sync-drizzle.ts` calls the
+executor's ambient `transact`. The port is the span's MOUTH; `transact` is the machinery
+under it, and the body reaches it as a parameter, which is opaque. Naming both would
+attribute every repository span twice and add nothing. So `NOT_A_SPAN_OPENER` keeps both
+`executor.ts` rows, with that sentence.
+
+WHAT THE DEAD-OPENER CHECK ACTUALLY CAUGHT, which is not what it was written for. Both
+`createOrJoinTransaction` rows read as DEAD at the flip's tip, and neither declaration had
+been renamed or removed. They are declared `readonly createOrJoinTransaction:
+TransactionRunner`, so a CALL resolves to the alias's function type and the declaration the
+checker hands back is named `TransactionRunner`. Keyed on the property name, the rows matched
+nothing: 42 span bodies — 41 of them the server's own repositories — were never scanned, and
+the report said `53 span bodies analysed` with a straight face. It says 95 now. Three
+consequences were written back into the instrument:
+
+- Both rows are keyed on the alias, and say why.
+- `findUncoveredOpeners` resolves a property's type through the checker the way `resolveCallee`
+  resolves a call, instead of the single hard-coded `#TransactPort` special case — which
+  covered one of the three ports with this shape and is precisely why the other two could go
+  dead without that check saying so.
+- `declaredName` sees through a `Promise<…>` wrapper. The flip made
+  `ReposRepository.repoIdResolver` and `IssueStore.repoScopeFilter` async; their return types
+  became `Promise<(x) => y>`, both stopped resolving to their own names, and their
+  `PORT_CAPABILITIES` rows went stale in SILENCE — a port table has no slack check, so a key
+  that stops being produced is never reported. That silence is the one hole this gate still
+  has, and it is named here rather than assumed away.

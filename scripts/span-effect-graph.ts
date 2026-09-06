@@ -346,7 +346,7 @@ const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
   {
     file: 'packages/runtime/src/sqlite/transaction.ts',
     line: 28,
-    why: "the SYNCHRONOUS `transaction(db, fn)` helper. It WAS a span opener and it is no longer reachable as one: since the flip, no file under apps/server/src or packages/sync/src calls it — the only caller left in the whole repo is `migrations/restore.test.ts`, and its own `transaction-spec.ts` is not in the server program. It stays named here rather than deleted so that a production caller reappearing is an UNNAMED opener on the next run instead of a span nobody scans [POD-3518].",
+    why: 'the SYNCHRONOUS `transaction(db, fn)` helper. It WAS a span opener and it is no longer reachable as one: since the flip, no file under apps/server/src or packages/sync/src calls it — the only caller left in the whole repo is `migrations/restore.test.ts`, and its own `transaction-spec.ts` is not in the server program. It stays named here rather than deleted so that a production caller reappearing is an UNNAMED opener on the next run instead of a span nobody scans [POD-3518].',
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
