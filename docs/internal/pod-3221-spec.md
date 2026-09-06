@@ -1763,6 +1763,45 @@ AND WHEN A TEST TIMES OUT DURING THIS FLIP, ENUMERATE THE THREE CAUSES BEFORE DE
 a deadlock you introduced, ENOSPC (`df -h /`), or a genuinely slow test. They are indistinguishable
 from the symptom alone.
 
+### Rule 52a — WIDEN THE PORT IN THE SAME PASS: a sync port fed by an async provider is the only window where promise-truthiness is silent
+
+[POD-3469 audited rule 52 across its slice and returned a refinement that changes the instruction,
+2026-09-06. It is right, and it converts rule 52 from a warning into a procedure.]
+
+RULE 52's OWN EXAMPLE IS LOUD ON POD-3469'S BRANCH. The same two sites —
+
+    relay.ts:784  operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined
+    relay.ts:789  exclusiveUpdateVersion(operations?.engine.active(…), channel)
+
+— are compiler ERRORS there (TS2322 at 783, TS2322 at 788, TS2345 at 789), not silent ones. The
+difference is that POD-3469 had already WIDENED THE PORT to `Promise<boolean>` and
+`Promise<string | undefined>`. Once the port says `Promise`, a synchronous arrow whose body compares a
+promise to `undefined` no longer satisfies it, and the compiler names the line.
+
+SO THE SILENCE WAS NEVER A PROPERTY OF THE EXPRESSION. It was a property of the PORT still being sync
+while the provider went async. That is the entire window in which this class hides, and it is a window
+YOU CONTROL.
+
+THE PROCEDURE, and it is now mandatory: WIDEN THE PORT IN THE SAME PASS AS THE PROVIDER. Never leave a
+sync-typed port fed by an async provider, even briefly, even "just until the next commit". Widen it and
+the compiler enumerates every bad call site for you, for free, by name and line.
+
+The same effect is visible elsewhere: `feed-visibility.ts:381` reports a `Promise<boolean>` provider
+against a sync `mayRead` port as a plain type error. SYNC PORT PLUS ASYNC PROVIDER IS LOUD. What stays
+silent is only the residue — where the port is legal at both ends and the promise sits inside an
+expression whose own inferred type is still boolean.
+
+AND A NEGATIVE RESULT WORTH HAVING, so nobody repeats it. POD-3469 tried a repo-wide TEXTUAL scan for
+promise-in-boolean: derive every async name, flag un-awaited uses in conditions, negations, logical
+operators, nullish comparisons and ternaries. It produced 873 findings and essentially all were NAME
+COLLISIONS — `has`, `get`, `state`, `capabilities`, `isFile`, `join`, `canSee`, `runs` are async
+somewhere and sync where they are used. Name matching cannot decide this. POD-3483's type-aware check
+is genuinely required; do not attempt a grep substitute.
+
+WHAT DOES WORK WITHOUT TYPES is exhausting ONE confirmed-async function: POD-3469 checked every
+`engine.active(` call site in the repo and found only the two above. Note `relay.ts:2742` reads wrong at
+a glance and is FINE — `await` binds tighter than `!==`.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
