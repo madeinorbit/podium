@@ -349,6 +349,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
   let control: Awaited<ReturnType<typeof startMachineUpdateControl>> | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   let executor!: MachineUpdateExecutor
+  let acceptingGrants = true
   const roleIdentity = (role: string) =>
     socketRequest(
       role === 'server' && id === 'coordinator' ? coordinatorSocket : join(state, `${role}.sock`),
@@ -384,6 +385,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
     reclaimRole: () => registerProcess('parent', { reclaimExisting: false }).then(() => {}),
     notify: () => {},
     onExit: async () => {
+      acceptingGrants = false
       if (timer) clearInterval(timer)
       await control?.close()
     },
@@ -477,7 +479,12 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         `machine-${id}`,
       )
       if (response.grant)
-        await executor.accept(response.grant, false).catch((error) => {
+        await executor.accept(response.grant, false, false, {
+          kind: 'coordinator',
+          // The fixture's authenticated heartbeat replaces the production WS.
+          serverUrl: `ws://fixture.invalid/${encodeURIComponent(coordinatorSocket)}`,
+          isCurrent: () => acceptingGrants && !existsSync(join(state, 'offline')),
+        }).catch((error) => {
           statuses.push({
             type: 'updateStatus',
             grantId: response.grant.grantId,

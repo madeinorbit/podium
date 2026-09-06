@@ -30,6 +30,31 @@ const PreparedUpdate = z.object({
   releaseHadMigrations: z.boolean().optional(),
 })
 export type PreparedUpdate = z.infer<typeof PreparedUpdate>
+// Admission identities are chosen by authenticated transports, not by grant fields.
+// Keep retired coordinators: returning to an endpoint must not forget its stale fence.
+const AuthorityHistory = z.object({
+  watermarks: z.record(z.number().int().nonnegative()),
+  // Format-1 journals predate authenticated provenance. Their unknown watermark
+  // remains a floor for every previously unseen source; never guess from IDs.
+  legacyFloor: z.number().int().nonnegative().optional(),
+})
+export type MachineUpdateAuthority =
+  | { kind: 'local' }
+  | { kind: 'coordinator'; serverUrl: string; isCurrent(): boolean }
+
+function authorityDomain(authority?: MachineUpdateAuthority): string {
+  if (!authority) return 'legacy'
+  if (authority.kind === 'local') return 'local'
+  if (!authority.isCurrent())
+    throw new Error('unauthorized-target: coordinating connection is no longer current')
+  const endpoint = new URL(authority.serverUrl)
+  if (!['ws:', 'wss:'].includes(endpoint.protocol) || endpoint.username || endpoint.password)
+    throw new Error('unauthorized-target: invalid coordinating endpoint')
+  endpoint.hash = ''
+  endpoint.pathname = endpoint.pathname.replace(/\/+$/, '')
+  return `coordinator:${updateFingerprint(endpoint.href)}`
+}
+
 const Journal = z.object({
   format: z.literal(1),
   grant: UpdateGrantMessage,
@@ -45,6 +70,7 @@ const Journal = z.object({
   ),
   activationHeld: z.boolean().default(false),
   authority: z.number(),
+  authorityHistory: AuthorityHistory.optional(),
   restarts: z.number().default(0),
 })
 export type MachineUpdateJournal = z.infer<typeof Journal>
@@ -200,9 +226,11 @@ export class MachineUpdateExecutor {
     raw: UpdateGrantMessage,
     waitForCompletion = true,
     holdActivation = false,
+    authority?: MachineUpdateAuthority,
   ): Promise<void> {
     const release = await this.acquireAdmission()
     try {
+      const domain = authorityDomain(authority)
       const grant = UpdateGrantMessage.parse(raw)
       const fingerprint = updateFingerprint({ target: grant.target, repair: grant.repair === true })
       const prior = this.journal
@@ -234,14 +262,26 @@ export class MachineUpdateExecutor {
       }
       if (grant.issuedAt === undefined)
         throw new Error('unauthorized-target: supervisor requires dated exact authorization')
-      if (prior && grant.issuedAt <= prior.authority)
-        throw new Error('stale-authorization: target predates accepted authority')
+      const history: z.infer<typeof AuthorityHistory> = structuredClone(prior?.authorityHistory ?? {
+        watermarks: {},
+        ...(prior ? { legacyFloor: prior.authority } : {}),
+      })
+      const floor = domain === 'legacy'
+        ? prior?.authority
+        : Math.max(history.watermarks[domain] ?? -1, history.legacyFloor ?? -1)
+      if (floor !== undefined && grant.issuedAt <= floor)
+        throw new Error('stale-authorization: target predates accepted source authority')
       if (prior && committed(prior.phase))
         throw new Error('update-committed: activation must settle before another grant')
       if (prior && !terminal(prior.phase)) {
         await this.cancelAccepted(prior.grant.grantId)
         await this.active
       }
+      // Cancellation can await I/O. A coordinator transferred away while queued
+      // must not gain fresh authority after that await.
+      authorityDomain(authority)
+      history.watermarks[domain] = grant.issuedAt
+      if (domain === 'legacy') history.legacyFloor = grant.issuedAt
       this.deps.adapter.select?.(grant)
       this.journal = {
         format: 1,
@@ -251,7 +291,9 @@ export class MachineUpdateExecutor {
         phase: 'accepted',
         updatedAt: this.deps.now?.() ?? Date.now(),
         activationHeld: holdActivation,
-        authority: grant.issuedAt,
+        // Preserve the old reader's global fence when rolling back binaries.
+        authority: Math.max(prior?.authority ?? 0, grant.issuedAt),
+        authorityHistory: history,
         restarts: 0,
         completed: this.journal?.completed ?? {},
       }
@@ -368,9 +410,12 @@ export class MachineUpdateExecutor {
       release()
     }
   }
-  async confirmBoot(healthy: boolean): Promise<void> {
+  async confirmBoot(healthy: boolean, signal?: AbortSignal): Promise<void> {
     const release = await this.acquireAdmission()
     try {
+      // A boot observer can wait behind recovery/admission while its parent is
+      // stopping. It must not replay, recover, or confirm after losing ownership.
+      if (signal?.aborted) return
       // A grant can arrive before parent startup finishes. Join its owner rather
       // than replacing its abort controller or touching its shared staging.
       // Return (do not await) so cancellation can acquire admission while we wait.

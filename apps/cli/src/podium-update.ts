@@ -254,7 +254,7 @@ export async function runUpdate(
     await executor.confirmBoot(true)
   }
   try {
-    await executor.accept(grant)
+    await executor.accept(grant, true, false, { kind: 'local' })
   } catch (error) {
     // The CLI crash net logs escaped errors and survives. Admission refusal
     // must still be a failed one-shot command, with the committed journal intact.
