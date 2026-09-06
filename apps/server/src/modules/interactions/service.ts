@@ -171,7 +171,7 @@ export interface InteractionServiceDeps {
    * materialized twice. Absent means "no causal stream", which is the honest
    * default for a build that has not wired one.
    */
-  causalFailuresOwned?(sessionId: SessionId): boolean
+  causalFailuresOwned?(sessionId: SessionId): boolean | Promise<boolean>
   /**
    * THE DECLARATION-RESOLVED DRIVER FAMILY for this session. The relay reads
    * the session's existing `driverFamily` projection, which comes from the
@@ -181,7 +181,9 @@ export interface InteractionServiceDeps {
    * safe compatibility behavior. Only a proven server family owns its asks
    * through the protocol path and must skip the terminal classifier shadow.
    */
-  driverFamilyForSession?(sessionId: SessionId): SessionMeta['driverFamily']
+  driverFamilyForSession?(
+    sessionId: SessionId,
+  ): SessionMeta['driverFamily'] | Promise<SessionMeta['driverFamily']>
   /** The transcript tail, for reading a live menu's options at synthesis time. */
   readTranscript(input: {
     sessionId: SessionId
@@ -228,7 +230,7 @@ export interface InteractionServiceDeps {
     questions: readonly QuestionPrompt[]
     selections: readonly QuestionSelection[]
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string }
+  }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
 }
 
 /** Everything a caller needs to answer, without knowing the payload union. */
@@ -300,8 +302,8 @@ export class InteractionService {
    * state path remains the only evidence there is — which is exactly the case
    * this issue exists to serve.
    */
-  private causalStreamOwnsFailures(sessionId: SessionId): boolean {
-    return this.deps.causalFailuresOwned?.(sessionId) ?? false
+  private async causalStreamOwnsFailures(sessionId: SessionId): Promise<boolean> {
+    return (await this.deps.causalFailuresOwned?.(sessionId)) ?? false
   }
 
   /** Every in-flight policy delivery on a session is overtaken at once — the
@@ -496,7 +498,7 @@ export class InteractionService {
     try {
       // The protocol driver already owns server-family asks; don't synthesize
       // a terminal classifier shadow. Unknown families keep legacy behavior.
-      if (this.deps.driverFamilyForSession?.(input.sessionId) === 'server') {
+      if ((await this.deps.driverFamilyForSession?.(input.sessionId)) === 'server') {
         await this.closeOpen(
           input.sessionId,
           'superseded',
@@ -516,7 +518,7 @@ export class InteractionService {
       if (
         ask?.spec.kind === 'recovery' &&
         input.next.phase === 'errored' &&
-        this.causalStreamOwnsFailures(input.sessionId)
+        await this.causalStreamOwnsFailures(input.sessionId)
       ) {
         return
       }
@@ -1091,7 +1093,7 @@ export class InteractionService {
       !hasTranscriptCard(row) &&
       this.deps.deliverNativeMenu
     ) {
-      const typed = this.deps.deliverNativeMenu({
+      const typed = await this.deps.deliverNativeMenu({
         sessionId: row.sessionId,
         questions: readOptions,
         selections: answer.selections,

@@ -2758,10 +2758,12 @@ export class SessionRegistry {
      * module exists, which is what makes "the aggregate observes; existing UI
      * behavior is unchanged" structural rather than careful.
      */
+    const interactionSeed = (await ledger.authority.snapshot('pendingInteraction')) as readonly {
+      readonly id: string
+    }[]
     const interactionFeed = new InteractionFeedPublisher({
       ledger,
-      seed: async () =>
-        await ledger.authority.snapshot('pendingInteraction') as readonly { readonly id: string }[],
+      seed: () => interactionSeed,
       toWire: (row) => interactions.wireOf(row),
     })
     const interactions = new InteractionService({
@@ -2822,14 +2824,16 @@ export class SessionRegistry {
        * neither read its options nor match an answer against them, and refused
        * every answer to a session it could see was blocked.
        */
-      deliverNativeMenu: (input) =>
-        deliverToNativeMenu(
+      deliverNativeMenu: async (input) => {
+        const state = (await sessionsSvc.sessionById(input.sessionId))?.agentState
+        return deliverToNativeMenu(
           {
-            getState: async (id) => (await sessionsSvc.sessionById(id))?.agentState,
+            getState: () => state,
             answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
           },
           input,
-        ),
+        )
+      },
       /**
        * STRUCTURED DELIVERY (POD-2023) — the route W2 declared and W5 shipped.
        *
