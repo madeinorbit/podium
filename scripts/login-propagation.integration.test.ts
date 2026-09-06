@@ -62,20 +62,23 @@ function installClaudeFixture(home: string, loggedIn: boolean): void {
 
 async function waitUntil(
   label: string,
-  predicate: () => boolean,
+  predicate: () => Promise<boolean>,
   timeoutMs = 30_000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error('timed out waiting for ' + label)
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
 }
 
-function claudeLoginState(server: ServerHandle, machineId: string): string | undefined {
-  return server.registry.sessionStore.machines
-    .getMachine(machineId)
-    ?.inventory?.agents.find((agent) => agent.kind === 'claude-code')?.login.state
+async function claudeLoginState(
+  server: ServerHandle,
+  machineId: string,
+): Promise<string | undefined> {
+  return (
+    await server.registry.sessionStore.machines.getMachine(machineId)
+  )?.inventory?.agents.find((agent) => agent.kind === 'claude-code')?.login.state
 }
 
 function preserveEnvironment(root: string): () => void {
@@ -184,13 +187,13 @@ describe('real daemon-to-daemon login propagation', () => {
       daemons.push(await startFixtureDaemon(DONOR_ID, donorHome, 'donor'))
       daemons.push(await startFixtureDaemon(TARGET_ID, targetHome, 'target'))
 
-      await waitUntil('both daemon inventories', () => {
+      await waitUntil('both daemon inventories', async () => {
         return (
           daemons.every((daemon) => daemon.connected) &&
           server?.registry.modules.machines.hasDaemon(DONOR_ID) === true &&
           server?.registry.modules.machines.hasDaemon(TARGET_ID) === true &&
-          claudeLoginState(server, DONOR_ID) === 'in' &&
-          claudeLoginState(server, TARGET_ID) === 'out'
+          (await claudeLoginState(server, DONOR_ID)) === 'in' &&
+          (await claudeLoginState(server, TARGET_ID)) === 'out'
         )
       })
 
@@ -210,7 +213,7 @@ describe('real daemon-to-daemon login propagation', () => {
       expect(readFileSync(targetCredentialPath, 'utf8')).toBe(
         readFileSync(join(donorHome, '.claude', '.credentials.json'), 'utf8'),
       )
-      expect(JSON.stringify(server.registry.sessionStore.secrets.presence())).not.toContain(
+      expect(JSON.stringify(await server.registry.sessionStore.secrets.presence())).not.toContain(
         'donor-access',
       )
 

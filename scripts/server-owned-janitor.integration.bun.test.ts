@@ -106,8 +106,8 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
     let server: ServerHandle | undefined
 
     try {
-      const seed = openTestStore(dbPath)
-      seed.messages.addMessage(dueMessage())
+      const seed = await openTestStore(dbPath)
+      await seed.messages.addMessage(dueMessage())
       seed.close()
 
       // No `janitorWorkerForTests`, no injection, no env: exactly what a plain

@@ -293,7 +293,7 @@ describe('named-instance development releases', () => {
       }) as UpdateTarget
     const restartedUpdates = () =>
       new UpdatesService({
-        machines: () => [],
+        machines: async () => [],
         send: () => {},
         now: () => 1_000,
         nextGrantId: () => 'boot-grant',
@@ -708,7 +708,7 @@ describe('named-instance development releases', () => {
         | undefined
 
       const updates = new UpdatesService({
-        machines: () => [
+        machines: async () => [
           {
             id: HOST,
             name: 'coordinator',
@@ -774,7 +774,7 @@ describe('named-instance development releases', () => {
         operationActive: () => false,
         schedule: () => {},
       })
-      reconciler.onMachineConnected(HOST)
+      await reconciler.onMachineConnected(HOST)
       for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
       return { granted, recorded, restarts, installed }
     }

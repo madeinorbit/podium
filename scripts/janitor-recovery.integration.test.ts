@@ -48,7 +48,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
     let janitor: JanitorHandle | undefined
 
     try {
-      const seed = openTestStore(dbPath)
+      const seed = await openTestStore(dbPath)
       const message: MessageRow = {
         id: 'msg_due',
         threadId: asThreadId('thread_due'),
@@ -76,7 +76,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
         factTarget: null,
         expectsResponse: false,
       }
-      seed.messages.addMessage(message)
+      await seed.messages.addMessage(message)
       seed.close()
 
       expect(messageStatus(dbPath)).toBe('queued')

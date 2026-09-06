@@ -70,10 +70,10 @@ function maintenance(store: SessionStore, now: () => number = () => NOW): Mainte
   )
 }
 
-function expiredEvents(store: SessionStore, id: string): number {
-  return store.events
-    .listEventsSince(0)
-    .filter((event) => event.kind === 'message.expired' && event.subject === id).length
+async function expiredEvents(store: SessionStore, id: string): Promise<number> {
+  return (await store.events.listEventsSince(0)).filter(
+    (event) => event.kind === 'message.expired' && event.subject === id,
+  ).length
 }
 
 describe.each([
@@ -81,9 +81,9 @@ describe.each([
   'after-apply-before-ack',
 ] as const)('janitor crash boundary: %s [spec:SP-c29e]', (boundary) => {
   it('retries the deterministic command and commits the transition exactly once', async () => {
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const message = dueMessage(`msg_${boundary}`)
-    store.messages.addMessage(message)
+    await store.messages.addMessage(message)
     const server = maintenance(store)
     let crash = true
     const service = new JanitorService({
@@ -104,8 +104,8 @@ describe.each([
     await expect(service.tick()).rejects.toThrow(/injected crash/)
     await expect(service.tick()).resolves.toBeUndefined()
 
-    expect(store.messages.getMessage(message.id)?.status).toBe('expired')
-    expect(expiredEvents(store, message.id)).toBe(1)
+    expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
+    expect(await expiredEvents(store, message.id)).toBe(1)
     expect(service.metrics()).toMatchObject({
       queueDepth: 0,
       completedJobs: 1,
@@ -119,7 +119,7 @@ describe.each([
 describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
   it('allows only one lease holder, then fences takeover after expiry', async () => {
     let now = NOW
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const server = maintenance(store, () => now)
     const firstRead = vi.fn(() => [])
     const secondRead = vi.fn(() => [])
@@ -167,20 +167,20 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
   it('accepts the fenced command after the server restarts between decision and apply', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-mid-migration-'))
     const dbPath = join(dir, 'podium.db')
-    let store = openTestStore(dbPath)
+    let store = await openTestStore(dbPath)
     const message = dueMessage('msg_restart')
-    store.messages.addMessage(message)
+    await store.messages.addMessage(message)
     let server = maintenance(store)
     let restarted = false
     const service = new JanitorService({
       generationId: 'gen_restart',
       now: () => NOW,
       handshake: async (request): Promise<MaintenanceHandshakeReply> => server.handshake(request),
-      readExpiryCandidates: () => {
+      readExpiryCandidates: async () => {
         if (!restarted) {
           restarted = true
           store.close()
-          store = openTestStore(dbPath)
+          store = await openTestStore(dbPath)
           server = maintenance(store)
         }
         return [observed(message)]
@@ -191,8 +191,8 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
     try {
       await service.tick()
       expect(restarted).toBe(true)
-      expect(store.messages.getMessage(message.id)?.status).toBe('expired')
-      expect(expiredEvents(store, message.id)).toBe(1)
+      expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
+      expect(await expiredEvents(store, message.id)).toBe(1)
       expect(service.metrics()).toMatchObject({
         queueDepth: 0,
         completedJobs: 1,

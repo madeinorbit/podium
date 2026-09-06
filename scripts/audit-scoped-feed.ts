@@ -453,7 +453,7 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     if (batch !== null) graceSaw.push(batch)
   })
 
-  authority.capture([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
+  await authority.capture([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
 
   if (adaSaw.flatMap((d) => d.ids).join() !== 'mine') {
     fail('runtime-filter', 'the grantee did NOT receive a row she may see — the feed delivers nothing')
@@ -473,7 +473,7 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
   }
 
   // The heal path must agree with the live path over the same range.
-  const healed = authority.changesSince(0, GRACE)
+  const healed = await authority.changesSince(0, GRACE)
   const healedBatch = healed === null ? null : asBatch(healed)
   if (healedBatch === null || healedBatch.through !== 1) {
     fail('runtime-watermark', 'the scoped catch-up reply does not certify to the log head')
@@ -501,7 +501,7 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
   })
   const connection = publisher.connect('c1', 0, GRACE)
   for (let seq = 1; seq <= 50; seq += 1) {
-    publisher.publish(GRACE, { kind: 'batch', throughSeq: seq, changes: [] })
+    await publisher.publish(GRACE, { kind: 'batch', throughSeq: seq, changes: [] })
   }
   if (connection.isDemoted()) {
     fail(
@@ -510,7 +510,7 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
         'because of activity it is not allowed to observe',
     )
   }
-  const frames = connection.drain()
+  const frames = await connection.drain()
   const delta = frames.find((f) => f.kind === 'delta')
   if (delta === undefined || delta.kind !== 'delta' || delta.fromSeq !== 0 || delta.seq !== 50) {
     fail(

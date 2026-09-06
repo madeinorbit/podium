@@ -49,9 +49,13 @@ function collect(ws: WebSocket): { readonly text: string } {
     },
   }
 }
-async function waitFor(pred: () => boolean, label: string, timeoutMs = 15000): Promise<void> {
+async function waitFor(
+  pred: () => Promise<boolean>,
+  label: string,
+  timeoutMs = 15000,
+): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error(`waitFor timed out: ${label}`)
     await new Promise((r) => setTimeout(r, 20))
   }
@@ -65,7 +69,7 @@ const daemon = await startDaemon({
   serverUrl: `ws://localhost:${srv.port}`,
   launch: () => ({ cmd: 'node', args: [FIXTURE], cwd: '/tmp' }),
 })
-const { sessionId } = srv.registry.modules.sessions.createSession({
+const { sessionId } = await srv.registry.modules.sessions.createSession({
   agentKind: 'claude-code',
   cwd: '/tmp',
   title: 'bun-smoke',
@@ -79,20 +83,21 @@ try {
   client.send(encode({ type: 'redrawRequest', sessionId }))
 
   // 1) live agent output reaches the client through the full chain
-  await waitFor(() => c.text.includes('cols=80 rows=24'), 'initial frame')
+  await waitFor(async () => c.text.includes('cols=80 rows=24'), 'initial frame')
   console.log('[smoke] ✓ output streamed: cols=80 rows=24')
 
   // 2) input typed at the client round-trips to the agent and back
   client.send(encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }))
-  await waitFor(() => c.text.includes('last-input=61'), 'input echo')
+  await waitFor(async () => c.text.includes('last-input=61'), 'input echo')
   console.log('[smoke] ✓ input round-trip: last-input=61')
 
   // 3) take control + resize repaints the agent at the new geometry
   client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
   client.send(encode({ type: 'requestControl', sessionId }))
-  const sess = () => srv.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
-  await waitFor(() => (sess()?.epoch ?? 0) >= 1, 'epoch bump')
-  await waitFor(() => c.text.includes('cols=100 rows=30'), 'resize repaint')
+  const sess = async () =>
+    (await srv.registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+  await waitFor(async () => ((await sess())?.epoch ?? 0) >= 1, 'epoch bump')
+  await waitFor(async () => c.text.includes('cols=100 rows=30'), 'resize repaint')
   console.log('[smoke] ✓ resize + takeover: epoch bumped, repainted at cols=100 rows=30')
 
   ok = true

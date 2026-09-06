@@ -240,7 +240,7 @@ async function buildFixture(): Promise<Fixture> {
     ['m1', 'one'],
     ['m2', 'two'],
   ] as const) {
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id,
       name,
       hostname: name,
@@ -248,20 +248,26 @@ async function buildFixture(): Promise<Fixture> {
       ownerUserId: asUserId('user:sole'),
     })
   }
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon('m1', () => {})
   registry.gateway.attachDaemon('m2', () => {})
   const issueIds: IssueId[] = []
   for (let index = 0; index < ISSUE_COUNT; index += 1) {
     issueIds.push(
-      registry.issues.create({ repoPath: '/repo', title: `issue ${index}`, startNow: false }).id,
+      (
+        await registry.issues.create({
+          repoPath: '/repo',
+          title: `issue ${index}`,
+          startNow: false,
+        })
+      ).id,
     )
   }
   const bound: { sessionId: SessionId; cwd: string; machineId: string }[] = []
   for (let index = 0; index < SESSION_COUNT; index += 1) {
     const machineId = index % 2 ? 'm2' : 'm1'
     const cwd = `/repo/w${index}`
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd,
       machineId: asMachineId(machineId),
@@ -365,11 +371,11 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       stormInbox.length = 0
       let resolvedRows = 0
       probe.reset()
-      resolvedRows += fixture.registry.issues.readyList('/repo').length
+      resolvedRows += (await fixture.registry.issues.readyList('/repo')).length
       for (let index = 0; index < SESSION_COUNT; index += 1) {
         const owner = fixture.issueIds[index % fixture.issueIds.length]
         if (owner === undefined) throw new Error('issue fixture is empty')
-        if (fixture.registry.issues.get(owner) !== null) resolvedRows += 1
+        if ((await fixture.registry.issues.get(owner)) !== null) resolvedRows += 1
       }
       const fanoutQueries = probe.count()
       breakdown['issueFrameReads.queriesPerRequest'] = probe.byStatement()
@@ -433,12 +439,12 @@ async function measureFrames(): Promise<Report> {
     // way retention produces it — writing the rows through the REPOSITORY, which
     // appends no change row, rather than through the service write seam.
     for (const id of fixture.issueIds) {
-      const row = fixture.store.issues.getIssue(id)
+      const row = await fixture.store.issues.getIssue(id)
       if (row === null || row === undefined) throw new Error(`fixture issue ${id} vanished`)
-      fixture.store.issues.upsertIssue({ ...row, title: `${row.title} (aged out)` })
+      await fixture.store.issues.upsertIssue({ ...row, title: `${row.title} (aged out)` })
     }
     inbox.length = 0
-    fixture.registry.issues.boot()
+    await fixture.registry.issues.boot()
     await settle(fixture)
     const reconcileFrames = feedFrames(inbox, 'feedDelta')
     const reconcileChanges = changeCount(inbox)
