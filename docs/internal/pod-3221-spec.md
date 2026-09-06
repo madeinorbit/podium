@@ -2945,3 +2945,34 @@ registration, the post-commit drain) is the cheap first pass.
 **LANDING RULE while this is open:** nothing that adds or reorders post-commit effects lands
 until POD-3506's fix does. A second site of this class would compound into a deadlock nobody
 can attribute.
+
+### Rule 48c — the preamble's "no assertion changes" bar does NOT cover the 48a conversion
+
+POD-3499 flagged that commit `94a0be79b` converted an existing assertion —
+
+```ts
+expect(() => …).toThrow(ShippingOrderAccessError)
+await expect(…).rejects.toThrow(ShippingOrderAccessError)
+```
+
+— and that the worker preamble says a conversion commit may not modify an existing test
+assertion. It was right to flag it, and the conversion was right to make. The two rules
+were in genuine conflict and this settles it.
+
+**THE BAR EXISTS TO STOP A CONVERSION FROM MOVING THE GOALPOSTS**: weakening a matcher,
+loosening an expected value, or deleting a case that the new code no longer satisfies.
+Rule 48a's sync-to-`rejects` spelling does none of those. The error type and the
+triggering condition transfer verbatim; only sync-throw versus rejection changes, and
+that change is forced by the subject having become async. Refusing it would mean deleting
+the test instead, which is strictly worse.
+
+**SO THE BAR IS ON THE CLAIM, NOT THE CHARACTERS.** An assertion may be re-spelled when
+the subject's mechanism changed under it and the claim is identical; it may not be
+re-aimed. The test is whether you can state the assertion in prose and have the sentence
+come out the same on both sides. "Refuses a nested issue with `ShippingOrderAccessError`"
+is the same sentence before and after; "no longer throws" is not.
+
+**AND IT MUST BE REPORTED, NOT ABSORBED.** Rule 50 already asks for the mechanism/behaviour
+split; this adds that a 48a re-spelling is listed in the handoff with the before and after
+text, so a reviewer can check the sentence for themselves rather than trusting that it was
+checked. POD-3499 did exactly that and it is why the conflict surfaced at all.
