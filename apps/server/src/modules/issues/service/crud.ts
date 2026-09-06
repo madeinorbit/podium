@@ -680,8 +680,8 @@ export class IssueCrudModule {
    *  events append in one transaction, so the durable fanout is all-or-nothing.
    *  A failure is reported as a committed post-commit failure: the close stays
    *  committed, while the caller is told that its ready fanout did not land. */
-  private emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): void {
-    followUpAfterCommit(async () => {
+  private async emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): Promise<void> {
+    await followUpAfterCommit(async () => {
       const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
       // One read of the deps and labels for the WHOLE repo, before the fanout.
       // This walks every open row in the repo and used to pay a `listIssueDeps`
@@ -1263,7 +1263,11 @@ export class IssueCrudModule {
       })
 
       try {
-        this.emitReadyAfterClose(row, opts?.actorSessionId)
+        // AWAITED inside the try: with no span open the follow-up runs here and
+        // rejects here, and an unawaited call would settle outside this catch
+        // and be reported as an unhandled rejection instead of as the fanout
+        // failure the tail below re-raises (POD-3499).
+        await this.emitReadyAfterClose(row, opts?.actorSessionId)
       } catch (error) {
         // Keep running the rest of this already-committed tail. The durable
         // follow-up error still reaches the caller below, after sibling cleanup
