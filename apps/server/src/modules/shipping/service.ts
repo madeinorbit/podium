@@ -212,20 +212,20 @@ export interface ShippingResourceAdmissionPort {
     issue: IssueWire
     names: readonly string[]
     ttlSeconds: number
-  }): boolean
+  }): boolean | Promise<boolean>
   renew(input: {
     order: ShipOrder
     attempt: ShipAttempt
     issue: IssueWire
     names: readonly string[]
     ttlSeconds: number
-  }): boolean
+  }): boolean | Promise<boolean>
   release(input: {
     order: ShipOrder
     attempt: ShipAttempt
     issue: IssueWire
     names: readonly string[]
-  }): void
+  }): void | Promise<void>
 }
 
 export interface AcceptedReviewEvidence {
@@ -280,7 +280,7 @@ export interface ResourceLease {
   lost: boolean
   expiresAt?: number
   ttlMs?: number
-  renew?: () => boolean
+  renew?: () => boolean | Promise<boolean>
   timer?: ReturnType<typeof setInterval>
   /** True while this lease's renew tick is running — its single-flight fence. */
   renewing?: boolean
@@ -1013,7 +1013,7 @@ export class ShippingService {
           return
         }
         const names = order.validationProfile?.resourceLocks ?? liveValidationProfile.resourceLocks
-        const resourceLease = this.acquireResources(
+        const resourceLease = await this.acquireResources(
           order,
           attempt,
           issue,
@@ -1035,7 +1035,7 @@ export class ShippingService {
           if (result?.state !== 'succeeded') return
           order = await this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, names, resourceLease)
+          await this.releaseResources(order, attempt, issue, names, resourceLease)
         }
       }
 
@@ -1066,7 +1066,7 @@ export class ShippingService {
           return
         }
         const mergeLock = [`merge:${order.targetBranch}`]
-        const resourceLease = this.acquireResources(order, attempt, issue, mergeLock, 120)
+        const resourceLease = await this.acquireResources(order, attempt, issue, mergeLock, 120)
         if (!resourceLease) return
         try {
           const result = await this.runEffect(
@@ -1080,7 +1080,7 @@ export class ShippingService {
           if (result?.state !== 'succeeded') return
           order = await this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, mergeLock, resourceLease)
+          await this.releaseResources(order, attempt, issue, mergeLock, resourceLease)
         }
       }
       if (order.state === 'publishing') {
@@ -1096,7 +1096,7 @@ export class ShippingService {
           return
         }
         const publicationLock = [this.publicationLockName(order)]
-        const resourceLease = this.acquireResources(order, attempt, issue, publicationLock, 120)
+        const resourceLease = await this.acquireResources(order, attempt, issue, publicationLock, 120)
         if (!resourceLease) return
         try {
           const result = await this.runEffect(
@@ -1110,7 +1110,7 @@ export class ShippingService {
           if (result?.state !== 'succeeded') return
           order = await this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, publicationLock, resourceLease)
+          await this.releaseResources(order, attempt, issue, publicationLock, resourceLease)
         }
       }
       if (order.state === 'verifying') {
@@ -3418,22 +3418,22 @@ export class ShippingService {
     return null
   }
 
-  private acquireResources(
+  private async acquireResources(
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueWire,
     names: readonly string[],
     ttlSeconds: number,
-  ): ResourceLease | null {
+  ): Promise<ResourceLease | null> {
     if (names.length === 0 || !this.deps.resourceAdmission) return { lost: false }
     if (
-      !this.deps.resourceAdmission.acquire({
+      !(await this.deps.resourceAdmission.acquire({
         order,
         attempt,
         issue,
         names,
         ttlSeconds,
-      })
+      }))
     ) {
       return null
     }
@@ -3441,17 +3441,17 @@ export class ShippingService {
       lost: false,
       expiresAt: Date.now() + ttlSeconds * 1_000,
       ttlMs: ttlSeconds * 1_000,
-      renew: () =>
-        this.deps.resourceAdmission?.renew({
+      renew: async () =>
+        (await this.deps.resourceAdmission?.renew({
           order,
           attempt,
           issue,
           names,
           ttlSeconds,
-        }) === true,
+        })) === true,
     }
     const renewEveryMs = Math.max(250, Math.floor((ttlSeconds * 1_000) / 3))
-    lease.timer = setInterval(() => this.renewResourceLeaseTick(lease, ttlSeconds), renewEveryMs)
+    lease.timer = setInterval(() => void this.renewResourceLeaseTick(lease, ttlSeconds), renewEveryMs)
     lease.timer.unref?.()
     this.activeResourceLeases.add(lease)
     return lease
@@ -3476,12 +3476,12 @@ export class ShippingService {
    * through. This is the same extraction the other guarded passes in this epic
    * took (`runStalledSweep`, `runTurnReap`, `runTick`).
    */
-  renewResourceLeaseTick(lease: ResourceLease, ttlSeconds: number): void {
+  async renewResourceLeaseTick(lease: ResourceLease, ttlSeconds: number): Promise<void> {
     if (!this.resourceLeaseLive(lease)) return
     if (lease.renewing === true) return
     lease.renewing = true
     try {
-      if (!lease.renew?.()) {
+      if (!(await lease.renew?.())) {
         lease.lost = true
       } else {
         lease.expiresAt = Date.now() + ttlSeconds * 1_000
@@ -3494,13 +3494,13 @@ export class ShippingService {
     if (lease.lost && lease.timer) clearInterval(lease.timer)
   }
 
-  private releaseResources(
+  private async releaseResources(
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueWire,
     names: readonly string[],
     lease: ResourceLease,
-  ): void {
+  ): Promise<void> {
     if (lease.timer) clearInterval(lease.timer)
     this.activeResourceLeases.delete(lease)
     if (names.length === 0 || !this.deps.resourceAdmission) return
@@ -3508,7 +3508,7 @@ export class ShippingService {
     // Its lease may already have expired and advanced to a successor.
     if (!this.resourceLeaseLive(lease)) return
     try {
-      this.deps.resourceAdmission.release({ order, attempt, issue, names })
+      await this.deps.resourceAdmission.release({ order, attempt, issue, names })
     } catch (error) {
       this.audit('shipping.resource_release_failed', order.issueId, {
         orderId: order.id,

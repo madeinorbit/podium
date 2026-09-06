@@ -2259,14 +2259,14 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
         if (!reentered) {
           reentered = true
           const before = renews
-          service.renewResourceLeaseTick(lease, 120)
+          void service.renewResourceLeaseTick(lease, 120)
           renewsDuringReentry = renews - before
         }
         return true
       },
     }
 
-    service.renewResourceLeaseTick(lease, 120)
+    await service.renewResourceLeaseTick(lease, 120)
 
     expect(reentered).toBe(true)
     expect(renewsDuringReentry).toBe(0)
@@ -2288,8 +2288,8 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
       },
     }
 
-    service.renewResourceLeaseTick(lease, 120)
-    service.renewResourceLeaseTick(lease, 120)
+    await service.renewResourceLeaseTick(lease, 120)
+    await service.renewResourceLeaseTick(lease, 120)
 
     expect(renews).toBe(2)
     service.dispose()
@@ -2308,7 +2308,7 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
       },
     }
 
-    service.renewResourceLeaseTick(lease, 120)
+    await service.renewResourceLeaseTick(lease, 120)
 
     expect(renews).toBe(1)
     expect(lease.lost).toBe(true)
