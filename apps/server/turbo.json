@@ -680,6 +680,7 @@
         "src/store/spike/turso-append/namespace.ts",
         "src/store/superagent-archive.test.ts",
         "src/store/superagent.ts",
+        "src/store/sync-prepared-span.test.ts",
         "src/store/table-writes.ts",
         "src/store/telegram-bindings.test.ts",
         "src/store/telegram-bindings.ts",

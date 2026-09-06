@@ -135,6 +135,22 @@ export class SyncRepository {
   private readonly queuedMessages: QueuedMessagesTable
   private readonly upstreamOutbox: UpstreamOutboxTable
   private readonly queries: StoreQueries
+  /**
+   * THE ROOT INSTANCE, CAPTURED ONCE, and NOT the same thing as {@link db}.
+   *
+   * `StoreQueries.rootDb` is an AMBIENT accessor: read inside a span it hands
+   * back the drizzle instance bound to that span's client, and read outside one
+   * it hands back the root client. Reading it in the constructor — where no span
+   * can be open, because the composition root builds the repository set at boot —
+   * is what makes this field the root and keeps it the root. It is the same
+   * capture every repository in `apps/server`'s set makes for the same reason.
+   *
+   * NOTHING QUERIES THROUGH IT DIRECTLY. Its one use is preparing the two
+   * statements below, and the root client is what makes that safe: ambient
+   * routing lives in the executor's ROUTER, so a statement prepared over the
+   * root still resolves the enclosing span on every execution.
+   */
+  private readonly rootDb: StoreDrizzle
   private preparedLatestStateUpsertValue: ReturnType<typeof prepareLatestChangeStateUpsert> | undefined
   private preparedLatestStateDeleteValue:
     | ReturnType<typeof prepareLatestChangeStateDelete>
@@ -155,20 +171,29 @@ export class SyncRepository {
   }
 
   /**
-   * These are bound to the ambient root client rather than a `this.db` result.
-   * B1 therefore keeps resolving the current transaction per execution while
-   * each row reuses the SQL Drizzle constructed on first access.
+   * MEMOIZED, SO THEY MUST BE PREPARED OVER {@link rootDb} AND NEVER OVER
+   * {@link db} [POD-3494].
+   *
+   * A drizzle prepared statement binds the SESSION of the instance it was built
+   * from, once, and keeps it for every later execution. `this.db` inside the
+   * append's span is the span's own instance, so preparing from it captured the
+   * FIRST span's client and every later append re-entered that closed frame —
+   * `StaleTransactionError: transaction N is closed`, on the one write path every
+   * issue write takes. Preparing over the root instead leaves the routing to the
+   * executor's ambient router, which resolves the enclosing span per execution,
+   * while each row still reuses the SQL drizzle constructed on first access.
    */
   private get preparedLatestStateUpsert(): ReturnType<typeof prepareLatestChangeStateUpsert> {
-    return (this.preparedLatestStateUpsertValue ??= prepareLatestChangeStateUpsert(this.db))
+    return (this.preparedLatestStateUpsertValue ??= prepareLatestChangeStateUpsert(this.rootDb))
   }
 
   private get preparedLatestStateDelete(): ReturnType<typeof prepareLatestChangeStateDelete> {
-    return (this.preparedLatestStateDeleteValue ??= prepareLatestChangeStateDelete(this.db))
+    return (this.preparedLatestStateDeleteValue ??= prepareLatestChangeStateDelete(this.rootDb))
   }
 
   constructor(queries: StoreQueries, tables: SyncServerTables) {
     this.queries = queries
+    this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.queuedMessages = tables.queuedMessages
     this.upstreamOutbox = tables.upstreamOutbox
