@@ -82,8 +82,14 @@ function fakeClock() {
      * Move time forward by `ms`, running everything that falls due on the way in
      * due order — including timers armed by the callbacks themselves, which is
      * how the reconciler's re-arming spacing loop behaves in production.
+     *
+     * ASYNC BECAUSE THE PUMP IS. A spacing timer no longer converges a machine
+     * and arms the next timer within its own synchronous call — it schedules a
+     * pump that awaits a durable read first. Without draining microtasks after
+     * each callback this loop would see no newly-armed timer and stop one
+     * machine early, which is exactly how it failed while I was converting it.
      */
-    advance(ms: number = SPACING_MS): number {
+    async advance(ms: number = SPACING_MS): Promise<number> {
       const until = now + ms
       let ran = 0
       for (;;) {
@@ -104,6 +110,9 @@ function fakeClock() {
         if (!timer) break
         now = timer.dueAt
         timer.fn()
+        // Let the pump that callback scheduled run to completion, so anything it
+        // arms is visible to the next iteration.
+        for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
         ran += 1
         // A runaway re-arm is a bug in the code under test, not a reason to hang
         // the lane; fail loudly instead.
@@ -134,7 +143,12 @@ function harness(machines: WaveMachine[], over: { operationActive?: boolean } = 
   let operationActive = over.operationActive ?? false
   const reconciler = new UpdateReconciler({
     updates,
-    operationActive: () => operationActive,
+    // RESOLVES, like the real port. A synchronous fake here satisfies the
+    // un-awaited spelling too, so it cannot fail on a dropped await — and a
+    // dropped await on THIS port is a promise, which is truthy, which reads as
+    // "an operation is running" and silently stops the reconciler converging
+    // anything at all.
+    operationActive: async () => operationActive,
     schedule: clock.schedule,
     spacingMs: SPACING_MS,
     grantDeadlineMs: GRANT_DEADLINE_MS,
@@ -267,7 +281,7 @@ describe('UpdateReconciler', () => {
     const h = harness([machine({ id: 'laptop' })])
     await h.updates.setTarget('dev', target())
 
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
 
     expect(h.granted()).toEqual(['laptop'])
   })
@@ -276,7 +290,7 @@ describe('UpdateReconciler', () => {
     const h = harness([machine({ id: 'laptop', version: TARGET_VERSION })])
     await h.updates.setTarget('dev', target())
 
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
 
     expect(h.granted()).toEqual([])
   })
@@ -289,8 +303,8 @@ describe('UpdateReconciler', () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })])
     await h.updates.setTarget('dev', target())
 
-    h.reconciler.onMachineConnected('a')
-    h.reconciler.onMachineConnected('b')
+    await h.reconciler.onMachineConnected('a')
+    await h.reconciler.onMachineConnected('b')
     expect(h.granted()).toEqual(['a'])
     expect(h.clock.armed()).toBe(1)
 
@@ -302,7 +316,7 @@ describe('UpdateReconciler', () => {
       version: '0.4.1',
       grantId: 'g1',
     })
-    h.clock.advance()
+    await h.clock.advance()
     expect(h.granted()).toEqual(['a'])
     expect(h.reconciler.pending()).toEqual(['b'])
 
@@ -314,7 +328,7 @@ describe('UpdateReconciler', () => {
       grantId: 'g1',
     })
     h.live[0] = machine({ id: 'a', version: TARGET_VERSION })
-    h.clock.advance()
+    await h.clock.advance()
     expect(h.granted()).toEqual(['a', 'b'])
   })
 
@@ -328,7 +342,7 @@ describe('UpdateReconciler', () => {
   it('never re-grants a machine that rejected this target', async () => {
     const h = harness([machine({ id: 'laptop' })])
     await h.updates.setTarget('dev', target())
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop'])
 
     h.updates.onStatus(asMachineId('laptop'), {
@@ -338,11 +352,11 @@ describe('UpdateReconciler', () => {
       grantId: 'g1',
       detail: 'dirty working tree',
     })
-    h.clock.advance()
+    await h.clock.advance()
 
-    h.reconciler.onMachineConnected('laptop')
-    h.reconciler.onMachineConnected('laptop')
-    h.clock.advance()
+    await h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
+    await h.clock.advance()
 
     expect(h.granted()).toEqual(['laptop'])
   })
@@ -373,14 +387,14 @@ describe('UpdateReconciler', () => {
     const clock = fakeClock()
     const reconciler = new UpdateReconciler({
       updates,
-      operationActive: () => false,
+      operationActive: async () => false,
       schedule: clock.schedule,
       spacingMs: 5_000,
     })
 
     for (let i = 0; i < MAX_RECONCILE_ATTEMPTS + 3; i += 1) {
-      reconciler.onMachineConnected('flapper')
-      clock.advance()
+      await reconciler.onMachineConnected('flapper')
+      await clock.advance()
     }
 
     expect(granted).toEqual(Array<string>(MAX_RECONCILE_ATTEMPTS).fill('flapper'))
@@ -390,14 +404,14 @@ describe('UpdateReconciler', () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
     await h.updates.setTarget('dev', target())
 
-    h.reconciler.onMachineConnected('a')
+    await h.reconciler.onMachineConnected('a')
     expect(h.granted()).toEqual([])
     // The machine is not FORGOTTEN, it is waiting — which is what makes the
     // sweep below a resumption rather than a lucky second reconnect.
     expect(h.reconciler.pending()).toEqual(['a'])
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled()
+    await h.reconciler.onOperationSettled()
 
     expect(h.granted()).toEqual(['a'])
     expect(h.reconciler.pending()).toEqual(['b'])
@@ -414,7 +428,7 @@ describe('UpdateReconciler', () => {
     await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled('canceled')
+    await h.reconciler.onOperationSettled('canceled')
 
     expect(h.granted()).toEqual([])
   })
@@ -424,7 +438,7 @@ describe('UpdateReconciler', () => {
     await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled('failed')
+    await h.reconciler.onOperationSettled('failed')
 
     expect(h.granted()).toEqual(['a'])
   })
@@ -435,7 +449,7 @@ describe('UpdateReconciler', () => {
     const h = harness([machine({ id: 'laptop' })])
     await h.updates.setTarget('dev', target())
 
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
     expect(h.reconciler.convergedBy(h.row('laptop'))).toBe('reconciler')
 
     h.reconciler.onOperationStarted()
@@ -445,7 +459,7 @@ describe('UpdateReconciler', () => {
   it('does not label a machine whose target has since moved on', async () => {
     const h = harness([machine({ id: 'laptop' })])
     await h.updates.setTarget('dev', target())
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
 
     await h.updates.setTarget('dev', target({ version: '0.4.4' }))
 
@@ -472,7 +486,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
   async function granted(ids: string[] = ['laptop']) {
     const h = harness(ids.map((id) => machine({ id })))
     await h.updates.setTarget('dev', target())
-    for (const id of ids) h.reconciler.onMachineConnected(id)
+    for (const id of ids) await h.reconciler.onMachineConnected(id)
     const first = ids[0] ?? ''
     h.updates.onStatus(asMachineId(first), {
       type: 'updateStatus',
@@ -499,12 +513,12 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     // BEFORE the deadline: this is the correct behaviour, not the bug. One at a
     // time is the whole design, and `vps` waiting is `vps` being spaced.
     expect(h.granted()).toEqual(['laptop'])
-    h.clock.advance()
+    await h.clock.advance()
     expect(h.granted()).toEqual(['laptop'])
     expect(h.reconciler.pending()).toEqual(['vps'])
     expect(h.updates.operationActive('dev')).toBe(true)
 
-    h.clock.advance(GRANT_DEADLINE_MS)
+    await h.clock.advance(GRANT_DEADLINE_MS)
 
     expect(h.granted()).toEqual(['laptop', 'vps'])
     expect(h.row('laptop').state).toBe('stuck')
@@ -521,7 +535,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     // The directory changes when the daemon handshake lands; the reconnect is
     // the event that makes the service project that raw proof and retire the
     // pending grant. A current status alone is deliberately insufficient.
-    h.reconciler.onMachineConnected('vps')
+    await h.reconciler.onMachineConnected('vps')
     expect(h.updates.operationActive('dev')).toBe(false)
   })
 
@@ -533,12 +547,12 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    */
   it('leaves the machine alone afterwards, rather than re-granting on every reconnect', async () => {
     const h = await granted()
-    h.clock.advance(GRANT_DEADLINE_MS)
+    await h.clock.advance(GRANT_DEADLINE_MS)
     expect(h.row('laptop').state).toBe('stuck')
 
-    h.reconciler.onMachineConnected('laptop')
-    h.reconciler.onMachineConnected('laptop')
-    h.clock.advance(GRANT_DEADLINE_MS)
+    await h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
+    await h.clock.advance(GRANT_DEADLINE_MS)
 
     expect(h.granted()).toEqual(['laptop'])
   })
@@ -564,7 +578,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
       detail: 'dirty working tree',
     })
 
-    h.clock.advance(GRANT_DEADLINE_MS)
+    await h.clock.advance(GRANT_DEADLINE_MS)
 
     expect(h.row('laptop').state).toBe('rejected')
     expect(h.row('laptop').detail).toBe('dirty working tree')
@@ -588,10 +602,10 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     h.live[0] = machine({ id: 'laptop', version: TARGET_VERSION })
     // Time passes between the two grants — which is what makes their deadlines
     // distinguishable, and what makes this the case a bare id check gets wrong.
-    h.clock.advance()
+    await h.clock.advance()
 
     await h.updates.setTarget('dev', target({ version: '0.4.4' }))
-    h.reconciler.onMachineConnected('laptop')
+    await h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop', 'laptop'])
     h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
@@ -601,7 +615,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     })
 
     // Past the FIRST grant's deadline, short of the second's.
-    h.clock.advance(GRANT_DEADLINE_MS - SPACING_MS + 1_000)
+    await h.clock.advance(GRANT_DEADLINE_MS - SPACING_MS + 1_000)
 
     expect(h.row('laptop').state).toBe('downloading')
   })

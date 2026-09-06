@@ -2706,7 +2706,7 @@ export class SessionRegistry {
         // cleans up after itself without a human pressing Try again (§3.6).
         // AFTER the release above, so the sweep sees machines whose grants have
         // just stopped being believed rather than refusing them as in-flight.
-        updatesReconciler?.onOperationSettled(row.state)
+        await updatesReconciler?.onOperationSettled(row.state)
       },
     })
     operationsModule.kinds.register(updateOperationKind())
@@ -2743,7 +2743,7 @@ export class SessionRegistry {
       // The daemon's hello — and therefore the version it just booted with — is
       // already recorded by the time this fires: `recordHelloBuild` precedes
       // `attachDaemon` in the handshake, and `attachDaemon` is what emits this.
-      reconciler.onMachineConnected(machineId)
+      return reconciler.onMachineConnected(machineId)
     })
     this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
 

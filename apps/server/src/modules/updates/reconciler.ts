@@ -244,7 +244,7 @@ export interface UpdateReconcilerDeps {
    * the answer changes on every operation transition, and a captured one would
    * make the pause outlive the operation that justified it.
    */
-  operationActive: () => boolean
+  operationActive: () => boolean | Promise<boolean>
   /** Deferred wake-up. Injected so no test ever sleeps. */
   schedule?: (fn: () => void, ms: number) => void
   /** How long between two grants; also how often an outstanding one is re-read. */
@@ -302,9 +302,10 @@ export class UpdateReconciler {
    * the handshake — so the version compared below is the version it just booted
    * with, not the one it had when it went away.
    */
-  onMachineConnected(machineId: string): void {
+  onMachineConnected(machineId: string): Promise<void> {
     this.wokenBy = 'machine-connected'
     this.enqueue(machineId)
+    return this.pump()
   }
 
   /**
@@ -326,11 +327,11 @@ export class UpdateReconciler {
    * current target" (§3.6), not to any one operation. The cancel ended an
    * operation; it did not unpublish the target.
    */
-  onOperationSettled(outcome?: string): void {
-    if (outcome === 'canceled') return
+  onOperationSettled(outcome?: string): Promise<void> {
+    if (outcome === 'canceled') return Promise.resolve()
     this.wokenBy = 'operation-settled'
     for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
-    this.pump()
+    return this.pump()
   }
 
   /**
@@ -377,11 +378,12 @@ export class UpdateReconciler {
       this.queued.add(machineId)
       this.queue.push(machineId)
     }
-    // Pumped even when it was already waiting: the reason it is still waiting
-    // may be exactly the thing that just changed (an operation that ended, a
-    // grant that finished), and a queue that only moves on NEW arrivals would
+    // The caller pumps. Queuing and pumping are separated so a fleet-wide
+    // sweep is ONE pump rather than one per machine — and so the wake-up can
+    // hand its caller a promise. Pumping still happens even when the queue was
+    // already waiting: the reason it is still waiting may be exactly the thing
+    // that just changed, and a queue that only moved on NEW arrivals would
     // strand whoever was already in it.
-    this.pump()
   }
 
   /**
@@ -401,7 +403,12 @@ export class UpdateReconciler {
    * because a grant to the last machine in the queue leaves nothing to pump and
    * a poll that only runs while somebody is waiting would never reach it.
    */
-  private pump(): void {
+  /**
+   * THE CONVERGENCE PUMP. Async since `consider` asks whether an exclusive
+   * operation holds the group, which is a durable read now. The re-entrancy
+   * guard spans the awaits, which is what it always meant: one pump at a time.
+   */
+  private async pump(): Promise<void> {
     if (this.pumping) return
     this.pumping = true
     let wait = false
@@ -413,7 +420,7 @@ export class UpdateReconciler {
         }
         const machineId = this.queue[0]
         if (machineId === undefined) break
-        const disposition = this.consider(machineId)
+        const disposition = await this.consider(machineId)
         // PAUSED LEAVES THE QUEUE STANDING. An operation owns granting while it
         // runs, and everyone waiting is still waiting — draining them here would
         // answer "should this machine converge?" with a fact about the SERVER
@@ -478,7 +485,7 @@ export class UpdateReconciler {
       })
     }
     // Whoever was queued behind it has been waiting since the grant went out.
-    this.pump()
+    this.schedulePump()
   }
 
   /**
@@ -493,13 +500,26 @@ export class UpdateReconciler {
     const schedule = this.deps.schedule ?? defaultSchedule
     schedule(() => {
       this.waiting = false
-      this.pump()
+      this.schedulePump()
     }, this.deps.spacingMs ?? DEFAULT_GRANT_SPACING_MS)
+  }
+
+  /**
+   * Every wake-up into this reconciler is a NOTIFICATION, not a request: a
+   * reconnect, a settled operation, an expired grant, a spacing timer. None of
+   * them reads a result, and two of them are timer callbacks with nobody to
+   * return a promise to. So the pump is scheduled and its rejection is logged
+   * rather than becoming an unhandled one with no machine on it.
+   */
+  private schedulePump(): void {
+    void this.pump().catch((err: unknown) => {
+      log.warn('update reconciler pump failed', { err })
+    })
   }
 
   /** Consider one machine. Deliberately does NOT touch the queue — the caller
    *  decides what a disposition means for the machine's place in it. */
-  private consider(machineId: string): 'granted' | 'refused' | 'paused' {
+  private async consider(machineId: string): Promise<'granted' | 'refused' | 'paused'> {
     const machine = this.deps.updates.fleet().find((candidate) => candidate.id === machineId)
     const target = machine ? this.targetFor(machine) : undefined
     const key = target ? attemptKey(machineId, target.version) : undefined
@@ -507,7 +527,7 @@ export class UpdateReconciler {
     const decision = decideReconciliation({
       machine,
       target,
-      operationActive: this.deps.operationActive(),
+      operationActive: await this.deps.operationActive(),
       attempts,
       ...(this.deps.maxAttempts === undefined ? {} : { maxAttempts: this.deps.maxAttempts }),
     })

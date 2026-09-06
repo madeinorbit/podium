@@ -136,7 +136,7 @@ function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] 
   const reconciler = new UpdateReconciler({
     updates,
     // NO OPERATION. This is the whole premise of the incident.
-    operationActive: () => false,
+    operationActive: async () => false,
     schedule: () => {},
   })
 
@@ -155,7 +155,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     // The only human act in the scenario, and its subject is a proposal.
     await h.updates.setTarget('dev', publishedTarget())
     // The local daemon's websocket reconnects under this host's own machine id.
-    h.reconciler.onMachineConnected(HOST)
+    await h.reconciler.onMachineConnected(HOST)
     await h.settle()
 
     expect(h.restarts).toEqual([PUBLISHED_VERSION])
@@ -166,7 +166,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     const h = harness({ knowsItsOwnIdentity: true })
 
     await h.updates.setTarget('dev', publishedTarget())
-    h.reconciler.onMachineConnected(HOST)
+    await h.reconciler.onMachineConnected(HOST)
     await h.settle()
 
     expect(h.restarts, 'the coordinator asked its parent to hand over').toEqual([])
@@ -181,7 +181,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     })
 
     await h.updates.setTarget('dev', publishedTarget())
-    h.reconciler.onMachineConnected(LAPTOP)
+    await h.reconciler.onMachineConnected(LAPTOP)
     await h.settle()
 
     expect(h.sentTo).toEqual([LAPTOP])
