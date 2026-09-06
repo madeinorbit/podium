@@ -73,7 +73,7 @@ export interface SessionRevivalPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
   spawn: SessionStart['spawn']
-  machineUseGate(caller: HandoffCaller): AssertMachineUse
+  machineUseGate(caller: HandoffCaller): AssertMachineUse | Promise<AssertMachineUse>
   issueAccess: DurableIssueAccessIndex
   instructionsForStart(input: {
     sessionId: SessionId
@@ -218,7 +218,11 @@ export class SessionRevival {
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return await this.handoffs(issues).handoff(input, caller, this.ports.machineUseGate(caller))
+    return await this.handoffs(issues).handoff(
+      input,
+      caller,
+      await this.ports.machineUseGate(caller),
+    )
   }
 
   /**

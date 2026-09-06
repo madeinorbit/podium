@@ -9,12 +9,12 @@ import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
-  resolvePrincipal,
+  resolvePrincipalAsync,
   userCommandPrincipal,
 } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
-import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipFromMachines, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
@@ -77,14 +77,14 @@ export class SessionAuthz {
     if (input.principal.kind === 'user') {
       const user = asUserId(input.principal.principalRef)
       if (
-        !this.ports.store.users.get(user) ||
+        !(await this.ports.store.users.get(user)) ||
         input.principal.attribution.actor.kind !== 'user' ||
         input.principal.attribution.actor.id !== user ||
         input.principal.attribution.onBehalfOf !== user
       ) {
         return refused
       }
-      const role = this.ports.store.users.roleOf(user)
+      const role = await this.ports.store.users.roleOf(user)
       if (!role) return refused
       principal = userCommandPrincipal(user, role)
     } else {
@@ -130,9 +130,9 @@ export class SessionAuthz {
        */
       let delegated: CommandPrincipal
       try {
-        delegated = resolvePrincipal(this.capabilityForSession(actorSessionId), {
-          parentSessionOf: (sessionId) =>
-            spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
+        delegated = await resolvePrincipalAsync(this.capabilityForSession(actorSessionId), {
+          parentSessionOf: async (sessionId) =>
+            spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
           onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
         })
       } catch {
@@ -141,7 +141,7 @@ export class SessionAuthz {
       principal = delegated
       if (
         principal.kind !== 'agent' ||
-        !this.ports.store.users.get(principal.onBehalfOf) ||
+        !(await this.ports.store.users.get(principal.onBehalfOf)) ||
         principal.onBehalfOf !== input.principal.attribution.onBehalfOf
       ) {
         return refused
@@ -155,7 +155,11 @@ export class SessionAuthz {
       return refused
     }
     if (
-      machineUseDecision(principal, target.machineId, ownershipFromMachines(this.ports.machines)) !==
+      machineUseDecision(
+        principal,
+        target.machineId,
+        await ownershipSnapshotFromMachines(this.ports.machines),
+      ) !==
       'granted'
     ) {
       return refused
