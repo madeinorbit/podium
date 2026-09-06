@@ -306,7 +306,12 @@ export interface StewardDeps {
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
   sessionById?: (sessionId: SessionId) => SessionMeta | undefined | Promise<SessionMeta | undefined>
-  sessionOwner?: (sessionId: SessionId) => UserId | undefined
+  /** Widened to a PROMISE, not to `UserId | undefined | Promise<...>` [POD-3507,
+   *  spec rule 52b]: the union form is what lets an unawaited call read as an
+   *  always-truthy value at the consumer, and this one feeds a notification's
+   *  owner. A fixture supplying it must be async too — a sync double here would
+   *  hide exactly the bypass this widening exists to expose. */
+  sessionOwner?: (sessionId: SessionId) => Promise<UserId | undefined>
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
    *  this is next-turn delivery; for parked/hibernated/exited sessions with a
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
@@ -819,7 +824,7 @@ export class StewardService {
       try {
         const ownerUserId =
           sub.subscriberKind === 'session'
-            ? this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
+            ? await this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
             : (await this.deps.issues.getMeta(sub.subscriberId))?.ownerUserId
         if (ownerUserId) await this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {

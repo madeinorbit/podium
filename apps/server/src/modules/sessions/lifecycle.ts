@@ -105,6 +105,8 @@ import {
   harnessSupportsInitialPrompt,
 } from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
+import type { MachineListing } from '../machines/service'
+import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
   selectMailNudgeSession,
@@ -195,7 +197,7 @@ export type {
   SessionRestorePlan,
 } from './session-lifecycle-types'
 
-import type { SessionLifecycleDeps } from './session-lifecycle-types'
+import type { SessionLifecycleDeps, SessionRestorePlan } from './session-lifecycle-types'
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
 export class SessionLifecycle {
@@ -516,21 +518,37 @@ export class SessionLifecycle {
   // here: authority/feed identity (packages/sync/src/feed), the change envelope's
   // origin/causation/mutation identity (packages/model/src/provenance), and the
   // reserved node-peer capabilities (packages/protocol/src/handshake).
-  setSnooze(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setSnooze(...args)
+  setSnooze(input: { userId: UserId; sessionId: SessionId; until: string | null }): Promise<void> {
+    return this.sessionMetaOps.setSnooze(input)
   }
-  clearSnooze(...args: any[]): void {
-    ;(this.sessionMetaOps as any).clearSnooze(...args)
+  clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.clearSnooze(userId, sessionId)
   }
-  primeOwnerMemo(...args: any[]): any {
-    return (this.sessionAuthz as any).primeOwnerMemo(...args)
+  /**
+   * SPELLED OUT, NOT `(...args: any[]): any` [POD-3507].
+   *
+   * These four delegate to `SessionAuthz`, whose store reads all became async.
+   * An `any` shim here is the second half of what made that invisible: even
+   * after `SessionAuthzPorts` was widened, every consumer reached these through
+   * `Pick<SessionLifecycle, 'sessionOwner'>` and got `any` back, so a caller
+   * that dropped the await stayed green. The signatures below are the port —
+   * do not collapse them back.
+   */
+  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
+    return this.sessionAuthz.primeOwnerMemo(memo, sessionIds)
   }
 
-  sessionOwner(...args: any[]): any {
-    return (this.sessionAuthz as any).sessionOwner(...args)
+  sessionOwner(
+    sessionId: SessionId,
+    memo?: SessionOwnerMemo,
+  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
+    return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
-  machineUseForClient(...args: any[]): any {
-    return (this.sessionAuthz as any).machineUseForClient(...args)
+  machineUseForClient(
+    principal: ClientPrincipal,
+    sessionId: SessionId,
+  ): Promise<'granted' | 'denied' | 'absent'> {
+    return this.sessionAuthz.machineUseForClient(principal, sessionId)
   }
   authorizeClientDrive(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeClientDrive(...args)
@@ -550,12 +568,14 @@ export class SessionLifecycle {
   capabilityForSession(...args: any[]): any {
     return (this.sessionAuthz as any).capabilityForSession(...args)
   }
-  inboxPrincipalForCapability(...args: any[]): any {
-    return (this.sessionAuthz as any).inboxPrincipalForCapability(...args)
+  inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
+    return this.sessionAuthz.inboxPrincipalForCapability(capability)
   }
-  inboxPrincipalForSession(sessionId: SessionId): InboxPrincipalReference | undefined {
+  async inboxPrincipalForSession(
+    sessionId: SessionId,
+  ): Promise<InboxPrincipalReference | undefined> {
     return this.sessions.has(sessionId)
-      ? this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
+      ? await this.inboxPrincipalForCapability(this.capabilityForSession(sessionId))
       : undefined
   }
   async resumeSession(
@@ -616,11 +636,11 @@ export class SessionLifecycle {
   tryAutoArchiveStoppedObserved(...args: any[]): any {
     return (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args)
   }
-  markSessionRead(...args: any[]): void {
-    ;(this.sessionMetaOps as any).markSessionRead(...args)
+  markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.markSessionRead(userId, sessionId)
   }
-  markSessionUnread(...args: any[]): void {
-    ;(this.sessionMetaOps as any).markSessionUnread(...args)
+  markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.markSessionUnread(userId, sessionId)
   }
   private async rearmUnread(sessionId: SessionId): Promise<void> {
     await this.state.rearmUnreadForAll(sessionId)
@@ -744,8 +764,8 @@ export class SessionLifecycle {
   prepareIssueSessionDelete(...args: any[]): any {
     return (this.sessionMetaOps as any).prepareIssueSessionDelete(...args)
   }
-  prepareIssueSessionRestore(...args: any[]): any {
-    return (this.sessionMetaOps as any).prepareIssueSessionRestore(...args)
+  prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
+    return this.sessionMetaOps.prepareIssueSessionRestore(issueId)
   }
   private async removeSessionRuntime(
     sessionId: SessionId,
@@ -770,8 +790,12 @@ export class SessionLifecycle {
   settingsViewer(...args: any[]): any {
     return (this.sessionAuthz as any).settingsViewer(...args)
   }
-  onClientAttached(...args: any[]): void {
-    ;(this.sessionClientPlane as any).onClientAttached(...args)
+  onClientAttached(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    machines: readonly MachineListing[],
+  ): Promise<void> {
+    return this.sessionClientPlane.onClientAttached(principal, client, machines)
   }
   onRoomJoined(...args: any[]): void {
     ;(this.sessionClientPlane as any).onRoomJoined(...args)

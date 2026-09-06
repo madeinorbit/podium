@@ -237,7 +237,12 @@ export class ClientMux {
     // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
     // value rather than a client-chosen one.
     this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
-    this.deps.ports.sessions.onClientAttached(conn.principal, conn, transport.machines ?? [])
+    // DECISION POD-3509 — the draft replay this reaches is now a store read, and
+    // `attachClient` cannot become async: `wireClientSocket` needs the returned id
+    // synchronously to register ws.on('message') / ws.on('close'), and frames
+    // arriving in that gap would be dropped. Voided in place, at the same
+    // statement position, pending the ordering ruling.
+    void this.deps.ports.sessions.onClientAttached(conn.principal, conn, transport.machines ?? [])
     this.deps.bootstrap(conn)
     // THE FEED, LAST, and at wire 1 without the delta capability — because that
     // is everything this server honestly knows about a socket that has not spoken

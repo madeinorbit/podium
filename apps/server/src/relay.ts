@@ -1986,7 +1986,7 @@ export class SessionRegistry {
                 afterSpawn: async () => {
                   await workflows.startRun({
                     sessionId,
-                    onBehalfOf: sessionsSvc.sessionOwner(sessionId)?.owner ?? null,
+                    onBehalfOf: (await sessionsSvc.sessionOwner(sessionId))?.owner ?? null,
                     cwd,
                     ...(issueId ? { issueId } : {}),
                     revisionId: prepared.revision.id,
@@ -2186,7 +2186,7 @@ export class SessionRegistry {
           const principal = await resolvePrincipalAsync(sessionsSvc.capabilityForSession(sessionId), {
             parentSessionOf: async (candidate) =>
               spawnedByParentSessionId(await sessionsSvc.sessionSpawnedBy(candidate)),
-            onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
+            onBehalfOfFor: async (candidate) => (await sessionsSvc.sessionOwner(candidate))?.owner,
           })
           // ONE ANSWER to "which agent, model and effort?" (POD-1107). This site
           // used to hardcode 'codex' and 'auto', so a one-off scheduled with no
@@ -2284,7 +2284,7 @@ export class SessionRegistry {
           {
             sessionId,
             answer,
-            principal: sessionsSvc.inboxPrincipalForCapability(caller.capability),
+            principal: await sessionsSvc.inboxPrincipalForCapability(caller.capability),
             textFallback: true,
           },
         )
@@ -3068,7 +3068,7 @@ export class SessionRegistry {
       listSessions: async () => await sessionsSvc.listSessions(),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-      sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
+      sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
       /**
        * Durable outbox path: the nudge survives restarts and waits out a booting
        * TUI.
