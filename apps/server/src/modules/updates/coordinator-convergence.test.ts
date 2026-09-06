@@ -153,7 +153,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     const h = harness({ knowsItsOwnIdentity: false })
 
     // The only human act in the scenario, and its subject is a proposal.
-    h.updates.setTarget('dev', publishedTarget())
+    await h.updates.setTarget('dev', publishedTarget())
     // The local daemon's websocket reconnects under this host's own machine id.
     h.reconciler.onMachineConnected(HOST)
     await h.settle()
@@ -165,7 +165,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
   it('does not restart the coordinator when a publication alone lands', async () => {
     const h = harness({ knowsItsOwnIdentity: true })
 
-    h.updates.setTarget('dev', publishedTarget())
+    await h.updates.setTarget('dev', publishedTarget())
     h.reconciler.onMachineConnected(HOST)
     await h.settle()
 
@@ -180,7 +180,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
       fleet: [row(HOST, 'ludovico', true), row(LAPTOP, 'laptop')],
     })
 
-    h.updates.setTarget('dev', publishedTarget())
+    await h.updates.setTarget('dev', publishedTarget())
     h.reconciler.onMachineConnected(LAPTOP)
     await h.settle()
 
@@ -188,7 +188,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     expect(h.restarts, 'somebody else’s update restarted this server').toEqual([])
   })
 
-  it('names the coordinator refusal rather than a fact about the target', () => {
+  it('names the coordinator refusal rather than a fact about the target', async () => {
     // ORDER MATTERS. The refusal must hold whatever is published and whatever
     // the row's state is, so a reader of the log sees the real reason.
     expect(
@@ -201,9 +201,9 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     ).toEqual({ converge: false, because: 'coordinator' })
   })
 
-  it('writes down who authorized a grant, and whether it replaces this process', () => {
+  it('writes down who authorized a grant, and whether it replaces this process', async () => {
     const h = harness({ knowsItsOwnIdentity: true, fleet: [row(HOST, 'ludovico', true)] })
-    h.updates.setTarget('dev', publishedTarget())
+    await h.updates.setTarget('dev', publishedTarget())
 
     // A person pressing Apply on the coordinator's own row IS allowed — that is
     // a decision somebody made, and the record says so and says what it costs.

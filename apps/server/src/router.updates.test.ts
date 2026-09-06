@@ -125,7 +125,7 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
   return { registry, caller }
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (priorAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
   else process.env.PODIUM_APP_VERSION = priorAppVersion
   if (priorChannel === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
@@ -145,7 +145,7 @@ afterEach(() => {
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
 describe('fleet default update channel', () => {
-  async function addMachine(registry: Awaited<ReturnType<typeof harness>>['registry'], id: string) {
+  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -193,7 +193,7 @@ describe('fleet default update channel', () => {
     await addMachine(registry, 'follower')
     await addMachine(registry, 'pinned')
     await registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     const before = await registry.modules.machines.listMachines()
     const followerBefore = before.find((m) => m.id === 'follower')
@@ -246,7 +246,7 @@ describe('fleet default update channel', () => {
  * three paths, one channel.
  */
 describe('one default channel', () => {
-  async function addMachine(registry: Awaited<ReturnType<typeof harness>>['registry'], id: string) {
+  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -315,7 +315,7 @@ describe('one default channel', () => {
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
-    registry.modules.updates.setTarget('dev', target())
+    await registry.modules.updates.setTarget('dev', target())
 
     await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
     const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
@@ -403,7 +403,7 @@ describe('release target checks', () => {
   it('does not integrity-check database snapshots while polling fleet state', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const { registry, caller } = await harness()
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
     const latestSnapshot = vi.spyOn(registry.sessionStore, 'latestDatabaseSnapshot')
 
     await caller.updates.fleet()
@@ -455,7 +455,7 @@ describe('release target checks', () => {
  */
 describe('the fleet counted is the fleet the global action would grant', () => {
   const hostAt = async (
-    registry: Awaited<ReturnType<typeof harness>>['registry'],
+    registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'],
     channel: UpdateChannel,
     appVersion: string,
   ) => {
@@ -469,7 +469,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   it('counts a stable-pinned host as behind its own stable target', async () => {
     const { registry, caller } = await harness()
     await hostAt(registry, 'stable', '0.1.2')
-    registry.modules.updates.setTarget('stable', target('0.1.3'))
+    await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
 
@@ -506,7 +506,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       ['update.delivery.feed', 'podium.shipping-train'],
       '2026-08-22T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget('dev', target(release))
+    await registry.modules.updates.setTarget('dev', target(release))
 
     const offered = await caller.updates.fleet()
     expect(offered.total).toBe(1)
@@ -559,7 +559,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget('stable', target('0.1.3'))
+    await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
 
@@ -592,8 +592,8 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
-    registry.modules.updates.setTarget('stable', target('0.1.3'))
+    await registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
+    await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
 
@@ -610,7 +610,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   it('scopes the wave to the same channel the operation would be computed on', async () => {
     const { registry, caller } = await harness()
     await hostAt(registry, 'stable', '0.1.2')
-    registry.modules.updates.setTarget('stable', target('0.1.3'))
+    await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
     const channel = registry.modules.updates.operationChannel(registry.sessionStore.hostMachineId)
@@ -684,7 +684,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -709,7 +709,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -764,7 +764,7 @@ describe('updates tRPC', () => {
     registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
     // A published dev release, as the resolver hands it over: an ordinary feed
     // artifact, on the instance trust root.
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       trust: 'instance',
@@ -845,7 +845,7 @@ describe('updates tRPC', () => {
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -898,7 +898,7 @@ describe('updates tRPC', () => {
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -959,7 +959,7 @@ describe('updates tRPC', () => {
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -969,7 +969,7 @@ describe('updates tRPC', () => {
     expect(result.grantedMachineIds).toEqual([])
     expect(grants).toEqual([])
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -1015,7 +1015,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -1095,7 +1095,7 @@ describe('updates tRPC', () => {
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -1148,7 +1148,7 @@ describe('updates tRPC', () => {
      * driving them. It is now simply the order of the plan — `machines` before
      * `server` — with no loop and no 60-minute backstop.
      */
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -1205,7 +1205,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -1221,7 +1221,7 @@ describe('updates tRPC', () => {
     } | null
     expect(planned?.steps?.map((step) => step.id)).toEqual(['prepare', 'machines'])
 
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -1272,7 +1272,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget({
+    await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
@@ -1301,7 +1301,7 @@ describe('updates tRPC', () => {
         [],
         '2026-08-13T00:00:00.000Z',
       )
-      registry.modules.updates.setTarget({
+      await registry.modules.updates.setTarget({
         version: 'dev+47a01e3',
         critical: false,
         artifacts: { web: { digest: '47a01e3' } },
@@ -1379,7 +1379,7 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const requestCoordinatorRestart = vi.fn()
     const { registry, caller } = await harness(requestCoordinatorRestart)
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     await expect(caller.updates.repairCompatibility()).resolves.toEqual({
       state: 'in-progress',
@@ -1425,7 +1425,7 @@ describe('updates tRPC', () => {
       '2026-08-10T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('flatblock', (message) => grants.push(message))
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({
@@ -1449,7 +1449,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({
@@ -1481,7 +1481,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     const fleet = await caller.updates.fleet()
     expect(fleet.machines.map((machine) => machine.id)).not.toContain('stable-machine')
@@ -1491,7 +1491,7 @@ describe('updates tRPC', () => {
   it('exposes the fleet query and propagates convergence failures', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const { registry, caller } = await harness()
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
 
     const fleet = await caller.updates.fleet()
     expect(fleet).toMatchObject({ targetVersion: '0.4.2', total: 1, behind: 1 })
@@ -1523,7 +1523,7 @@ describe('the update operation', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    built.registry.modules.updates.setTarget(target())
+    await built.registry.modules.updates.setTarget(target())
     return built
   }
 
@@ -1593,7 +1593,7 @@ describe('the update operation', () => {
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.machines.setUpdateChannel(behind, 'dev')
-    registry.modules.updates.setTarget(target('0.4.2'))
+    await registry.modules.updates.setTarget(target('0.4.2'))
     const discover = vi.spyOn(registry.sessionStore, 'discoverDatabaseSnapshots')
 
     const started = await caller.updates.start()
@@ -1626,7 +1626,7 @@ describe('the update operation', () => {
   it('queues a version published mid-operation and does not change the running target', async () => {
     const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     await caller.updates.start()
-    registry.modules.updates.setTarget(target('0.4.3'))
+    await registry.modules.updates.setTarget(target('0.4.3'))
 
     expect(registry.modules.updates.target('dev')?.version).toBe('0.4.2')
     const fleet = await caller.updates.fleet()
@@ -1673,7 +1673,7 @@ describe('the update operation', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget(target())
+    await registry.modules.updates.setTarget(target())
     await expect(caller.updates.fleet()).resolves.toMatchObject({
       startability: {
         startable: false,

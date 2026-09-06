@@ -92,7 +92,7 @@ export interface UpdatesDeps {
    * let that publication mutate the running wave. Read per call, not captured —
    * the answer changes on every transition.
    */
-  exclusiveOperationActive?(): boolean
+  exclusiveOperationActive?(): boolean | Promise<boolean>
   /**
    * Which version is the running exclusive operation DELIVERING on this channel?
    *
@@ -111,7 +111,9 @@ export interface UpdatesDeps {
    * Read per call, like {@link exclusiveOperationActive}: it changes on every
    * transition. Absent, or `undefined`, degrades to the memory test alone.
    */
-  exclusiveOperationVersion?(channel: UpdateChannel): string | undefined
+  exclusiveOperationVersion?(
+    channel: UpdateChannel,
+  ): string | undefined | Promise<string | undefined>
   /** A packaged rollback may be reported before target resolution finishes. */
   onTargetChanged?(channel: UpdateChannel): void
   /**
@@ -411,10 +413,13 @@ export class UpdatesService {
     this.deps.onTargetChanged?.(channel)
   }
 
-  setTarget(channel: UpdateChannel, target: UpdateTarget): void
+  setTarget(channel: UpdateChannel, target: UpdateTarget): Promise<void>
   /** Compatibility form for the existing development publisher. */
-  setTarget(target: UpdateTarget): void
-  setTarget(channelOrTarget: UpdateChannel | UpdateTarget, maybeTarget?: UpdateTarget): void {
+  setTarget(target: UpdateTarget): Promise<void>
+  async setTarget(
+    channelOrTarget: UpdateChannel | UpdateTarget,
+    maybeTarget?: UpdateTarget,
+  ): Promise<void> {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
@@ -436,7 +441,7 @@ export class UpdatesService {
     // start granting. Sequencing is the operation's job now — the `machines`
     // step ticks explicitly, after `prepare`, exactly once, where a reader can
     // see it happen.
-    if (this.isSameUpdate(channel, target.version)) {
+    if (await this.isSameUpdate(channel, target.version)) {
       const standing = this.targets.get(channel)
       // The deliverable always comes from the feed. An identity for the same
       // version names no bytes, and replacing the packed target with it is how
@@ -457,7 +462,7 @@ export class UpdatesService {
     // running update is what made a mid-flight publication change what the panel
     // was describing; the queued target re-surfaces as an OFFER once the
     // operation terminates — it never becomes an operation by itself.
-    if (this.deps.exclusiveOperationActive?.()) {
+    if (await this.deps.exclusiveOperationActive?.()) {
       this.nextTargets.set(channel, target)
       return
     }
@@ -515,9 +520,9 @@ export class UpdatesService {
    * Is this arriving version the update already under way on this channel —
    * rather than a rival publication? See {@link UpdatesDeps.exclusiveOperationVersion}.
    */
-  private isSameUpdate(channel: UpdateChannel, version: string): boolean {
+  private async isSameUpdate(channel: UpdateChannel, version: string): Promise<boolean> {
     if (this.targets.get(channel)?.version === version) return true
-    return this.deps.exclusiveOperationVersion?.(channel) === version
+    return (await this.deps.exclusiveOperationVersion?.(channel)) === version
   }
 
   /**
@@ -538,14 +543,14 @@ export class UpdatesService {
    * started the finished operation was about the version that operation carried;
    * it is not consent to install whatever landed while it ran.
    */
-  publishNextTargets(): UpdateChannel[] {
+  async publishNextTargets(): Promise<UpdateChannel[]> {
     const published: UpdateChannel[] = []
     for (const [channel, target] of [...this.nextTargets]) {
       this.nextTargets.delete(channel)
       // Guarded, not asserted: if something else already moved this channel
       // onto that version, re-applying it would reset a wave for no reason.
       if (this.targets.get(channel)?.version === target.version) continue
-      this.setTarget(channel, target)
+      await this.setTarget(channel, target)
       published.push(channel)
     }
     return published
@@ -642,7 +647,7 @@ export class UpdatesService {
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.
-      if (this.resolvedMayReplace(channel, resolved)) this.setTarget(channel, resolved)
+      if (this.resolvedMayReplace(channel, resolved)) await this.setTarget(channel, resolved)
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {

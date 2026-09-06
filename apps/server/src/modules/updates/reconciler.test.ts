@@ -253,7 +253,7 @@ describe('decideReconciliation', () => {
     })
   }
 
-  it('counts attempts against the target, so a new version starts fresh', () => {
+  it('counts attempts against the target, so a new version starts fresh', async () => {
     expect(decideReconciliation(facts({ attempts: MAX_RECONCILE_ATTEMPTS - 1 }))).toEqual({
       converge: true,
     })
@@ -263,18 +263,18 @@ describe('decideReconciliation', () => {
 // ──────────────────────────── the queue ─────────────────────────────
 
 describe('UpdateReconciler', () => {
-  it('grants exactly one machine when it reconnects behind the target', () => {
+  it('grants exactly one machine when it reconnects behind the target', async () => {
     const h = harness([machine({ id: 'laptop' })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('laptop')
 
     expect(h.granted()).toEqual(['laptop'])
   })
 
-  it('grants nothing when the machine reconnects already at the target', () => {
+  it('grants nothing when the machine reconnects already at the target', async () => {
     const h = harness([machine({ id: 'laptop', version: TARGET_VERSION })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('laptop')
 
@@ -285,9 +285,9 @@ describe('UpdateReconciler', () => {
    * ONE AT A TIME, GLOBALLY (§3.6). Two daemons waking together is the ordinary
    * case after a power cut, and it must not become a wave nobody authorized.
    */
-  it('converges reconnecting machines one at a time, spaced', () => {
+  it('converges reconnecting machines one at a time, spaced', async () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('a')
     h.reconciler.onMachineConnected('b')
@@ -325,9 +325,9 @@ describe('UpdateReconciler', () => {
    * called it unconditionally would erase the refusal and hot-loop on every
    * reconnect.
    */
-  it('never re-grants a machine that rejected this target', () => {
+  it('never re-grants a machine that rejected this target', async () => {
     const h = harness([machine({ id: 'laptop' })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
     h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop'])
 
@@ -358,7 +358,7 @@ describe('UpdateReconciler', () => {
    * perpetually behind is the only way to put the counter itself under test —
    * which is exactly the case the counter exists for.
    */
-  it('gives up on a machine that keeps reconnecting still behind', () => {
+  it('gives up on a machine that keeps reconnecting still behind', async () => {
     const granted: string[] = []
     const behind = machine({ id: 'flapper' })
     const updates = {
@@ -386,9 +386,9 @@ describe('UpdateReconciler', () => {
     expect(granted).toEqual(Array<string>(MAX_RECONCILE_ATTEMPTS).fill('flapper'))
   })
 
-  it('pauses while an operation is active and sweeps everyone still behind when it ends', () => {
+  it('pauses while an operation is active and sweeps everyone still behind when it ends', async () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('a')
     expect(h.granted()).toEqual([])
@@ -409,9 +409,9 @@ describe('UpdateReconciler', () => {
    * such decision, and handing out the update seconds after someone stopped it
    * is the worst possible moment to be helpful.
    */
-  it('does not sweep after a canceled operation', () => {
+  it('does not sweep after a canceled operation', async () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
     h.reconciler.onOperationSettled('canceled')
@@ -419,9 +419,9 @@ describe('UpdateReconciler', () => {
     expect(h.granted()).toEqual([])
   })
 
-  it('does sweep after a failed one, so nobody waits for a human to retry', () => {
+  it('does sweep after a failed one, so nobody waits for a human to retry', async () => {
     const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
     h.reconciler.onOperationSettled('failed')
@@ -431,9 +431,9 @@ describe('UpdateReconciler', () => {
 
   /** §3.6 visibility: the fleet payload can say who moved a row that moved with
    *  nobody looking, and stops saying it once an operation takes over. */
-  it('marks the machines it converged, and yields the label to an operation', () => {
+  it('marks the machines it converged, and yields the label to an operation', async () => {
     const h = harness([machine({ id: 'laptop' })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('laptop')
     expect(h.reconciler.convergedBy(h.row('laptop'))).toBe('reconciler')
@@ -442,12 +442,12 @@ describe('UpdateReconciler', () => {
     expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
   })
 
-  it('does not label a machine whose target has since moved on', () => {
+  it('does not label a machine whose target has since moved on', async () => {
     const h = harness([machine({ id: 'laptop' })])
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
     h.reconciler.onMachineConnected('laptop')
 
-    h.updates.setTarget('dev', target({ version: '0.4.4' }))
+    await h.updates.setTarget('dev', target({ version: '0.4.4' }))
 
     expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
   })
@@ -469,9 +469,9 @@ describe('UpdateReconciler', () => {
  */
 describe('UpdateReconciler: a grant that goes silent', () => {
   /** Wake `id`, take the grant, and stop talking — the shared preamble. */
-  function granted(ids: string[] = ['laptop']) {
+  async function granted(ids: string[] = ['laptop']) {
     const h = harness(ids.map((id) => machine({ id })))
-    h.updates.setTarget('dev', target())
+    await h.updates.setTarget('dev', target())
     for (const id of ids) h.reconciler.onMachineConnected(id)
     const first = ids[0] ?? ''
     h.updates.onStatus(asMachineId(first), {
@@ -493,8 +493,8 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * asserted here rather than in `service.test.ts` because the only thing that
    * can leave a machine in that state indefinitely is this file.
    */
-  it('gives up on it, so the queue behind it moves and the channel can refresh again', () => {
-    const h = granted(['laptop', 'vps'])
+  it('gives up on it, so the queue behind it moves and the channel can refresh again', async () => {
+    const h = await granted(['laptop', 'vps'])
 
     // BEFORE the deadline: this is the correct behaviour, not the bug. One at a
     // time is the whole design, and `vps` waiting is `vps` being spaced.
@@ -531,8 +531,8 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * same laptop reconnecting every thirty seconds would be granted every time,
    * because `authorizeMachine` clears a terminal state as the human retry path.
    */
-  it('leaves the machine alone afterwards, rather than re-granting on every reconnect', () => {
-    const h = granted()
+  it('leaves the machine alone afterwards, rather than re-granting on every reconnect', async () => {
+    const h = await granted()
     h.clock.advance(GRANT_DEADLINE_MS)
     expect(h.row('laptop').state).toBe('stuck')
 
@@ -554,8 +554,8 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * through `abandonWait`, which acts only on a machine still IN FLIGHT, rather
    * than writing `stuck` on its own authority.
    */
-  it('does not overwrite the verdict of a machine that already answered', () => {
-    const h = granted()
+  it('does not overwrite the verdict of a machine that already answered', async () => {
+    const h = await granted()
     h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'rejected',
@@ -577,8 +577,8 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * must not abandon the second one — which is what an id comparison alone
    * would do, and why the reconciler counts grants.
    */
-  it('does not let an old grant deadline abandon the next grant to the same machine', () => {
-    const h = granted()
+  it('does not let an old grant deadline abandon the next grant to the same machine', async () => {
+    const h = await granted()
     h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'current',
@@ -590,7 +590,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     // distinguishable, and what makes this the case a bare id check gets wrong.
     h.clock.advance()
 
-    h.updates.setTarget('dev', target({ version: '0.4.4' }))
+    await h.updates.setTarget('dev', target({ version: '0.4.4' }))
     h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop', 'laptop'])
     h.updates.onStatus(asMachineId('laptop'), {
@@ -611,7 +611,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * `machines` step is judged on, because it bounds the same act. Asserted so
    * that moving one of them has to move the other deliberately.
    */
-  it('waits exactly as long as the operation would for the same machine', () => {
+  it('waits exactly as long as the operation would for the same machine', async () => {
     expect(RECONCILE_GRANT_DEADLINE_MS).toBe(UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs)
   })
 })
@@ -637,7 +637,7 @@ describe('decideReconciliation and a release that predates the machine', () => {
     },
   } as never)
 
-  it('refuses the machine the release carries nothing for', () => {
+  it('refuses the machine the release carries nothing for', async () => {
     expect(
       decideReconciliation(
         facts({
@@ -652,7 +652,7 @@ describe('decideReconciliation and a release that predates the machine', () => {
     ).toEqual({ converge: false, because: 'platform-not-in-release' })
   })
 
-  it('converges the machine the release was built for', () => {
+  it('converges the machine the release was built for', async () => {
     expect(
       decideReconciliation(
         facts({

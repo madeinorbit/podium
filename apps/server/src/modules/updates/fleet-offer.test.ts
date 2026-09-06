@@ -45,7 +45,7 @@ const machine = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function serviceFor(machines: unknown[], platforms: readonly string[]) {
+async function serviceFor(machines: unknown[], platforms: readonly string[]) {
   const svc = new UpdatesService({
     machines: () => machines as never,
     send: vi.fn(),
@@ -54,13 +54,13 @@ function serviceFor(machines: unknown[], platforms: readonly string[]) {
     concurrency: 3,
     fleetChannel: () => 'dev',
   })
-  svc.setTarget('dev', feedTarget(platforms))
+  await svc.setTarget('dev', feedTarget(platforms))
   return svc
 }
 
 describe('the update offer', () => {
-  it('does not count a machine the release predates as behind', () => {
-    const svc = serviceFor(
+  it('does not count a machine the release predates as behind', async () => {
+    const svc = await serviceFor(
       [
         machine('vps', { platform: 'linux-x86_64' }),
         machine('mac', { platform: 'darwin-aarch64' }),
@@ -73,28 +73,28 @@ describe('the update offer', () => {
   })
 
   /** It is still a machine. Settings shows every row, whatever this wave grants. */
-  it('keeps it in the full inventory Settings renders', () => {
-    const svc = serviceFor([machine('mac', { platform: 'darwin-aarch64' })], ['linux-x86_64'])
+  it('keeps it in the full inventory Settings renders', async () => {
+    const svc = await serviceFor([machine('mac', { platform: 'darwin-aarch64' })], ['linux-x86_64'])
     expect(fleetSnapshot(svc).allMachines.map((row) => row.id)).toEqual(['mac'])
   })
 
-  it('offers nothing at all when the only behind machine is one the release predates', () => {
-    const svc = serviceFor([machine('mac', { platform: 'darwin-aarch64' })], ['linux-x86_64'])
+  it('offers nothing at all when the only behind machine is one the release predates', async () => {
+    const svc = await serviceFor([machine('mac', { platform: 'darwin-aarch64' })], ['linux-x86_64'])
     expect(fleetSnapshot(svc).behind).toBe(0)
   })
 
-  it('still offers the release to the machines it was built for', () => {
-    const svc = serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
+  it('still offers the release to the machines it was built for', async () => {
+    const svc = await serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
     expect(fleetSnapshot(svc).behind).toBe(1)
   })
 
   /** A machine that has never reported a platform stays visible, as with caps. */
-  it('counts a machine that has reported no platform', () => {
-    const svc = serviceFor([machine('mute')], ['linux-x86_64'])
+  it('counts a machine that has reported no platform', async () => {
+    const svc = await serviceFor([machine('mute')], ['linux-x86_64'])
     expect(fleetSnapshot(svc).behind).toBe(1)
   })
 
-  it('does not offer an instance-trusted feed to a pre-channel-trust build', () => {
+  it('does not offer an instance-trusted feed to a pre-channel-trust build', async () => {
     const legacy = machine('flatblock', {
       platform: 'linux-x86_64',
       deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
@@ -107,7 +107,7 @@ describe('the update offer', () => {
       concurrency: 3,
       fleetChannel: () => 'dev',
     })
-    svc.setTarget('dev', feedTarget(['linux-x86_64'], 'instance'))
+    await svc.setTarget('dev', feedTarget(['linux-x86_64'], 'instance'))
 
     const snapshot = fleetSnapshot(svc)
     expect(snapshot.behind).toBe(0)
@@ -119,8 +119,8 @@ describe('the update offer', () => {
     expect(snapshot.allMachines.map((row) => row.id)).toEqual(['flatblock'])
   })
 
-  it('still offers release-trusted bytes to that build', () => {
-    const svc = serviceFor(
+  it('still offers release-trusted bytes to that build', async () => {
+    const svc = await serviceFor(
       [
         machine('old', {
           platform: 'linux-x86_64',
@@ -129,7 +129,7 @@ describe('the update offer', () => {
       ],
       ['linux-x86_64'],
     )
-    svc.setTarget('dev', feedTarget(['linux-x86_64'], 'release'))
+    await svc.setTarget('dev', feedTarget(['linux-x86_64'], 'release'))
     const snapshot = fleetSnapshot(svc)
     expect(snapshot.behind).toBe(1)
     expect(snapshot.blocked).toBe(0)

@@ -776,13 +776,13 @@ export class SessionRegistry {
       fleetChannel: () => resolveUpdateChannel(),
       // Read per call: a version published while an update is running is queued
       // as `nextTarget` instead of mutating the running wave (POD-2098, §3.2).
-      exclusiveOperationActive: () =>
-        operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      exclusiveOperationActive: async () =>
+        (await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       // …and WHICH version that operation is delivering, so an operation adopted
       // across a restart can still be handed the package it resumed waiting for
       // (POD-2228). This process has no memory of having published it.
-      exclusiveOperationVersion: (channel) =>
-        exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      exclusiveOperationVersion: async (channel) =>
+        exclusiveUpdateVersion(await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
       /**
        * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
@@ -2666,7 +2666,7 @@ export class SessionRegistry {
     let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
-      onChanged: (row) => {
+      onChanged: async (row) => {
         if (!isTerminalOperationState(row.state)) {
           // An operation is live, so whatever background convergence did before
           // it started is that operation's story to tell now (§3.6).
@@ -2688,7 +2688,7 @@ export class SessionRegistry {
         // A version that arrived mid-update waits for the group to be free, and
         // this is the moment it becomes free — whatever the outcome was. It
         // re-creates the OFFER, never an operation (§3.2).
-        updatesService.publishNextTargets()
+        await updatesService.publishNextTargets()
         // POD-2101: the deadline that used to end a silent grant aged inside a
         // `fleet()` read. The operation owns that authority now, so the moment
         // it stops waiting is the moment those grants stop being believed. A
@@ -2735,7 +2735,7 @@ export class SessionRegistry {
     updatesReconciler = new UpdateReconciler({
       updates: updatesService,
       operationActive: async () =>
-        await operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+        (await operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
     })
     const reconciler = updatesReconciler
     this.bus.on('machine.connected', ({ machineId }) => {

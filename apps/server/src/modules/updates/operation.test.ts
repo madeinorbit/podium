@@ -63,7 +63,7 @@ import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
  * exact defect this whole epic is removing from the product.
  */
 
-afterEach(() => {
+afterEach(async () => {
   resetUpdateOperationState()
 })
 
@@ -307,7 +307,7 @@ describe('planUpdateOperation', () => {
    * 325 MB of it. The pack is planned for the machines that CANNOT take what the
    * target already offers, and for nobody else.
    */
-  it('never waves a source machine, which can take no delivery at all', () => {
+  it('never waves a source machine, which can take no delivery at all', async () => {
     // A source checkout is not a packaged rollout target. It belongs to its
     // operator, so the plan excludes it rather than granting bytes it cannot
     // install or representing that deliberate exclusion as a failure.
@@ -325,7 +325,7 @@ describe('planUpdateOperation', () => {
    * …and a fleet with nothing to update at all is the same answer for the same
    * reason: nobody is waiting on a tarball, so nobody is served by building one.
    */
-  it('plans no pack for a fleet with no machine behind', () => {
+  it('plans no pack for a fleet with no machine behind', async () => {
     const plan = planUpdateOperation(planInput({ target: identityTarget(), fleet: [] }))
     expect(stepIds(plan)).toEqual([UPDATE_STEP_SERVER, UPDATE_STEP_WEB])
   })
@@ -337,7 +337,7 @@ describe('planUpdateOperation', () => {
    * artifact this very plan is about to produce — while omitting the source
    * machine entirely.
    */
-  it('plans the publish for the installed machine and excludes the source one', () => {
+  it('plans the publish for the installed machine and excludes the source one', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
@@ -365,7 +365,7 @@ describe('planUpdateOperation', () => {
    * when it wakes — and a bare identity is nothing it could ever take. Not
    * packing here would strand it until a human ran another update.
    */
-  it('packs for a feed machine that is asleep, and defers it', () => {
+  it('packs for a feed machine that is asleep, and defers it', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
@@ -383,7 +383,7 @@ describe('planUpdateOperation', () => {
    * — do we positively know this machine can take what we already have —
    * because getting it wrong costs a wave of rejections rather than a build.
    */
-  it('packs for a machine whose delivery capabilities are unknown', () => {
+  it('packs for a machine whose delivery capabilities are unknown', async () => {
     const plan = planUpdateOperation(
       planInput({ target: identityTarget(), fleet: [machine({ id: 'legacy' })] }),
     )
@@ -398,7 +398,7 @@ describe('planUpdateOperation', () => {
    * gone with it, and the plan says so instead of waving a machine towards
    * bytes that do not exist.
    */
-  it('waves nobody for an identity target where nothing can publish', () => {
+  it('waves nobody for an identity target where nothing can publish', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
@@ -411,7 +411,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([{ id: 'vmi', name: 'vmi', reason: 'cannot-take-delivery' }])
   })
 
-  it('defers an offline machine instead of letting it hold the outcome open', () => {
+  it('defers an offline machine instead of letting it hold the outcome open', async () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })] }),
     )
@@ -420,7 +420,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  it('refuses to start when every changed place is deferred offline', () => {
+  it('refuses to start when every changed place is deferred offline', async () => {
     const target = packedTarget()
     const input = planInput({
       target,
@@ -435,7 +435,7 @@ describe('planUpdateOperation', () => {
     })
   })
 
-  it('plans no machines step at all when every behind machine is asleep', () => {
+  it('plans no machines step at all when every behind machine is asleep', async () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'laptop', online: false })] }),
     )
@@ -444,7 +444,7 @@ describe('planUpdateOperation', () => {
   })
 
   /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
-  it('includes a desktop-supervised daemon in the ordinary fleet wave', () => {
+  it('includes a desktop-supervised daemon in the ordinary fleet wave', async () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
     )
@@ -465,7 +465,7 @@ describe('planUpdateOperation', () => {
    * into the machines step spends the operation's whole silence budget to
    * arrive at a refusal that was knowable before the first grant.
    */
-  it('defers a machine the release predates when nothing here can build one', () => {
+  it('defers a machine the release predates when nothing here can build one', async () => {
     const plan = planUpdateOperation(
       planInput({
         canPrepare: false,
@@ -484,7 +484,7 @@ describe('planUpdateOperation', () => {
    * MINT, not from this operation, so it is deferred here rather than waved
    * towards a build nothing is going to run.
    */
-  it('defers it on a publishing server too, because a release is immutable', () => {
+  it('defers it on a publishing server too, because a release is immutable', async () => {
     const plan = planUpdateOperation(
       planInput({
         canPrepare: true,
@@ -502,7 +502,7 @@ describe('planUpdateOperation', () => {
    * reads the fleet as it stands NOW — so a Mac that joined yesterday is in the
    * platform list by construction and belongs in the wave.
    */
-  it('waves a late-joining machine towards a pack that will cover it', () => {
+  it('waves a late-joining machine towards a pack that will cover it', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
@@ -519,7 +519,7 @@ describe('planUpdateOperation', () => {
    * bytes, so promising one by planning a prepare step would be the same lie in
    * a new place.
    */
-  it('defers a platform no release will ever carry, however much it could build', () => {
+  it('defers a platform no release will ever carry, however much it could build', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: identityTarget(),
@@ -531,7 +531,7 @@ describe('planUpdateOperation', () => {
   })
 
   /** A machine that has never said what it is stays visible, as with unknown caps. */
-  it('keeps a machine that has reported no platform in the wave', () => {
+  it('keeps a machine that has reported no platform in the wave', async () => {
     const plan = planUpdateOperation(
       planInput({
         canPrepare: false,
@@ -542,7 +542,7 @@ describe('planUpdateOperation', () => {
     expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
   })
 
-  it('defers a machine that cannot take the packed artifact', () => {
+  it('defers a machine that cannot take the packed artifact', async () => {
     const plan = planUpdateOperation(
       planInput({
         target: packedTarget(),
@@ -553,7 +553,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred?.[0]).toMatchObject({ id: 'src', reason: 'cannot-take-delivery' })
   })
 
-  it('defers a legacy verifier without pretending another pack can repair it', () => {
+  it('defers a legacy verifier without pretending another pack can repair it', async () => {
     const target = { ...packedTarget(), trust: 'instance' as const }
     const legacy = machine({
       id: 'flatblock',
@@ -568,7 +568,7 @@ describe('planUpdateOperation', () => {
     ])
   })
 
-  it('names the permanent verifier mismatch when it is the only pending work', () => {
+  it('names the permanent verifier mismatch when it is the only pending work', async () => {
     const target = { ...packedTarget(), trust: 'instance' as const }
     const verdict = updateStartability(
       planInput({
@@ -591,7 +591,7 @@ describe('planUpdateOperation', () => {
   })
 
   /** The all-in-one host is the first ordinary member of its own fleet. */
-  it('plans an all-in-one payload through the machine step without a desktop ask', () => {
+  it('plans an all-in-one payload through the machine step without a desktop ask', async () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
@@ -602,7 +602,7 @@ describe('planUpdateOperation', () => {
     expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  it('updates the all-in-one host alongside its other connected machines', () => {
+  it('updates the all-in-one host alongside its other connected machines', async () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
@@ -623,7 +623,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([])
   })
 
-  it('recognises a desktop-supervised server with no local daemon row', () => {
+  it('recognises a desktop-supervised server with no local daemon row', async () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'desktop-server',
@@ -636,7 +636,7 @@ describe('planUpdateOperation', () => {
     expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', () => {
+  it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', async () => {
     for (const host of [
       machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' }),
       machine({ id: 'm_01jhost', supervised: true, name: undefined }),
@@ -656,14 +656,14 @@ describe('planUpdateOperation', () => {
    * an idle tab that has not reloaded is a straggler who self-serves on their
    * next load, so it must NOT hold the operation open (§3.5).
    */
-  it('asks open tabs to reload without letting that ask hold the operation open', () => {
+  it('asks open tabs to reload without letting that ask hold the operation open', async () => {
     const plan = planUpdateOperation(planInput())
     const reload = plan.awaiting?.find((ask) => ask.id === RELOAD_SURFACES_ASK)
     expect(reload).toBeDefined()
     expect(reload?.required).toBe(false)
   })
 
-  it('plans only the remainder when a retry names one', () => {
+  it('plans only the remainder when a retry names one', async () => {
     const plan = planUpdateOperation(
       planInput({
         fleet: [machine({ id: 'vmi' }), machine({ id: 'ludovico' })],
@@ -676,7 +676,7 @@ describe('planUpdateOperation', () => {
     expect(plan.retryOf).toBe('op_1')
   })
 
-  it('carries the target and the version it is updating FROM into details', () => {
+  it('carries the target and the version it is updating FROM into details', async () => {
     const plan = planUpdateOperation(planInput())
     expect(plan.details).toMatchObject({
       target: expect.objectContaining({ version: 'dev+abc1234' }),
@@ -705,7 +705,7 @@ describe('reconcileUpdateOperation', () => {
     ...over,
   })
 
-  it('§8: the successor booted at the target, so the server step is done', () => {
+  it('§8: the successor booted at the target, so the server step is done', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'running' }]),
       reality(),
@@ -718,7 +718,7 @@ describe('reconcileUpdateOperation', () => {
    * The case that today silently produces a FRESH DIALOG offering the same
    * update again, with nothing anywhere saying the swap failed.
    */
-  it('§8: the successor booted on the wrong version, so the operation failed', () => {
+  it('§8: the successor booted on the wrong version, so the operation failed', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'running' }]),
       reality({ appVersion: '0.4.2' }),
@@ -736,7 +736,7 @@ describe('reconcileUpdateOperation', () => {
    * the spec requires, and this is the only place it can reach a person: the
    * process that asked for the update died with it.
    */
-  it('carries the supervising parent’s account of the rollback into the failure', () => {
+  it('carries the supervising parent’s account of the rollback into the failure', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'running' }]),
       reality({
@@ -760,7 +760,7 @@ describe('reconcileUpdateOperation', () => {
    * operation from that evidence: an update that was attempted and reverted
    * must never settle as clean success.
    */
-  it('a rollback report reopens a server step a doomed successor blessed done', () => {
+  it('a rollback report reopens a server step a doomed successor blessed done', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
       reality({
@@ -781,7 +781,7 @@ describe('reconcileUpdateOperation', () => {
    * briefly live at the target. The rollback evidence must fail the operation
    * whichever step carried the host.
    */
-  it('a rollback report fails an operation whose host converged through the machines step', () => {
+  it('a rollback report fails an operation whose host converged through the machines step', async () => {
     const next = reconcileUpdateOperation(
       operation([
         {
@@ -803,7 +803,7 @@ describe('reconcileUpdateOperation', () => {
   })
 
   /** The reopen needs BOTH facts: a machine actually on the target keeps its blessing. */
-  it('a stale parent report does not reopen a server genuinely on the target', () => {
+  it('a stale parent report does not reopen a server genuinely on the target', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
       reality({
@@ -814,7 +814,7 @@ describe('reconcileUpdateOperation', () => {
     expect(next.state).toBe('running')
   })
 
-  it('leaves a server step that had not started yet alone', () => {
+  it('leaves a server step that had not started yet alone', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_SERVER, state: 'pending' }]),
       reality({ appVersion: '0.4.1' }),
@@ -823,7 +823,7 @@ describe('reconcileUpdateOperation', () => {
     expect(next.state).toBe('running')
   })
 
-  it('§8: re-derives a wave mid-flight from the machine directory, not from memory', () => {
+  it('§8: re-derives a wave mid-flight from the machine directory, not from memory', async () => {
     const next = reconcileUpdateOperation(
       operation([
         {
@@ -854,7 +854,7 @@ describe('reconcileUpdateOperation', () => {
     expect(step?.state).toBe('pending')
   })
 
-  it('finishes a wave whose every machine reports the target', () => {
+  it('finishes a wave whose every machine reports the target', async () => {
     const next = reconcileUpdateOperation(
       operation([
         { id: UPDATE_STEP_MACHINES, state: 'running', places: [{ id: 'vmi', state: 'granted' }] },
@@ -864,7 +864,7 @@ describe('reconcileUpdateOperation', () => {
     expect(next.steps?.[0]?.state).toBe('done')
   })
 
-  it('takes a served website at the target digest as proof the web step is done', () => {
+  it('takes a served website at the target digest as proof the web step is done', async () => {
     const next = reconcileUpdateOperation(
       operation([{ id: UPDATE_STEP_WEB, state: 'running' }]),
       reality(),
@@ -872,7 +872,7 @@ describe('reconcileUpdateOperation', () => {
     expect(next.steps?.[0]?.state).toBe('done')
   })
 
-  it('re-queues a build that died with its process rather than waiting for its report', () => {
+  it('re-queues a build that died with its process rather than waiting for its report', async () => {
     for (const stepId of [UPDATE_STEP_WEB, UPDATE_STEP_PREPARE]) {
       const next = reconcileUpdateOperation(
         operation([{ id: stepId, state: 'running' }]),
@@ -886,7 +886,7 @@ describe('reconcileUpdateOperation', () => {
    * An operation whose payload names no target cannot be reconciled against
    * anything. Failing it is what stops it wedging the lifecycle group forever.
    */
-  it('fails bytes that do not name a target instead of leaving the group wedged', () => {
+  it('fails bytes that do not name a target instead of leaving the group wedged', async () => {
     const next = reconcileUpdateOperation(
       { id: 'op_1', kind: UPDATE_OPERATION_KIND, state: 'running', steps: [] },
       reality(),
@@ -934,7 +934,7 @@ describe('the error taxonomy', () => {
     })
   }
 
-  it('names the machine in the sentence a human reads', () => {
+  it('names the machine in the sentence a human reads', async () => {
     const error = describeUpdateOperationFailure({
       code: 'machine-dirty-checkout',
       places: ['m_a'],
@@ -946,7 +946,7 @@ describe('the error taxonomy', () => {
     expect(error.detail).toBe('dirty-working-tree')
   })
 
-  it('surfaces an unexpected local error without inventing a connectivity failure', () => {
+  it('surfaces an unexpected local error without inventing a connectivity failure', async () => {
     const detail = 'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
     const code = classifyMachineFailure(detail)
     const error = describeUpdateOperationFailure({
@@ -966,7 +966,7 @@ describe('the error taxonomy', () => {
     expect(error.message).not.toMatch(/stopped responding|check (?:that )?it'?s running/i)
   })
 
-  it('tells a foreground Podium what was NOT done, and the two ways out', () => {
+  it('tells a foreground Podium what was NOT done, and the two ways out', async () => {
     const error = describeUpdateOperationFailure({
       code: 'machine-cannot-restart',
       places: ['m_a'],
@@ -1013,7 +1013,7 @@ describe('the error taxonomy', () => {
     '(SQLITE_BUSY: database is locked), so there is no way to tell whether 0.1.5 could open ' +
     'it. Nothing was fetched and nothing was swapped; this machine stays on 0.1.7.'
 
-  it('reads the three schema refusals as three DISTINCT codes, none of them unreachable', () => {
+  it('reads the three schema refusals as three DISTINCT codes, none of them unreachable', async () => {
     const advanced = classifyMachineFailure(SCHEMA_ADVANCED_DETAIL)
     const unknown = classifyMachineFailure(SCHEMA_UNKNOWN_DETAIL)
     const unreadable = classifyMachineFailure(SCHEMA_UNREADABLE_DETAIL)
@@ -1039,7 +1039,7 @@ describe('the error taxonomy', () => {
       detail,
     } as UpdateFailure)
 
-  it('never tells the operator a machine that answered on purpose stopped responding', () => {
+  it('never tells the operator a machine that answered on purpose stopped responding', async () => {
     const messages = [
       schemaCopy('machine-schema-advanced', SCHEMA_ADVANCED_DETAIL).message,
       schemaCopy('machine-schema-unknown', SCHEMA_UNKNOWN_DETAIL).message,
@@ -1057,7 +1057,7 @@ describe('the error taxonomy', () => {
     expect(new Set(messages).size).toBe(3)
   })
 
-  it('tells a schema-advanced refusal the target is older and names the one way back', () => {
+  it('tells a schema-advanced refusal the target is older and names the one way back', async () => {
     const { message } = schemaCopy('machine-schema-advanced', SCHEMA_ADVANCED_DETAIL)
     expect(message).toMatch(/older version/i)
     expect(message).toMatch(/cannot open the data it already has/i)
@@ -1065,7 +1065,7 @@ describe('the error taxonomy', () => {
     expect(message).toMatch(/restore/i)
   })
 
-  it('names the verified snapshot that actually exists in schema-advanced guidance', () => {
+  it('names the verified snapshot that actually exists in schema-advanced guidance', async () => {
     const databaseSnapshotPath =
       '/var/lib/podium/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
     const { message } = describeUpdateOperationFailure({
@@ -1085,7 +1085,7 @@ describe('the error taxonomy', () => {
    * "pick something newer" names a version that does not exist and every
    * choice returns here. The action that exists belongs to the release.
    */
-  it('asserts nothing about age for a schema-unknown refusal', () => {
+  it('asserts nothing about age for a schema-unknown refusal', async () => {
     const { message } = schemaCopy('machine-schema-unknown', SCHEMA_UNKNOWN_DETAIL)
     expect(message).toMatch(/does not say which data it can open/i)
     expect(message).not.toMatch(/older/i)
@@ -1094,7 +1094,7 @@ describe('the error taxonomy', () => {
     expect(message).toMatch(/declares which data it can open/i)
   })
 
-  it('sends a schema-unreadable refusal to the database file, and only there', () => {
+  it('sends a schema-unreadable refusal to the database file, and only there', async () => {
     const { message } = schemaCopy('machine-schema-unreadable', SCHEMA_UNREADABLE_DETAIL)
     expect(message).toMatch(/could not read its own database/i)
     // It knows nothing about the target, so it must claim nothing about it.
@@ -1118,7 +1118,7 @@ describe('the error taxonomy', () => {
    * this test over the same list; between them, a token cannot exist on one
    * side only.
    */
-  it('answers every token the shared table can produce with a sentence and a code', () => {
+  it('answers every token the shared table can produce with a sentence and a code', async () => {
     expect(UPDATE_FAILURE_TOKENS.length).toBeGreaterThan(0)
     for (const token of UPDATE_FAILURE_TOKENS) {
       const code = CODE_FOR_UPDATE_FAILURE_TOKEN[token]
@@ -1146,7 +1146,7 @@ describe('the error taxonomy', () => {
    * them as "stopped responding, it will resume when it reconnects" is the
    * exact harm POD-2210 and POD-2240 both were.
    */
-  it('reserves the unreachable default for the machine that actually went quiet', () => {
+  it('reserves the unreachable default for the machine that actually went quiet', async () => {
     const unreachable = UPDATE_FAILURE_TOKENS.filter(
       (token) => CODE_FOR_UPDATE_FAILURE_TOKEN[token] === 'machine-unreachable',
     )
@@ -1166,7 +1166,7 @@ describe('the error taxonomy', () => {
    * apps/web has the mirror of this over its copy table, so a future arm cannot
    * reintroduce the sentence on either side alone.
    */
-  it('never tells the operator a machine that answered on purpose stopped responding', () => {
+  it('never tells the operator a machine that answered on purpose stopped responding', async () => {
     for (const token of UPDATE_FAILURE_TOKENS) {
       const code = CODE_FOR_UPDATE_FAILURE_TOKEN[token]
       if (code === 'machine-unreachable') continue
@@ -1181,7 +1181,7 @@ describe('the error taxonomy', () => {
     }
   })
 
-  it('quotes the publisher‘s public reason for a preparation failure', () => {
+  it('quotes the publisher‘s public reason for a preparation failure', async () => {
     const error = describeUpdateOperationFailure({
       code: 'preparation-failed',
       detail: 'The website has not been built for HEAD yet.',
@@ -1246,7 +1246,7 @@ interface HarnessOptions {
  * the wave planner, the grant protocol and the convergence bookkeeping are the
  * muscle this issue drives, so they are exercised rather than mocked.
  */
-function harness(options: HarnessOptions = {}) {
+async function harness(options: HarnessOptions = {}) {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
   const store = new OperationStore(syncQueriesOver(db))
@@ -1273,7 +1273,7 @@ function harness(options: HarnessOptions = {}) {
    * deadlocked a restart. A harness that cannot reproduce production's guards
    * cannot say no to a bug in them.
    */
-  const newUpdatesService = (
+  const newUpdatesService = async (
     driver: () => OperationEngine | undefined,
     seed?: UpdateTarget,
     seedProvided = false,
@@ -1291,10 +1291,10 @@ function harness(options: HarnessOptions = {}) {
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
     })
-    if (initialTarget) service.setTarget('dev', initialTarget)
+    if (initialTarget) await service.setTarget('dev', initialTarget)
     return service
   }
-  const updates = newUpdatesService(() => engine)
+  const updates = await newUpdatesService(() => engine)
 
   /** Deferred work the watchers schedule; drained explicitly, never slept on. */
   const scheduled: Array<() => void> = []
@@ -1393,20 +1393,20 @@ function harness(options: HarnessOptions = {}) {
      * one. This is the boundary reconciliation actually crosses: same store,
      * same fleet, nothing else.
      */
-    reboot(opts: { seedTarget?: UpdateTarget | undefined } = {}): {
+    async reboot(opts: { seedTarget?: UpdateTarget | undefined } = {}): Promise<{
       engine: OperationEngine
       updates: UpdatesService
       context: () => UpdateOperationContext
       setTargetChanged: (listener: (channel: UpdateChannel) => void) => void
-    } {
+    }> {
       const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
       // `seedTarget: undefined` is the honest shape of a successor that has not
       // published yet: `targets` is EMPTY across a restart, and pre-seeding it
       // is what hid POD-2228 from every adoption drill in this file.
       const nextUpdates =
         'seedTarget' in opts
-          ? newUpdatesService(() => nextEngine, opts.seedTarget, true)
-          : newUpdatesService(() => nextEngine)
+          ? await newUpdatesService(() => nextEngine, opts.seedTarget, true)
+          : await newUpdatesService(() => nextEngine)
       return {
         engine: nextEngine,
         updates: nextUpdates,
@@ -1425,7 +1425,7 @@ const stepState = (operation: Operation, id: string): string | undefined =>
 describe('the update operation, driven', () => {
   it('runs the plan in order and reaches its first blocking step', async () => {
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       requestCoordinatorRestart: restart,
@@ -1454,7 +1454,7 @@ describe('the update operation, driven', () => {
    * panel, which is the behaviour the whole spec is built around.
    */
   it('gives two concurrent starts one operation', async () => {
-    const h = harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
+    const h = await harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
     const [first, second] = await Promise.all([
       await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
       await h.engine.start(UPDATE_OPERATION_KIND, h.context()),
@@ -1467,7 +1467,7 @@ describe('the update operation, driven', () => {
   })
 
   it('keeps an all-in-one operation running on its ordinary machine step', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
       target: packedTarget(),
@@ -1482,7 +1482,7 @@ describe('the update operation, driven', () => {
   })
 
   it('does not turn a pending all-in-one machine grant into a desktop ask', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
       hostMachineId: 'macbook',
       target: packedTarget(),
@@ -1499,7 +1499,7 @@ describe('the update operation, driven', () => {
    * framework's answer. The wave updated the fleet; a browser tab that never
    * reloaded is not a reason to call that a failure.
    */
-  it('still completes a plan whose steps succeeded, whatever went unanswered', () => {
+  it('still completes a plan whose steps succeeded, whatever went unanswered', async () => {
     const asked = (steps: Operation['steps']): Operation =>
       ({
         steps,
@@ -1524,7 +1524,7 @@ describe('the update operation, driven', () => {
   })
 
   it('completes rather than waiting on a voluntary reload ask', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1550,7 +1550,7 @@ describe('the step runners', () => {
     // A machine that can only take a bundle is what makes a pack necessary at
     // all (POD-2195); with nobody needing one the plan would not contain the
     // step this test is about.
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
@@ -1573,7 +1573,7 @@ describe('the step runners', () => {
 
   it('prepare: does nothing at all when the package already exists', async () => {
     const requestDestBundle = vi.fn(() => Promise.resolve())
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1590,7 +1590,7 @@ describe('the step runners', () => {
     const refusal = Object.assign(new Error('internal diagnostic with paths'), {
       publicReason: 'The website has not been built for HEAD (abc1234) yet.',
     })
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
@@ -1611,7 +1611,7 @@ describe('the step runners', () => {
     const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-17'
     const createDatabaseSnapshot = vi.fn(() => snapshotPath)
     const seen: Array<{ state: string; snapshotPath: unknown }> = []
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1632,7 +1632,7 @@ describe('the step runners', () => {
 
   it('server: places the exact installed target before snapshot and restart', async () => {
     const order: string[] = []
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1657,7 +1657,7 @@ describe('the step runners', () => {
   it('server: fails without snapshot or restart when exact-target delivery fails', async () => {
     const snapshot = vi.fn(() => '/state/podium.db.backup')
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1681,7 +1681,7 @@ describe('the step runners', () => {
   it('server: records an unreachable published artifact as permanent', async () => {
     const snapshot = vi.fn(() => '/state/podium.db.backup')
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1707,7 +1707,7 @@ describe('the step runners', () => {
 
   it('server: fails closed without requesting restart when the snapshot fails', async () => {
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1735,7 +1735,7 @@ describe('the step runners', () => {
     const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-28'
     const order: string[] = []
     const sync = vi.fn(() => '/state/podium.db.sync-path')
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1763,7 +1763,7 @@ describe('the step runners', () => {
 
   it('server: a verification timeout leaves the old server running', async () => {
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1788,7 +1788,7 @@ describe('the step runners', () => {
 
   it('server: a corrupt snapshot leaves the old server running', async () => {
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1813,7 +1813,7 @@ describe('the step runners', () => {
     // full backup scan. No server step, no verifier — not even a slow one.
     const prepare = vi.fn(async () => ({ ok: true as const, path: '/state/x' }))
     const latest = vi.fn(() => undefined)
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', version: '0.4.0' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1829,7 +1829,7 @@ describe('the step runners', () => {
 
   it('server: a server already on the target does not restart', async () => {
     const restart = vi.fn()
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1847,7 +1847,7 @@ describe('the step runners', () => {
     const requestWebRebuild = vi.fn(() => {
       /* the builder is asynchronous; the stamp flips below */
     })
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1871,7 +1871,7 @@ describe('the step runners', () => {
   })
 
   it('web: a failed build is a typed failure, not an indefinite wait', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1894,7 +1894,7 @@ describe('the step runners', () => {
   })
 
   it('machines: a rejected machine fails the operation with a typed, named error', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -1935,7 +1935,7 @@ describe('the step runners', () => {
    */
   it('machines: a packaged crash after grant replacement remains a failed operation', async () => {
     const target = packedTarget()
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target,
       appVersion: 'dev+abc1234',
@@ -1991,7 +1991,7 @@ describe('the step runners', () => {
   it('server: settles a packaged all-in-one rollback before target resolution', async () => {
     const target = packedTarget()
     const fleet = [machine({ id: 'podium', name: 'podium' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target,
       appVersion: '0.4.1',
@@ -2006,7 +2006,7 @@ describe('the step runners', () => {
     h.engine.stop()
 
     fleet.length = 0
-    const boot = h.reboot({ seedTarget: undefined })
+    const boot = await h.reboot({ seedTarget: undefined })
     await boot.engine.adoptOnBoot(
       () => ({
         appVersion: '0.4.1',
@@ -2041,7 +2041,7 @@ describe('the step runners', () => {
     expect((await h.read()).state).toBe('running')
     fleet.push(machine({ id: 'podium', name: 'podium' }))
 
-    boot.updates.setTarget('dev', target)
+    await boot.updates.setTarget('dev', target)
     await boot.engine.whenSettled('op_1')
 
     const operation = await h.read()
@@ -2058,7 +2058,7 @@ describe('the step runners', () => {
 
   it('machines: carries the recorded snapshot into schema-advanced failure copy', async () => {
     const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2107,7 +2107,7 @@ describe('the step runners', () => {
    * granting nobody would satisfy a weaker one.
    */
   it('machines: a new operation asks a machine that refused an earlier one again', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2151,7 +2151,7 @@ describe('the step runners', () => {
    * that was told about it.
    */
   it('machines: refusing the retry fails it, after exactly one new grant', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2215,7 +2215,7 @@ describe('the step runners', () => {
       machine({ id: 'vmi', name: 'vmi3407763' }),
       machine({ id: 'laptop', online: false }),
     ]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2260,7 +2260,7 @@ describe('the step runners', () => {
    * next operation meets is the state a real cancel leaves behind.
    */
   it('machines: an operation started after a cancel asks the stuck machine again', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2295,7 +2295,7 @@ describe('the step runners', () => {
    * A machine that can take a feed is not handed one to refuse.
    */
   it('machines: waits for the package when no awaited machine can take the identity', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi' })],
       target: identityTarget(),
       appVersion: 'dev+abc1234',
@@ -2318,7 +2318,7 @@ describe('the step runners', () => {
 
   it('machines: a daemon reporting the target advances the step to done', async () => {
     const fleet = [machine({ id: 'vmi' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2349,7 +2349,7 @@ describe('surviving the coordinator restart', () => {
    * NEW engine over the same store adopts it against successor reality.
    */
   async function killAfterServerStep(appVersion: string) {
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -2389,7 +2389,7 @@ describe('surviving the coordinator restart', () => {
 
   it('adopts across a restart that happened mid-wave and finishes the wave', async () => {
     const fleet = [machine({ id: 'vmi' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2416,7 +2416,7 @@ describe('surviving the coordinator restart', () => {
 
   /** Simulate parent self-handover while retaining the same fleet operation. */
   async function restartAllInOneAt(appVersion: string) {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
       target: packedTarget(),
@@ -2477,7 +2477,7 @@ describe('surviving the coordinator restart', () => {
    */
   it('re-drives the wave when the daemons reconnect, instead of waiting out the stall', async () => {
     const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2497,7 +2497,7 @@ describe('surviving the coordinator restart', () => {
     // The coordinator restarts. The daemon gateway is not listening yet, so the
     // machine directory this boot reads says everyone is unreachable.
     fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
-    const boot = h.reboot()
+    const boot = await h.reboot()
     const sentBefore = h.sent.length
     await boot.engine.adoptOnBoot(
       () => ({
@@ -2539,7 +2539,7 @@ describe('surviving the coordinator restart', () => {
    * a failure is never a dead end; §7 says it names itself and the next action.
    */
   it('fails the update with the configuration remedy instead of waiting for a package', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi' })],
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
@@ -2588,12 +2588,12 @@ describe('surviving the coordinator restart', () => {
     // whole point: after the restart that is the successor, with no memory.
     let publisher: UpdatesService | undefined
     const packed = packedTarget()
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
       requestDestBundle: async () => {
-        publisher?.setTarget('dev', packed)
+        await publisher?.setTarget('dev', packed)
       },
     })
     publisher = h.updates
@@ -2604,7 +2604,7 @@ describe('surviving the coordinator restart', () => {
     h.engine.stop()
     const sentBefore = h.sent.length
 
-    const boot = h.reboot({ seedTarget: undefined })
+    const boot = await h.reboot({ seedTarget: undefined })
     publisher = boot.updates
     await boot.engine.adoptOnBoot(
       () => ({
@@ -2656,30 +2656,30 @@ describe('a version published mid-operation', () => {
     return { updates, sent }
   }
 
-  it('queues a NEW version instead of mutating the running wave', () => {
+  it('queues a NEW version instead of mutating the running wave', async () => {
     let running = false
     const { updates } = service(() => running)
-    updates.setTarget('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
     expect(updates.target('dev')?.version).toBe('0.4.3')
 
     updates.authorize('dev')
     running = true
-    updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     // The running wave is untouched…
     expect(updates.target('dev')?.version).toBe('0.4.3')
     // …and the newcomer is waiting its turn, visibly.
     expect(updates.nextTarget('dev')?.version).toBe('0.4.4')
   })
 
-  it('publishes the queued version when the operation terminates, as an OFFER', () => {
+  it('publishes the queued version when the operation terminates, as an OFFER', async () => {
     let running = false
     const { updates, sent } = service(() => running)
-    updates.setTarget('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
     updates.authorize('dev')
     const grantsBefore = sent.length
 
     running = true
-    updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     running = false
     expect(updates.publishNextTargets()).toEqual(['dev'])
 
@@ -2694,12 +2694,12 @@ describe('a version published mid-operation', () => {
    * acquiring the tarball it is about to deliver. It is the SAME version, and
    * the running operation is waiting for exactly those bytes.
    */
-  it('lets the same version gain its packed artifact mid-operation', () => {
+  it('lets the same version gain its packed artifact mid-operation', async () => {
     let running = false
     const { updates } = service(() => running)
-    updates.setTarget('dev', devTarget())
+    await updates.setTarget('dev', devTarget())
     running = true
-    updates.setTarget('dev', packedTarget())
+    await updates.setTarget('dev', packedTarget())
     expect(updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
@@ -2714,24 +2714,24 @@ describe('a version published mid-operation', () => {
    * was blocked for everyone else until a human cancelled it. The operation
    * knows the version it is delivering; that is the fact the guard must ask.
    */
-  it('lets an ADOPTED operation gain its packed artifact with nothing in memory', () => {
+  it('lets an ADOPTED operation gain its packed artifact with nothing in memory', async () => {
     const { updates } = service(
       () => true,
       () => 'dev+abc1234',
     )
     expect(updates.target('dev')).toBeUndefined()
-    updates.setTarget('dev', packedTarget())
+    await updates.setTarget('dev', packedTarget())
     expect(updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
 
   /** …and a version the running operation is NOT delivering is still queued. */
-  it('still queues a version the running operation is not delivering', () => {
+  it('still queues a version the running operation is not delivering', async () => {
     const { updates } = service(
       () => true,
       () => 'dev+abc1234',
     )
-    updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     expect(updates.target('dev')).toBeUndefined()
     expect(updates.nextTarget('dev')?.version).toBe('0.4.4')
   })
@@ -2741,19 +2741,19 @@ describe('a version published mid-operation', () => {
    * tick an authorized wave, which made publishing a way to start granting.
    * Sequencing belongs to the operation now.
    */
-  it('does not grant anything just because a descriptor was re-published', () => {
+  it('does not grant anything just because a descriptor was re-published', async () => {
     const { updates, sent } = service(() => false)
-    updates.setTarget('dev', devTarget())
+    await updates.setTarget('dev', devTarget())
     updates.markAuthorized('dev')
     const before = sent.length
-    updates.setTarget('dev', packedTarget())
+    await updates.setTarget('dev', packedTarget())
     expect(sent.length).toBe(before)
   })
 
-  it('drops a queued version for a channel that can no longer advertise one', () => {
+  it('drops a queued version for a channel that can no longer advertise one', async () => {
     const { updates } = service(() => true)
-    updates.setTarget('dev', devTarget({ version: '0.4.3' }))
-    updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
+    await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     expect(updates.nextTarget('dev')).toBeDefined()
     updates.setTargetUnavailable('dev', 'nothing published for this commit')
     expect(updates.nextTarget('dev')).toBeUndefined()
@@ -2762,7 +2762,7 @@ describe('a version published mid-operation', () => {
 
 describe('the fleet bridge', () => {
   it('is silent when no update operation is running', async () => {
-    const h = harness()
+    const h = await harness()
     const recordProgress = vi.fn(() => Promise.resolve())
     const admitDeferred = vi.fn(() => Promise.resolve())
     await createUpdateFleetBridge({
@@ -2782,7 +2782,7 @@ describe('the fleet bridge', () => {
   })
 
   it('stamps the heartbeat on every accepted fleet event', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2823,7 +2823,7 @@ describe('the fleet bridge', () => {
    */
   it('admits a deferred machine that reconnects while the wave is still running', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2878,7 +2878,7 @@ describe('the fleet bridge', () => {
       machine({ id: 'vps' }),
       machine({ id: 'laptop', online: false }),
     ]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2925,7 +2925,7 @@ describe('the fleet bridge', () => {
     // laptop wakes up: that is what puts the finished-STEP guard under test
     // rather than the terminal-OPERATION one, which would refuse for a reason
     // this case is not about.
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -2956,7 +2956,7 @@ describe('the fleet bridge', () => {
   /** Crash supervision does not change ownership of a deferred fleet payload. */
   it('admits a reconnected machine after it becomes desktop-supervised', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -2987,7 +2987,7 @@ describe('the fleet bridge', () => {
    */
   it('waves the online machines and defers the sleeping one without holding the operation open', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -3011,7 +3011,7 @@ describe('the fleet bridge', () => {
       machine({ id: 'vmi', name: 'vmi3407763' }),
       machine({ id: 'laptop', online: false }),
     ]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -3054,9 +3054,9 @@ describe('the fleet bridge', () => {
    * nothing. It is told instead, and converges on the current target as
    * ordinary work.
    */
-  it('tells a deferred machine its target was superseded rather than granting it another version', () => {
+  it('tells a deferred machine its target was superseded rather than granting it another version', async () => {
     const fleet = [machine({ id: 'laptop' })]
-    const h = harness({ machines: fleet, target: packedTarget() })
+    const h = await harness({ machines: fleet, target: packedTarget() })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3072,7 +3072,7 @@ describe('the fleet bridge', () => {
 
     // A newer release is published while it was away, and retention will sweep
     // the one this operation planned.
-    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
 
     expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
@@ -3080,10 +3080,10 @@ describe('the fleet bridge', () => {
     ])
   })
 
-  it('restates a superseded deferred reason once, not on every fleet event', () => {
-    const h = harness({ machines: [machine({ id: 'laptop' })], target: packedTarget() })
+  it('restates a superseded deferred reason once, not on every fleet event', async () => {
+    const h = await harness({ machines: [machine({ id: 'laptop' })], target: packedTarget() })
     const details = { target: packedTarget(), channel: 'dev' as const }
-    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
     const restated = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3108,7 +3108,7 @@ describe('the fleet bridge', () => {
    */
   it('restates an all-offline update promise once a newer target supersedes it', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3131,7 +3131,7 @@ describe('the fleet bridge', () => {
     h.setTargetChanged(() => bridge.onTargetChanged())
 
     // Retention will sweep this operation's tarballs under the ordinary window.
-    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([
@@ -3165,7 +3165,7 @@ describe('the fleet bridge', () => {
    */
   it('restates a stale promise on an older retained operation, not just the newest', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3196,7 +3196,7 @@ describe('the fleet bridge', () => {
     h.setTargetChanged(() => bridge.onTargetChanged())
 
     h.clock.advance(5_000)
-    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
     await h.engine.whenSettled('op_1')
     await h.engine.whenSettled('op_2')
 
@@ -3212,7 +3212,7 @@ describe('the fleet bridge', () => {
 
   it('restates the same promise as unavailable when the channel is withdrawn instead', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3240,7 +3240,7 @@ describe('the fleet bridge', () => {
 
   it("leaves the promise alone while the operation's own target is still the published one", async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3258,15 +3258,15 @@ describe('the fleet bridge', () => {
 
     // A re-resolve of the SAME version also fires the target hook. The machine
     // really will update when it reconnects, so the note must not be touched.
-    h.updates.setTarget('dev', packedTarget())
+    await h.updates.setTarget('dev', packedTarget())
     await h.engine.whenSettled('op_1')
 
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  it('refuses to admit a deferred place while the channel is offering nothing', () => {
+  it('refuses to admit a deferred place while the channel is offering nothing', async () => {
     const fleet = [machine({ id: 'laptop' })]
-    const h = harness({ machines: fleet, target: packedTarget() })
+    const h = await harness({ machines: fleet, target: packedTarget() })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3283,9 +3283,9 @@ describe('the fleet bridge', () => {
     ])
   })
 
-  it('does not re-admit a source checkout from a persisted deferred place', () => {
+  it('does not re-admit a source checkout from a persisted deferred place', async () => {
     const fleet = [machine({ id: 'source', installKind: 'source' })]
-    const h = harness({ machines: fleet })
+    const h = await harness({ machines: fleet })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3303,9 +3303,9 @@ describe('the fleet bridge', () => {
    * Supervision is equally irrelevant here: it describes the process owner, not
    * the external payload's delivery eligibility.
    */
-  it('admits a supervised daemon when a target offers no delivery filter yet', () => {
+  it('admits a supervised daemon when a target offers no delivery filter yet', async () => {
     const fleet = [machine({ id: 'laptop', supervised: true })]
-    const h = harness({ machines: fleet })
+    const h = await harness({ machines: fleet })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3322,7 +3322,7 @@ describe('the fleet bridge', () => {
 
 describe('§3.2 the cancel boundary', () => {
   it('allows cancel while the wave is the step in flight', async () => {
-    const h = harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
+    const h = await harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
@@ -3330,7 +3330,7 @@ describe('§3.2 the cancel boundary', () => {
   })
 
   it('refuses cancel from the server swap onward', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -3348,7 +3348,7 @@ describe('§3.2 the cancel boundary', () => {
 })
 
 describe('the exclusion group', () => {
-  it('is the one a server move will join, not one per kind', () => {
+  it('is the one a server move will join, not one per kind', async () => {
     expect(updateOperationKind().exclusionGroup).toBe(LIFECYCLE_EXCLUSION_GROUP)
     expect(LIFECYCLE_EXCLUSION_GROUP).toBe('lifecycle')
   })
@@ -3368,14 +3368,14 @@ describe('the budgets nest', () => {
   const web = UPDATE_STEP_DEADLINES[UPDATE_STEP_WEB]
   const server = UPDATE_STEP_DEADLINES[UPDATE_STEP_SERVER]
 
-  it('lets a daemon fail on its OWN deadline before the coordinator gives up on it', () => {
+  it('lets a daemon fail on its OWN deadline before the coordinator gives up on it', async () => {
     // Otherwise the machine's real reason — a dead remote, a refused checkout —
     // is replaced by the coordinator's guess that it went quiet.
     expect(UPDATE_BUDGETS.downloadTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
     expect(UPDATE_BUDGETS.machineDeliverySilenceMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
 
-  it('measures the wave against the LONGEST legitimate silence, not the cadence', () => {
+  it('measures the wave against the LONGEST legitimate silence, not the cadence', async () => {
     // A daemon that predates `percent` reports `downloading` once and works in
     // silence for its whole budget. Judging the step on the heartbeat cadence
     // would stall and re-grant that machine mid-transfer, every time.
@@ -3385,14 +3385,14 @@ describe('the budgets nest', () => {
     expect(UPDATE_BUDGETS.downloadHeartbeatMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
 
-  it('keeps every silence budget inside its own step total', () => {
+  it('keeps every silence budget inside its own step total', async () => {
     for (const budget of [machines, prepare, web, server]) {
       if (budget?.silenceMs === undefined || budget.totalMs === undefined) continue
       expect(budget.silenceMs).toBeLessThan(budget.totalMs)
     }
   })
 
-  it('beats faster than the panel calls a step stale', () => {
+  it('beats faster than the panel calls a step stale', async () => {
     // The panel's threshold is sixty seconds (POD-2102); four beats inside it
     // means one lost tick never reads as trouble.
     expect(STEP_HEARTBEAT_INTERVAL_MS).toBeLessThanOrEqual(60_000 / 4)
@@ -3406,7 +3406,7 @@ describe('a step that hands work off still says it is there', () => {
   it('prepare: heartbeats with elapsed time while the pack runs', async () => {
     // A pack is quiet for minutes; the panel calls sixty seconds of quiet
     // trouble. Both were true before this, which is why it said "stuck".
-    const h = harness({ requestDestBundle: () => new Promise(() => {}) })
+    const h = await harness({ requestDestBundle: () => new Promise(() => {}) })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const before =
@@ -3424,7 +3424,7 @@ describe('a step that hands work off still says it is there', () => {
 
   it('prepare: says nothing more once the pack has answered', async () => {
     let settle = (): void => {}
-    const h = harness({
+    const h = await harness({
       requestDestBundle: () => new Promise<void>((resolve) => (settle = resolve)),
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
@@ -3447,7 +3447,7 @@ describe('a step that hands work off still says it is there', () => {
   })
 
   it('web: heartbeats with elapsed time while the rebuild runs', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3477,8 +3477,8 @@ describe('a step that hands work off still says it is there', () => {
  * sequence would have produced exactly nothing.
  */
 describe('a silent grant, with nobody watching', () => {
-  const silentWave = () =>
-    harness({
+  const silentWave = async () =>
+    await harness({
       machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3487,7 +3487,7 @@ describe('a silent grant, with nobody watching', () => {
   const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0
 
   it('stalls visibly, re-issues the grant once, then fails', async () => {
-    const h = silentWave()
+    const h = await silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(h.sent).toHaveLength(1)
@@ -3522,7 +3522,7 @@ describe('a silent grant, with nobody watching', () => {
   })
 
   it('a heartbeat re-arms the deadline, so a slow download is not a stalled one', async () => {
-    const h = silentWave()
+    const h = await silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const bridge = createUpdateFleetBridge({
@@ -3554,7 +3554,7 @@ describe('a silent grant, with nobody watching', () => {
   })
 
   it('drops the percentage from a place that is no longer moving', async () => {
-    const h = silentWave()
+    const h = await silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const bridge = createUpdateFleetBridge({
@@ -3589,7 +3589,7 @@ describe('a silent grant, with nobody watching', () => {
 
 it('stays closed before the canary handover reconnects and widens after it does', async () => {
   const fleet = [machine({ id: 'a-canary' }), machine({ id: 'b' })]
-  const h = harness({
+  const h = await harness({
     machines: fleet,
     target: packedTarget(),
     appVersion: 'dev+abc1234',
@@ -3646,7 +3646,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
  */
 describe('two machines, one of them dead', () => {
   const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0
-  const machinesStep = async (h: ReturnType<typeof harness>) =>
+  const machinesStep = async (h: Awaited<ReturnType<typeof harness>>) =>
     (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
 
   /**
@@ -3655,13 +3655,13 @@ describe('two machines, one of them dead', () => {
    * converges, then `busy` and `silent` are granted together — the shape the
    * whole defect lives in.
    */
-  const trio = () => {
+  const trio = async () => {
     const fleet = [
       machine({ id: 'a-canary', name: 'macbook' }),
       machine({ id: 'busy', name: 'ludovico' }),
       machine({ id: 'silent', name: 'vmi3407763' }),
     ]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3719,7 +3719,7 @@ describe('two machines, one of them dead', () => {
 
   /** One machine reports a fresh percentage; the others say nothing, ever. */
   const reports = (
-    h: ReturnType<typeof harness>,
+    h: Awaited<ReturnType<typeof harness>>,
     bridge: { onFleetChanged: () => void },
     id: string,
     percent: number,
@@ -3734,13 +3734,13 @@ describe('two machines, one of them dead', () => {
     bridge.onFleetChanged()
   }
   const busyReports = (
-    h: ReturnType<typeof harness>,
+    h: Awaited<ReturnType<typeof harness>>,
     bridge: { onFleetChanged: () => void },
     percent: number,
   ) => reports(h, bridge, 'busy', percent)
 
   it('stalls on the silent one while the other is still talking', async () => {
-    const h = trio()
+    const h = await trio()
     await h.openTheWave()
     // The canary, then both of the others: two machines in flight at once.
     expect(grantedMachines(h)).toEqual(['a-canary', 'busy', 'silent'])
@@ -3775,7 +3775,7 @@ describe('two machines, one of them dead', () => {
   })
 
   it('gives the retry its own window instead of failing it on inherited silence', async () => {
-    const h = trio()
+    const h = await trio()
     await h.openTheWave()
     const bridge = h.bridge
 
@@ -3797,7 +3797,7 @@ describe('two machines, one of them dead', () => {
   })
 
   it('fails naming the machine that stopped, and not the one that was fine', async () => {
-    const h = trio()
+    const h = await trio()
     await h.openTheWave()
     const bridge = h.bridge
 
@@ -3831,7 +3831,7 @@ describe('two machines, one of them dead', () => {
       machine({ id: 'd' }),
       machine({ id: 'waiting' }),
     ]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3885,7 +3885,7 @@ describe('two machines, one of them dead', () => {
 describe('a machine that says why, and then goes quiet', () => {
   const dirtyThenGone = async (order: 'reported first' | 'both at once') => {
     const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3947,7 +3947,7 @@ describe('a machine that says why, and then goes quiet', () => {
    */
   it('survives the coordinator restart, where no daemon is connected at all', async () => {
     const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
-    const h = harness({
+    const h = await harness({
       machines: fleet,
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -3981,7 +3981,7 @@ describe('a machine that says why, and then goes quiet', () => {
     // Nobody is connected: `adoptOnBoot` is awaited before the daemon gateway
     // listens, so this is the whole fleet as the successor can see it.
     fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
-    const boot = h.reboot()
+    const boot = await h.reboot()
     await boot.engine.adoptOnBoot(
       () => ({
         appVersion: 'dev+abc1234',
@@ -4009,9 +4009,9 @@ describe('a machine that says why, and then goes quiet', () => {
  * `engine.stop()` had no way to sweep, because the timer belongs to the kind.
  */
 describe('the web rebuild watcher stops when its step does', () => {
-  const stuckRebuild = () => {
+  const stuckRebuild = async () => {
     let reads = 0
-    const h = harness({
+    const h = await harness({
       machines: [],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
@@ -4028,7 +4028,7 @@ describe('the web rebuild watcher stops when its step does', () => {
   }
 
   it('polls no more once the step has failed, watchers and retry alike', async () => {
-    const { h, reads } = stuckRebuild()
+    const { h, reads } = await stuckRebuild()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(stepState(await h.read(), UPDATE_STEP_WEB)).toBe('running')
@@ -4055,7 +4055,7 @@ describe('the web rebuild watcher stops when its step does', () => {
   it('is still watching while the step is genuinely in flight', async () => {
     // The guard must not be a watcher that never runs: a live step keeps
     // polling, which is the behaviour the exit condition has to leave alone.
-    const { h, reads } = stuckRebuild()
+    const { h, reads } = await stuckRebuild()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const before = reads()
@@ -4166,8 +4166,8 @@ describe('the wave rounds an update writes down', () => {
     machine({ id: 'fleet-a', name: 'fleet-a' }),
     machine({ id: 'fleet-b', name: 'fleet-b' }),
   ]
-  const waveHarness = (fleet: WaveMachine[]) =>
-    harness({
+  const waveHarness = async (fleet: WaveMachine[]) =>
+    await harness({
       machines: fleet,
       target: packedTarget(),
       // The coordinator is already at the target, so this plan is the wave and
@@ -4178,7 +4178,7 @@ describe('the wave rounds an update writes down', () => {
   const rounds = (operation: Operation) => updateOperationDetails(operation)?.waveRounds
 
   it('records the canary round: one machine granted, the other held for it', async () => {
-    const h = waveHarness(twoMachines())
+    const h = await waveHarness(twoMachines())
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
@@ -4200,7 +4200,7 @@ describe('the wave rounds an update writes down', () => {
    */
   it('records the widening round after the canary proves the bundle', async () => {
     const fleet = twoMachines()
-    const h = waveHarness(fleet)
+    const h = await waveHarness(fleet)
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
@@ -4230,7 +4230,7 @@ describe('the wave rounds an update writes down', () => {
    */
   it('keeps the rounds the dead process recorded when a successor adopts the wave', async () => {
     const fleet = twoMachines()
-    const h = waveHarness(fleet)
+    const h = await waveHarness(fleet)
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const before = rounds(await h.read())
@@ -4240,7 +4240,7 @@ describe('the wave rounds an update writes down', () => {
     // A whole new process: same store, same fleet, a service that remembers
     // nothing — and the canary has come back on the target meanwhile.
     fleet[0] = machine({ id: 'fleet-a', name: 'fleet-a', version: 'dev+abc1234' })
-    const boot = h.reboot()
+    const boot = await h.reboot()
     expect(boot.updates.waveRounds('dev')).toEqual([])
     await boot.engine.adoptOnBoot(
       () => ({
@@ -4273,7 +4273,7 @@ describe('the wave rounds an update writes down', () => {
    * identical, because a re-run grants the same machines in the same order. Two
    * scopes keep them apart, and both are asked here.
    */
-  it('takes only the rounds that belong to this operation', () => {
+  it('takes only the rounds that belong to this operation', async () => {
     const round = (over: Partial<WaveRound>): WaveRound => ({
       at: 100,
       gate: 'canary',
