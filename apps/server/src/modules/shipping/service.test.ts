@@ -2331,9 +2331,12 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
  * while the only implementation is async, so `if (!lease.renew())` negated a
  * promise — always false — and every boundary was told the lease was still held.
  *
- * Driven directly rather than through a full order run, because a run reaches the
- * boundary only via the store; these assert the refusal itself, and each one goes
- * red if the `await` in front of `lease.renew()` is removed.
+ * TWO LEVELS, and both are needed. The method's own tests fix its contract. The
+ * `runEffect` tests below fix the CALLER side, which the compiler cannot: the
+ * narrowed port stops an implementation being synchronous, but negating a promise
+ * is legal at every type, so a caller that drops the `await` still compiles
+ * [POD-3221 rule 52b, as amended]. Each test here goes red when the `await` at
+ * the boundary it covers is removed.
  */
 describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
   const liveLease = (renew: ResourceLease['renew']): ResourceLease => ({
@@ -2396,6 +2399,157 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
 
     expect(await service.renewResourceLease(lease)).toBe(false)
     expect(renews).toBe(0)
+    service.dispose()
+  })
+
+  /**
+   * THE TWO BOUNDARIES INSIDE `runEffect`, driven against stub ports rather than
+   * through a full order run: a run reaches them only via the store, and what is
+   * under test is the branch, not the route to it. The order/attempt/issue and the
+   * policy profile are only as complete as `jobInput` needs to BUILD — so that a
+   * dropped `await` fails on the assertion below rather than on a stub the correct
+   * path never reaches.
+   */
+  const runEffectHarness = () => {
+    const audits: { kind: string; payload: Record<string, unknown> }[] = []
+    const order = {
+      id: asShipOrderId('order-1'),
+      issueId: 'iss_boundary',
+      state: 'landing',
+      repoId: 'repo_boundary',
+      targetBranch: 'main',
+      destination: 'main',
+      policyId: 'policy-1',
+      approvedBaseSha: 'base-sha',
+      approvedHeadSha: 'head-sha',
+    }
+    const attempt = {
+      id: 'attempt-1',
+      leaseGeneration: 3,
+      machineId: asMachineId('machine-1'),
+      expectedTargetSha: 'target-sha',
+      expectedSourceBaseSha: 'base-sha',
+      approvedHeadSha: 'head-sha',
+    }
+    const issue = { id: 'iss_boundary', repoPath: '/repo', branch: 'issue/boundary' } as IssueWire
+    // Echoes the request it was given, so the post-effect authority fence passes
+    // and the test can reach the second boundary. `running` keeps the effect from
+    // committing anything afterwards.
+    const shippingJob = vi.fn(
+      async (request: { orderId: string; requestDigest: string; operation: string }) => ({
+        orderId: request.orderId,
+        requestDigest: request.requestDigest,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        operation: request.operation,
+        machineId: attempt.machineId,
+        artifactRefs: [],
+        state: 'running',
+      }),
+    )
+    const service = new ShippingService({
+      repository: {
+        repairCandidatesForAttempt: async () => [],
+        latestStepForEffect: async () => ({
+          state: 'running',
+          startedAt: '2026-09-06T00:00:00.000Z',
+        }),
+        hasCancellationIntent: async () => false,
+        assertEffectDispatchCustody: async () => {},
+        trainManifestForAttempt: async () => null,
+      },
+      issues: { get: async () => issue },
+      ledger: {},
+      daemon: { shippingJob },
+      authorization: { reauthorize: async () => {} },
+      evidence: {},
+      policy: {
+        resolve: async () => ({
+          id: 'policy-1',
+          validationProfile: {
+            id: 'profile-1',
+            argv: ['true'],
+            cwd: '/repo',
+            timeoutMs: 1_000,
+            resourceLocks: [],
+          },
+        }),
+      },
+      machineFor: () => asMachineId('machine-1'),
+      resolveBranchTip: async () => 'head-sha',
+      resolveRefTip: async () => 'target-sha',
+      isAncestor: async () => true,
+      audit: (kind: string, _issueId: unknown, payload: Record<string, unknown>) =>
+        audits.push({ kind, payload }),
+      background: false,
+    } as unknown as ConstructorParameters<typeof ShippingService>[0])
+    const runEffect = (lease: ResourceLease) =>
+      (
+        service as unknown as {
+          runEffect(
+            order: unknown,
+            attempt: unknown,
+            issue: IssueWire,
+            operation: ShippingJobResult['operation'],
+            nextState: undefined,
+            resourceLease: ResourceLease,
+          ): Promise<unknown>
+        }
+      ).runEffect(order, attempt, issue, 'commit-merge-group', undefined, lease)
+    return { service, shippingJob, audits, runEffect }
+  }
+
+  it('refuses to dispatch the effect when the renewal before dispatch resolves false', async () => {
+    const { service, shippingJob, audits, runEffect } = runEffectHarness()
+    const lease = liveLease(async () => false)
+
+    const result = await runEffect(lease)
+
+    expect(shippingJob).not.toHaveBeenCalled()
+    expect(result).toBeNull()
+    expect(lease.lost).toBe(true)
+    expect(audits).toEqual([
+      {
+        kind: 'shipping.resource_lease_lost',
+        payload: expect.objectContaining({
+          boundary: 'before-dispatch',
+          operation: 'commit-merge-group',
+        }),
+      },
+    ])
+    service.dispose()
+  })
+
+  /**
+   * The SECOND boundary, after the daemon effect and before durable progress. It
+   * needs its own case because the first one returns early: a lease that is still
+   * held at dispatch and lost by the time the effect lands is exactly the window
+   * this check exists for, and the audit is how the refusal is observable — the
+   * `running` result would return null either way.
+   */
+  it('refuses durable progress when the renewal after the effect resolves false', async () => {
+    const { service, shippingJob, audits, runEffect } = runEffectHarness()
+    let renews = 0
+    const lease = liveLease(async () => {
+      renews += 1
+      return renews === 1
+    })
+
+    const result = await runEffect(lease)
+
+    expect(shippingJob).toHaveBeenCalledTimes(1)
+    expect(renews).toBe(2)
+    expect(result).toBeNull()
+    expect(lease.lost).toBe(true)
+    expect(audits).toEqual([
+      {
+        kind: 'shipping.resource_lease_lost',
+        payload: expect.objectContaining({
+          boundary: 'after-effect',
+          operation: 'commit-merge-group',
+        }),
+      },
+    ])
     service.dispose()
   })
 })
