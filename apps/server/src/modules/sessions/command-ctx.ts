@@ -153,7 +153,7 @@ export async function sessionCommandCtx(
 export async function visibleMachinesFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
-): Promise<ReturnType<RegistryModules['machines']['listMachines']>> {
+): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
   return await machinesForPrincipal(
     modules,
     resolvePrincipal(capability, { parentSessionOf: () => undefined }),
