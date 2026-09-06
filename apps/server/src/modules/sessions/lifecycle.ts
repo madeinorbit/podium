@@ -708,7 +708,7 @@ export class SessionLifecycle {
     return await this.sessionRevival.handoffSession(input, caller, issues)
   }
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
-  machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
+  machineUseGate: (caller: HandoffCaller) => AssertMachineUse | Promise<AssertMachineUse> = async (caller) =>
     machineUseGateFor({
       principal: await resolvePrincipalAsync(caller.capability, {
         // POD-381's delegation index, read from live rows: an agent's chain is
