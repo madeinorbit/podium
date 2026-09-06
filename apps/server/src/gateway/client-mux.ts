@@ -38,7 +38,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, UserId, UserRole } from '@podium/model'
+import type { MachineWire, SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -117,6 +117,7 @@ export interface ClientTransport {
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
   userRole?: UserRole
+  machines?: readonly MachineWire[]
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
@@ -236,7 +237,7 @@ export class ClientMux {
     // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
     // value rather than a client-chosen one.
     this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
-    this.deps.ports.sessions.onClientAttached(conn.principal, conn)
+    this.deps.ports.sessions.onClientAttached(conn.principal, conn, transport.machines ?? [])
     this.deps.bootstrap(conn)
     // THE FEED, LAST, and at wire 1 without the delta capability — because that
     // is everything this server honestly knows about a socket that has not spoken

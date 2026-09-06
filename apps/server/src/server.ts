@@ -72,7 +72,7 @@ import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
   createDaemonAcceptor,
-  receiveDaemonFrame,
+  prepareDaemonFrame,
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
@@ -847,7 +847,7 @@ export async function startServer(
     proposalRunningVersion: appVersion,
     ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     artifactToken: devArtifactToken,
-    setTarget: (target) => registry.modules.updates.setTarget(target),
+    setTarget: async (target) => await registry.modules.updates.setTargetFromProducer(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
     // The publish handoff (spec §6 step 4). Publisher and updater share this
     // process on a source host, so "go and pull what I just wrote" is a call.
@@ -1423,7 +1423,7 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        validateClientCredential: async (credentialId) =>
+        maintainClientCredential: async (credentialId) =>
           (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
           if (
@@ -1617,12 +1617,12 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: ({ hello, deliver, deliverInput }) => {
+      attach: async ({ hello, deliver, deliverInput }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
         })
-        const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
+        const { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
           const reply =
             outcome.kind === 'rejected'

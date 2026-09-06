@@ -72,14 +72,18 @@ export interface MachinesDaemonPort {
   /** `caps` is this SOCKET's negotiated capability set (POD-3239). Live, not
    *  durable: a machine that reconnects with an older daemon must lose the
    *  capability the previous one had, and a persisted list could not do that. */
-  attach(machineId: MachineId, transport: DaemonControlPeer, caps?: readonly string[]): void
+  attach(
+    machineId: MachineId,
+    transport: DaemonControlPeer,
+    caps?: readonly string[],
+  ): Promise<void>
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
-  broadcastMachines(): void
+  broadcastMachines(): Promise<void>
   recordInventory(
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],
-  ): void
+  ): Promise<void>
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 

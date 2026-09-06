@@ -621,7 +621,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     })
   }
 
-  const connectLocal = (): void => {
+  const connectLocal = async (): Promise<void> => {
     acceptedCaps.clear()
     state = 'connecting'
     const localLink = options.localLink
@@ -637,7 +637,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     state = 'awaiting-ack'
-    const attachment = localLink.attach({
+    const attachment = await localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
       deliverInput: (input) => {
@@ -725,7 +725,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     start() {
       if (!started) {
         started = true
-        if (options.localLink) connectLocal()
+        if (options.localLink) return connectLocal()
         else {
           // Preserve the daemon entrypoint's availability semantics: an offline
           // server does not block boot; the state machine keeps retrying.

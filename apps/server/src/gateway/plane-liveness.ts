@@ -138,6 +138,7 @@ export interface PlaneLivenessPolicy {
     sockets: Iterable<HeartbeatSocket>,
     alive: WeakSet<HeartbeatSocket>,
     timers?: SweepTimers,
+    onTick?: () => void,
   ): PlaneHeartbeat
 }
 
@@ -180,11 +181,11 @@ export function definePlaneLiveness(spec: {
           safeSendBinaryLossy(ws, bytes, policy.lossySendBufferLimitBytes),
       }
     },
-    startHeartbeat(sockets, alive, timers = REAL_TIMERS) {
-      const handle = timers.setInterval(
-        () => sweepPlaneLiveness(sockets, alive),
-        policy.heartbeatIntervalMs,
-      )
+    startHeartbeat(sockets, alive, timers = REAL_TIMERS, onTick) {
+      const handle = timers.setInterval(() => {
+        onTick?.()
+        sweepPlaneLiveness(sockets, alive)
+      }, policy.heartbeatIntervalMs)
       return { stop: () => timers.clearInterval(handle) }
     },
   }

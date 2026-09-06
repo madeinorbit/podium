@@ -96,7 +96,7 @@ function makeGateway(
           if (durableEvents.length > 64) durableEvents.splice(0, durableEvents.length - 64)
           return { kind: 'accepted', eventId: durableEvents.length }
         },
-        ready: async () => durableEvents.length > 0,
+        ready: () => durableEvents.length > 0,
         recent: async () => durableEvents,
         replayBoardProjection: async () => {},
       },

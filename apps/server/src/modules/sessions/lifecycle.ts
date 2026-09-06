@@ -130,6 +130,7 @@ import type { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import type { SessionDaemonLifecycle } from './daemon-lifecycle'
 import type { SessionDaemonProjection } from './daemon-projection'
+import type { RuntimeEventGate } from './runtime-event-gate'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import {
@@ -274,6 +275,7 @@ export class SessionLifecycle {
   /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
    *  for the five machine verbs, the durable completion of `queue`, and the sink
    *  for the driver's causal stream. No caller routes through it until W4. */
+  readonly runtimeEventGate!: RuntimeEventGate
   readonly runtimeGateway!: SessionRuntimeGateway
   /** The in-progress turn's preview fold (POD-2293). Absent when the machine
    *  switch is off — the plane is not constructed at all, so an unflagged server
@@ -834,9 +836,7 @@ export class SessionLifecycle {
       automations: values('automation'),
       automationRuns: values('automationRun'),
       diagnostics:
-        principal === DEVICE_GRADE_PRINCIPAL
-          ? (await this.deps.snapshotTail()).diagnostics
-          : [],
+        principal === DEVICE_GRADE_PRINCIPAL ? (await this.deps.snapshotTail()).diagnostics : [],
       cursor: sourceCursor,
       ...identity,
     }

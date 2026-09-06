@@ -29,7 +29,7 @@ export interface SessionClientControlPorts {
   sessions: ReadonlyMap<SessionId, Session>
   state: SessionStateService
   inbox: SessionInbox
-  machinesForPrincipal(principal: ClientPrincipal): MachineListing[]
+  machinesForPrincipal(principal: ClientPrincipal): Promise<MachineListing[]>
   browserOpen: BrowserOpenGateway
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
@@ -75,7 +75,19 @@ export interface SessionClientControlPorts {
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
-  onAttached(principal: ClientPrincipal, client: ClientConn): void {
+  async prepareMachines(principal: ClientPrincipal): Promise<MachineListing[]> {
+    try {
+      return await this.ports.machinesForPrincipal(principal)
+    } catch {
+      return []
+    }
+  }
+
+  onAttached(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    machines: readonly MachineListing[] = [],
+  ): void {
     this.ports.state.replayDrafts(
       sessionStatePrincipalFor(
         userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
@@ -85,7 +97,7 @@ export class SessionClientControl {
     )
     client.send({
       type: 'machinesChanged',
-      machines: this.ports.machinesForPrincipal(principal),
+      machines: [...machines],
     })
   }
 

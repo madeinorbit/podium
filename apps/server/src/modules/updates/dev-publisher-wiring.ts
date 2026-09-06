@@ -201,7 +201,7 @@ export function wireDevBundlePublisher(deps: {
   readonly artifactSize?: (path: string) => Promise<number | undefined>
   readonly artifactToken: string
   readonly signingKey: string
-  readonly setTarget: (target: UpdateTarget) => void
+  readonly setTarget: (target: UpdateTarget) => Promise<void>
   /**
    * Retract the `dev` target and record a reason a client may be shown. Called
    * whenever this HEAD has no publishable bundle, so the read model never keeps
