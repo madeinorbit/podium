@@ -93,3 +93,47 @@ and not merely an environment that happened to lack the Podium vars.
 So: under Turbo the store shard runs at vitest's `DEFAULT_TEST_WORKERS` of 2. Run directly
 from an agent session it runs at `maxWorkers: 1`. That is a real, mechanical difference in
 how a lane whose failures are 20s wall-clock timeouts is executed.
+
+## THE ANSWER: the 56 are NOT an artefact of invocation
+
+Whole-shard A/B, same checkout (integration tip, fc2d197e4), sequential,
+never concurrent with each other, diffed BY TEST NAME from untruncated logs.
+
+| arm | invocation | env | maxWorkers | failed | passed | files | errors | duration |
+|---|---|---|---|---|---|---|---|---|
+| A | `cd apps/server && bun run test:store` | full agent-session env | 1 | 56 | 1213 | 12 failed / 91 | 16 | 336.03s |
+| B | `turbo run test:store --filter=@podium/server --force` | turbo strict (all PODIUM_* stripped) | 2 | 56 | 1213 | 12 failed / 91 | 16 | 195.67s |
+
+- **In A but not B: none. In B but not A: none.** All 56 names match exactly.
+- Per-file failed counts are identical across all twelve failing files.
+- The hang-shaped set is identical: the same 9 tests time out at 20000ms in both arms.
+
+The environments really were different and really did change execution — the arm B run is
+140s faster on the same 1269 tests, which is the doubled fork concurrency. Concurrency
+doubled, every Podium variable stripped, and not one test name moved.
+
+**So the alternative explanation is refuted.** These are not an effect of running the shard
+outside Turbo. Attribution may proceed.
+
+## Correction to the issue brief's shape of the problem
+
+The brief describes the failures as "ten of which hang for twenty seconds", which reads as
+if hanging were the characteristic mode. Measured, arm A:
+
+  9 tests at 20002-20009ms   (the 20000ms testTimeout)
+  2 tests at ~1010ms
+  45 tests under 200ms       (the largest at 197ms)
+
+Forty-five of the 56 are ordinary fast assertion failures, and they are the bulk of the
+finding. The tenth hang POD-3506 counted is 'keeps live-tail and completion-reconcile
+overlap exact after reload': it FAILS in both of my arms, but at 10157ms / 10313ms, under
+the timeout. So the hang-shaped SET is not stable run to run even though the FAILING set
+is — one test crosses the 20s line on some runs and not others.
+
+## One shared artefact still to rule out
+
+Both arms share `node_modules/.cache/podium-test-schema/<digest>.db` — POD-523's
+pre-migrated schema image, keyed on a hash of the migration manifest and built once per
+checkout. An A/B inside one checkout cannot distinguish "the code is red" from "this
+checkout's cached image is bad". The dev/mw arm below has its own node_modules and so
+rebuilds its own image, which answers this and the attribution question in one run.
