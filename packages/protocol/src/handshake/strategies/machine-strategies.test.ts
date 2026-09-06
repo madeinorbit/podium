@@ -27,10 +27,10 @@ const remoteMachine = machineRecord('mach-vps', { owner: 'usr-ada', name: 'vps' 
 describe('machine (local) — shared host secret', () => {
   const seed = { secrets: { 'secret-ok': localMachine } }
 
-  it('resolves a machine principal that carries owner and grants', () => {
+  it('resolves a machine principal that carries owner and grants', async () => {
     const mint = createRecordingMinter()
     const strategy = createMachineLocalSecretStrategy({ machines: fakeMachines(seed), mint })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'daemonSecret', secret: 'secret-ok' },
       hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }),
       transport: transportFacts({ endpoint: '/daemon', connectionId: 'conn-7' }),
@@ -49,12 +49,12 @@ describe('machine (local) — shared host secret', () => {
     expect(mint.minted).toEqual([{ kind: 'machine', subject: 'local' }])
   })
 
-  it('is payload-inert: claiming another machineId does not change the principal', () => {
+  it('is payload-inert: claiming another machineId does not change the principal', async () => {
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines(seed),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'daemonSecret', secret: 'secret-ok' },
       hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }, {
         claims: { ...HOSTILE_CLAIMS, machineId: 'mach-someone-elses' },
@@ -64,12 +64,12 @@ describe('machine (local) — shared host secret', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'local' })
   })
 
-  it('is payload-inert: a build report does not change the principal', () => {
+  it('is payload-inert: a build report does not change the principal', async () => {
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines(seed),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'daemonSecret', secret: 'secret-ok' },
       hello: helloFor(
         { kind: 'daemonSecret', secret: 'secret-ok' },
@@ -82,12 +82,12 @@ describe('machine (local) — shared host secret', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ kind: 'machine', machine: 'local' })
   })
 
-  it('fails closed on a wrong secret — and being on the local socket is not proof', () => {
+  it('fails closed on a wrong secret — and being on the local socket is not proof', async () => {
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines(seed),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'daemonSecret', secret: 'secret-wrong' },
       hello: helloFor({ kind: 'daemonSecret', secret: 'secret-wrong' }),
       // Loopback, in-process, same host — none of it authenticates anything.
@@ -96,14 +96,14 @@ describe('machine (local) — shared host secret', () => {
     expect(outcome).toMatchObject({ ok: false, reason: 'auth-failed' })
   })
 
-  it('fails closed when the secret file is gone (availability blip, not a bypass)', () => {
+  it('fails closed when the secret file is gone (availability blip, not a bypass)', async () => {
     // ADR 5 D5's operational note: deleting the secret under a running split
     // daemon rejects auth until restart. Fail closed is the correct behaviour.
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines({ secrets: {} }),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'daemonSecret', secret: 'secret-ok' },
       hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }),
       transport: transportFacts(),
@@ -115,10 +115,10 @@ describe('machine (local) — shared host secret', () => {
 describe('machine (remote) — one-shot pair code', () => {
   const paired = pairedMachineRecord('mach-vps', 'tok-minted', { owner: 'usr-ada', name: 'vps', updatePubkey: 'server-key-1' })
 
-  it('redeems the code, mints a token exactly once, and names the resolved machine', () => {
+  it('redeems the code, mints a token exactly once, and names the resolved machine', async () => {
     const machines = fakeMachines({ codes: { 'code-1': paired } })
     const strategy = createMachinePairCodeStrategy({ machines, mint: createRecordingMinter() })
-    const first = strategy.authenticate({
+    const first = await strategy.authenticate({
       credential: { kind: 'pairCode', code: 'code-1' },
       hello: helloFor({ kind: 'pairCode', code: 'code-1' }),
       transport: transportFacts(),
@@ -126,7 +126,7 @@ describe('machine (remote) — one-shot pair code', () => {
     expect(first).toMatchObject({ ok: true, issuedToken: 'tok-minted', assignedId: 'mach-vps', updatePubkey: 'server-key-1' })
 
     // Single-use: the same code again authenticates nothing (PairingManager).
-    const second = strategy.authenticate({
+    const second = await strategy.authenticate({
       credential: { kind: 'pairCode', code: 'code-1' },
       hello: helloFor({ kind: 'pairCode', code: 'code-1' }),
       transport: transportFacts(),
@@ -134,10 +134,10 @@ describe('machine (remote) — one-shot pair code', () => {
     expect(second).toMatchObject({ ok: false, reason: 'auth-failed' })
   })
 
-  it('passes the peer self-description as a REQUEST, never as identity', () => {
+  it('passes the peer self-description as a REQUEST, never as identity', async () => {
     const machines = fakeMachines({ codes: { 'code-1': paired } })
     const strategy = createMachinePairCodeStrategy({ machines, mint: createRecordingMinter() })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'pairCode', code: 'code-1' },
       hello: helloFor({ kind: 'pairCode', code: 'code-1' }, {
         claims: { machineId: 'mach-hijack', name: 'Totally Ada', hostname: 'evil.local' },
@@ -152,12 +152,12 @@ describe('machine (remote) — one-shot pair code', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'mach-vps' })
   })
 
-  it('fails closed on an unknown or expired code, with pairing-UX text only', () => {
+  it('fails closed on an unknown or expired code, with pairing-UX text only', async () => {
     const strategy = createMachinePairCodeStrategy({
       machines: fakeMachines({ codes: {} }),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'pairCode', code: 'nope' },
       hello: helloFor({ kind: 'pairCode', code: 'nope' }),
       transport: transportFacts(),
@@ -174,10 +174,10 @@ describe('machine (remote) — one-shot pair code', () => {
 describe('machine (remote) — long-lived token', () => {
   const seed = { tokens: { 'tok-vps': remoteMachine } }
 
-  it('resolves the machine the token verified against, not the hint', () => {
+  it('resolves the machine the token verified against, not the hint', async () => {
     const machines = fakeMachines(seed)
     const strategy = createMachineTokenStrategy({ machines, mint: createRecordingMinter() })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'machineToken', token: 'tok-vps', machineHint: 'mach-someone-elses' },
       hello: helloFor(
         { kind: 'machineToken', token: 'tok-vps', machineHint: 'mach-someone-elses' },
@@ -191,12 +191,12 @@ describe('machine (remote) — long-lived token', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'mach-vps' })
   })
 
-  it('fails closed on an unknown or rotated token, with no peer-visible detail', () => {
+  it('fails closed on an unknown or rotated token, with no peer-visible detail', async () => {
     const strategy = createMachineTokenStrategy({
       machines: fakeMachines(seed),
       mint: createRecordingMinter(),
     })
-    const outcome = strategy.authenticate({
+    const outcome = await strategy.authenticate({
       credential: { kind: 'machineToken', token: 'tok-rotated' },
       hello: helloFor({ kind: 'machineToken', token: 'tok-rotated' }),
       transport: transportFacts(),

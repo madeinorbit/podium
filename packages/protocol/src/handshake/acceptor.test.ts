@@ -42,28 +42,28 @@ const goodHello = (over: Partial<PeerHello> = {}): string =>
 const APP_FRAME = JSON.stringify({ type: 'inventoryRequest' })
 
 describe('handshake order — the gateway end', () => {
-  it('rule 1: the first frame must be a hello; application traffic closes the connection', () => {
+  it('rule 1: the first frame must be a hello; application traffic closes the connection', async () => {
     const a = acceptor()
-    const step = a.receive(APP_FRAME)
+    const step = await a.receive(APP_FRAME)
     expect(step.action).toBe('reject')
     expect(step.action === 'reject' && step.reply.reason).toBe('unexpected-frame')
     expect(a.state).toBe('closed')
     expect(a.peer).toBeNull()
   })
 
-  it('rule 1: unparseable bytes close the connection', () => {
+  it('rule 1: unparseable bytes close the connection', async () => {
     const a = acceptor()
-    expect(a.receive('not json at all').action).toBe('reject')
+    expect((await a.receive('not json at all')).action).toBe('reject')
     expect(a.state).toBe('closed')
   })
 
-  it('rule 1: a hello-shaped frame that fails the schema is malformed, not unexpected', () => {
+  it('rule 1: a hello-shaped frame that fails the schema is malformed, not unexpected', async () => {
     const a = acceptor()
-    const step = a.receive(JSON.stringify({ type: 'peerHello', v: 'one' }))
+    const step = await a.receive(JSON.stringify({ type: 'peerHello', v: 'one' }))
     expect(step.action === 'reject' && step.reply.reason).toBe('malformed-hello')
   })
 
-  it('rule 2: version is refused BEFORE any credential is examined', () => {
+  it('rule 2: version is refused BEFORE any credential is examined', async () => {
     const authenticate = vi.fn((): AuthOutcome => ({ ok: false, reason: 'auth-failed' }))
     const spy: PeerAuthStrategy = {
       role: 'machine',
@@ -75,28 +75,28 @@ describe('handshake order — the gateway end', () => {
       registry: createAuthStrategyRegistry([spy]),
       transport: transportFacts({ endpoint: '/daemon' }),
     })
-    const step = a.receive(goodHello({ v: WIRE_VERSION + 5 }))
+    const step = await a.receive(goodHello({ v: WIRE_VERSION + 5 }))
     expect(step.action === 'reject' && step.reply.reason).toBe('unsupported-version')
     expect(authenticate).not.toHaveBeenCalled()
     expect(a.state).toBe('closed')
   })
 
-  it('rule 3: a second hello on a live connection is refused, not a re-auth', () => {
+  it('rule 3: a second hello on a live connection is refused, not a re-auth', async () => {
     const a = acceptor()
-    expect(a.receive(goodHello()).action).toBe('establish')
-    const step = a.receive(goodHello())
+    expect((await a.receive(goodHello())).action).toBe('establish')
+    const step = await a.receive(goodHello())
     expect(step.action === 'reject' && step.reply.reason).toBe('unexpected-frame')
     expect(a.state).toBe('closed')
   })
 
-  it('rule 4: no frame is delivered before a principal exists, and every frame after carries one', () => {
+  it('rule 4: no frame is delivered before a principal exists, and every frame after carries one', async () => {
     const a = acceptor()
-    const first = a.receive(APP_FRAME)
+    const first = await a.receive(APP_FRAME)
     expect(first.action).not.toBe('deliver')
 
     const b = acceptor()
-    expect(b.receive(goodHello()).action).toBe('establish')
-    const delivered = b.receive(APP_FRAME)
+    expect((await b.receive(goodHello())).action).toBe('establish')
+    const delivered = await b.receive(APP_FRAME)
     expect(delivered.action).toBe('deliver')
     expect(delivered.action === 'deliver' && delivered.peer.principal).toMatchObject({
       kind: 'machine',
@@ -104,55 +104,55 @@ describe('handshake order — the gateway end', () => {
     })
   })
 
-  it('a refused connection stays refused', () => {
+  it('a refused connection stays refused', async () => {
     const a = acceptor()
-    a.receive('garbage')
-    const step = a.receive(goodHello())
+    await a.receive('garbage')
+    const step = await a.receive(goodHello())
     expect(step.action).toBe('reject')
     expect(a.peer).toBeNull()
   })
 })
 
 describe('framing is common; role resolution is not payload-controlled', () => {
-  it('infers the role from the endpoint when the peer declares none (ADR 5 D4.3)', () => {
-    const step = acceptor().receive(goodHello())
+  it('infers the role from the endpoint when the peer declares none (ADR 5 D4.3)', async () => {
+    const step = await acceptor().receive(goodHello())
     expect(step.action === 'establish' && step.peer.role).toBe('machine')
   })
 
-  it('refuses a peerRole that contradicts the endpoint', () => {
+  it('refuses a peerRole that contradicts the endpoint', async () => {
     const a = createHandshakeAcceptor({
       registry: registry(),
       transport: transportFacts({ endpoint: '/client' }),
     })
-    const step = a.receive(goodHello({ peerRole: 'machine' }))
+    const step = await a.receive(goodHello({ peerRole: 'machine' }))
     expect(step.action === 'reject' && step.reply.reason).toBe('unknown-role')
   })
 
-  it('refuses a credential the endpoint-implied role does not claim', () => {
+  it('refuses a credential the endpoint-implied role does not claim', async () => {
     const a = createHandshakeAcceptor({
       registry: registry(),
       transport: transportFacts({ endpoint: '/client' }),
     })
-    const step = a.receive(JSON.stringify(helloFor({ kind: 'machineToken', token: 'tok-ok' })))
+    const step = await a.receive(JSON.stringify(helloFor({ kind: 'machineToken', token: 'tok-ok' })))
     // /client implies console, and console does not claim a machine token.
     expect(step.action === 'reject' && step.reply.reason).toBe('unsupported-credential')
   })
 
-  it('a pinned non-peer ingress cannot be reached from the wire', () => {
+  it('a pinned non-peer ingress cannot be reached from the wire', async () => {
     // `peerRole` is a closed enum of PEER roles, so `agent-relay` is unspellable
     // by a peer; only the composition root can pin it.
     const parsed = JSON.parse(goodHello()) as Record<string, unknown>
-    const step = acceptor().receive(JSON.stringify({ ...parsed, peerRole: 'agent-relay' }))
+    const step = await acceptor().receive(JSON.stringify({ ...parsed, peerRole: 'agent-relay' }))
     expect(step.action === 'reject' && step.reply.reason).toBe('malformed-hello')
   })
 
-  it('refuses the reserved node role without crashing (ADR 5 D4.4)', () => {
+  it('refuses the reserved node role without crashing (ADR 5 D4.4)', async () => {
     const a = createHandshakeAcceptor({
       registry: registry(),
       // An endpoint with no implied role, so the declared peerRole is used.
       transport: transportFacts({ endpoint: '/peer' }),
     })
-    const step = a.receive(
+    const step = await a.receive(
       JSON.stringify(helloFor({ kind: 'nodeCredential' }, { peerRole: 'node', feedId: 'feed-1' })),
     )
     expect(step.action === 'reject' && step.reply.reason).toBe('role-not-implemented')
@@ -160,8 +160,8 @@ describe('framing is common; role resolution is not payload-controlled', () => {
 })
 
 describe('capability negotiation at the framing level', () => {
-  it('accepts only the intersection and never echoes reserved tokens back', () => {
-    const step = acceptor().receive(
+  it('accepts only the intersection and never echoes reserved tokens back', async () => {
+    const step = await acceptor().receive(
       goodHello({ caps: ['metadataDelta', 'peerRole:node', 'feed.f1', 'unknownThing'] }),
     )
     expect(step.action).toBe('establish')
@@ -171,17 +171,17 @@ describe('capability negotiation at the framing level', () => {
     expect(step.peer.caps.ignored).toEqual(['unknownThing'])
   })
 
-  it('a reserved cap grants no rights: the principal is identical with and without it', () => {
-    const withReserved = acceptor().receive(goodHello({ caps: ['peerRole:node'] }))
-    const without = acceptor().receive(goodHello())
+  it('a reserved cap grants no rights: the principal is identical with and without it', async () => {
+    const withReserved = await acceptor().receive(goodHello({ caps: ['peerRole:node'] }))
+    const without = await acceptor().receive(goodHello())
     expect(withReserved.action === 'establish' && withReserved.peer.principal).toEqual(
       without.action === 'establish' ? without.peer.principal : null,
     )
   })
 
-  it('an unauthenticated peer learns nothing about supported caps', () => {
+  it('an unauthenticated peer learns nothing about supported caps', async () => {
     const a = acceptor()
-    const step = a.receive(
+    const step = await a.receive(
       JSON.stringify(
         helloFor({ kind: 'machineToken', token: 'tok-wrong' }, { caps: ['metadataDelta'] }),
       ),
@@ -192,16 +192,16 @@ describe('capability negotiation at the framing level', () => {
 })
 
 describe('payload identity is inert at the framing level too', () => {
-  it('the hostile claims bag changes nothing about the established peer', () => {
-    const honest = acceptor().receive(goodHello({ claims: {} }))
-    const forged = acceptor().receive(goodHello({ claims: HOSTILE_CLAIMS }))
+  it('the hostile claims bag changes nothing about the established peer', async () => {
+    const honest = await acceptor().receive(goodHello({ claims: {} }))
+    const forged = await acceptor().receive(goodHello({ claims: HOSTILE_CLAIMS }))
     expect(honest.action === 'establish' && honest.peer.principal).toEqual(
       forged.action === 'establish' ? forged.peer.principal : null,
     )
   })
 
-  it('the acceptor tells the peer which identity IT resolved', () => {
-    const step = acceptor().receive(goodHello())
+  it('the acceptor tells the peer which identity IT resolved', async () => {
+    const step = await acceptor().receive(goodHello())
     expect(step.action === 'establish' && step.reply.assignedId).toBe('mach-vps')
   })
 })

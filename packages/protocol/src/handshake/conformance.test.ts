@@ -71,8 +71,8 @@ const gatewayProbe = (): HandshakeEndProbe => {
         supportedCaps: ['metadataDelta'],
         transport: transportFacts({ endpoint: '/daemon' }),
       })
-      const observe = (raw: string): HandshakeObservation => {
-        const step = acceptor.receive(raw)
+      const observe = async (raw: string): Promise<HandshakeObservation> => {
+        const step = await acceptor.receive(raw)
         return step.action === 'establish'
           ? 'established'
           : step.action === 'deliver'
@@ -162,8 +162,8 @@ describe.each([gatewayProbe(), daemonProbe()])(
   'shared handshake conformance — $end end ($name)',
   (probe) => {
     for (const scenario of HANDSHAKE_CONFORMANCE_CASES) {
-      it(scenario.name, () => {
-        const result = scenario.run(probe)
+      it(scenario.name, async () => {
+        const result = await scenario.run(probe)
         expect(result.detail ?? 'ok').toBe('ok')
         expect(result.ok).toBe(true)
       })
@@ -172,9 +172,9 @@ describe.each([gatewayProbe(), daemonProbe()])(
 )
 
 describe('the suite covers both ends and every case', () => {
-  it('runs every case at each end', () => {
+  it('runs every case at each end', async () => {
     for (const probe of [gatewayProbe(), daemonProbe()]) {
-      const results = runHandshakeConformance(probe)
+      const results = await runHandshakeConformance(probe)
       expect(results).toHaveLength(HANDSHAKE_CONFORMANCE_CASES.length)
       expect(results.every((r) => r.ok)).toBe(true)
       expect(new Set(results.map((r) => r.end))).toEqual(new Set([probe.end]))
@@ -183,7 +183,7 @@ describe('the suite covers both ends and every case', () => {
 })
 
 describe('the two ends agree end to end', () => {
-  it('a dialer hello authenticates at the acceptor, and the reply establishes the dialer', () => {
+  it('a dialer hello authenticates at the acceptor, and the reply establishes the dialer', async () => {
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
       credential: { kind: 'machineToken', token: 'tok-ok' },
@@ -203,7 +203,7 @@ describe('the two ends agree end to end', () => {
       supportedCaps: ['metadataDelta'],
       transport: transportFacts({ endpoint: '/daemon' }),
     })
-    const step = acceptor.receive(JSON.stringify(dialer.hello()))
+    const step = await acceptor.receive(JSON.stringify(dialer.hello()))
     expect(step.action).toBe('establish')
     if (step.action !== 'establish') return
     expect(step.peer.principal).toMatchObject({ kind: 'machine', machine: 'mach-vps' })
@@ -220,7 +220,7 @@ describe('the two ends agree end to end', () => {
     ])
   })
 
-  it('a rejection at the acceptor becomes a rejection at the dialer, not a retry loop', () => {
+  it('a rejection at the acceptor becomes a rejection at the dialer, not a retry loop', async () => {
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
       credential: { kind: 'machineToken', token: 'tok-wrong' },
@@ -234,7 +234,7 @@ describe('the two ends agree end to end', () => {
       ]),
       transport: transportFacts({ endpoint: '/daemon' }),
     })
-    const step = acceptor.receive(JSON.stringify(dialer.hello()))
+    const step = await acceptor.receive(JSON.stringify(dialer.hello()))
     expect(step.action).toBe('reject')
     if (step.action !== 'reject') return
     // The server-side diagnostic exists and does NOT travel.

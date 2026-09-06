@@ -35,8 +35,8 @@ export type HandshakeObservation =
 export interface HandshakeEndSession {
   readonly state: 'pending' | 'established' | 'closed'
   /** Drive a complete, valid handshake from this end's point of view. */
-  handshake(): HandshakeObservation
-  feed(raw: string): HandshakeObservation
+  handshake(): HandshakeObservation | Promise<HandshakeObservation>
+  feed(raw: string): HandshakeObservation | Promise<HandshakeObservation>
   /** A well-formed HANDSHAKE frame for this end (a hello, or an ok reply). */
   helloLike(): string
   /** A well-formed APPLICATION frame — legal only after the handshake. */
@@ -68,7 +68,7 @@ export interface HandshakeEndProbe {
 export interface ConformanceCase {
   readonly name: string
   readonly why: string
-  run(probe: HandshakeEndProbe): ConformanceResult
+  run(probe: HandshakeEndProbe): Promise<ConformanceResult>
 }
 
 export interface ConformanceResult {
@@ -98,9 +98,9 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'a valid handshake establishes exactly once',
     why: 'the baseline: if this fails, every negative case below is vacuous',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      const observed = session.handshake()
+      const observed = await session.handshake()
       if (observed !== 'established')
         return fail(this.name, probe, `handshake observed ${observed}`)
       if (session.state !== 'established')
@@ -111,9 +111,9 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'application traffic before the handshake is refused, never delivered',
     why: 'delivering a frame with no principal is the confused-deputy shape ADR 3 D7 forbids',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      const observed = session.feed(session.appTraffic())
+      const observed = await session.feed(session.appTraffic())
       if (observed === 'delivered')
         return fail(this.name, probe, 'pre-handshake traffic was delivered to the planes')
       if (!isRefusal(observed)) return fail(this.name, probe, `observed ${observed}`)
@@ -125,9 +125,9 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'unparseable bytes before the handshake are refused',
     why: 'an unknown input must fail CLOSED — never be tolerated into the next state',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      const observed = session.feed(session.junk())
+      const observed = await session.feed(session.junk())
       if (!isRefusal(observed)) return fail(this.name, probe, `observed ${observed}`)
       if (session.state === 'established') return fail(this.name, probe, 'established on junk')
       return pass(this.name, probe)
@@ -136,11 +136,11 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'a second handshake frame on a live connection is refused',
     why: 're-handshaking a live connection would be a principal-swap primitive (ADR 3 D7 TOCTOU)',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      if (session.handshake() !== 'established')
+      if ((await session.handshake()) !== 'established')
         return fail(this.name, probe, 'baseline handshake did not establish')
-      const observed = session.feed(session.helloLike())
+      const observed = await session.feed(session.helloLike())
       if (!isRefusal(observed))
         return fail(this.name, probe, `second handshake frame observed ${observed}`)
       return pass(this.name, probe)
@@ -149,11 +149,11 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'application traffic after the handshake is delivered',
     why: 'the positive half — order enforcement must not break the working path',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      if (session.handshake() !== 'established')
+      if ((await session.handshake()) !== 'established')
         return fail(this.name, probe, 'baseline handshake did not establish')
-      const observed = session.feed(session.appTraffic())
+      const observed = await session.feed(session.appTraffic())
       if (observed !== 'delivered') return fail(this.name, probe, `observed ${observed}`)
       return pass(this.name, probe)
     },
@@ -161,9 +161,9 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'an out-of-window version is refused before any credential is examined',
     why: 'ADR 5 D3.1 fails closed on version, and auth must not run for a peer that cannot be understood',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      const observed = session.feed(session.versionMismatch())
+      const observed = await session.feed(session.versionMismatch())
       if (!isRefusal(observed)) return fail(this.name, probe, `observed ${observed}`)
       const consulted = probe.authWasConsulted?.() ?? null
       if (consulted === true)
@@ -174,10 +174,10 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {
     name: 'a refused end stays refused',
     why: 'a peer must not be able to retry into a usable connection after a refusal',
-    run(probe) {
+    async run(probe) {
       const session = probe.fresh()
-      session.feed(session.junk())
-      const observed = session.feed(session.helloLike())
+      await session.feed(session.junk())
+      const observed = await session.feed(session.helloLike())
       if (observed === 'established' || observed === 'delivered')
         return fail(this.name, probe, `a refused end accepted a later frame: ${observed}`)
       return pass(this.name, probe)
@@ -186,5 +186,5 @@ export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
 ]
 
 /** Run every case against one end. The caller asserts on the results. */
-export const runHandshakeConformance = (probe: HandshakeEndProbe): ConformanceResult[] =>
-  HANDSHAKE_CONFORMANCE_CASES.map((c) => c.run(probe))
+export const runHandshakeConformance = (probe: HandshakeEndProbe): Promise<ConformanceResult[]> =>
+  Promise.all(HANDSHAKE_CONFORMANCE_CASES.map((c) => c.run(probe)))

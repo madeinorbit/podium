@@ -57,9 +57,9 @@ const authenticate = (
   })
 
 describe('agent relay strategy — delegated principal', () => {
-  it('resolves (agentIdentity, onBehalfOf) from the delegation, not the payload', () => {
+  it('resolves (agentIdentity, onBehalfOf) from the delegation, not the payload', async () => {
     const { strategy } = strategyFor([root])
-    const outcome = authenticate(strategy, 'del-root')
+    const outcome = await authenticate(strategy, 'del-root')
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
     expect(outcome.principal).toMatchObject({
@@ -73,9 +73,9 @@ describe('agent relay strategy — delegated principal', () => {
     expect(outcome.principal).not.toMatchObject({ onBehalfOf: 'usr-victim' })
   })
 
-  it('stamps BOTH halves of the attribution pair', () => {
+  it('stamps BOTH halves of the attribution pair', async () => {
     const { strategy } = strategyFor([root])
-    const outcome = authenticate(strategy, 'del-root')
+    const outcome = await authenticate(strategy, 'del-root')
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
     // ADR 3 Am.1 D17: actor = the agent, on-behalf-of = the human. Never collapsed.
@@ -85,9 +85,9 @@ describe('agent relay strategy — delegated principal', () => {
     })
   })
 
-  it('carries a delegation REFERENCE; no scope is copied into the connection', () => {
+  it('carries a delegation REFERENCE; no scope is copied into the connection', async () => {
     const { strategy, mint } = strategyFor([root])
-    const outcome = authenticate(strategy, 'del-root')
+    const outcome = await authenticate(strategy, 'del-root')
     expect(outcome.ok).toBe(true)
     // The minter was handed the reference and nothing else — there is no
     // parameter through which a scope could have been frozen (ADR 3 Am.1 D16.1).
@@ -104,7 +104,7 @@ describe('agent relay strategy — delegated principal', () => {
     ])
   })
 
-  it('resolves a sub-agent chain to the ONE human at its root', () => {
+  it('resolves a sub-agent chain to the ONE human at its root', async () => {
     const parent = link({ ref: 'del-parent', agentIdentity: 'agent-parent' })
     const child = link({
       ref: 'del-child',
@@ -114,40 +114,40 @@ describe('agent relay strategy — delegated principal', () => {
       scope: { kind: 'spawned-for', sessionId: asSessionId('sess-2'), issueId: asIssueId('iss-1') },
     })
     const { strategy } = strategyFor([parent, child])
-    const outcome = authenticate(strategy, 'del-child')
+    const outcome = await authenticate(strategy, 'del-child')
     expect(outcome.ok && outcome.principal).toMatchObject({
       agentIdentity: 'agent-child',
       onBehalfOf: 'usr-ada',
     })
   })
 
-  it('fails closed on an unknown delegation reference', () => {
+  it('fails closed on an unknown delegation reference', async () => {
     const { strategy } = strategyFor([root])
-    expect(authenticate(strategy, 'del-forged')).toMatchObject({
+    expect(await authenticate(strategy, 'del-forged')).toMatchObject({
       ok: false,
       reason: 'auth-failed',
     })
   })
 
-  it('fails closed when the delegation is revoked', () => {
+  it('fails closed when the delegation is revoked', async () => {
     const { strategy } = strategyFor([link({ ref: 'del-root', revoked: true })])
-    expect(authenticate(strategy, 'del-root')).toMatchObject({ ok: false, reason: 'auth-failed' })
+    expect(await authenticate(strategy, 'del-root')).toMatchObject({ ok: false, reason: 'auth-failed' })
   })
 
-  it('fails closed when the ROOT HUMAN is disabled — revoking a person stops their agents', () => {
+  it('fails closed when the ROOT HUMAN is disabled — revoking a person stops their agents', async () => {
     const { strategy } = strategyFor([root], ['usr-ada'])
-    expect(authenticate(strategy, 'del-root')).toMatchObject({ ok: false, reason: 'auth-failed' })
+    expect(await authenticate(strategy, 'del-root')).toMatchObject({ ok: false, reason: 'auth-failed' })
   })
 
-  it('refuses identically whatever the failure was (no reason leaks to the peer)', () => {
+  it('refuses identically whatever the failure was (no reason leaks to the peer)', async () => {
     const unknown = strategyFor([root]).strategy
     const revoked = strategyFor([link({ ref: 'del-root', revoked: true })]).strategy
     const inactive = strategyFor([root], ['usr-ada']).strategy
-    const replies = [
+    const replies = (await Promise.all([
       authenticate(unknown, 'del-forged'),
       authenticate(revoked, 'del-root'),
       authenticate(inactive, 'del-root'),
-    ].map((o) => (o.ok ? 'ok' : { reason: o.reason, peerMessage: o.peerMessage }))
+    ])).map((o) => (o.ok ? 'ok' : { reason: o.reason, peerMessage: o.peerMessage }))
     expect(replies).toEqual([
       { reason: 'auth-failed', peerMessage: undefined },
       { reason: 'auth-failed', peerMessage: undefined },
