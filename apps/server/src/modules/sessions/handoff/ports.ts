@@ -210,7 +210,9 @@ export interface HandoffPorts {
   /** The live row, or undefined. Absence maps to this command's pinned throw. */
   getSession(sessionId: SessionId): Session | undefined
   /** Every session, for the target worktree-occupancy guard. */
-  listSessions(): { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
+  listSessions(): Promise<
+    { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
+  >
   listRepos(): HandoffRepo[] | Promise<HandoffRepo[]>
   listMachines(): HandoffMachine[] | Promise<HandoffMachine[]>
   /** Join a freshly attached target's first current-generation inventory report. */

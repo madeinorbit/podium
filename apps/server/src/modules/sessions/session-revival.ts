@@ -68,7 +68,12 @@ export interface SessionRevivalPorts {
   sessions: Map<SessionId, Session>
   machines: MachinesService
   rpc: DaemonRpcService
-  listSessions(): SessionMeta[]
+  /** Declared as the PROMISE it actually is [POD-3507, spec rule 56]. Every
+   *  supplier of this port is `async () => await sessionsSvc.listSessions()`;
+   *  while the declaration said `SessionMeta[]` the compiler had no way to see
+   *  that, and `handoffs()` below crashed with `.flatMap is not a function` on
+   *  every handoff. Widen the port, and the compiler names the site. */
+  listSessions(): Promise<SessionMeta[]>
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
@@ -232,8 +237,8 @@ export class SessionRevival {
     const ports: HandoffPorts = {
       rpc: this.ports.rpc,
       getSession: (sessionId) => this.ports.sessions.get(sessionId),
-      listSessions: () =>
-        this.ports.listSessions().flatMap((meta) =>
+      listSessions: async () =>
+        (await this.ports.listSessions()).flatMap((meta) =>
           meta.machineId
             ? [
                 {

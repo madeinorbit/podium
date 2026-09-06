@@ -173,8 +173,7 @@ export class HandoffTransfer {
       // A retained target checkout may still belong to another resumable
       // session. The daemon resolves the actual registered worktree; these cwds
       // are the server-authoritative guard against resetting a shared workspace.
-      const occupiedWorktreePaths = this.ports
-        .listSessions()
+      const occupiedWorktreePaths = (await this.ports.listSessions())
         .filter(
           (other) =>
             other.sessionId !== session.sessionId &&
