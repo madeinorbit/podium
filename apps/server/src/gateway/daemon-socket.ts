@@ -121,6 +121,12 @@ const decodeLegacyOutput = (
 
 const decodeDaemonOutputFrame = (raw: Buffer) => decodeBinaryEnvelope(raw, DaemonPtyOutputMetadata)
 
+/** A live source can become sealed after sockets were wired. Re-read on every
+ * event so only transfer result traffic survives both live and boot recovery. */
+function recoveryTransportOnly(registry: SessionRegistry): boolean {
+  return registry.recoveryOnly || registry.sessionStore.transferFenceActive
+}
+
 /**
  * Per-daemon-socket lifecycle: hold the connection unauthenticated until the
  * FIRST frame proves identity, then route everything after through the gateway
@@ -171,11 +177,12 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   const acceptor = createDaemonAcceptor({
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
-    verifyOnly: registry.recoveryOnly,
+    verifyOnly: recoveryTransportOnly(registry),
   })
   ws.on('message', (raw) => {
     if (failed) return
     if (typeof raw !== 'string') {
+      if (recoveryTransportOnly(registry)) return
       if (principal === undefined) {
         failBinary('preAuth', raw.byteLength)
         return
@@ -206,7 +213,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       return
     }
     if (principal === undefined) {
-      if (registry.recoveryOnly) {
+      if (recoveryTransportOnly(registry)) {
         try {
           if ((JSON.parse(raw.toString()) as { type?: string }).type === 'pair') return
         } catch {
@@ -244,7 +251,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         0,
         DEPLOYMENT,
       )
-      if (!registry.recoveryOnly && outcome.build) {
+      if (!recoveryTransportOnly(registry) && outcome.build) {
         registry.modules.machines.recordLegacyBuild(
           outcome.machineId,
           outcome.build,
@@ -307,8 +314,8 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
           })
         },
       }
-      if (registry.recoveryOnly) {
-        registry.modules.machines.attach(principal.machine, send)
+      if (recoveryTransportOnly(registry)) {
+        registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
         registry.modules.machines.flushQueued(principal.machine)
       } else {
         registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
@@ -320,7 +327,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // the CLI is already installed and logged in. Poll the fresh daemon briefly so
       // it fills in seconds after each install lands, then fall back to its own loop.
       const settle = setInterval(() => {
-        if (registry.recoveryOnly) return
+        if (recoveryTransportOnly(registry)) return
         send?.({ type: 'inventoryRequest' })
       }, INVENTORY_SETTLE_INTERVAL_MS)
       settle.unref?.()
@@ -333,7 +340,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // The pairing grant rides back as the directory's opaque context: the
       // handshake carries it and never interprets it (see `directoryContext`).
       if (
-        !registry.recoveryOnly &&
+        !recoveryTransportOnly(registry) &&
         (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
       ) {
         for (const agentKind of ['claude-code', 'codex'] as const) {
@@ -361,7 +368,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // the routing identity.
       const message = parseDaemonMessage(raw)
       if (
-        registry.recoveryOnly &&
+        recoveryTransportOnly(registry) &&
         message.type !== 'serverTransferResult' &&
         message.type !== 'serverEndpointResult'
       )
@@ -390,7 +397,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
     if (principal && send) {
-      if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
+      if (recoveryTransportOnly(registry)) registry.modules.machines.detach(principal.machine, send)
       else if (transport) registry.gateway.detachDaemon(principal, transport)
     }
   })
@@ -407,6 +414,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
   const sendEncoded = (message: unknown): void =>
     safeSendEncoded(ws, JSON.stringify(message), DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
   ws.on('message', (raw) => {
+    if (recoveryTransportOnly(registry)) return
     const outcome = receiveDaemonFrame(acceptor, raw.toString())
     if (principal === undefined) {
       if (outcome.kind === 'ignored') return
@@ -427,7 +435,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       registry.modules.machines.broadcastMachines()
       // Supervisor-only desktops have no daemon attach to wake standing catch-up.
       // Publish only after the authenticated build and live sender are installed.
-      if (!registry.recoveryOnly)
+      if (!recoveryTransportOnly(registry))
         registry.bus.emit('machine.connected', { machineId: outcome.machineId })
       return
     }
@@ -446,7 +454,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         )
       } else {
         registry.modules.updates.onStatus(principal.machine, message)
-        if (!registry.recoveryOnly) registry.modules.updateFleetBridge?.onFleetChanged()
+        if (!recoveryTransportOnly(registry)) registry.modules.updateFleetBridge?.onFleetChanged()
       }
     } catch (error) {
       warnDroppedFrame('machine', error)
@@ -456,7 +464,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     if (!principal || !send) return
     if (registry.modules.machines.detachSupervisor(principal.machine, send)) {
       // A replaced socket closing is not a new lifecycle transition.
-      if (!registry.recoveryOnly)
+      if (!recoveryTransportOnly(registry))
         registry.bus.emit('machine.disconnected', { machineId: principal.machine })
       registry.modules.machines.broadcastMachines()
     }

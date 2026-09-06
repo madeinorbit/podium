@@ -42,7 +42,7 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
   return { send: (m) => got.push(m), got }
 }
 
-function storedService(): { svc: MachinesService; store: SessionStore } {
+function storedService(recoveryOnly = false): { svc: MachinesService; store: SessionStore } {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({
     id: MACHINE,
@@ -54,6 +54,7 @@ function storedService(): { svc: MachinesService; store: SessionStore } {
   const svc = new MachinesService({
     instanceId: 'default',
     store,
+    recoveryOnly,
     hostMachineId: store.hostMachineId,
     sessionsChangedForMachine: () => {},
     clients: () => [],
@@ -238,6 +239,55 @@ describe('MachinesService supervisor presence', () => {
     expect(supervisor.at(-1)).toEqual(grant)
     expect(participant).toEqual([])
     expect(daemon.got).toEqual([])
+  })
+
+  test.each([
+    false,
+    true,
+  ])('retains recovery transport without writes while sealed (boot=%s)', (recoveryOnly) => {
+    const { svc, store } = storedService(recoveryOnly)
+    const daemon = recorder()
+    const old = (_message: MachineSupervisorControlMessage) => {}
+    const fresh = (_message: MachineSupervisorControlMessage) => {}
+    store.beginTransferFence()
+    // Explicit recovery mode also protects callers that do not expose a live fence.
+    const bootFence = recoveryOnly
+      ? vi.spyOn(store, 'transferFenceActive', 'get').mockReturnValue(false)
+      : undefined
+    const before = store.machines.getMachine(MACHINE)
+    try {
+      svc.attach(MACHINE, daemon.send, ['recovery-cap'])
+      svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
+      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      expect(svc.detachSupervisor(MACHINE, old)).toBe(false)
+      expect(svc.detachSupervisor(MACHINE, fresh)).toBe(true)
+      svc.recordComponent(MACHINE, 'daemon')
+      svc.recordLegacyBuild(MACHINE, build, [], new Date().toISOString())
+      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      const status = {
+        policy: 'enabled' as const,
+        state: 'available' as const,
+        observedAt: new Date().toISOString(),
+      }
+      svc.recordSupervisorReport(
+        MACHINE,
+        { server: status, agentExecution: status },
+        status.observedAt,
+      )
+      svc.resumeAfterTransferFence()
+      expect(store.machines.getMachine(MACHINE)).toEqual(before)
+      expect(svc.daemonSupports(MACHINE, 'recovery-cap')).toBe(true)
+      svc.toMachine(MACHINE, keystroke)
+      expect(daemon.got).toEqual([keystroke])
+      if (!recoveryOnly) {
+        store.endTransferFence()
+        svc.resumeAfterTransferFence()
+        expect(store.machines.getMachine(MACHINE)?.components).toContain('daemon')
+      }
+    } finally {
+      bootFence?.mockRestore()
+      store.close()
+    }
   })
 
   test('fences a replaced supervisor and keeps the successor authoritative', () => {

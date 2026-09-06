@@ -196,6 +196,8 @@ export interface MachinesDeps {
    */
   fleetUpdateChannel?: () => UpdateChannel
   store: SessionStore
+  /** Recovery transport must never refresh durable presence. */
+  recoveryOnly?: boolean
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
    * composition root (`readOrCreateLocalMachineId`) and handed down.
@@ -337,6 +339,10 @@ export class MachinesService {
     return this.deps.hostMachineId
   }
 
+  private get presenceReadOnly(): boolean {
+    return this.deps.recoveryOnly === true || this.deps.store.transferFenceActive
+  }
+
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
   attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): void {
@@ -351,7 +357,7 @@ export class MachinesService {
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
     this.inventoryPending.add(machineId)
-    if (!this.supervisors.has(machineId)) {
+    if (!this.supervisors.has(machineId) && !this.presenceReadOnly) {
       this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
       this.clearPresenceGrace(machineId)
     }
@@ -375,6 +381,7 @@ export class MachinesService {
    * per socket for a fact that did not change.
    */
   recordComponent(machineId: MachineId, component: MachineComponent): void {
+    if (this.presenceReadOnly) return
     if (!this.deps.store.machines.addMachineComponent(machineId, component)) return
     this.invalidateMachineCache()
     this.broadcastMachines()
@@ -399,6 +406,7 @@ export class MachinesService {
     // Fenced replacement: the old socket may still close, but cannot detach this one.
     this.supervisors.set(machineId, { send, build, caps: [...caps] })
     this.clearPresenceGrace(machineId)
+    if (this.presenceReadOnly) return
     this.deps.store.machines.setMachineBuild(
       machineId,
       build,
@@ -413,6 +421,10 @@ export class MachinesService {
   detachSupervisor(machineId: MachineId, send: Send<MachineSupervisorControlMessage>): boolean {
     if (this.supervisors.get(machineId)?.send !== send) return false
     this.supervisors.delete(machineId)
+    if (this.presenceReadOnly) {
+      this.invalidateMachineCache()
+      return true
+    }
     const legacy = this.legacyBuilds.get(machineId)
     if (this.daemons.has(machineId) && legacy) {
       this.deps.store.machines.setMachineBuild(
@@ -439,12 +451,13 @@ export class MachinesService {
 
   recordLegacyBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void {
     this.legacyBuilds.set(machineId, { build, caps: [...caps] })
-    if (this.supervisors.has(machineId)) return
+    if (this.presenceReadOnly || this.supervisors.has(machineId)) return
     this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     this.invalidateMachineCache()
   }
 
   recordSupervisorReport(machineId: MachineId, services: MachineServiceReport, at: string): void {
+    if (this.presenceReadOnly) return
     const supervisor = this.supervisors.get(machineId)
     if (!supervisor) return
     this.deps.store.machines.setSupervisorPresence(
@@ -660,12 +673,16 @@ export class MachinesService {
   ):
     | { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
     | { ok: false; reason: string } {
-    return credentials.authenticateDaemon(this.enrollmentHost, frame, options)
+    return credentials.authenticateDaemon(this.enrollmentHost, frame, {
+      ...options,
+      ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
+    })
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).
    *  See {@link credentials.reconcileOwnersFromLedger}. */
   reconcileOwnersFromLedger(): void {
+    if (this.presenceReadOnly) return
     credentials.reconcileOwnersFromLedger(this.enrollmentHost)
   }
 
@@ -1170,7 +1187,22 @@ export class MachinesService {
 
   /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
   resumeAfterTransferFence(): void {
-    if (this.deps.store.transferFenceActive) return
+    if (this.presenceReadOnly) return
+    // A recoverable abort restores the presence facts retained in memory while
+    // SQLite was sealed. The socket maps, not historical rows, own current state.
+    for (const machineId of this.daemons.keys()) {
+      const id = asMachineId(machineId)
+      this.recordComponent(id, 'daemon')
+      if (!this.supervisors.has(id)) this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
+    }
+    for (const [machineId, supervisor] of this.supervisors) {
+      this.attachSupervisor(
+        asMachineId(machineId),
+        supervisor.send,
+        supervisor.build,
+        supervisor.caps,
+      )
+    }
     for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
       this.persistInventory(machineId, inventoryJson)
       // A synchronous projection callback could have received a newer report.
