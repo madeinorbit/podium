@@ -333,6 +333,94 @@ describe('re-entrancy', () => {
 })
 
 /**
+ * THE REPOSITORY PORT'S SPAN [POD-3498].
+ *
+ * `createOrJoinTransaction` is the seam every converted repository opens a span
+ * through, and 're-entrancy' above proves the EXECUTOR joins correctly. That is
+ * not the same statement: the port had its own nesting branch, and the branch
+ * called `.transaction()` on the value in its AsyncLocalStorage. That value is a
+ * proxy DATABASE built over the transaction's client, not a drizzle transaction
+ * OBJECT — so the nested call emitted a second BEGIN on a connection that already
+ * had one open, and SQLite refused it with `cannot start a transaction within a
+ * transaction`. The file's own doc comments already forbade exactly that call.
+ *
+ * WHAT THESE WOULD CATCH: reinstating that branch, in any spelling. A test that
+ * only asserted "the nested call resolved" would not — a port that silently ran
+ * the nested body with no span at all resolves too. So both tests assert the
+ * BOUNDARY, and the second asserts the property only a savepoint has: the inner
+ * span's writes roll back while the enclosing span's survive to commit.
+ */
+describe('the repository query port', () => {
+  it('opens a savepoint, not a second BEGIN, when a span nests inside a span', async () => {
+    const h = open()
+    const queries = h.executor.queries
+
+    await queries.createOrJoinTransaction(async () => {
+      await h.executor.drizzle.run(insert, 'outer')
+      await queries.createOrJoinTransaction(async () => {
+        await h.executor.drizzle.run(insert, 'inner')
+      })
+    })
+
+    expect(await noteBodies(h.db)).toEqual(['outer', 'inner'])
+    expect(h.log.boundaries()).toEqual([
+      's1:BEGIN IMMEDIATE',
+      's1:SAVEPOINT podium_nested_1',
+      's1:RELEASE podium_nested_1',
+      's1:COMMIT',
+    ])
+  })
+
+  it('rolls the nested span back and keeps the enclosing span, which still commits', async () => {
+    // The enclosing-span variant, and the one that separates a savepoint from
+    // the alternatives. A second BEGIN cannot reach here at all; a port that
+    // opened no span for the nested body would leave 'inner' in the table.
+    const h = open()
+    const queries = h.executor.queries
+
+    await queries.createOrJoinTransaction(async () => {
+      await h.executor.drizzle.run(insert, 'outer')
+      await expect(
+        queries.createOrJoinTransaction(async () => {
+          await h.executor.drizzle.run(insert, 'inner')
+          throw new Error('nested failed')
+        }),
+      ).rejects.toThrow('nested failed')
+      await h.executor.drizzle.run(insert, 'after')
+    })
+
+    expect(await noteBodies(h.db)).toEqual(['outer', 'after'])
+    expect(h.log.boundaries()).toContain('s1:ROLLBACK TO podium_nested_1')
+    expect(h.log.boundaries()).toContain('s1:COMMIT')
+  })
+
+  it('joins a span the executor opened, rather than starting one of its own', async () => {
+    // A GUARD, NOT A DISCRIMINATOR, and measured as such: this one PASSES
+    // against the removed branch. That branch keyed on the port's OWN storage,
+    // which `executor.transact` never fills, so a port call under an executor
+    // span already fell through to the ambient form. It is here because the two
+    // are one stack: a port that resolved nesting from anything other than the
+    // ambient scope would pass the two tests above and fail this one.
+    const h = open()
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'outer')
+      await h.executor.queries.createOrJoinTransaction(async () => {
+        await h.executor.drizzle.run(insert, 'inner')
+      })
+    })
+
+    expect(await noteBodies(h.db)).toEqual(['outer', 'inner'])
+    expect(h.log.boundaries()).toEqual([
+      's1:BEGIN IMMEDIATE',
+      's1:SAVEPOINT podium_nested_1',
+      's1:RELEASE podium_nested_1',
+      's1:COMMIT',
+    ])
+  })
+})
+
+/**
  * Savepoint boundaries are infallible on bun:sqlite and are ordinary statements
  * on a network everywhere else, so every one of them can reject [POD-3310, V1
  * medium]. What the executor may not do is leave the frame stack claiming

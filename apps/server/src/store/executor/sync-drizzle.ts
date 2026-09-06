@@ -145,7 +145,22 @@ export type TransactionRunner = <T>(fn: () => Promise<T>) => Promise<T>
 
 type FullStoreDrizzle = ReturnType<typeof proxyDrizzle>
 
-const transactionScope = new AsyncLocalStorage<FullStoreDrizzle>()
+/**
+ * WHAT THE SPAN SCOPE CARRIES, with `transaction` OMITTED [POD-3498].
+ *
+ * The omission is the fix's guard, and it belongs at the type level because the
+ * defect was a type confusion: the scope holds a proxy DATABASE built over the
+ * transaction's client, and `.transaction()` on a database emits BEGIN. A nested
+ * span therefore issued a second BEGIN on a connection that already had one open.
+ *
+ * Omitting the member makes reinstating that call a COMPILE ERROR rather than a
+ * convention — the same choice, for the same reason, as {@link SyncDrizzle}
+ * above (spec rule 45). The executor's ambient `transact` is how a span nests;
+ * there is nothing left for drizzle's own transaction to do here.
+ */
+type SpanScopeDrizzle = Omit<FullStoreDrizzle, 'transaction'>
+
+const transactionScope = new AsyncLocalStorage<SpanScopeDrizzle>()
 
 export function currentTransaction(): StoreDrizzle | undefined {
   return transactionScope.getStore() as StoreDrizzle | undefined
@@ -225,15 +240,25 @@ export function storeQueriesOver(
     get rootDb() {
       return (transactionScope.getStore() ?? rootDb) as unknown as StoreDrizzle
     },
-    createOrJoinTransaction: async (fn) => {
-      const tx = transactionScope.getStore()
-      if (tx) {
-        return await tx.transaction(async (inner) =>
-          await transactionScope.run(inner as unknown as FullStoreDrizzle, fn),
-        )
-      }
-      return transact(async (txClient) => transactionScope.run(buildStoreDrizzle(txClient), fn))
-    },
+    /**
+     * ROOT AND NESTED ARE THE SAME CALL [POD-3498].
+     *
+     * There is no `if (enclosing)` branch, and adding one back is the bug this
+     * replaced. `transact` here is the executor's AMBIENT form: it resolves
+     * `currentScope()` and, inside an open transaction scope, calls
+     * `transactOn(scope.frame, fn)` — which opens a SAVEPOINT under the enclosing
+     * frame. Joining is what the executor already does; the port only has to ask.
+     *
+     * WHAT THE BRANCH DID INSTEAD. The value this ALS carries is
+     * `buildStoreDrizzle(txClient)` — a proxy DATABASE built over the transaction's
+     * client, not a drizzle transaction OBJECT. `.transaction()` on a database
+     * emits BEGIN, so a nested span issued a second BEGIN on a connection that
+     * already had one open and SQLite refused it: `cannot start a transaction
+     * within a transaction`. That is exactly what the file's own doc comments
+     * above forbid — the code contradicted its comment.
+     */
+    createOrJoinTransaction: async (fn) =>
+      await transact(async (txClient) => await transactionScope.run(buildStoreDrizzle(txClient), fn)),
   }
 }
 
