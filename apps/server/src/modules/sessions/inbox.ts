@@ -1014,9 +1014,12 @@ export class SessionInbox {
   /** Apply the same cancellation when the operator used the native CLI instead
    *  of Podium's stop control. Transcript parsers normalize every harness's
    *  wording to `event: interrupt`, so delivery policy stays provider-neutral. */
-  onTranscriptDelta(sessionId: SessionId, items: readonly { event?: string }[]): void {
+  async onTranscriptDelta(
+    sessionId: SessionId,
+    items: readonly { event?: string }[],
+  ): Promise<void> {
     if (!items.some((item) => item.event === 'interrupt')) return
-    this.cancelInterruptedDelivery(sessionId)
+    await this.cancelInterruptedDelivery(sessionId)
   }
 
   private async cancelInterruptedDelivery(
@@ -2170,7 +2173,11 @@ export class SessionInbox {
     // this path no longer carries the base64 the check was first written for.
     const abort = this.abortKeyFor(session)
     if (session.terminal.controllerId === client.id && abort && Buffer.from(abort).equals(bytes)) {
-      this.cancelInterruptedDelivery(sessionId, true)
+      // DECISION POD-3528: the callee went async and this frame handler cannot
+      // yield. Left non-blocking, which is exactly today's behaviour — the
+      // submitVerificationGeneration delete that must beat the 90ms delayed
+      // Enter (POD-1733) runs before the callee's first await.
+      void this.cancelInterruptedDelivery(sessionId, true)
     }
     session.terminal.handleInputBytes(
       client.id,

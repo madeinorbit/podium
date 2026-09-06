@@ -3165,7 +3165,7 @@ export class SessionRegistry {
     this.bus.on('transcript.delta', async ({ sessionId, items, reset }) => {
       // A reset can replay an old interrupt marker while a new prompt is queued.
       // Only a fresh tail event is evidence about the current delivery.
-      if (reset !== true) sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
+      if (reset !== true) await sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(async () => await messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
