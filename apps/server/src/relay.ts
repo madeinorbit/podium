@@ -70,11 +70,7 @@ import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
 import { checkIssueAccess } from './issue-authz'
-import {
-  checkMachineUse,
-  ownershipFromMachines,
-  ownershipFromMachinesPerPass,
-} from './machine-access'
+import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
