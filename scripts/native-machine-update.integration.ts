@@ -280,7 +280,10 @@ try {
         artifactRequests++;
         if (corruptArtifact) {
           const tampered = Buffer.from(targetBytes);
-          tampered[tampered.length - 1] ^= 1;
+          tampered.writeUInt8(
+            tampered.readUInt8(tampered.length - 1) ^ 1,
+            tampered.length - 1
+          );
           return new Response(tampered);
         }
         return new Response(targetBytes);
@@ -501,8 +504,12 @@ try {
       throw new Error("native successor artifact identity mismatch");
     if (journal?.grant.grantId !== accepted.grantId)
       throw new Error("recovery replaced exact grant authority");
+    const recoveredNative = journal?.grant.target.native;
+    if (typeof recoveredNative !== "object" || recoveredNative === null)
+      throw new Error("recovery lost approved native metadata");
+    const recoveredFields = recoveredNative as Record<string, unknown>;
     for (const field of ["url", "signature", "version", "channel"] as const) {
-      if (journal?.grant.target.native?.[field] !== accepted.target.native[field])
+      if (recoveredFields[field] !== accepted.target.native[field])
         throw new Error(`recovery replaced approved native ${field}`);
     }
     if (

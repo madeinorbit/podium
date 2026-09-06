@@ -170,6 +170,7 @@ describe('legacy one-shot CLI journal reconciliation', () => {
     expect(second.stdout).toContain('updating 2.0.0 → 3.0.0')
     expect(second.stdout).toContain('restart podium to apply')
     const next = readMachineUpdateJournal(instance.runtime)!
+    if (!next.prepared) throw new Error('updated journal is missing its prepared artifact')
     expect(next.completed[prior.grant.grantId]?.phase).toBe('current')
     expect(next.grant.grantId).not.toBe(prior.grant.grantId)
     expect(next.grant.target.version).toBe('3.0.0')
@@ -178,7 +179,7 @@ describe('legacy one-shot CLI journal reconciliation', () => {
       `sha256-${createHash('sha256').update(archives.get('3.0.0')!).digest('base64')}`,
     )
     expect(readFileSync(join(instance.install, 'ARTIFACT.sha256'), 'utf8').trim()).toBe(
-      next.prepared?.digest,
+      next.prepared.digest,
     )
     expect(readFileSync(join(instance.install, 'podium.js'))).toEqual(readFileSync(cli))
     expect(readFileSync(join(instance.install, 'VERSION'), 'utf8').trim()).toBe('3.0.0')

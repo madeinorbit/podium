@@ -1280,14 +1280,21 @@ exec "$CANARY_REAL_CLI" "$@"
           confirmation: 'TRANSFER SERVER',
         })
         expect(started.started).toBe(true)
+        if (!started.started) throw new Error('server transfer did not start')
         if (interrupted) {
           await waitUntil(() => existsSync(marker), `${label} source crashed after promotion`)
           await waitUntil(
             async () => {
               try {
                 const operation = await sourceApi.operations.active.query({ group: 'lifecycle' })
+                const awaiting = operation?.awaiting
                 return (
-                  operation?.awaiting?.some((ask) => ask.id === 'server-move-recovery') === true
+                  Array.isArray(awaiting) &&
+                  awaiting.some(
+                    (ask: unknown) =>
+                      typeof ask === 'object' && ask !== null &&
+                      'id' in ask && ask.id === 'server-move-recovery',
+                  )
                 )
               } catch {
                 return false
