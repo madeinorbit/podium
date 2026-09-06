@@ -120,9 +120,9 @@ type BootstrapVisibilityPrefetch = {
    * decision has been taken.
    */
   readonly issueGrantIds: ReadonlySet<string>
-  readonly issueGrants: () => ReadonlyMap<string, readonly GrantRow[]>
+  readonly issueGrants: () => Promise<ReadonlyMap<string, readonly GrantRow[]>>
   readonly sessionGrantIds: ReadonlySet<string>
-  readonly sessionGrants: () => ReadonlyMap<string, readonly GrantRow[]>
+  readonly sessionGrants: () => Promise<ReadonlyMap<string, readonly GrantRow[]>>
 }
 
 /** Run `load` at most once, on the first ask. See the grant-list note above. */
@@ -211,13 +211,13 @@ export interface FeedVisibility {
   /** Authority signal for mutations that can change a scoped answer without
    * moving the change-log head (notably a same-value issue upsert beside a grant
    * revoke). Long-lived world caches validate this as well as the head. */
-  readonly authorizationRevision: () => number
+  readonly authorizationRevision: () => Promise<number>
   /**
    * "May this user read this issue?", exported because the mail policy's
    * resolution-time ceiling asks the same question the feed does and a second
    * copy of that answer is how the two quietly stop agreeing.
    */
-  readonly mayReadIssue: (userId: UserId, issueId: IssueId) => boolean
+  readonly mayReadIssue: (userId: UserId, issueId: IssueId) => Promise<boolean>
 }
 
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
@@ -303,7 +303,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   ): Promise<boolean> => {
     const admits = (edge: GrantRow): boolean => edge.grantee === userId && edge.verb === 'read'
     if (prefetch?.sessionGrantIds.has(sessionId)) {
-      return (prefetch.sessionGrants().get(sessionId) ?? []).some(admits)
+      return ((await prefetch.sessionGrants()).get(sessionId) ?? []).some(admits)
     }
     const phase =
       arm === 'session'
@@ -320,13 +320,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // Authority publishes after the transaction commits but before IssueService
     // installs a newly-created row in its live map. Read the durable row here so
     // the creation frame is scoped from the same committed truth catch-up sees.
-    const row = readIssue(issueId, prefetch)
+    const row = await readIssue(issueId, prefetch)
     if (row?.ownerUserId === userId) return true
     const admits = (edge: GrantRow): boolean =>
       edge.grantee === userId &&
       (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
     if (prefetch?.issueGrantIds.has(issueId)) {
-      return (prefetch.issueGrants().get(issueId) ?? []).some(admits)
+      return ((await prefetch.issueGrants()).get(issueId) ?? []).some(admits)
     }
     return await measure('visibility.issue.grants.listForResource', async () =>
       (await store.grants.listForResource('issue', issueId)).some(admits),
@@ -340,10 +340,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
      *  about the session named in its row id, and two copies of a visibility rule
      *  is one copy that eventually says yes when the other says no. The body is
      *  the `session` arm's, unchanged, perf label included. */
-    const maySeeSession = (userId: string, sessionId: string): boolean => {
-      const row = readSession(asSessionId(sessionId), prefetch)
+    const maySeeSession = async (userId: string, sessionId: string): Promise<boolean> => {
+      const row = await readSession(asSessionId(sessionId), prefetch)
       if (row?.ownerUserId === userId) return true
-      return sessionGrantAdmits(sessionId, userId, prefetch)
+      return await sessionGrantAdmits(sessionId, userId, prefetch)
     }
     return {
       classOf: (entity) => {
@@ -381,18 +381,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       mayRead: async (userId, ref) => {
         if (userId === 'device:shared-instance-password') return true
         if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-          return mayReadIssue(asUserId(userId), asIssueId(ref.entityId), prefetch)
+          return await mayReadIssue(asUserId(userId), asIssueId(ref.entityId), prefetch)
         }
         if (ref.entity === 'issueDep') {
           const dep = parseIssueDepId(ref.entityId)
-          return dep !== null && mayReadIssue(asUserId(userId), asIssueId(dep.fromId), prefetch)
+          return (
+            dep !== null &&
+            (await mayReadIssue(asUserId(userId), asIssueId(dep.fromId), prefetch))
+          )
         }
         if (ref.entity === 'issueEvent') {
           // THE SUBJECT IS IN THE ID (POD-1772), so this decision needs no read of
           // the event itself — which is what lets a `delete` be scoped after the
           // row is gone, exactly like the tombstone arms below.
           try {
-            return mayReadIssue(
+            return await mayReadIssue(
               asUserId(userId),
               asIssueId(parseIssueEventRowId(ref.entityId).subject),
               prefetch,
@@ -403,8 +406,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }
         }
         if (ref.entity === 'shipOrder') {
-          const issueId = readShipOrderIssueId(ref.entityId, prefetch)
-          return issueId !== null && mayReadIssue(asUserId(userId), asIssueId(issueId), prefetch)
+          const issueId = await readShipOrderIssueId(ref.entityId, prefetch)
+          return (
+            issueId !== null &&
+            (await mayReadIssue(asUserId(userId), asIssueId(issueId), prefetch))
+          )
         }
         if (ref.entity === 'pendingInteraction') {
           // THE SUBJECT SESSION IS IN THE ID (POD-2020), so this needs no read of
@@ -417,10 +423,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             // An unparseable id is not a row anyone may read.
             return false
           }
-          return maySeeSession(userId, sessionId)
+          return await maySeeSession(userId, sessionId)
         }
         if (ref.entity === 'session') {
-          return maySeeSession(userId, ref.entityId)
+          return await maySeeSession(userId, ref.entityId)
         }
         if (ref.entity === 'conversation') {
           // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
@@ -429,10 +435,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // event loop on the live corpus, which is what force-closed the
           // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
           // and two dropped sockets to become usable.
-          const row = readConversationSession(ref.entityId, prefetch)
+          const row = await readConversationSession(ref.entityId, prefetch)
           if (!row) return false
           if (row.ownerUserId === userId) return true
-          return sessionGrantAdmits(row.id, userId, prefetch, 'conversation')
+          return await sessionGrantAdmits(row.id, userId, prefetch, 'conversation')
         }
         // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
         // commit writes before it scopes, so when a `remove` reaches this

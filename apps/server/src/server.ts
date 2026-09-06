@@ -770,7 +770,8 @@ export async function startServer(
     issues: registry.modules.issues,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
-    sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
+    sessionIssueId: async (sessionId) =>
+      await registry.modules.sessions.getSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
@@ -783,7 +784,7 @@ export async function startServer(
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
   })
-  messaging.configure()
+  await messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
