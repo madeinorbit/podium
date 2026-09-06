@@ -732,12 +732,12 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     isKnownSession: () => false,
     resolveIssueRef: (ref: string) => ref,
     issueExists: () => exists,
-    ceiling: { canSee: () => canSee },
+    ceiling: { canSee: async () => canSee },
   })
 
-  it('mail: byte-identical resolutions for "no such issue" and "not yours"', () => {
-    const nonexistent = resolveAddress('iss:ghost', deps(true, false))
-    const invisible = resolveAddress('iss:private', deps(false, true))
+  it('mail: byte-identical resolutions for "no such issue" and "not yours"', async () => {
+    const nonexistent = await resolveAddress('iss:ghost', deps(true, false))
+    const invisible = await resolveAddress('iss:private', deps(false, true))
     // Not "similar-looking output" — the SAME value, so there is no branch that
     // could later diverge.
     expect(invisible).toEqual(nonexistent)
@@ -748,8 +748,8 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     expect(UNADDRESSABLE).toBe('unresolved-address')
   })
 
-  it('and a VISIBLE, existing issue resolves — the sameness above is not "everything is unresolvable"', () => {
-    expect(resolveAddress('iss:real', deps(true, true))).toEqual({
+  it('and a VISIBLE, existing issue resolves — the sameness above is not "everything is unresolvable"', async () => {
+    expect(await resolveAddress('iss:real', deps(true, true))).toEqual({
       kind: 'issue',
       id: 'iss:real',
     })
@@ -836,12 +836,12 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     )
   })
 
-  it('the ceiling is CONSULTED, not assumed — the single-user maximum is a value, not a bypass', () => {
-    expect(SINGLE_USER_CEILING.canSee({ kind: 'issue', id: 'anything' })).toBe(true)
+  it('the ceiling is CONSULTED, not assumed — the single-user maximum is a value, not a bypass', async () => {
+    expect(await SINGLE_USER_CEILING.canSee({ kind: 'issue', id: 'anything' })).toBe(true)
     // Which is why every send in the single-user present behaves as it does
     // today: the ceiling is at its maximum, not switched off.
     expect(
-      resolveAddress('iss:real', { ...deps(true, true), ceiling: SINGLE_USER_CEILING }),
+      await resolveAddress('iss:real', { ...deps(true, true), ceiling: SINGLE_USER_CEILING }),
     ).toEqual({ kind: 'issue', id: 'iss:real' })
   })
 })

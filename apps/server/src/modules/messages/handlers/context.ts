@@ -110,9 +110,15 @@ export type ApplyCeilingPort = NonNullable<MessageDeliveryDeps['authorizeAtApply
 
 export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
   Object.assign(
-    (message: Parameters<NonNullable<MessageDeliveryDeps['authorizeAtApply']>>[0]) => {
+    // ASYNC because `canSee` is: `authorizeAtApply` already declares a
+    // `Promise` return and both of its consumers (`MessageDeliveryService`'s
+    // applyAuth and `QueuedMessageApply.authorize`) await it, so awaiting the
+    // ceiling here yields where the callers already yield. It is not a widening
+    // of this port and it does not put a promise in a boolean position — the
+    // reason the refusal below was unreachable when this callback was sync.
+    async (message: Parameters<NonNullable<MessageDeliveryDeps['authorizeAtApply']>>[0]) => {
       if (message.toKind !== 'issue' || !message.toId) return { ok: true } as const
-      if (ceiling.canSee({ kind: 'issue', id: message.toId })) return { ok: true } as const
+      if (await ceiling.canSee({ kind: 'issue', id: message.toId })) return { ok: true } as const
       return { ok: false, reason: 'issue no longer exists' } as const
     },
     { ceiling },
