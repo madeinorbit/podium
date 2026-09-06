@@ -229,18 +229,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SessionStore.transact',
   },
   {
-    file: 'apps/server/src/store/executor/synchronous-span.ts',
-    symbol: 'runSynchronousSpan',
-    body: 'arg0',
-    label: 'runSynchronousSpan',
-  },
-  {
-    file: 'packages/runtime/src/sqlite/transaction.ts',
-    symbol: 'transaction',
-    body: 'arg1',
-    label: 'transaction(db, fn)',
-  },
-  {
     file: 'apps/server/src/modules/lock/service.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -266,8 +254,19 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // a caller already opened one. Declared here rather than in
     // NOT_A_SPAN_OPENER because a package cannot name the server's binding, so
     // this declaration is the only place the call site can be recognised from.
+    //
+    // THE SYMBOL IS THE TYPE ALIAS, NOT THE PROPERTY [POD-3518], and the same
+    // reason applies to the server twin below and to `TransactPort` further
+    // down. `createOrJoinTransaction` is declared `readonly
+    // createOrJoinTransaction: TransactionRunner`, so a call site's resolved
+    // signature is the ALIAS's function type — the declaration the checker
+    // hands back is the `<T>(fn) => Promise<T>` node, whose declared name is
+    // `TransactionRunner`. Keying this row on the property name matched nothing
+    // and the entry read as a DEAD opener while 46 server span openings and 1
+    // sync one went unscanned. That is the failure this table's dead-opener
+    // check exists to report, and it reported it.
     file: 'packages/sync/src/adapters/sqlite/store-queries.ts',
-    symbol: 'createOrJoinTransaction',
+    symbol: 'TransactionRunner',
     body: 'arg0',
     label: 'StoreQueries.createOrJoinTransaction',
   },
@@ -276,9 +275,10 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // the structural twin of the entry above, and unnamed until now. POD-3416 found it while declaring its port:
     // it is the same shape, on the same connection, and the only reason the sync
     // one was declared first is that a package cannot name the server's binding.
-    // Mine had no such excuse.
+    // Mine had no such excuse. Keyed on `TransactionRunner` for the reason the
+    // entry above gives.
     file: 'apps/server/src/store/executor/sync-drizzle.ts',
-    symbol: 'createOrJoinTransaction',
+    symbol: 'TransactionRunner',
     body: 'arg0',
     label: 'StoreQueries.createOrJoinTransaction (server)',
   },
@@ -335,13 +335,18 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
 const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 70,
-    why: "the ASYNC executor's own transact. It opens Stage B's spans, not today's; at the flip it replaces SessionStore.transact and this table entry goes with the bridge (POD-3327).",
+    line: 81,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70; POD-3498's SpanScopeDrizzle comment moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 680,
-    why: "the same declaration's implementation. (Was 676; POD-3345's idle-gap clock moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
+    line: 678,
+    why: "the same declaration's implementation. (Was 676, then 680; POD-3345's idle-gap clock and the flip's own edits moved it. Reported each time.)",
+  },
+  {
+    file: 'packages/runtime/src/sqlite/transaction.ts',
+    line: 28,
+    why: "the SYNCHRONOUS `transaction(db, fn)` helper. It WAS a span opener and it is no longer reachable as one: since the flip, no file under apps/server/src or packages/sync/src calls it — the only caller left in the whole repo is `migrations/restore.test.ts`, and its own `transaction-spec.ts` is not in the server program. It stays named here rather than deleted so that a production caller reappearing is an UNNAMED opener on the next run instead of a span nobody scans [POD-3518].",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -930,7 +935,6 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
   const sourceFiles = program
     .getSourceFiles()
     .filter((file) => !file.isDeclarationFile && inWalk(file.fileName))
-  const rootFiles = sourceFiles.filter((file) => inRoots(file.fileName))
 
   for (const file of sourceFiles) {
     collectClasses(file)
@@ -1208,16 +1212,42 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
 
   /* -- pass 1b: the opener table's own completeness ------------------------ */
 
-  for (const file of rootFiles) {
+  /*
+   * THE WHOLE WALK SCOPE, not just the roots [POD-3518]. The scan costs ONE
+   * declaration outside `apps/server/src` and `packages/sync/src` — the
+   * runtime's `transaction(db, fn)` — and buying that one row is what lets an
+   * opener the flip left with no caller be DECLARED not-a-span-opener instead of
+   * silently deleted from the table. A row deleted from both tables is a span
+   * nobody would scan if a caller came back.
+   */
+  for (const file of sourceFiles) {
     findUncoveredOpeners(file)
   }
 
+  /**
+   * A `transact`/`transaction`/`createOrJoinTransaction` declaration that
+   * neither table names.
+   *
+   * WHAT IT MEANS FOR A DECLARATION TO BE NAMED, and this is the part POD-3518
+   * had to fix: a call through a function-typed PROPERTY —
+   * `readonly createOrJoinTransaction: TransactionRunner`, `transact:
+   * TransactPort` — resolves to the ALIAS's function type, so the opener table
+   * keys that row on the alias and not on the property. Asking only whether the
+   * property's own name is in the table therefore reports a property whose
+   * opener IS declared. So the property's type is resolved here the same way
+   * {@link resolveCallee} resolves a call: through the checker, to the
+   * declaration a call site would land on. That replaces a hard-coded
+   * `#TransactPort` special case, which covered exactly one of the three ports
+   * that have this shape and was why the two `createOrJoinTransaction` ports
+   * could go dead without this check saying so.
+   */
   function findUncoveredOpeners(file: ts.SourceFile): void {
     const visit = (node: ts.Node): void => {
       if (
         (ts.isMethodDeclaration(node) ||
           ts.isMethodSignature(node) ||
           ts.isPropertySignature(node) ||
+          ts.isPropertyDeclaration(node) ||
           ts.isFunctionDeclaration(node) ||
           ts.isTypeAliasDeclaration(node)) &&
         node.name &&
@@ -1227,16 +1257,25 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
           node.name.text === 'transaction')
       ) {
         const site = siteOf(node, repoRoot)
-        const key = `${site.file}#${node.name.text}`
         const known =
-          openerByKey.has(key) ||
-          openerByKey.has(`${site.file}#TransactPort`) ||
+          openerByKey.has(`${site.file}#${node.name.text}`) ||
+          openerKeysBehind(node).some((key) => openerByKey.has(key)) ||
           NOT_A_SPAN_OPENER.some((entry) => entry.file === site.file && entry.line === site.line)
         if (!known) uncoveredOpeners.push(site)
       }
       node.forEachChild(visit)
     }
     visit(file)
+  }
+
+  /** The table keys a CALL through this declaration would be looked up under. */
+  function openerKeysBehind(node: ts.NamedDeclaration): string[] {
+    const type = checker.getTypeAtLocation(node)
+    return type
+      .getCallSignatures()
+      .map((signature) => signature.declaration)
+      .filter((declaration): declaration is ts.SignatureDeclaration => declaration !== undefined)
+      .map((declaration) => declKey(declaration))
   }
 
   /* -- pass 2: propagate to a fixpoint ------------------------------------- */
