@@ -1298,12 +1298,9 @@ export class SessionRegistry {
         const user = await this.store.users.get(ownerUserId)
         if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
         const principal = userCommandPrincipal(ownerUserId, user.role)
+        const ownership = await ownershipSnapshotFromMachines(machines)
         return (machineId) => {
-          const access = checkMachineUse(
-            principal,
-            machineId,
-            ownershipFromMachinesPerPass(machines),
-          )
+          const access = checkMachineUse(principal, machineId, ownership)
           return access === 'absent'
             ? `unknown machine '${machineId}'`
             : access === 'unauthorized'
