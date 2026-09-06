@@ -338,7 +338,7 @@ if (intentReportPath) {
     try {
       appendFileSync(
         intentReportPath,
-        `${JSON.stringify({ totals: laneAudit.totals, findings: laneAudit.findings })}\n`,
+        `${JSON.stringify({ totals: laneAudit.totals, reach: laneAudit.reach, findings: laneAudit.findings })}\n`,
       )
     } catch {
       // A report that cannot be written must not fail the test that produced
