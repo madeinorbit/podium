@@ -1263,8 +1263,9 @@ async function harness(options: HarnessOptions = {}) {
   /**
    * WHAT A FIRE-AND-FORGET NOTIFICATION LEFT BEHIND.
    *
-   * `UpdatesService.onTargetChanged` is a `void` port and the composition root
-   * hands it the fleet bridge, whose handler is async now — so the service
+   * `UpdatesService.onTargetChanged` is a `Promise<void>` port, and this
+   * harness's implementation of it resolves without waiting for the listener —
+   * the composition root hands the real port the fleet bridge, so the service
    * announces the change and carries straight on while the bridge is still
    * reading history and restating promises. That is the production ordering and
    * this harness keeps it. What a test cannot do is assert on work that has not
@@ -1301,7 +1302,12 @@ async function harness(options: HarnessOptions = {}) {
       exclusiveOperationActive: async () => (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      onTargetChanged: (channel) => {
+      // Resolves IMMEDIATELY and keeps the listener's promise aside, which is
+      // the production ordering this harness exists to reproduce: the service
+      // announces the change and carries on while the bridge is still reading.
+      // Awaiting the listener here instead would make every drill in this file
+      // observe an ordering production never has.
+      onTargetChanged: async (channel) => {
         const settled = targetChanged?.(channel)
         if (settled !== undefined) targetNotifications.push(settled)
       },

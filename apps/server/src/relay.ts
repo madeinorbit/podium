@@ -654,7 +654,15 @@ export class SessionRegistry {
       this.store.repos,
     )
     let updates: UpdatesService | undefined
-    let targetChanged: ((channel: UpdateChannel) => void) | undefined
+    /**
+     * `Promise<void>`, not `void` — the same tightening `UpdatesDeps.onTargetChanged`
+     * just had (rule 52b). The bridge handler assigned to this slot has been
+     * async for as long as the slot has been declared `void`, and a `void` slot
+     * accepts a promise-returning function silently, so widening the port alone
+     * would have left the promise dropped one level further out and the awaits
+     * at the service's call sites awaiting nothing.
+     */
+    let targetChanged: ((channel: UpdateChannel) => Promise<void>) | undefined
     let seedSuperagentDefaults: (() => Promise<void>) | undefined
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
@@ -784,7 +792,11 @@ export class SessionRegistry {
       // (POD-2228). This process has no memory of having published it.
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      onTargetChanged: (channel) => targetChanged?.(channel),
+      // Resolved, never `undefined`: the port is `Promise<void>`, and a bridge
+      // that has not been wired yet is a no-op, not an absent notification.
+      onTargetChanged: async (channel) => {
+        await targetChanged?.(channel)
+      },
       /**
        * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
        *
