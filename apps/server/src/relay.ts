@@ -2536,7 +2536,7 @@ export class SessionRegistry {
           await this.store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
         // Slice 1 has no accepted-review repository yet. Compatibility policy
         // explicitly permits this typed boundary to return no accepted record.
-        acceptedReviewEvidence: () => null,
+        acceptedReviewEvidence: async () => null,
       },
       policy: shippingPolicy,
       repair: shipwright,

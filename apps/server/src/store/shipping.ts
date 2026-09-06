@@ -1180,17 +1180,25 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship train leader ${leaderOrder.id} validation policy drifted`)
       }
       const machineId = issueFacts.get(prefix[0]!.id)!.machineId as ShipAttemptValue['machineId']
-      const claimed = await Promise.all(prefix.map(async (order) => {
+      // SEQUENTIAL, not Promise.all. Every claim opens a nested transaction
+      // under this one, and savepoints are a stack: two of them in flight at
+      // once release out of order. The pre-flip code was a synchronous map, so
+      // the ordering was free; awaiting each claim in turn is what preserves it
+      // (POD-3499).
+      const claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[] = []
+      for (const order of prefix) {
         const previous = await this.latestAttemptForOrder(order.id)
-        return await this.claimAttempt({
-          orderId: order.id,
-          expectedState: 'queued',
-          expectedAttemptId: previous?.id ?? null,
-          expectedGeneration: previous?.leaseGeneration ?? 0,
-          machineId,
-          startedAt: input.startedAt,
-        })
-      }))
+        claimed.push(
+          await this.claimAttempt({
+            orderId: order.id,
+            expectedState: 'queued',
+            expectedAttemptId: previous?.id ?? null,
+            expectedGeneration: previous?.leaseGeneration ?? 0,
+            machineId,
+            startedAt: input.startedAt,
+          }),
+        )
+      }
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
       const members = prefix.map((order, index) => {
         const item = byOrder.get(order.id)!

@@ -15,18 +15,6 @@ import type { CommitRegistration, PostCommitStep } from './post-commit'
  * returned one would have its work happen at an unspecified later time while
  * the caller was told it was done.
  */
-function runStep(step: PostCommitStep, label: string, mechanism: string): void {
-  const result = step()
-  if (isThenable(result)) {
-    throw new TypeError(
-      `the ${mechanism} "${label}" returned a thenable. The store is still synchronous, so the ` +
-        'drain cannot await it and the caller would be told the work was done before it ran. ' +
-        'Make the step synchronous, or classify it as an external effect, which nobody waits ' +
-        'for (POD-3260, spec §3.3).',
-    )
-  }
-}
-
 /**
  * Register an external effect (mechanism 3) that must not run inside an open
  * span, from code that is reached BOTH inside a span and outside one.
@@ -70,14 +58,20 @@ export function afterCommit(step: PostCommitStep, label: string): void {
  * wrapped with the committed guarantee: retrying the original write would be
  * wrong even though its follow-up failed.
  */
-export function followUpAfterCommit(step: PostCommitStep, label: string): void {
+export async function followUpAfterCommit(step: PostCommitStep, label: string): Promise<void> {
   const scope = currentScope()
   if (scope.kind === 'transaction' && scope.frame.lane !== 'read' && addressable(scope.frame)) {
     scope.frame.postCommit.followUp(step, label)
     return
   }
   try {
-    runStep(step, label, 'durable follow-up')
+    // AWAITED, and this is the decision merge-steps section 2 left open. A
+    // mechanism-2 step is async by design (POD-3467) and the in-span drain
+    // already awaits it; the no-span path used to REFUSE a thenable instead,
+    // which is why every async follow-up reaching it failed. Running it now
+    // means running it to completion, or the caller is told a durable
+    // follow-up landed while it is still in flight (POD-3499).
+    await step()
   } catch (error) {
     throw new PostCommitError(
       'follow-up',
@@ -133,10 +127,3 @@ function addressable(frame: TransactionFrame): boolean {
   }
 }
 
-function isThenable(value: unknown): value is Promise<void> {
-  return (
-    value != null &&
-    typeof value === 'object' &&
-    typeof (value as { then?: unknown }).then === 'function'
-  )
-}

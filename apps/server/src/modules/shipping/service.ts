@@ -239,12 +239,16 @@ export interface AcceptedReviewEvidence {
 
 export interface ShippingEvidencePort
   extends Pick<RootIntegrationReceiptStore, 'rootIntegrationReceipt'> {
+  /** WIDENED to a promise (rule 52b), because implementations already are: the
+   *  daemon's recovery fixture returns `async () => null`, which a sync port
+   *  accepted only as a type error, and an unawaited call here would compare a
+   *  promise's absent fields against the approval boundary (POD-3499). */
   acceptedReviewEvidence(input: {
     issueId: IssueId
     sourceBaseSha: string
     sourceHeadSha: string
     policyId: string
-  }): AcceptedReviewEvidence | null
+  }): Promise<AcceptedReviewEvidence | null>
 }
 
 export interface ShippingServiceDeps {
@@ -430,7 +434,7 @@ export class ShippingService {
       sourceHeadSha,
       policyId: policy.id,
     }
-    const accepted = this.deps.evidence.acceptedReviewEvidence(evidenceKey)
+    const accepted = await this.deps.evidence.acceptedReviewEvidence(evidenceKey)
     if (
       accepted &&
       (accepted.issueId !== evidenceKey.issueId ||
@@ -488,7 +492,12 @@ export class ShippingService {
     })
     const requestedBy = this.deps.authorization.attribution(input.principal)
     const existing = await this.deps.repository.activeOrderForIssue(issue.id)
-    if (!existing) this.assertAdmission(issue)
+    // AWAITED. `assertAdmission` became async with the flip, and an unawaited
+    // async guard cannot refuse anything: the rejection floated and admission
+    // carried on to the stage transition, so a nested sub-issue was turned away
+    // by a stage fence instead of by the nested-root refusal it is owed
+    // (POD-3499, rule 52).
+    if (!existing) await this.assertAdmission(issue)
     else if (issue.stage !== 'shipping') {
       throw new Error(`issue ${issue.id} has an active shipping order outside shipping custody`)
     }

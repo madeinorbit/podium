@@ -14,7 +14,11 @@ export interface ResolvedShippingPolicy {
 }
 
 export interface ShippingPolicyResolver {
-  resolve(issue: IssueWire): ResolvedShippingPolicy | Promise<ResolvedShippingPolicy>
+  /** WIDENED, never a union (rule 52b). As `T | Promise<T>` every consumer
+   *  typechecked whether or not it awaited, and a test resolver that spread the
+   *  result got the promise's own (empty) properties instead of the policy —
+   *  a policy with no `validationProfile` at all (POD-3499). */
+  resolve(issue: IssueWire): Promise<ResolvedShippingPolicy>
 }
 
 /** First-slice policy: only the guarded local ff-only compatibility executor.

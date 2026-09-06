@@ -142,7 +142,7 @@ async function harness(
                 approvedHeadSha: 'head-sha',
               })),
             })),
-      acceptedReviewEvidence: options.acceptedReviewEvidence ?? (() => null),
+      acceptedReviewEvidence: options.acceptedReviewEvidence ?? (async () => null),
     },
     policy: options.policy ?? new CompatibilityShippingPolicyResolver(() => 'main'),
     ...(options.resourceAdmission ? { resourceAdmission: options.resourceAdmission } : {}),
@@ -533,13 +533,13 @@ describe('ShippingService enqueue transaction', () => {
   it('freezes only typed review evidence bound to the exact live approval', async () => {
     const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
     const policy: ShippingPolicyResolver = {
-      resolve: (issue) => ({
-        ...compatibility.resolve(issue),
+      resolve: async (issue) => ({
+        ...(await compatibility.resolve(issue)),
         evidenceOptional: false,
       }),
     }
     const acceptedReviewEvidence = vi.fn(
-      (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
+      async (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
         ...input,
         evidenceManifestRef: 'review-evidence-snapshot',
         previewLeaseIds: ['preview-1'],
@@ -589,14 +589,14 @@ describe('ShippingService enqueue transaction', () => {
     compatible.service.dispose()
 
     const strictPolicy: ShippingPolicyResolver = {
-      resolve: (issue) => ({
-        ...compatibility.resolve(issue),
+      resolve: async (issue) => ({
+        ...(await compatibility.resolve(issue)),
         evidenceOptional: false,
       }),
     }
     for (const acceptedReviewEvidence of [
-      () => null,
-      (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
+      async () => null,
+      async (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
         ...input,
         sourceHeadSha: 'different-reviewed-head',
         evidenceManifestRef: 'mismatched-evidence',
@@ -643,12 +643,12 @@ describe('ShippingService enqueue transaction', () => {
     hidden = true
 
     for (const orderId of [order.id, asShipOrderId('ship_absent')]) {
-      expect(() =>
+      await expect(
         service.deliveryReceipt({
           orderId,
           principal: approval.principal,
         }),
-      ).toThrow(ShippingOrderAccessError)
+      ).rejects.toThrow(ShippingOrderAccessError)
       await expect(
         service.resolveHold({
           orderId,
@@ -945,7 +945,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    const running = await service.runOrder(order.id)
+    const running = service.runOrder(order.id)
     await commitStarted
     await vi.advanceTimersByTimeAsync(40_000)
     expect(renew).toHaveBeenCalledWith(
@@ -1001,7 +1001,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    const running = await service.runOrder(order.id)
+    const running = service.runOrder(order.id)
     await commitStarted
     await vi.advanceTimersByTimeAsync(40_000)
     finishCommit()
@@ -1113,7 +1113,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    const running = await service.runOrder(order.id)
+    const running = service.runOrder(order.id)
     await commitStarted
     await vi.advanceTimersByTimeAsync(40_000)
     const renewalsBeforeDispose = renew.mock.calls.length
@@ -1693,9 +1693,9 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
-    const execution = await service.runOrder(order.id)
+    const execution = service.runOrder(order.id)
     await started
-    const cancellation = await service.cancel({
+    const cancellation = service.cancel({
       orderId: order.id,
       principal: approval.principal,
       requestedBy: approval.requestedBy,
