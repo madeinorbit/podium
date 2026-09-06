@@ -1684,6 +1684,47 @@ that outlives its refresher is a login that cannot be revoked.
 GENERALLY: before applying rule 51 to any provider, ask whether it WRITES. If it does, 51's three cases
 do not decide it — split the answer from the maintenance and apply 49 to whatever you cached.
 
+### Rule 52 — PROMISE TRUTHINESS has unbounded spellings: the lint is a floor, not the guard
+
+[Raised by POD-3263's `850b106ec`, 2026-09-06, and it is the seventh confirmed instance of this class
+in this flip. The first six were `.filter`/`.find` callbacks and are caught by
+`checkAsyncBooleanPredicate`. This one was not, because it wore a COMPARISON instead of a callback.]
+
+THE SITE. `relay.ts` read:
+
+    exclusiveOperationActive: () =>
+      operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined
+
+`engine.active()` returns a promise now. A promise compared to `undefined` is a perfectly good
+boolean — so this answered TRUE on every call, and NOTHING failed to typecheck.
+`UpdatesService.setTarget` uses it to decide whether a newly published version lands or is queued
+behind a running update, so EVERY publication was being queued as though an operation were
+permanently in flight.
+
+THE CLASS IS "A PROMISE USED AS A BOOLEAN", AND ITS SPELLINGS ARE UNBOUNDED:
+
+    p !== undefined      p != null       Boolean(p)       if (p)
+    p ? a : b            !p              p && q           while (p)
+    arr.filter(async …)  arr.find(async …)  arr.some(async …)
+
+`checkAsyncBooleanPredicate` catches only the last line. Do not read a clean lint as the absence of
+this defect — the lint is a FLOOR. Catching the rest needs TYPE information, because syntax alone
+cannot tell which expression is a promise; that is filed as POD-3484.
+
+SO THE OBLIGATION IS ON THE AUTHOR, NOT THE TOOL. When you make a function async, walk EVERY call site
+and ask what its result is used AS, not merely whether it still compiles. A result used as a boolean —
+in a comparison, a condition, a ternary, a negation — is the dangerous case, and the compiler is silent
+on all of them because every one is legal.
+
+AND NOTE WHICH WAY THE BUG WENT, because it is the reason this class is severe: the broken witness said
+TRUE always, so the system took the CONSERVATIVE branch and queued everything. A promise is always
+truthy, so this class fails toward whichever branch "truthy" selects — which may be the permissive one.
+POD-3263's own analysis is the model: it refused to CACHE the witness because a cached answer drifts
+toward a stale FALSE, and false is the permissive direction there.
+
+THE POSITIVE RULE: never leave a possibly-async expression in a boolean position. Resolve it first and
+compare the resolved value.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
