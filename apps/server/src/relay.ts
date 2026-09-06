@@ -667,9 +667,10 @@ export class SessionRegistry {
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
-      targetVersion: (machineId) =>
-        updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
-      targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
+      targetVersion: async (machineId) =>
+        updates ? await updates.targetVersion(machineId) : options.targetVersion?.(),
+      targetUnavailableReason: async (machineId) =>
+        await updates?.targetUnavailableReasonFor(machineId),
       // POD-1882: read per call, not captured — Settings → Updates writes the fleet
       // default into config.json, and an unpinned machine must follow the CURRENT
       // value rather than whatever it was when this server booted.
@@ -2728,7 +2729,7 @@ export class SessionRegistry {
         // `done` operation has nothing in flight to end — and if a late machine
         // is still converging, it is converging successfully.
         if (row.state !== 'done') {
-          updatesService.releaseInFlightGrants(
+          await updatesService.releaseInFlightGrants(
             row.state === 'canceled'
               ? 'The update was canceled while this machine was updating.'
               : undefined,
@@ -3249,8 +3250,8 @@ export class SessionRegistry {
           },
         },
         updates: {
-          onUpdateStatus: (machineId, msg) => {
-            updatesService.onStatus(machineId, msg)
+          onUpdateStatus: async (machineId, msg) => {
+            await updatesService.onStatus(machineId, msg)
             // …and the same frame is the running operation's progress event.
             // The service still owns convergence; the operation only learns.
             updateFleetBridge.onFleetChanged()

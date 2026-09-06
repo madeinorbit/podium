@@ -1292,7 +1292,7 @@ async function harness(options: HarnessOptions = {}) {
   ) => {
     const initialTarget = seedProvided ? seed : (options.target ?? devTarget())
     const service = new UpdatesService({
-      machines: () => fleet,
+      machines: async () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
       now: () => clock.clock.now(),
       nextGrantId: () => `grant_${sent.length + 1}`,
@@ -2668,16 +2668,16 @@ describe('a version published mid-operation', () => {
   function service(active: () => boolean, deliveringVersion?: () => string | undefined) {
     const sent: string[] = []
     const updates = new UpdatesService({
-      machines: () => [machine({ id: 'vmi' })],
+      machines: async () => [machine({ id: 'vmi' })],
       send: (machineId) => sent.push(machineId),
       now: () => 0,
       nextGrantId: () => 'grant_1',
       concurrency: 3,
       fleetChannel: () => 'dev',
-      exclusiveOperationActive: active,
+      exclusiveOperationActive: async () => active(),
       ...(deliveringVersion
         ? {
-            exclusiveOperationVersion: (channel: UpdateChannel) =>
+            exclusiveOperationVersion: async (channel: UpdateChannel) =>
               channel === 'dev' ? deliveringVersion() : undefined,
           }
         : {}),

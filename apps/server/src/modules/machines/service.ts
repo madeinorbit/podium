@@ -163,9 +163,9 @@ export interface MachinesDeps {
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
    */
-  targetVersion?: (machineId: MachineId) => string | undefined
+  targetVersion?: (machineId: MachineId) => Promise<string | undefined>
   /** Actionable reason the selected authority has no trusted target. */
-  targetUnavailableReason?: (machineId: MachineId) => string | undefined
+  targetUnavailableReason?: (machineId: MachineId) => Promise<string | undefined>
   /**
    * The instance's fleet default update channel — what a machine with no pin of
    * its own follows (POD-1882). Injected rather than read from config here so the
@@ -886,16 +886,23 @@ export class MachinesService {
   }
 
   async listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): Promise<MachineListing[]> {
-    return (await this.machineRecords()).map((m) => {
+    // A SEQUENTIAL LOOP, NOT `.map`. Both target lookups resolve the machine's
+    // channel durably now, and an async `.map` callback would build an array of
+    // PROMISES rather than of listings. The per-machine try/catch is the reason
+    // this is a loop rather than one Promise.all up front: a machine whose
+    // target cannot be resolved must degrade to `null` on its own row without
+    // taking the rest of the fleet's listing with it.
+    const listings: MachineListing[] = []
+    for (const m of await this.machineRecords()) {
       let target: string | undefined
       let targetUnavailableReason: string | undefined
       try {
-        target = this.deps.targetVersion?.(m.id)
-        targetUnavailableReason = this.deps.targetUnavailableReason?.(m.id)
+        target = await this.deps.targetVersion?.(m.id)
+        targetUnavailableReason = await this.deps.targetUnavailableReason?.(m.id)
       } catch {
         target = undefined
       }
-      return {
+      listings.push({
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
         // omitted means NOT evaluated, and never "yes" by default.
@@ -926,8 +933,9 @@ export class MachinesService {
         // A durable snapshot remains useful while OFFLINE, but it is not evidence
         // about a newly attached daemon until that connection reports once.
         ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
-      }
-    })
+      })
+    }
+    return listings
   }
 
   /** Current login condition for a session's machine and harness. */

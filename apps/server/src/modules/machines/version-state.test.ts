@@ -46,7 +46,7 @@ describe('deriveVersionState', () => {
       instanceId: 'default',
       store,
       hostMachineId: asMachineId('host'),
-      targetVersion: () => target,
+      targetVersion: async () => target,
       clients: () => [],
       machinesForPrincipal: async () => [],
     })

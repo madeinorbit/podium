@@ -94,7 +94,7 @@ function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] 
   const sentTo: string[] = []
 
   const updates = new UpdatesService({
-    machines: () => fleet,
+    machines: async () => fleet,
     send: (machineId: MachineId, message: UpdateGrantMessage) => {
       sentTo.push(String(machineId))
       if (machineId !== HOST) return

@@ -888,8 +888,8 @@ export async function startServer(
            * to fire the bridge, which is why the gate row flipped run to run.
            */
           updates: {
-            onStatus: (machineId, status) => {
-              registry.modules.updates.onStatus(machineId, status)
+            onStatus: async (machineId, status) => {
+              await registry.modules.updates.onStatus(machineId, status)
               registry.modules.updateFleetBridge?.onFleetChanged()
             },
           },
@@ -948,7 +948,7 @@ export async function startServer(
    * precede `serveNative` below, so no client can observe a stale operation this
    * boot was going to correct.
    */
-  const updateOperationBoot = () =>
+  const updateOperationBoot = async () =>
     updateOperationContext({
       updates: registry.modules.updates,
       operations: registry.modules.operations,
@@ -956,7 +956,7 @@ export async function startServer(
       // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
       // literal here also decided which channel a resumed operation was read
       // back against.
-      channel: registry.modules.updates.operationChannel(hostMachineId),
+      channel: await registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       sourceDigest: serverBuildSourceDigest,
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
@@ -993,13 +993,13 @@ export async function startServer(
   // when rollback was refused. Cleared afterwards: the note is about THIS boot.
   const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
-    () => ({
+    async () => ({
       appVersion,
       servedWebDigest: websiteDigestReader(
         () => servedWebSourceDigest(desktopWebDir()),
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
-      machineDirectory: registry.modules.updates.fleet(),
+      machineDirectory: await registry.modules.updates.fleet(),
       ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),

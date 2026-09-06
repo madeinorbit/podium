@@ -1847,7 +1847,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
    * let the existing grants stand and watch them.
    */
   if ((step.stalls ?? 0) > 0) {
-    context.updates.reissueGrants(details.channel, undefined, {
+    await context.updates.reissueGrants(details.channel, undefined, {
       initiator: { kind: 'operation-retry', operationId: operation.id, step: UPDATE_STEP_MACHINES },
       eligibility: 'a grant this operation issued went silent and the step stalled',
     })
