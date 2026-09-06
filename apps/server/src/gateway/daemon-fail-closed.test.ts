@@ -34,6 +34,13 @@ function fakeWs() {
     emit: async (ev: string, ...a: unknown[]) => {
       for (const handler of handlers[ev] ?? []) await handler(...a)
     },
+    /**
+     * Deliver WITHOUT awaiting, which is what the socket does when two frames
+     * arrive in one read. `emit` above awaits each handler and therefore makes
+     * every delivery sequential — it cannot express two frames in flight at once.
+     */
+    emitConcurrently: (ev: string, ...a: unknown[]): unknown[] =>
+      (handlers[ev] ?? []).map((handler) => handler(...a)),
   }
 }
 
@@ -185,5 +192,33 @@ describe('the local socket confers no more than a remote pairing', () => {
     expect(localPrincipal.capability).toBe('cap:machine:local')
     expect(remotePrincipal.capability).toBe('cap:machine:m1')
     expect(localPrincipal.device).toMatch(/^daemon-\d+$/)
+  })
+})
+
+/**
+ * ADMISSION IS ONE-AT-A-TIME, EVEN WHEN THE FRAMES ARE NOT (POD-3469).
+ *
+ * Authenticating a hello is asynchronous — it reads the machines table — so the
+ * acceptor's "second hello on an established connection" refusal cannot help
+ * here: that state is only reached AFTER the credential lookup resolves. Two
+ * hellos delivered in the same tick would both pass the guard while the first
+ * lookup is still in flight, and the socket would attach the daemon twice.
+ *
+ * The socket closes that window by serializing pre-auth frames onto one chain,
+ * so the acceptor sees them strictly in order. The existing refusal test sends
+ * its second hello AFTER awaiting the first, so it is sequential by construction
+ * and cannot observe this; that is why this case is written separately.
+ */
+describe('two hello frames arriving in one tick', () => {
+  it('attaches the daemon exactly once', async () => {
+    const h = await harness([{ id: 'm1', token: 'tok' }])
+    const hello = frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' })
+
+    await Promise.all([
+      ...h.ws.emitConcurrently('message', hello),
+      ...h.ws.emitConcurrently('message', hello),
+    ])
+
+    expect(h.attach).toHaveBeenCalledTimes(1)
   })
 })
