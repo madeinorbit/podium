@@ -27,9 +27,34 @@ At `relay.ts:894`:
     →
     postCommit: (step, label) => followUpAfterCommit(step, label),
 
-**Blocked until POD-3467 widens the port.** `followUpAfterCommit` became `async` (POD-3468's
-`b64c1b5ae`), and `PostCommitEffectPort = (step: () => void, label: string) => void`. A `=> void`
-contextual type accepts a promise-returning arrow silently, so this compiles, the promise FLOATS, and
-the `PostCommitError` the change exists to surface becomes an unhandled rejection. POD-3467 must first
-widen the port to `void | Promise<void>` and await at `authority.ts:555` (its sole consumer), with a
-test that fails when the await is deleted. Only then is this edit sound.
+**Superseded in form, still queued.** POD-3467 has since gone further than the widening I asked for,
+and its design is better: it RENAMED the port and typed the STEP async rather than the port's return —
+
+    - export type PostCommitEffectPort   = (step: () => void, label: string) => void
+    + export type PostCommitFollowUpPort = (step: () => Promise<void>, label: string) => void
+
+with `authority.ts:556` now passing `async () => …`. That is correct: the adapter registers and the
+executor's drain awaits under the writer lease, so the port itself rightly still returns `void`. My
+proposed `void | Promise<void>` return widening would have made the port's own return the async thing,
+which is not what needed to be async.
+
+### THREE-WAY HAZARD TO RESOLVE DELIBERATELY AT MERGE
+
+`followUpAfterCommit` differs across the branches and the difference is invisible to each author:
+
+| branch | `followUpAfterCommit` | `PostCommit*Port` |
+|---|---|---|
+| B1 `3263` | sync, `: void` | `PostCommitEffectPort` |
+| integration | sync, `: void` | `PostCommitEffectPort` |
+| POD-3467 | sync, `: void` | `PostCommitFollowUpPort`, step async |
+| POD-3468 | **`async`, `: Promise<void>`** | `PostCommitEffectPort` |
+
+POD-3468 made it async for its own caller in `crud.ts` (awaiting the no-span path); POD-3467 needs an
+async STEP registered through a still-void adapter. Both are individually correct. Composed carelessly
+they reproduce the floating-promise defect: an `async` `followUpAfterCommit` returning `Promise<void>`
+into a `=> void` adapter slot compiles clean and drops the rejection.
+
+Resolve at merge by taking POD-3467's port rename and async-step typing, then deciding explicitly
+whether `followUpAfterCommit` must await inline (POD-3468's no-span path) or only register (the
+in-span path) — and pin whichever with a test that fails when the await is removed. Do not let a
+textual merge pick.
