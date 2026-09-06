@@ -76,6 +76,14 @@ export interface TopicRecapPort {
         originSessionId?: SessionId | null
       }
     | undefined
+    | Promise<
+        | {
+            ownerUserId: UserId
+            podiumSessionId?: SessionId | null
+            originSessionId?: SessionId | null
+          }
+        | undefined
+      >
   readTranscript(input: {
     sessionId: SessionId
     direction: 'before' | 'after'
@@ -220,8 +228,8 @@ export class MessagingService implements TelegramNoticePort {
     deps.bus.on('superagent.turnEnded', async (ev) => await this.onTurnEnded(ev))
     deps.bus.on('notification.telegramRequested', async (request) => await this.sendUserNotice(request))
     deps.bus.on('settings.changed', () => this.configure())
-    deps.bus.on('session.stateChanged', ({ sessionId, ownerUserId, next }) => {
-      this.onSessionStateChanged(sessionId, ownerUserId, next)
+    deps.bus.on('session.stateChanged', async ({ sessionId, ownerUserId, next }) => {
+      await this.onSessionStateChanged(sessionId, ownerUserId, next)
     })
     deps.bus.on('session.exited', ({ sessionId }) => {
       this.stopAmbientTyping(sessionId)
@@ -483,7 +491,7 @@ export class MessagingService implements TelegramNoticePort {
   ): Promise<string | undefined> {
     const port = this.deps.topicRecap
     if (!port) return undefined
-    const thread = port.getSuperagentThread(superagentThreadId)
+    const thread = await port.getSuperagentThread(superagentThreadId)
     if (!thread || thread.ownerUserId !== ownerUserId) return undefined
     const sessionId = transcriptSessionIdForThread(thread, superagentThreadId)
     if (!sessionId) return undefined
@@ -542,19 +550,19 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
-  private onSessionStateChanged(
+  private async onSessionStateChanged(
     sessionId: SessionId,
     ownerUserId: UserId | undefined,
     next: AgentRuntimeState,
-  ): void {
-    if (next.phase === 'working' && ownerUserId) this.startAmbientTyping(sessionId, ownerUserId)
+  ): Promise<void> {
+    if (next.phase === 'working' && ownerUserId) await this.startAmbientTyping(sessionId, ownerUserId)
     else this.stopAmbientTyping(sessionId)
   }
 
-  private startAmbientTyping(sessionId: SessionId, ownerUserId: UserId): void {
+  private async startAmbientTyping(sessionId: SessionId, ownerUserId: UserId): Promise<void> {
     if (this.ambientTypingBySession.has(sessionId)) return
     if (!this.adapter) return
-    const chatId = this.deps.routing.chatIdForUser(ownerUserId)?.trim() ?? ''
+    const chatId = (await this.deps.routing.chatIdForUser(ownerUserId))?.trim() ?? ''
     if (!chatId) return
     const threadRef = this.noticeThreadRef(chatId, sessionId)
     // Only indicate for sessions with a bound issue topic — never main chat.
