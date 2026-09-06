@@ -1617,7 +1617,7 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: ({ hello, deliver, deliverInput }) => {
+      attach: async ({ hello, deliver, deliverInput }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
