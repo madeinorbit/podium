@@ -240,23 +240,25 @@ export class ServerTransferService {
     const targetOf = await this.deps.targetStateResolver()
     return {
       sourceMachineId: promoted?.sourceMachineId ?? this.deps.sourceMachineId,
-      targetEligibility: machines.map(({ id }) => {
-        if (id === this.deps.sourceMachineId) {
-          return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
-        }
-        const target = targetOf(asMachineId(id))
-        // Structural before live, the canonical ordering of POD-2700 §3.2.
-        if (!target.hasDaemon) {
-          return { targetMachineId: id, eligible: false, reason: 'no-daemon' } as const
-        }
-        if (!target.online) {
-          return { targetMachineId: id, eligible: false, reason: 'offline' } as const
-        }
-        if (!target.capable) {
-          return { targetMachineId: id, eligible: false, reason: 'unsupported' } as const
-        }
-        return { targetMachineId: id, eligible: true } as const
-      }),
+      targetEligibility: await Promise.all(
+        machines.map(async ({ id }) => {
+          if (id === this.deps.sourceMachineId) {
+            return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
+          }
+          const target = await targetOf(asMachineId(id))
+          // Structural before live, the canonical ordering of POD-2700 §3.2.
+          if (!target.hasDaemon) {
+            return { targetMachineId: id, eligible: false, reason: 'no-daemon' } as const
+          }
+          if (!target.online) {
+            return { targetMachineId: id, eligible: false, reason: 'offline' } as const
+          }
+          if (!target.capable) {
+            return { targetMachineId: id, eligible: false, reason: 'unsupported' } as const
+          }
+          return { targetMachineId: id, eligible: true } as const
+        }),
+      ),
       transfer: entry
         ? {
             transferId: entry.record.transferId,
