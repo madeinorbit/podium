@@ -2248,8 +2248,8 @@ export class SessionRegistry {
       stopIssueSessions: async (input) => await issueSessionLifecycle.stopIssue(input),
     })
     this.issues = issues
-    this.bus.on('machine.diagnostic', (diagnostic) => {
-      routeMachineDiagnostic(diagnostic, {
+    this.bus.on('machine.diagnostic', async (diagnostic) => {
+      await routeMachineDiagnostic(diagnostic, {
         recipients: async (machineId) => {
           const owner = (await machines.ownershipRows()).find((row) => row.id === machineId)?.ownerUserId
           return [
@@ -2263,8 +2263,8 @@ export class SessionRegistry {
         repoPath: async (machineId) =>
           (await this.store.repos.listRepoPaths(machineId))[0] ?? (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => await this.store.issues.getIssue(id) !== null,
-        createIssue: (input) => void issues.create(input),
-        sendMail: (issueId, body) => void issues.sendMail(issueId, 'machine-diagnostic', body),
+        createIssue: async (input) => await issues.create(input),
+        sendMail: async (issueId, body) => await issues.sendMail(issueId, 'machine-diagnostic', body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
         warn: (message) => log.warn(message),
       })

@@ -24,9 +24,9 @@ function deps(overrides: Partial<MachineDiagnosticRouterDeps> = {}): MachineDiag
 }
 
 describe('routeMachineDiagnostic', () => {
-  it('creates personal issue-mail and attention only for the owner/admin recipients', () => {
+  it('creates personal issue-mail and attention only for the owner/admin recipients', async () => {
     const d = deps()
-    routeMachineDiagnostic(diagnostic, d)
+    await routeMachineDiagnostic(diagnostic, d)
 
     expect(d.createIssue).toHaveBeenCalledTimes(2)
     expect(d.sendMail).toHaveBeenCalledTimes(2)
@@ -44,9 +44,9 @@ describe('routeMachineDiagnostic', () => {
   // POD-1229: every diagnostic used to describe itself as an unrecognized
   // integration version, whatever it actually was. A port conflict said so in
   // its body and then contradicted itself in the description the reader sees first.
-  it('uses the daemon description when one is supplied, and the legacy sentence when not', () => {
+  it('uses the daemon description when one is supplied, and the legacy sentence when not', async () => {
     const withDescription = deps()
-    routeMachineDiagnostic(
+    await routeMachineDiagnostic(
       { ...diagnostic, description: 'Another program holds the hook port.' },
       withDescription,
     )
@@ -55,23 +55,23 @@ describe('routeMachineDiagnostic', () => {
     }
 
     const withoutDescription = deps()
-    routeMachineDiagnostic(diagnostic, withoutDescription)
+    await routeMachineDiagnostic(diagnostic, withoutDescription)
     for (const [input] of vi.mocked(withoutDescription.createIssue).mock.calls) {
       expect(input.description).toContain('installed version is unrecognized')
     }
   })
 
-  it('is idempotent when the deterministic issue already exists', () => {
+  it('is idempotent when the deterministic issue already exists', async () => {
     const d = deps({ issueExists: () => true })
-    routeMachineDiagnostic(diagnostic, d)
+    await routeMachineDiagnostic(diagnostic, d)
     expect(d.createIssue).not.toHaveBeenCalled()
     expect(d.sendMail).not.toHaveBeenCalled()
     expect(d.notify).not.toHaveBeenCalled()
   })
 
-  it('still notifies loudly when no durable issue repository exists', () => {
+  it('still notifies loudly when no durable issue repository exists', async () => {
     const d = deps({ repoPath: () => undefined })
-    routeMachineDiagnostic(diagnostic, d)
+    await routeMachineDiagnostic(diagnostic, d)
     expect(d.createIssue).not.toHaveBeenCalled()
     expect(d.notify).toHaveBeenCalledTimes(2)
     expect(d.warn).toHaveBeenCalledTimes(2)
