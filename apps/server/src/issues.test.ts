@@ -4376,17 +4376,30 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic } = await epicWith(h, [{}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const visibleAtEvent: unknown[] = []
-    await h.store.events.onAppend(async (_id, event) => {
+    // The receipt read went async, and the announcement is an EXTERNAL EFFECT
+    // (post-commit mechanism 3), which `integrate()`'s promise is documented not
+    // to wait for. So awaiting inside the listener does not get the value into
+    // `visibleAtEvent` before the assertion — measured: one macrotask of latency
+    // in this listener and the push lands after the expect.
+    //
+    // The read is still ISSUED at announcement time, which IS the property under
+    // test; what was missing was a handle on it. `observed` is that handle, so
+    // the test waits for exactly this read and for nothing else — no sleep, no
+    // dependence on when the effect drain happens to run.
+    const observed: Promise<void>[] = []
+    await h.store.events.onAppend((_id, event) => {
       if (event.kind !== 'issue.integration') return
-      visibleAtEvent.push(
-        await h.store.shipping.rootIntegrationReceipt(
-          epic.id,
-          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        ),
+      observed.push(
+        h.store.shipping
+          .rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+          .then((receipt) => {
+            visibleAtEvent.push(receipt)
+          }),
       )
     })
 
     const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+    await Promise.all(observed)
 
     expect(result.ok).toBe(true)
     expect(visibleAtEvent).toEqual([
