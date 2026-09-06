@@ -86,6 +86,25 @@ still present, do the real awaiting). The mechanical-rule wording should be
 amended: an await added at a site whose promise is stored and awaited later
 is an assertion change, not a mechanical edit.
 
+## Dynamic confirmation (2026-09-06, after the box was repaired)
+
+The environment was fixed and every claim above was re-verified by running the
+tests on this worktree (eed1b7913 + this doc; the POD-3506 fix has not landed).
+All nine attributions reproduce, each as a hang to the vitest timeout:
+
+- executor.test.ts "sends a late external effect to the root, not to its
+  released lease" — timed out (production deadlock, section a).
+- executor.test.ts "keeps a runner exactly until its delayed effect settles" —
+  timed out (production deadlock first, fixture second, section a).
+- state-models.test.ts: all six cited tests timed out; the other tests in the
+  file pass. service-span.test.ts "does not let a concurrent reader see the
+  span's uncommitted stage" timed out. 7 failed | 6 passed across the two
+  files — exactly the fixture set in section b, nothing more.
+
+No hang outside the attributed set appeared in these three files. The "no
+TENTH hang" question below still needs the post-fix run, since a later hang
+can be masked by an earlier one within a test.
+
 ## Coverage caveat
 
 I attributed the two production-shaped hangs by reading the code; the seven
