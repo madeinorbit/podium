@@ -397,25 +397,25 @@ describe('IssueService unread (#124)', () => {
   it('a never-read issue with activity is unread; markIssueRead clears it', async () => {
     const { svc } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    expect(svc.unreadFor(w.id)).toBe(true)
+    expect(await svc.unreadFor(w.id)).toBe(true)
     expect(w.readAt).toBeNull()
     const read = await svc.markIssueRead(w.id)
     expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
   })
 
   it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', async () => {
     const { svc, store } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.markIssueRead(w.id)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     const un = await svc.markIssueUnread(w.id)
     expect(un.readAt).toBeNull()
-    expect(svc.unreadFor(w.id)).toBe(true)
+    expect(await svc.unreadFor(w.id)).toBe(true)
     // Freshly-derived wire agrees, and the transition event mirrors issue.read.
-    expect(svc.unreadFor(w.id)).toBe(true)
+    expect(await svc.unreadFor(w.id)).toBe(true)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.unread'] })).length).toBe(1)
   })
 
@@ -454,31 +454,31 @@ describe('IssueService unread (#124)', () => {
     const { svc, store } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.markIssueRead(w.id)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     const readAt = (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
     const pinned = await svc.update(w.id, { pinned: true })
     expect(pinned.pinned).toBe(true)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     expect(pinned.readAt).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
     const unpinned = await svc.update(w.id, { pinned: false })
     expect(unpinned.pinned).toBe(false)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
 
     const reordered = await svc.update(w.id, { sortKey: 'x2c' })
     expect(reordered.sortKey).toBe('x2c')
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     expect(reordered.updatedAt).toBe(updatedAt)
 
     // Combined organizational patch (pin + reorder) also stays read.
     const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' })
     expect(both.pinned).toBe(true)
     expect(both.sortKey).toBe('x2d')
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     expect(both.updatedAt).toBe(updatedAt)
   })
 
@@ -513,17 +513,17 @@ describe('IssueService unread (#124)', () => {
     const svc = await IssueService.create(deps)
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.markIssueRead(w.id)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:01.000Z'
     const renamed = await svc.update(w.id, { title: 'Y' })
     expect(renamed.title).toBe('Y')
-    expect(svc.unreadFor(w.id)).toBe(true)
+    expect(await svc.unreadFor(w.id)).toBe(true)
     // Same clock step: pin alone must still leave a re-read issue read.
     await svc.markIssueRead(w.id)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
     const pinned = await svc.update(w.id, { pinned: true })
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
     expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
 })
@@ -678,7 +678,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // The tuck patch must not disturb the read marker — the two share a row now
     // (POD-1076), so this also covers the partial-patch rule at the service level.
     expect(tucked.readAt).toBe(beforeReadAt)
-    expect(svc.unreadFor(w.id)).toBe(false)
+    expect(await svc.unreadFor(w.id)).toBe(false)
   })
 })
 
@@ -718,7 +718,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const h = await harness()
     const w = await h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
     await h.svc.close(w.id) // done, but never read → unread
-    expect(h.svc.unreadFor(w.id)).toBe(true)
+    expect(await h.svc.unreadFor(w.id)).toBe(true)
     const archived = await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
     expect((await h.svc.get(w.id))!.archived).toBe(false)
@@ -3039,7 +3039,7 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     })
     await svc.addDep(parent.id, root.id, 'blocks')
 
-    expect(() => svc.addDep(root.id, child.id, 'blocks')).not.toThrow()
+    await expect(svc.addDep(root.id, child.id, 'blocks')).resolves.not.toThrow()
     expect((await svc.get(root.id))!.deps).toContainEqual({ id: child.id, type: 'blocks' })
     expect((await svc.doctor('/r')).cycles).toEqual([])
   })
@@ -4376,10 +4376,10 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic } = await epicWith(h, [{}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const visibleAtEvent: unknown[] = []
-    await h.store.events.onAppend((_id, event) => {
+    await h.store.events.onAppend(async (_id, event) => {
       if (event.kind !== 'issue.integration') return
       visibleAtEvent.push(
-        h.store.shipping.rootIntegrationReceipt(
+        await h.store.shipping.rootIntegrationReceipt(
           epic.id,
           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         ),
@@ -4628,9 +4628,12 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = await harness()
     const { epic } = await epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, () => undefined)
+    // NOT `await` inside the array: awaiting each element runs them SEQUENTIALLY,
+    // so the second call never overlaps the first and the guard has nothing to
+    // refuse. The concurrency IS the property under test.
     const [r1, r2] = await Promise.all([
-      await h.svc.integrate(epic.id, AS_OPERATOR),
-      await h.svc.integrate(epic.id, AS_OPERATOR),
+      h.svc.integrate(epic.id, AS_OPERATOR),
+      h.svc.integrate(epic.id, AS_OPERATOR),
     ])
     const refused = [r1, r2].filter((r) => /integration already running for #1/.test(r.output))
     const ran = [r1, r2].filter((r) => r.ok)
