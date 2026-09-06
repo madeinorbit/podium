@@ -31,7 +31,7 @@ afterEach(async () => {
 async function start(
   authorizeClient: (request: Request) => boolean,
   credentialId?: string,
-  validateClientCredential?: (credentialId: string) => boolean,
+  credentialExpiresAt?: string,
   timers?: {
     setInterval(fn: () => void, ms: number): unknown
     clearInterval(handle: unknown): void
@@ -45,13 +45,13 @@ async function start(
       authorizeClient,
       userForClient: () => FIRST_ADMIN_USER_ID,
       roleForClient: () => 'admin',
-      ...(validateClientCredential ? { validateClientCredential } : {}),
       ...(credentialId
         ? {
             principalForClient: () => ({
               userId: FIRST_ADMIN_USER_ID,
               userRole: 'admin' as const,
               credentialId,
+              ...(credentialExpiresAt ? { credentialExpiresAt } : {}),
             }),
           }
         : {}),
@@ -235,11 +235,10 @@ describe('/client WS auth gate', () => {
       },
       clearInterval() {},
     }
-    let valid = true
     const url = await start(
       () => true,
       'expiring-mobile-hash',
-      () => valid,
+      new Date(0).toISOString(),
       timers,
     )
     const socket = new WebSocket(url)
@@ -247,7 +246,6 @@ describe('/client WS auth gate', () => {
       socket.once('open', resolve)
       socket.once('error', reject)
     })
-    valid = false
     const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
     ticks[0]?.()
     await closed

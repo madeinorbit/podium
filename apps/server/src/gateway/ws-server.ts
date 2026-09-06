@@ -91,10 +91,15 @@ export interface WsAuthOptions {
         userId: UserId
         userRole: UserRole
         credentialId?: string
+        credentialExpiresAt?: string
       }
     | undefined
-    | Promise<{ userId: UserId; userRole: UserRole; credentialId?: string } | undefined>
-  validateClientCredential?: (credentialId: string) => boolean
+    | Promise<{
+        userId: UserId
+        userRole: UserRole
+        credentialId?: string
+        credentialExpiresAt?: string
+      } | undefined>
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
@@ -180,6 +185,7 @@ interface SocketData {
   userId?: UserId
   userRole?: UserRole
   credentialId?: string
+  credentialExpiresAt?: string
   socket?: NativeGatewaySocket
 }
 
@@ -304,9 +310,8 @@ export function attachWebSockets(
         aliveDaemons.add(socket)
       } else {
         if (
-          native.data.credentialId &&
-          auth.validateClientCredential &&
-          !auth.validateClientCredential(native.data.credentialId)
+          native.data.credentialExpiresAt !== undefined &&
+          Date.now() >= Date.parse(native.data.credentialExpiresAt)
         ) {
           native.terminate()
           return
@@ -387,6 +392,9 @@ export function attachWebSockets(
           userId,
           userRole,
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
+          ...(resolved?.credentialExpiresAt
+            ? { credentialExpiresAt: resolved.credentialExpiresAt }
+            : {}),
         }
       } else {
         data = { kind: 'daemon', url: request.url }
