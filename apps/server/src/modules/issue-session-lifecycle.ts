@@ -240,7 +240,7 @@ export class IssueSessionLifecycle {
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
 
-    const sessionPlan = this.deps.sessions.prepareIssueSessionRestore(current.id)
+    const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
     const restoredIds = new Set(sessionPlan.sessionIds)
     const restoredSessions = [
       ...(await this.deps.sessions

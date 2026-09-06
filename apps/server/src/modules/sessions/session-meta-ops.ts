@@ -430,8 +430,16 @@ export class SessionMetaOps {
   /** Prepare restoration of the sessions tombstoned by one issue deletion. The
    *  durable rows and ledger upserts commit with the issue restore; runtime
    *  installation follows only after that transaction succeeds. */
-  prepareIssueSessionRestore(issueId: IssueId): SessionRestorePlan {
-    const rows = this.ports.store.sessions.loadDeletedSessionsForIssue(issueId) as SessionRow[]
+  async prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
+    // AWAITED [POD-3512]. `loadDeletedSessionsForIssue` is async, and the cast
+    // that used to stand here (`as SessionRow[]`) silenced the compiler over a
+    // Promise: `rows.map` was undefined, so EVERY restore threw. The read is
+    // ahead of the commit, not inside it, so it can simply wait. The annotation
+    // is doing the same job the cast used to, one step later: `ports.store` is
+    // `any`, so the await yields `any` and the rows below would be implicitly
+    // typed. What changed is that it now describes a settled array rather than
+    // a promise.
+    const rows: SessionRow[] = await this.ports.store.sessions.loadDeletedSessionsForIssue(issueId)
     const restored = rows
       .map((row) => ({
         row,
