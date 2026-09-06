@@ -1810,7 +1810,7 @@ describe('post-commit runner retention', () => {
     await settle()
     expect(h.executor.diagnostics.retainedRunners, 'still owed an effect').toBe(1)
 
-    const settled = await h.executor.effectsSettled()
+    const settled = h.executor.effectsSettled()
     parked.release()
     await settled
     expect(ran, 'effectsSettled waited for the effect it still owned').toEqual(['late'])

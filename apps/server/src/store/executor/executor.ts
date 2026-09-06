@@ -698,7 +698,11 @@ export function createStoreExecutor<TClient>(
       try {
         return await runTopLevel(lease, 'write', fn, runner)
       } finally {
-        await retire(runner)
+        // NOT awaited, and not on this lease: effects outlive the drain by
+        // design, and a post-commit effect that issues its own statement needs
+        // a lease this operation is still holding. Awaiting retirement here
+        // deadlocks the write lane against its own effect.
+        void retire(runner).catch(() => undefined)
       }
     })
   }

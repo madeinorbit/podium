@@ -53,8 +53,8 @@ describe('draft-then-install', () => {
     })
     registry.seed('i1', { id: 'i1', stage: 'review', revision: 1 })
 
-    const first = await registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
-    const second = await registry.update('i1', (row) => ({ ...row, stage: 'done' }))
+    const first = registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
+    const second = registry.update('i1', (row) => ({ ...row, stage: 'done' }))
 
     // Both read revision 1 before either persisted.
     expect(registry.snapshot('i1')).toEqual({ id: 'i1', stage: 'review', revision: 1 })
@@ -82,7 +82,7 @@ describe('draft-then-install', () => {
     })
     const seeded = { id: 'i1', stage: 'review', revision: 1 }
     registry.seed('i1', seeded)
-    const failing = await registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
+    const failing = registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
 
     await parked.reached()
     await settle()
@@ -107,13 +107,13 @@ describe('write-lease-before-read', () => {
     const state = new LeasedState<{ count: number }>(harness.executor, { count: 0 })
     const observed: number[] = []
 
-    const write = await state.update(
+    const write = state.update(
       (value) => ({ count: value.count + 1 }),
       async () => {
         await parked.wait()
       },
     )
-    const read = await state.read((value) => {
+    const read = state.read((value) => {
       observed.push(value.count)
     })
 
@@ -138,7 +138,7 @@ describe('write-lease-before-read', () => {
     const parked = barrier()
     const observed: number[] = []
 
-    const failing = await harness.executor.transact(async () => {
+    const failing = harness.executor.transact(async () => {
       await state.update(
         (value) => ({ count: value.count + 1 }),
         async () => {
@@ -147,7 +147,7 @@ describe('write-lease-before-read', () => {
       )
       throw new Error('enclosing span failed')
     })
-    const read = await state.read((value) => observed.push(value.count))
+    const read = state.read((value) => observed.push(value.count))
 
     await parked.reached()
     await settle()
@@ -166,14 +166,14 @@ describe('write-lease-before-read', () => {
     const parked = barrier()
     const observed: number[] = []
 
-    const failing = await state.update(
+    const failing = state.update(
       (value) => ({ count: value.count + 1 }),
       async () => {
         await parked.wait()
         throw new Error('write failed')
       },
     )
-    const read = await state.read((value) => observed.push(value.count))
+    const read = state.read((value) => observed.push(value.count))
 
     await parked.reached()
     await settle()
@@ -196,13 +196,13 @@ describe('versioned mutex', () => {
     let value = 0
     const order: string[] = []
 
-    const first = await mutex.run(async () => {
+    const first = mutex.run(async () => {
       order.push('first:start')
       await parked.wait()
       value += 1
       order.push('first:end')
     })
-    const second = await mutex.run(async () => {
+    const second = mutex.run(async () => {
       order.push('second:start')
       // Reads the FIRST mutation's result, not the value it was queued with.
       value *= 10

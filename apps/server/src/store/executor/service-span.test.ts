@@ -328,14 +328,14 @@ describe('the cross-service span', () => {
     const parked = barrier()
     const observed: (string | undefined)[] = []
 
-    const span = await issues.shippingCommitMany(
+    const span = issues.shippingCommitMany(
       [{ id: 'i1', mutation: { expectedStage: 'shipping', needsHuman: true, nextStage: 'done' } }],
       async () => {
         await parked.wait()
         return 'ok'
       },
     )
-    const read = await h.executor.read(async () => {
+    const read = h.executor.read(async () => {
       observed.push((await reader.row('i1'))?.stage)
     })
 
