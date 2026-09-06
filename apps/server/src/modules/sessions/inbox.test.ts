@@ -877,13 +877,29 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
+  // WHICH HOOK REPORTS A RETRACTION IS DECIDED BY WHETHER THE ROW NAMES A
+  // MESSAGE, not by whether the row was ever typed (POD-3349).
+  //
+  // A chat send reaches this queue through the mail ledger, so its row carries
+  // the ledger id (`sourceMessageId`) whether or not delivery has been
+  // attempted. `interrupted` retracts THAT message; `interruptedPending` is the
+  // fallback for the native interrupt that has no row to name — see the test
+  // below it. Asserting the pending hook here asked a named retraction to
+  // report itself anonymously, and the ledger would then have had to guess
+  // which held send the operator meant.
   it('cancels the delayed chat submit before forwarding native Codex Escape', async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'codex', phase: 'working' })
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    expect(h.inbox.sendText({ sessionId: SID, text: 'do not submit after Escape' })).toEqual({
+    expect(
+      h.inbox.sendText({
+        sessionId: SID,
+        text: 'do not submit after Escape',
+        sourceMessageId: 'message-chat-send',
+      }),
+    ).toEqual({
       ok: true,
       queued: true,
     })
@@ -905,7 +921,33 @@ describe('SessionInbox authorization and identity', () => {
       Buffer.from('\x1b').toString('base64'),
       expect.any(Object),
     )
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-chat-send',
+      sessionId: SID,
+    })
+    expect(h.interruptedPending).not.toHaveBeenCalled()
+  })
+
+  // The other half of that split: a chat send the ledger is still holding has
+  // no row here to name, so the native Escape can only say WHICH SESSION was
+  // interrupted and let the ledger retract its newest held operator send.
+  it('reports a native Codex Escape with no queued row as a pending retraction', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-1')
+    const client = { id: 'client-1' } as ClientConn
+
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
+    expect(h.interrupted).not.toHaveBeenCalled()
   })
 
   it('does not cancel a chat send for Escape from a non-controlling terminal client', async () => {
