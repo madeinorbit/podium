@@ -349,3 +349,30 @@ guards. That is a lower priority and a different justification.
 AND IT IS THE TWO PIECES OF TOOLING COMPOSING: the boundary POD-3488 could not reach with a test is
 exactly the one POD-3483's type-directed check sees, because the spelling there is a NEGATION — the
 form TS2801 never flags and the form that check exists for. Neither instrument covers it alone.
+
+## 9. COORDINATOR ERROR: whole-file ownership dropped 19 conversions and made 3 tests vacuous
+
+Section 6 said of `updates/operation.test.ts`: "take POD-3484's — it owns that file." That was right
+about POD-3484's content and WRONG as a resolution, because POD-3469 had ALSO converted 19 call sites
+in the same file. Merge `18843764b` took `updates/service.ts` from the POD-3469 side — which splits the
+publisher into an async `setTargetFromProducer` that consults the exclusive-operation witnesses and a
+synchronous `setTarget` shim hardcoding `{ active: false }` for fixtures — and resolved the TEST file
+entirely the other way. Verified: POD-3469's branch has 19 `setTargetFromProducer` call sites there,
+`18843764b` has ZERO.
+
+TWO CONSEQUENCES, and the second is worse than the first:
+  four tests under "a version published mid-operation" went RED, because the fixture shim never asks
+  whether an operation is running, so nothing was ever queued;
+  three SIBLING tests kept PASSING VACUOUSLY — with the witness never consulted every publication
+  lands immediately, which is also what they assert about the same-version escape hatch. A merge that
+  makes passing tests meaningless is worse than one that reds them, because nothing reports it.
+
+THE LESSON, which contradicts section 6 as written: WHOLE-FILE OWNERSHIP IS NOT A MERGE RULE. It is a
+rule for deciding who EDITS a file, not for resolving one. When both sides changed a conflicted file,
+diff each side against ITS OWN merge-base and take both sets — as was done correctly for
+`machines/service.ts` in section 6, where POD-3469's ports and POD-3482's predicate fixes were
+disjoint. The same check applied here would have shown 19 conversions on one side and POD-3484's
+content on the other.
+
+Fixed by POD-3496 (`00a1593d4`), test-only, restoring exactly POD-3469's 19 conversions and leaving the
+harness's sync seeding call as POD-3469 had it. `operation.test.ts` goes 4 failed to 164/164.
