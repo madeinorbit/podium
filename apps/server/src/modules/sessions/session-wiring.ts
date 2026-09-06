@@ -32,6 +32,7 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
+import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
@@ -85,11 +86,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // Private-field write surface for this composition function only.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bag = life as any
+  // The store is read through its own typed binding, not through `bag`: every
+  // repository call below is then checked by the compiler (POD-3515).
+  const store: SessionStore = deps.store
 
   bag.store = deps.store
   bag.sessions = deps.sessions ?? new Map()
   bag.now = deps.now
-  bag.mutations = deps.mutations ?? new MutationLedger(bag.store.sync, () => bag.now())
+  bag.mutations = deps.mutations ?? new MutationLedger(store.sync, () => bag.now())
   bag.clients = deps.clients ?? new ClientRegistry()
   bag.bus = deps.bus
   bag.machines = deps.machines
@@ -98,28 +102,28 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.funnel = deps.funnel
   bag.concurrencyHistory = new AgentConcurrencyHistory({
     sessions: () => bag.sessions.values(),
-    events: bag.store.events,
+    events: store.events,
     bus: bag.bus,
     now: () => bag.now(),
   })
   bag.activityHistory = new SessionActivityHistory({
-    events: bag.store.events,
+    events: store.events,
     bus: bag.bus,
     now: () => bag.now(),
   })
   bag.terminalProof = new SessionTerminalProof({
     now: () => bag.now(),
     leases: bag.observationLeases,
-    checkpoints: bag.store.observationCheckpoints,
+    checkpoints: store.observationCheckpoints,
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
     pendingForProof: (sessionId, atIso) =>
-      bag.store.messages.pendingForSessionProof(sessionId, atIso),
+      store.messages.pendingForSessionProof(sessionId, atIso),
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })
   bag.launchConfig = new SessionLaunchConfig({
-    store: bag.store,
+    store,
     settingsViewer: () => bag.settingsViewer(),
   })
   bag.naming = new SessionNaming({
@@ -203,7 +207,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
 
   bag.workspace = new SessionWorkspace({
-    store: bag.store,
+    store,
     rpc: bag.rpc,
     machines: bag.machines,
     issueAccess: bag.deps.issueAccess,
@@ -223,7 +227,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   }
 
   bag.state = new SessionStateService({
-    store: bag.store,
+    store,
     now: () => bag.now(),
     getSession: (sessionId) => bag.sessions.get(sessionId),
     sessionIds: () => bag.sessions.keys(),
@@ -258,7 +262,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.view = new SessionView({
     sessions: bag.sessions,
-    store: bag.store,
+    store,
     machines: bag.machines,
     state: bag.state,
     sessionOccupancyCount: bag.deps.sessionOccupancyCount
@@ -267,7 +271,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.repository = new SessionRepository({
     sessions: bag.sessions,
-    store: bag.store,
+    store,
     memory: bag.deps.memory,
     ledger: bag.deps.ledger,
     // The same wiring `relay.ts` gives the change baseline (POD-3328): the
@@ -298,7 +302,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // construction-order audit now enforces the same rule (POD-1411). Moving this
   // block above `bag.view` fails `bun scripts/server-construction-order.ts`.
   bag.sessionStart = new SessionStart({
-    store: bag.store,
+    store,
     view: bag.view,
     repository: bag.repository,
     state: bag.state,
@@ -349,7 +353,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     queue: {
       enqueue: (row) => {
         const actor = inboxActorColumns(row.principal.attribution.actor)
-        return bag.store.sync.enqueueMessage({
+        return store.sync.enqueueMessage({
           id: row.id,
           sessionId: row.sessionId,
           text: row.text,
@@ -365,7 +369,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         })
       },
       list: (sessionId) =>
-        bag.store.sync.listQueuedMessages(sessionId).map((row: QueuedMessageRow) => ({
+        store.sync.listQueuedMessages(sessionId).map((row: QueuedMessageRow) => ({
           id: row.id,
           text: row.text,
           attempts: row.attempts,
@@ -381,12 +385,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           },
           sourceMessageId: row.sourceMessageId,
         })),
-      bumpAttempts: (id) => bag.store.sync.bumpQueuedAttempts(id),
-      resetAttempts: (id) => bag.store.sync.resetQueuedAttempts(id),
-      delete: (id) => bag.store.sync.deleteQueuedMessage(id),
+      bumpAttempts: (id) => store.sync.bumpQueuedAttempts(id),
+      resetAttempts: (id) => store.sync.resetQueuedAttempts(id),
+      delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).
-      sessionsWithPending: () => [...bag.store.sync.queuedMessageCounts().keys()],
+      sessionsWithPending: () => [...store.sync.queuedMessageCounts().keys()],
     },
     daemon: {
       sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
@@ -409,7 +413,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     attention: {
       stateChanged: (input) => bag.bus.emit('session.stateChanged', input),
       answered: ({ ownerUserId, sessionId, attribution }) => {
-        bag.store.events.appendEvent({
+        store.events.appendEvent({
           ts: new Date(bag.now()).toISOString(),
           kind: 'session.inbox.answered',
           subject: sessionId,
@@ -422,7 +426,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // Persist first. The bus attention event is intentionally only a live
         // notification; the event and queue are the recovery record even when
         // there is no owner or no connected client.
-        bag.store.events.appendEvent({
+        store.events.appendEvent({
           ts: new Date(bag.now()).toISOString(),
           kind: initialPrompt ? 'session.initial_prompt_failed' : 'session.input_unconfirmed',
           subject: sessionId,
@@ -444,7 +448,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.persist(
         session,
         options?.cancelTerminalCandidate
-          ? () => bag.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+          ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
     write: (session, mutate, options) =>
@@ -452,7 +456,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         session,
         mutate,
         options?.cancelTerminalCandidate
-          ? () => bag.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+          ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
     draft: (session) => bag.repository.draft(session),
@@ -600,7 +604,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
     // so it is resolved for a user. See `settingsViewer` below for why that
     // user is spelled out rather than defaulted.
-    isEnabled: () => bag.store.settings.getSettingsFor(bag.settingsViewer()).autoContinue.enabled,
+    isEnabled: () => store.settings.getSettingsFor(bag.settingsViewer()).autoContinue.enabled,
     sendContinue: (sessionId) => {
       bag.continueSession({ sessionId })
     },
@@ -660,7 +664,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // The position is the table's real depth, read back rather than counted
         // here — a number that drifted from the table would be a promise about
         // ordering that nothing kept.
-        position: bag.store.sync.listQueuedMessages(input.sessionId).length,
+        position: store.sync.listQueuedMessages(input.sessionId).length,
       }
     },
   }
@@ -672,7 +676,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * stay on compatibility frames until their own vertical slices migrate.
    */
   runtimeEventGate = new RuntimeEventGate({
-    events: bag.store.events,
+    events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),
     persist: (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
@@ -835,7 +839,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     inbox: bag.inbox,
     state: bag.state,
     projection: bag.daemonProjection,
-    store: bag.store,
+    store,
     memory: bag.deps.memory,
     observationLeases: bag.observationLeases,
     persist: (session, additionalWrite) => bag.repository.persist(session, additionalWrite),
@@ -897,7 +901,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // still call thin lifecycle facades that forward into this collaborator.
   // No dispose: this module owns no timer, loop, or async work.
   bag.sessionTeardown = new SessionTeardown({
-    store: bag.store,
+    store,
     view: bag.view,
     repository: bag.repository,
     state: bag.state,
@@ -919,7 +923,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     snapshotTail: () => bag.deps.snapshotTail(),
   })
   bag.sessionKill = new SessionKill({
-    store: bag.store,
+    store,
     repository: bag.repository,
     state: bag.state,
     autoContinue: bag.autoContinue,
@@ -953,7 +957,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionById: (sessionId: SessionId) => bag.view.byId(sessionId),
     machines: bag.machines,
     sessions: bag.sessions,
-    store: bag.store,
+    store,
   })
   bag.sessionMetaOps = new SessionMetaOps({
     broadcastSessions: () => bag.broadcastSessions(),
@@ -967,7 +971,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionTeardown: bag.sessionTeardown,
     sessions: bag.sessions,
     state: bag.state,
-    store: bag.store,
+    store,
     toMachine: (mid: string, msg: unknown) => bag.toMachine(mid, msg),
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     view: bag.view,
@@ -976,7 +980,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // terminalProof, state, autoContinue — all exist by this point.
   // No dispose: the coordinator holds only a single-flight map.
   bag.sessionRevival = new SessionRevival({
-    store: bag.store,
+    store,
     repository: bag.repository,
     state: bag.state,
     terminalProof: bag.terminalProof,
