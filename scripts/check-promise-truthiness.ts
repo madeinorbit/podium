@@ -229,14 +229,10 @@ const REPORTED_ROOTS = ['apps/', 'packages/'] as const
  * whose site has been fixed FAILS the run, so the allowlist cannot rot.
  */
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
-  [
-    'apps/server/src/modules/shipping/service.ts:3536',
-    'POD-3495 — `ResourceLease.renew` is declared `() => boolean | Promise<boolean>` and ' +
-      'shipping supplies an async implementation, so `if (!lease.renew())` never refuses. ' +
-      'The same union-port shape as POD-3487. Narrowing it makes renewResourceLease async, ' +
-      'which cascades through the lease tick; that is a judgement call per call site, not ' +
-      'a mechanical await, so it is its own issue rather than a drive-by in this one.',
-  ],
+  // Empty, and the check FAILS on a stale entry, so it cannot rot into a
+  // permanent exemption. The one entry this shipped with named POD-3495
+  // (ResourceLease.renew) — fixed by POD-3488 and landed as 961dffbc1 before
+  // this check merged, which is exactly the staleness the ratchet is for.
 ])
 
 // ---------------------------------------------------------------------------
