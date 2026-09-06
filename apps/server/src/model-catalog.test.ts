@@ -121,8 +121,8 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       return { grok: [{ value: machineId, label: machineId }] }
     })
     const cat = new ModelCatalog(probe, { now: () => 1 })
-    const a = await cat.refresh(asMachineId(M))
-    const b = await cat.refresh(asMachineId(M2))
+    const a = cat.refresh(asMachineId(M))
+    const b = cat.refresh(asMachineId(M2))
     await b
     expect((await cat.get(asMachineId(M2))).byAgent.grok?.[0]?.value).toBe(M2)
     release()
