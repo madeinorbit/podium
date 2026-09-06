@@ -28,7 +28,7 @@ import {
   checkMachineUse,
   checkMachineVerb,
   machineVerbsFor,
-  ownershipFromMachines,
+  ownershipSnapshotFromMachines,
 } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
 import { openTestStore } from './test-support/open-test-store'
@@ -321,7 +321,7 @@ describe('D19.4 regression sequences', () => {
     // Grants ALWAYS dropped on recovery (D19.4b) — never restored from a stale set.
     expect(await restarted.store.grants.listForResource('machine', machineId)).toEqual([])
 
-    const ownership = ownershipFromMachines(restarted.machines)
+    const ownership = await ownershipSnapshotFromMachines(restarted.machines)
     const owner = userCommandPrincipal(asUserId(OWNER), 'admin')
     const colleague = userCommandPrincipal(OTHER, 'member')
     expect(await checkMachineUse(owner, asMachineId(machineId), ownership)).toBeUndefined()
@@ -356,7 +356,7 @@ describe('D19.4 regression sequences', () => {
     expect(row?.ownerUserId).toBeNull()
     expect(row?.ownerUserId).not.toBe(OWNER)
 
-    const ownership = ownershipFromMachines(svc)
+    const ownership = await ownershipSnapshotFromMachines(svc)
     const admin = userCommandPrincipal(asUserId(OWNER), 'admin')
     // Admin holds see, nobody holds use.
     expect(await canSeeMachine(admin, asMachineId(machineId), ownership)).toBe(true)
@@ -384,7 +384,7 @@ describe('D19.4 regression sequences', () => {
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
     // But the ledger already commits the NEW owner; effectiveOwner reflects it.
     expect(await w.machines.effectiveOwner(asMachineId(machineId))).toBe(OTHER)
-    const ownershipMidCrash = ownershipFromMachines(w.machines)
+    const ownershipMidCrash = await ownershipSnapshotFromMachines(w.machines)
     const oldP = userCommandPrincipal(asUserId(OWNER), 'admin')
     const newP = userCommandPrincipal(OTHER, 'member')
     // Authorization must not serve the stale projection (D19.4d rule 2).
@@ -419,7 +419,7 @@ describe('D19.4 regression sequences', () => {
     })
     // Constructor ran reconcileOwnersFromLedger — row now shows NEW owner.
     expect((await restarted.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
-    const ownership = ownershipFromMachines(svc)
+    const ownership = await ownershipSnapshotFromMachines(svc)
     expect(
       await checkMachineUse(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
     ).toBeUndefined()
