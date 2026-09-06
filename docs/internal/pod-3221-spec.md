@@ -1912,6 +1912,29 @@ and awaits what can be awaited. The ranking is `Promise<T>` best, union second, 
 THIS ALSO BOUNDS RULE 51. When rule 51 case 1 says "widen the port and await", it means widen to
 `Promise<T>`. A case-1 conversion that produces a union has not been done.
 
+THE BAN IS ON PORTS, NOT ON THE TOKEN. [POD-3469, 2026-09-06, and this qualification is load-bearing —
+without it someone "fixing" a union will destroy a design this epic deliberately chose.] A union is
+acceptable as an IMPLEMENTATION SIGNATURE behind overloads that discriminate on argument type, because
+TypeScript does not expose the implementation signature to callers:
+
+    export function receiveDaemonFrame(a: HandshakeAcceptor, raw: string): DaemonFrameOutcome
+    export function receiveDaemonFrame(a: PreparedDaemonAcceptor, raw: string): Promise<DaemonFrameOutcome>
+    export function receiveDaemonFrame(a: HandshakeAcceptor | PreparedDaemonAcceptor, raw: string):
+      DaemonFrameOutcome | Promise<DaemonFrameOutcome> { … }
+
+Each caller matches ONE overload, decided statically by which acceptor it holds, and gets a single
+concrete type. POD-3469 PROVED a caller cannot obtain the union: assigning
+`receiveDaemonFrame(prepared, …)` into a `DaemonFrameOutcome` slot is refused with TS2322. This is in
+fact the STRONGEST available shape here, because the caller cannot get the wrong one.
+
+THE TEST IS NOT THE SPELLING, IT IS WHETHER A CALLER CAN OBTAIN THE UNION. A port hands the union to
+every caller and the sync spelling stays legal at both ends — banned. An implementation signature
+behind discriminating overloads hands the union to nobody — allowed, if you can demonstrate it. If you
+cannot demonstrate it, treat it as a port.
+
+Collapsing those overloads into one async function would take the synchronous acceptor path with it —
+the very path the gateway ruling in the merge steps exists to protect.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
