@@ -114,7 +114,7 @@ describe('machine build report over a live daemon socket', () => {
     const listed = (await server.registry.modules.machines.listMachines())[0]
     expect(listed).toMatchObject({ supervised: true })
 
-    const planned = server.registry.modules.updates.fleet()[0]
+    const planned = (await server.registry.modules.updates.fleet())[0]
     expect(planned?.supervised).toBe(true)
     expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(true)
     await close(ws)
@@ -145,7 +145,7 @@ describe('machine build report over a live daemon socket', () => {
       tools: [],
     })
 
-    const planned = server.registry.modules.updates.fleet()[0]
+    const planned = (await server.registry.modules.updates.fleet())[0]
     expect(planned?.platform).toBe('darwin-aarch64')
     expect(machineCanTakeTargetPlatform(planned as WaveMachine, ['linux-x86_64'])).toBe(false)
     await close(ws)

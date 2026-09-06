@@ -1719,13 +1719,16 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
     try {
       return await ensureMachines(args)
     } finally {
-      writeWaveRounds(args.operation, args.context)
+      await writeWaveRounds(args.operation, args.context)
     }
   },
 }
 
-function writeWaveRounds(operation: Operation, context: UpdateOperationContext): void {
-  const rounds = mergedWaveRounds(operation, context.updates)
+async function writeWaveRounds(
+  operation: Operation,
+  context: UpdateOperationContext,
+): Promise<void> {
+  const rounds = await mergedWaveRounds(operation, context.updates)
   if (rounds) context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
 }
 
@@ -1769,7 +1772,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
     .map((place) => place.id)
   if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
 
-  const settled = settleMachines(operation, step, context)
+  const settled = await settleMachines(operation, step, context)
   if (settled) return settled
 
   /**
@@ -1793,12 +1796,12 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
    */
   const published = context.updates.target(details.channel) ?? details.target
   const awaited = new Set((step.places ?? []).map((place) => place.id))
-  const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
+  const waiting = (await context.updates.fleet()).filter((machine) => awaited.has(machine.id))
   if (!fleetCanTakeTargetNow(published, waiting)) {
     return {
       state: 'running',
       detail: 'Waiting for the update package.',
-      ...projectMachines(operation, step, context),
+      ...(await projectMachines(operation, step, context)),
     }
   }
 
@@ -1825,11 +1828,11 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
   }
 
   context.updates.markAuthorized(details.channel)
-  context.updates.tick(details.channel, {
+  await context.updates.tick(details.channel, {
     initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_MACHINES },
     eligibility: `selected by this operation's wave for ${details.target.version}`,
   })
-  const progress = projectMachines(operation, step, context)
+  const progress = await projectMachines(operation, step, context)
   return { state: 'running', ...progress }
 }
 
@@ -1875,18 +1878,25 @@ function clockPlace(carried: StepPlace, projected: StepPlace, now: number): Step
  * progress (P2). The old code had three: the client's flags at button-press
  * time, the fleet-derived view, and a server total that overwrote both.
  */
-export function projectMachines(
+export async function projectMachines(
   operation: Operation,
   step: OperationStep,
   context: UpdateOperationContext,
-): { places: StepPlace[]; progress: { done: number; total: number } } {
+): Promise<{ places: StepPlace[]; progress: { done: number; total: number } }> {
   const details = updateOperationDetails(operation)
   const targetVersion = details?.target.version
   const now = (context.now ?? Date.now)()
-  const fleet = new Map(context.updates.fleet().map((machine) => [machine.id, machine]))
-  const places = (step.places ?? []).map((carried) => clockPlace(carried, project(carried), now))
+  const fleet = new Map((await context.updates.fleet()).map((machine) => [machine.id, machine]))
+  // A SEQUENTIAL LOOP, NOT `.map`. `project` asks the service whether a machine
+  // booted at the target or crossed the restart boundary, and both are durable
+  // reads now — an async `.map` callback would hand `clockPlace` a promise and
+  // fill `places` with them, so every state below would read as undefined.
+  const places: StepPlace[] = []
+  for (const carried of step.places ?? []) {
+    places.push(clockPlace(carried, await project(carried), now))
+  }
 
-  function project(carried: StepPlace): StepPlace {
+  async function project(carried: StepPlace): Promise<StepPlace> {
     /**
      * THE PERCENTAGE IS NEVER CARRIED FORWARD (POD-2101). Every other field on
      * a place is a description of the machine that survives being re-stated;
@@ -1923,7 +1933,7 @@ export function projectMachines(
     }
     if (
       targetVersion !== undefined &&
-      context.updates.machineBootedAtTarget(machine.id as MachineId, targetVersion)
+      (await context.updates.machineBootedAtTarget(machine.id as MachineId, targetVersion))
     ) {
       return {
         ...place,
@@ -1939,7 +1949,7 @@ export function projectMachines(
     // kept.
     if (
       targetVersion !== undefined &&
-      context.updates.machineCrossedRestartBoundary(machine.id as MachineId, targetVersion)
+      (await context.updates.machineCrossedRestartBoundary(machine.id as MachineId, targetVersion))
     ) {
       return {
         ...place,
@@ -2031,12 +2041,12 @@ export function describeUpdateStall(input: {
  * target by raw reconnect identity, `failed` when one reported a verdict only
  * a human can clear. Crossing the restart boundary remains in progress.
  */
-function settleMachines(
+async function settleMachines(
   operation: Operation,
   step: OperationStep,
   context: UpdateOperationContext,
-): StepOutcome | undefined {
-  const { places, progress } = projectMachines(operation, step, context)
+): Promise<StepOutcome | undefined> {
+  const { places, progress } = await projectMachines(operation, step, context)
   const failedPlaces = places.filter(
     (place) => place.state !== undefined && TERMINAL_STATES.has(place.state as never),
   )
@@ -2276,7 +2286,7 @@ export function updateOperationKind(): OperationKindDefinition<
     // The engine hands the context straight back; everything the plan needs is
     // a fact this context can be asked for, so the pure function stays pure and
     // the impure reads happen in exactly one place.
-    plan: (context) => planUpdateOperation(planInputFrom(context)),
+    plan: async (context) => planUpdateOperation(await planInputFrom(context)),
     reconcile: reconcileUpdateOperation,
     runners: {
       [UPDATE_STEP_PREPARE]: prepareRunner,
@@ -2447,7 +2457,7 @@ export function createUpdateFleetBridge(deps: {
       // so its first appearance in the payload is already inside the step's
       // places and its own progress — never as a place the panel has to
       // discover in a later frame.
-      const admitted = admissibleDeferredPlaces(row.operation, details, deps.updates)
+      const admitted = await admissibleDeferredPlaces(row.operation, details, deps.updates)
       if (admitted.length > 0) {
         const places = [...(step.places ?? []), ...admitted]
         void await deps.engine.admitDeferred(
@@ -2465,10 +2475,10 @@ export function createUpdateFleetBridge(deps: {
         return
       }
 
-      const settled = settleMachines(row.operation, step, context)
+      const settled = await settleMachines(row.operation, step, context)
       const projected = settled ?? {
         state: 'running' as const,
-        ...projectMachines(row.operation, step, context),
+        ...(await projectMachines(row.operation, step, context)),
       }
 
       /**
@@ -2484,7 +2494,7 @@ export function createUpdateFleetBridge(deps: {
        * Before the reports below, all of which can finish the step and with it
        * the operation, and a finished operation accepts no more detail.
        */
-      writeWaveRounds(row.operation, context)
+      await writeWaveRounds(row.operation, context)
 
       /**
        * A MACHINE THE WAVE WAS WAITING ON JUST CAME BACK (POD-2167).
@@ -2563,11 +2573,11 @@ const isArrived = (place: StepPlace): boolean => place.state === 'current'
  * supported host-local repair replaces its updater and a new capability report removes the
  * permanent blocker.
  */
-export function admissibleDeferredPlaces(
+export async function admissibleDeferredPlaces(
   operation: Operation,
   details: UpdateOperationDetails,
   updates: UpdatesService,
-): StepPlace[] {
+): Promise<StepPlace[]> {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return []
   const published = exactPublishedTarget(details, updates)
@@ -2583,7 +2593,7 @@ export function admissibleDeferredPlaces(
   // and the ordinary reconciler converges it on the newest orderable target.
   if (!published) return []
   const deliveries = offeredDeliveries(published)
-  const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
+  const fleet = new Map((await updates.fleet()).map((machine) => [machine.id, machine]))
   const admitted: StepPlace[] = []
   for (const place of deferred) {
     const machine = fleet.get(place.id)
@@ -2669,13 +2679,13 @@ export function supersededDeferredPlaces(
  * case before offering an update at all (§6.3 — an internal precondition is
  * never shown as an error).
  */
-export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput {
+export async function planInputFrom(context: UpdateOperationContext): Promise<UpdatePlanInput> {
   const target = context.updates.target(context.channel)
   if (!target) throw new Error(`no ${context.channel} update target is published`)
   return {
     target,
     channel: context.channel,
-    fleet: context.updates.fleet(),
+    fleet: await context.updates.fleet(),
     channelOf: (machine) => context.updates.channelOf(machine),
     appVersion: context.appVersion(),
     sourceDigest: context.sourceDigest?.(),

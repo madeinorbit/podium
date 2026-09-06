@@ -570,7 +570,7 @@ export class OperationEngine {
    */
   async adoptOnBoot(
     realityFor: (row: OperationRow) => unknown | Promise<unknown>,
-    contextFor: (row: OperationRow) => unknown = () => undefined,
+    contextFor: (row: OperationRow) => unknown | Promise<unknown> = () => undefined,
   ): Promise<Operation[]> {
     const adopted: Operation[] = []
     let live: OperationRow[]
@@ -601,12 +601,16 @@ export class OperationEngine {
   private async adoptRow(
     row: OperationRow,
     realityFor: (row: OperationRow) => unknown | Promise<unknown>,
-    contextFor: (row: OperationRow) => unknown,
+    contextFor: (row: OperationRow) => unknown | Promise<unknown>,
   ): Promise<Operation> {
     const def = this.deps.registry.get(row.kind)
     if (!def || !row.operation) return await this.abandon(row)
 
-    this.contexts.set(row.id, contextFor(row))
+    // AWAITED. Assembling an adopted operation's context is a durable read now
+    // (the host's own update channel), and storing the promise instead would
+    // hand every step runner a `Promise` where it expects the context — with no
+    // type error, because the map holds `unknown`.
+    this.contexts.set(row.id, await contextFor(row))
     const reality = await realityFor(row)
     const reconciled = await (
       def.reconcile as (op: Operation, r: unknown) => Operation | Promise<Operation>

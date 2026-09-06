@@ -264,7 +264,7 @@ describe('one default channel', () => {
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
 
-    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    const machine = (await registry.modules.updates.fleet()).find((row) => row.id === 'unpinned')
     expect(machine).toBeDefined()
     expect(registry.modules.updates.channelOf(machine as never)).toBe('edge')
 
@@ -285,7 +285,7 @@ describe('one default channel', () => {
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
 
-    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    const machine = (await registry.modules.updates.fleet()).find((row) => row.id === 'unpinned')
     expect(registry.modules.updates.channelOf(machine as never)).toBe('dev')
 
     await caller.machines.applyUpdate({ id: 'unpinned' })
@@ -335,7 +335,7 @@ describe('one default channel', () => {
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
 
-    const machine = registry.modules.updates.fleet().find((row) => row.id === 'pinned')
+    const machine = (await registry.modules.updates.fleet()).find((row) => row.id === 'pinned')
     expect(registry.modules.updates.channelOf(machine as never)).toBe('stable')
 
     await caller.machines.applyUpdate({ id: 'pinned' })
@@ -388,7 +388,7 @@ describe('release target checks', () => {
       },
     })
 
-    await expect(caller.updates.fleet()).resolves.toMatchObject({
+    await expect(await caller.updates.fleet()).resolves.toMatchObject({
       appVersion: '0.4.1',
       servedWebDigest: '47a01e3',
       servedMobileWeb: {
@@ -416,7 +416,7 @@ describe('release target checks', () => {
   it('has nothing to say about a channel it has never checked', async () => {
     const { registry, caller } = await harness()
 
-    await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
+    await expect(await caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
     registry.dispose()
   })
 
@@ -613,7 +613,9 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
-    const channel = registry.modules.updates.operationChannel(registry.sessionStore.hostMachineId)
+    const channel = await registry.modules.updates.operationChannel(
+      registry.sessionStore.hostMachineId,
+    )
 
     expect(channel).toBe('stable')
     expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
@@ -630,7 +632,7 @@ describe('updates tRPC', () => {
     }
     const { registry, caller } = await harness({ updatePreparation: () => preparation })
 
-    await expect(caller.updates.fleet()).resolves.toMatchObject({ preparation })
+    await expect(await caller.updates.fleet()).resolves.toMatchObject({ preparation })
     registry.dispose()
   })
 
@@ -812,7 +814,7 @@ describe('updates tRPC', () => {
     const { registry, caller } = await devFleet(vi.fn().mockResolvedValue(undefined))
 
     await caller.updates.converge()
-    await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
+    await expect(await caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
     registry.dispose()
   })
 
@@ -1674,7 +1676,7 @@ describe('the update operation', () => {
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
-    await expect(caller.updates.fleet()).resolves.toMatchObject({
+    await expect(await caller.updates.fleet()).resolves.toMatchObject({
       startability: {
         startable: false,
         reason: 'Podium is already at this version everywhere.',

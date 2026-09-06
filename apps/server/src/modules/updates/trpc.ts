@@ -186,13 +186,13 @@ export interface UpdateFleetSnapshot {
  * standing reconciliation — they remain in `allMachines`, which is where
  * Settings renders them.
  */
-export function fleetSnapshot(
+export async function fleetSnapshot(
   updates: UpdatesService,
   reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
   hostMachineId?: string,
-): UpdateFleetSnapshot {
-  const channel = updates.operationChannel(hostMachineId)
-  const allMachines = updates.fleet().map((machine) => {
+): Promise<UpdateFleetSnapshot> {
+  const channel = await updates.operationChannel(hostMachineId)
+  const allMachines = (await updates.fleet()).map((machine) => {
     const convergedBy = reconciler?.convergedBy(machine)
     return {
       ...machine,
@@ -345,7 +345,7 @@ export function updateOperationContext(input: {
   }
 }
 
-function contextFor(
+async function contextFor(
   ctx: Context,
   extra: {
     onlyMachines?: readonly string[]
@@ -353,7 +353,7 @@ function contextFor(
     surface?: UpdateSurface
   } = {},
   options: { includeDatabaseSnapshot?: boolean } = {},
-): UpdateOperationContext {
+): Promise<UpdateOperationContext> {
   const state = familyState(ctx)
   return updateOperationContext({
     updates: state.modules.updates,
@@ -363,7 +363,7 @@ function contextFor(
     // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
     // no operation at all. A machine pinned elsewhere still keeps its own
     // per-row action (POD-2100).
-    channel: state.modules.updates.operationChannel(state.store.hostMachineId),
+    channel: await state.modules.updates.operationChannel(state.store.hostMachineId),
     appVersion: serverBuildVersion,
     sourceDigest: serverBuildSourceDigest,
     ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
@@ -498,7 +498,7 @@ export async function startUpdateOperation(
   alreadyRunning: boolean
 }> {
   const state = familyState(ctx)
-  const context = contextFor(ctx, extra, { includeDatabaseSnapshot: true })
+  const context = await contextFor(ctx, extra, { includeDatabaseSnapshot: true })
   const updates = state.modules.updates
   if (!updates.target(context.channel)) {
     throw new TRPCError({
@@ -506,7 +506,7 @@ export async function startUpdateOperation(
       message: missingTargetReason(context.channel, ctx.updatePreparation?.().failureDetail),
     })
   }
-  assertUpdateStartable(planInputFrom(context))
+  assertUpdateStartable(await planInputFrom(context))
 
   const engine = state.modules.operations.engine
   const result = await engine.start(UPDATE_OPERATION_KIND, context, {
@@ -570,11 +570,11 @@ function logWaveDecision(
   }
 }
 
-function describeWaveDecision(
+async function describeWaveDecision(
   updates: UpdatesService,
   channel: UpdateChannel,
   operation: Operation,
-): void {
+): Promise<void> {
   const target = updates.target(channel)
   if (!target) return
   const waved = new Set(
@@ -585,8 +585,7 @@ function describeWaveDecision(
   const deferredReason = new Map(
     (operation.deferred ?? []).map((place) => [place.id, place.reason]),
   )
-  const decisions = updates
-    .fleet()
+  const decisions = (await updates.fleet())
     .filter((machine) => isPackagedRolloutTarget(machine))
     .map((machine) => ({
       machine: machine.name ?? machine.id,
@@ -609,21 +608,23 @@ function describeWaveDecision(
 export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const state = familyState(ctx)
   const updates = state.modules.updates
-  const fleet = fleetSnapshot(updates, state.modules.updatesReconciler, state.store.hostMachineId)
+  const fleet = await fleetSnapshot(
+    updates,
+    state.modules.updatesReconciler,
+    state.store.hostMachineId,
+  )
   const preparation = ctx.updatePreparation?.()
   const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   // The queued version belongs to the same authority as the counts above: a dev
   // publication is not what a stable host is waiting its turn for (POD-2222).
-  const queued = updates.nextTarget(updates.operationChannel(state.store.hostMachineId))
-  const target = updates.target(updates.operationChannel(state.store.hostMachineId))
+  const hostChannel = await updates.operationChannel(state.store.hostMachineId)
+  const queued = updates.nextTarget(hostChannel)
+  const target = updates.target(hostChannel)
   const startability = target
-    ? updateStartability(planInputFrom(contextFor(ctx)))
+    ? updateStartability(await planInputFrom(await contextFor(ctx)))
     : {
         startable: false as const,
-        reason: missingTargetReason(
-          updates.operationChannel(state.store.hostMachineId),
-          preparation?.failureDetail,
-        ),
+        reason: missingTargetReason(hostChannel, preparation?.failureDetail),
       }
   let servedWebDigest: string | undefined
   let servedMobileWeb: MobileWebIdentity | undefined
@@ -660,12 +661,12 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
  * computation of update progress, and this is a projection of it rather than a
  * fourth opinion.
  */
-function legacyConvergeResult(
+async function legacyConvergeResult(
   updates: UpdatesService,
   operation: Operation | null,
   fallbackVersion: string,
   hostMachineId?: string,
-): {
+): Promise<{
   state: 'in-progress'
   version: string
   done: number
@@ -673,10 +674,10 @@ function legacyConvergeResult(
   fleet: UpdateFleetSnapshot
   grantedMachineIds: string[]
   includesBundle: boolean
-} {
+}> {
   const steps = operation?.steps ?? []
   const done = steps.filter((step) => step.state === 'done' || step.state === 'skipped').length
-  const fleet = fleetSnapshot(updates, undefined, hostMachineId)
+  const fleet = await fleetSnapshot(updates, undefined, hostMachineId)
   return {
     state: 'in-progress',
     version:
@@ -730,13 +731,13 @@ export function updateProcedures() {
       .mutation(async ({ ctx, input }) => {
         const state = familyState(ctx)
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
-        const outcome = state.modules.updates.repairMachine(machineId, {
+        const outcome = await state.modules.updates.repairMachine(machineId, {
           initiator: { kind: 'operator-repair' },
           eligibility: 'a person asked for this machine\'s payload to be re-delivered',
         })
         const machineName =
-          state.modules.updates.fleet().find((machine) => machine.id === machineId)?.name ??
-          machineId
+          (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)
+            ?.name ?? machineId
         if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',

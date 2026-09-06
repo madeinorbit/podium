@@ -1908,7 +1908,7 @@ describe('the step runners', () => {
       updates: h.updates,
       now: () => h.clock.clock.now(),
     })
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'rejected',
@@ -1947,14 +1947,14 @@ describe('the step runners', () => {
     const originalGrantId = h.sent[0]?.message.grantId
     expect(originalGrantId).toBe('grant_1')
     expect(
-      h.updates.reissueGrants('dev', undefined, {
+      await h.updates.reissueGrants('dev', undefined, {
         initiator: { kind: 'operation-retry', operationId: 'op_1', step: 'machines' },
         eligibility: 'a grant went silent and the step stalled',
       }),
     ).toEqual(['vmi'])
     expect(h.sent[1]?.message.grantId).toBe('grant_2')
 
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: originalGrantId,
       targetVersion: target.version,
@@ -2029,7 +2029,7 @@ describe('the step runners', () => {
     })
     boot.setTargetChanged(() => bridge.onFleetChanged())
     expect(fleet).toHaveLength(0)
-    boot.updates.onStatus(asMachineId('podium'), {
+    await boot.updates.onStatus(asMachineId('podium'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       targetVersion: target.version,
@@ -2068,7 +2068,7 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'rejected',
@@ -2122,7 +2122,7 @@ describe('the step runners', () => {
       updates: h.updates,
       now: () => h.clock.clock.now(),
     })
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'rejected',
@@ -2162,8 +2162,8 @@ describe('the step runners', () => {
       updates: h.updates,
       now: () => h.clock.clock.now(),
     })
-    const refuse = (grantId: string): void => {
-      h.updates.onStatus(asMachineId('vmi'), {
+    const refuse = async (grantId: string): Promise<void> => {
+      await h.updates.onStatus(asMachineId('vmi'), {
         type: 'updateStatus',
         grantId,
         state: 'rejected',
@@ -2175,12 +2175,12 @@ describe('the step runners', () => {
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    refuse('grant_1')
+    await refuse('grant_1')
     await h.engine.whenSettled('op_1')
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_2')
-    refuse('grant_2')
+    await refuse('grant_2')
     await h.engine.whenSettled('op_2')
 
     const retry = await h.read('op_2')
@@ -2225,7 +2225,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi'])
 
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'rejected',
@@ -2274,7 +2274,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     h.updates.withdrawAuthorization()
     expect(
-      h.updates.releaseInFlightGrants('The update was canceled while this machine was updating.'),
+      await h.updates.releaseInFlightGrants('The update was canceled while this machine was updating.'),
     ).toEqual(['vmi'])
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
@@ -2662,7 +2662,7 @@ describe('a version published mid-operation', () => {
     await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
     expect(updates.target('dev')?.version).toBe('0.4.3')
 
-    updates.authorize('dev')
+    await updates.authorize('dev')
     running = true
     await updates.setTarget('dev', devTarget({ version: '0.4.4' }))
     // The running wave is untouched…
@@ -2675,7 +2675,7 @@ describe('a version published mid-operation', () => {
     let running = false
     const { updates, sent } = service(() => running)
     await updates.setTarget('dev', devTarget({ version: '0.4.3' }))
-    updates.authorize('dev')
+    await updates.authorize('dev')
     const grantsBefore = sent.length
 
     running = true
@@ -2795,7 +2795,7 @@ describe('the fleet bridge', () => {
     )?.lastProgressAt
 
     h.clock.advance(1_000)
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'downloading',
@@ -3025,7 +3025,7 @@ describe('the fleet bridge', () => {
       updates: h.updates,
       now: () => h.clock.clock.now(),
     })
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'stuck',
@@ -3066,7 +3066,7 @@ describe('the fleet bridge', () => {
     const details = { target: packedTarget(), channel: 'dev' as const }
 
     // Reconnected, eligible, and it WOULD have been admitted a moment ago.
-    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([
+    expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([
       { id: 'laptop', name: 'laptop', state: 'pending' },
     ])
 
@@ -3074,7 +3074,7 @@ describe('the fleet bridge', () => {
     // the one this operation planned.
     await h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
 
-    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
@@ -3277,7 +3277,7 @@ describe('the fleet bridge', () => {
 
     h.updates.setTargetUnavailable('dev', 'the source checkout moved')
 
-    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
     ])
@@ -3294,7 +3294,7 @@ describe('the fleet bridge', () => {
     } as Operation
 
     expect(
-      admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
     ).toEqual([])
   })
 
@@ -3315,7 +3315,7 @@ describe('the fleet bridge', () => {
 
     expect(offeredDeliveries(devTarget())).toEqual([])
     expect(
-      admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
     ).toEqual([{ id: 'laptop', name: 'laptop', state: 'pending' }])
   })
 })
@@ -3518,7 +3518,7 @@ describe('a silent grant, with nobody watching', () => {
     expect(operation.error?.message).toContain('vmi3407763')
     // And the coordinator stops believing in the grant it was waiting on, so
     // the machine is not excluded from every future wave (POD-2101).
-    expect(h.updates.releaseInFlightGrants()).toEqual(['vmi'])
+    expect(await h.updates.releaseInFlightGrants()).toEqual(['vmi'])
   })
 
   it('a heartbeat re-arms the deadline, so a slow download is not a stalled one', async () => {
@@ -3533,7 +3533,7 @@ describe('a silent grant, with nobody watching', () => {
 
     for (const percent of [20, 55, 91]) {
       h.clock.advance(silenceMs - 60_000)
-      h.updates.onStatus(asMachineId('vmi'), {
+      await h.updates.onStatus(asMachineId('vmi'), {
         type: 'updateStatus',
         grantId: 'grant_1',
         state: 'downloading',
@@ -3563,7 +3563,7 @@ describe('a silent grant, with nobody watching', () => {
       now: () => h.clock.clock.now(),
     })
 
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'downloading',
@@ -3572,7 +3572,7 @@ describe('a silent grant, with nobody watching', () => {
     })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'restarting',
@@ -3607,7 +3607,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
 
   // Boot reconciliation can emit this before the successor's raw handshake
   // updates the machine directory. It is evidence to keep waiting, not health.
-  h.updates.onStatus(asMachineId('a-canary'), {
+  await h.updates.onStatus(asMachineId('a-canary'), {
     type: 'updateStatus',
     grantId: 'grant_1',
     state: 'current',
@@ -3681,7 +3681,7 @@ describe('two machines, one of them dead', () => {
         await h.engine.whenSettled('op_1')
         const canary = fleet[0]
         if (canary) canary.version = 'dev+abc1234'
-        h.updates.onStatus(asMachineId('a-canary'), {
+        await h.updates.onStatus(asMachineId('a-canary'), {
           type: 'updateStatus',
           grantId: 'grant_1',
           state: 'current',
@@ -3718,13 +3718,13 @@ describe('two machines, one of them dead', () => {
   ) => [...h.sent].reverse().find((grant) => grant.machineId === id)?.message.grantId
 
   /** One machine reports a fresh percentage; the others say nothing, ever. */
-  const reports = (
+  const reports = async (
     h: Awaited<ReturnType<typeof harness>>,
     bridge: { onFleetChanged: () => void },
     id: string,
     percent: number,
   ) => {
-    h.updates.onStatus(asMachineId(id), {
+    await h.updates.onStatus(asMachineId(id), {
       type: 'updateStatus',
       ...(grantIdFor(h, id) ? { grantId: grantIdFor(h, id) } : {}),
       state: 'downloading',
@@ -3733,11 +3733,11 @@ describe('two machines, one of them dead', () => {
     })
     bridge.onFleetChanged()
   }
-  const busyReports = (
+  const busyReports = async (
     h: Awaited<ReturnType<typeof harness>>,
     bridge: { onFleetChanged: () => void },
     percent: number,
-  ) => reports(h, bridge, 'busy', percent)
+  ) => await reports(h, bridge, 'busy', percent)
 
   it('stalls on the silent one while the other is still talking', async () => {
     const h = await trio()
@@ -3760,7 +3760,7 @@ describe('two machines, one of them dead', () => {
     )
     for (let minute = 1; minute <= minutes; minute++) {
       h.clock.advance(60_000)
-      busyReports(h, bridge, minute * 9)
+      await busyReports(h, bridge, minute * 9)
       await h.engine.whenSettled('op_1')
     }
 
@@ -3787,7 +3787,7 @@ describe('two machines, one of them dead', () => {
     // Just short of a second full budget: the retry is judged from when it was
     // made, not from the silence that provoked it.
     h.clock.advance(silenceMs - 1000)
-    busyReports(h, bridge, 40)
+    await busyReports(h, bridge, 40)
     await h.engine.whenSettled('op_1')
     expect((await h.read()).state).toBe('running')
 
@@ -3803,7 +3803,7 @@ describe('two machines, one of them dead', () => {
 
     for (let round = 0; round < 3; round++) {
       h.clock.advance(silenceMs - 1000)
-      busyReports(h, bridge, 20 + round * 20)
+      await busyReports(h, bridge, 20 + round * 20)
       await h.engine.whenSettled('op_1')
     }
     h.clock.advance(silenceMs)
@@ -3846,7 +3846,7 @@ describe('two machines, one of them dead', () => {
     await h.engine.whenSettled('op_1')
     const canary = fleet[0]
     if (canary) canary.version = 'dev+abc1234'
-    h.updates.onStatus(asMachineId('a-canary'), {
+    await h.updates.onStatus(asMachineId('a-canary'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'current',
@@ -3866,7 +3866,7 @@ describe('two machines, one of them dead', () => {
 
     for (let round = 0; round < 3; round++) {
       h.clock.advance(silenceMs - 1000)
-      for (const id of ['b', 'c', 'd']) reports(h, bridge, id, 20 + round * 20)
+      for (const id of ['b', 'c', 'd']) await reports(h, bridge, id, 20 + round * 20)
       await h.engine.whenSettled('op_1')
     }
     expect((await h.read()).state).toBe('running')
@@ -3899,7 +3899,7 @@ describe('a machine that says why, and then goes quiet', () => {
       now: () => h.clock.clock.now(),
     })
 
-    h.updates.onStatus(asMachineId('vmi'), {
+    await h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
       state: 'stuck',

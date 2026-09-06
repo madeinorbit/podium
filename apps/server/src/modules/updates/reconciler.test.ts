@@ -165,8 +165,8 @@ function harness(machines: WaveMachine[], over: { operationActive?: boolean } = 
     /** Which machine ids have been handed a grant so far. */
     granted: (): string[] => send.mock.calls.map((call) => String(call[0])),
     /** The live projection row for one machine — what the fleet payload holds. */
-    row: (id: string): WaveMachine => {
-      const found = updates.fleet().find((candidate) => candidate.id === id)
+    row: async (id: string): Promise<WaveMachine> => {
+      const found = (await updates.fleet()).find((candidate) => candidate.id === id)
       if (!found) throw new Error(`no machine ${id} in the fleet`)
       return found
     },
@@ -310,7 +310,7 @@ describe('UpdateReconciler', () => {
 
     // `a` is still downloading, so the second grant waits — and says so by
     // arming another timer rather than by silently dropping `b`.
-    h.updates.onStatus(asMachineId('a'), {
+    await h.updates.onStatus(asMachineId('a'), {
       type: 'updateStatus',
       state: 'downloading',
       version: '0.4.1',
@@ -321,7 +321,7 @@ describe('UpdateReconciler', () => {
     expect(h.reconciler.pending()).toEqual(['b'])
 
     // …and once `a` is home, `b` gets its turn.
-    h.updates.onStatus(asMachineId('a'), {
+    await h.updates.onStatus(asMachineId('a'), {
       type: 'updateStatus',
       state: 'current',
       version: TARGET_VERSION,
@@ -345,7 +345,7 @@ describe('UpdateReconciler', () => {
     await h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop'])
 
-    h.updates.onStatus(asMachineId('laptop'), {
+    await h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'rejected',
       version: '0.4.1',
@@ -450,10 +450,10 @@ describe('UpdateReconciler', () => {
     await h.updates.setTarget('dev', target())
 
     await h.reconciler.onMachineConnected('laptop')
-    expect(h.reconciler.convergedBy(h.row('laptop'))).toBe('reconciler')
+    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBe('reconciler')
 
     h.reconciler.onOperationStarted()
-    expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
+    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBeUndefined()
   })
 
   it('does not label a machine whose target has since moved on', async () => {
@@ -463,7 +463,7 @@ describe('UpdateReconciler', () => {
 
     await h.updates.setTarget('dev', target({ version: '0.4.4' }))
 
-    expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
+    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBeUndefined()
   })
 })
 
@@ -488,7 +488,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     await h.updates.setTarget('dev', target())
     for (const id of ids) await h.reconciler.onMachineConnected(id)
     const first = ids[0] ?? ''
-    h.updates.onStatus(asMachineId(first), {
+    await h.updates.onStatus(asMachineId(first), {
       type: 'updateStatus',
       state: 'downloading',
       version: '0.4.1',
@@ -521,11 +521,11 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     await h.clock.advance(GRANT_DEADLINE_MS)
 
     expect(h.granted()).toEqual(['laptop', 'vps'])
-    expect(h.row('laptop').state).toBe('stuck')
-    expect(h.row('laptop').detail).toBe(GRANT_TIMED_OUT_DETAIL)
+    expect((await h.row('laptop')).state).toBe('stuck')
+    expect((await h.row('laptop')).detail).toBe(GRANT_TIMED_OUT_DETAIL)
     // `vps` is now the outstanding one, so the channel is legitimately busy;
     // what matters is that `laptop` alone no longer makes it so, forever.
-    h.updates.onStatus(asMachineId('vps'), {
+    await h.updates.onStatus(asMachineId('vps'), {
       type: 'updateStatus',
       state: 'current',
       version: TARGET_VERSION,
@@ -548,7 +548,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
   it('leaves the machine alone afterwards, rather than re-granting on every reconnect', async () => {
     const h = await granted()
     await h.clock.advance(GRANT_DEADLINE_MS)
-    expect(h.row('laptop').state).toBe('stuck')
+    expect((await h.row('laptop')).state).toBe('stuck')
 
     await h.reconciler.onMachineConnected('laptop')
     await h.reconciler.onMachineConnected('laptop')
@@ -570,7 +570,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    */
   it('does not overwrite the verdict of a machine that already answered', async () => {
     const h = await granted()
-    h.updates.onStatus(asMachineId('laptop'), {
+    await h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'rejected',
       version: '0.4.1',
@@ -580,8 +580,8 @@ describe('UpdateReconciler: a grant that goes silent', () => {
 
     await h.clock.advance(GRANT_DEADLINE_MS)
 
-    expect(h.row('laptop').state).toBe('rejected')
-    expect(h.row('laptop').detail).toBe('dirty working tree')
+    expect((await h.row('laptop')).state).toBe('rejected')
+    expect((await h.row('laptop')).detail).toBe('dirty working tree')
     expect(h.granted()).toEqual(['laptop'])
   })
 
@@ -593,7 +593,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    */
   it('does not let an old grant deadline abandon the next grant to the same machine', async () => {
     const h = await granted()
-    h.updates.onStatus(asMachineId('laptop'), {
+    await h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'current',
       version: TARGET_VERSION,
@@ -607,7 +607,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     await h.updates.setTarget('dev', target({ version: '0.4.4' }))
     await h.reconciler.onMachineConnected('laptop')
     expect(h.granted()).toEqual(['laptop', 'laptop'])
-    h.updates.onStatus(asMachineId('laptop'), {
+    await h.updates.onStatus(asMachineId('laptop'), {
       type: 'updateStatus',
       state: 'downloading',
       version: TARGET_VERSION,
@@ -617,7 +617,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     // Past the FIRST grant's deadline, short of the second's.
     await h.clock.advance(GRANT_DEADLINE_MS - SPACING_MS + 1_000)
 
-    expect(h.row('laptop').state).toBe('downloading')
+    expect((await h.row('laptop')).state).toBe('downloading')
   })
 
   /**

@@ -207,7 +207,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
 
     // A person pressing Apply on the coordinator's own row IS allowed — that is
     // a decision somebody made, and the record says so and says what it costs.
-    h.updates.authorizeMachine(asMachineId(HOST), {
+    await h.updates.authorizeMachine(asMachineId(HOST), {
       initiator: { kind: 'operator-apply' },
       eligibility: 'a person pressed Apply on this fleet row',
     })

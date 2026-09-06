@@ -327,11 +327,11 @@ export class UpdateReconciler {
    * current target" (§3.6), not to any one operation. The cancel ended an
    * operation; it did not unpublish the target.
    */
-  onOperationSettled(outcome?: string): Promise<void> {
-    if (outcome === 'canceled') return Promise.resolve()
+  async onOperationSettled(outcome?: string): Promise<void> {
+    if (outcome === 'canceled') return
     this.wokenBy = 'operation-settled'
-    for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
-    return this.pump()
+    for (const machine of await this.deps.updates.fleet()) this.enqueue(machine.id)
+    await this.pump()
   }
 
   /**
@@ -414,7 +414,7 @@ export class UpdateReconciler {
     let wait = false
     try {
       while (this.queue.length > 0) {
-        if (this.outstandingStillRunning()) {
+        if (await this.outstandingStillRunning()) {
           wait = true
           break
         }
@@ -443,10 +443,12 @@ export class UpdateReconciler {
   }
 
   /** Is the grant this issued still in flight? Re-read live, never remembered. */
-  private outstandingStillRunning(): boolean {
+  private async outstandingStillRunning(): Promise<boolean> {
     if (this.outstanding === undefined) return false
     const outstanding = this.outstanding
-    const machine = this.deps.updates.fleet().find((candidate) => candidate.id === outstanding)
+    const machine = (await this.deps.updates.fleet()).find(
+      (candidate) => candidate.id === outstanding,
+    )
     if (machine && IN_FLIGHT_STATES.has(machine.state)) return true
     this.outstanding = undefined
     return false
@@ -474,10 +476,10 @@ export class UpdateReconciler {
    * finished while this timer was pending — costs nothing and changes nothing,
    * and this path never continues a wave from inside its own lookup (POD-2180).
    */
-  private expireGrant(machineId: string, token: number): void {
+  private async expireGrant(machineId: string, token: number): Promise<void> {
     if (this.outstanding !== machineId || this.grants !== token) return
     this.outstanding = undefined
-    const abandoned = this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
+    const abandoned = await this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
     if (abandoned.length > 0) {
       log.info('reconciler gave up on a machine that took a grant and went silent', {
         machineId,
@@ -520,7 +522,9 @@ export class UpdateReconciler {
   /** Consider one machine. Deliberately does NOT touch the queue — the caller
    *  decides what a disposition means for the machine's place in it. */
   private async consider(machineId: string): Promise<'granted' | 'refused' | 'paused'> {
-    const machine = this.deps.updates.fleet().find((candidate) => candidate.id === machineId)
+    const machine = (await this.deps.updates.fleet()).find(
+      (candidate) => candidate.id === machineId,
+    )
     const target = machine ? this.targetFor(machine) : undefined
     const key = target ? attemptKey(machineId, target.version) : undefined
     const attempts = key === undefined ? 0 : (this.attempts.get(key) ?? 0)
@@ -558,7 +562,7 @@ export class UpdateReconciler {
       return 'refused'
     }
 
-    const outcome: MachineApplyOutcome = this.deps.updates.authorizeMachine(
+    const outcome: MachineApplyOutcome = await this.deps.updates.authorizeMachine(
       asMachineId(machineId),
       {
         initiator: { kind: 'reconciliation', event: this.wokenBy },
@@ -582,7 +586,13 @@ export class UpdateReconciler {
     const token = this.grants
     const schedule = this.deps.schedule ?? defaultSchedule
     schedule(
-      () => this.expireGrant(machineId, token),
+      // A timer slot takes no promise, so the rejection is handled here rather
+      // than escaping as an unhandled one with no machine on it.
+      () => {
+        void this.expireGrant(machineId, token).catch((err: unknown) => {
+          log.warn('reconciler failed to expire a grant', { err, machineId })
+        })
+      },
       this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
     )
     this.converged.set(machineId, outcome.version)
