@@ -2839,3 +2839,54 @@ fix the test passes for the wrong reason — nobody waited, so nobody saw the re
 probe is: make the wired implementation REJECT, and show a named test failing with **the guard's own
 refusal message**. A kill that reports a timeout, an unhandled rejection, or a generic assertion is
 not the same claim (mutation: read the reason code, not the red).
+
+### Rule 56a — CORRECTION to 56: on the control arm the guard's own message CANNOT appear
+
+Rule 56 ends by demanding that a guard's break-test fail with **the guard's own refusal
+message**, and calls a generic assertion "not the same claim". POD-3500 applied the rule and
+found that clause is impossible to satisfy as written. It is right, and this is the amendment.
+
+On the control arm the guard **never refuses** — that is the whole defect. So its message
+cannot appear there, and every honest control-arm failure reads as the generic
+
+```
+AssertionError: promise resolved "{ …(45) }" instead of rejecting
+```
+
+Verified independently at landing: dropping the await at `workflow.ts:394` kills exactly
+`start: a REJECTING requireMachineForRepo refuses the start` and nothing else, with that
+generic message; dropping it at `crud.ts:1159` kills exactly the containment-cycle test and
+additionally surfaces an **Unhandled Rejection**, which is the production symptom — the
+refusal escaping onto a later tick after `update()` already returned its wire.
+
+**THE DISCRIMINATION IS PROVED FROM THE OTHER SIDE.** Keep the fix, and mutate the injected
+double to reject with an *unrelated* message. A test that merely awaits now still passes; a
+test that pins the refusal fails naming the pattern it requires:
+
+```
+expected [Function] to throw error matching /machine 'laptop' is offline/
+  but got 'PROBE: some other error entirely'
+```
+
+So the pair is: the control arm proves the await is load-bearing, and the message-pinning
+mutation proves the test is asserting the right refusal rather than any rejection. Neither
+alone is sufficient — a test that awaits but accepts any rejection passes both the fixed and
+a wrongly-guarded implementation.
+
+A refusal raised in production code rather than by a double (POD-3500's seventh test asserts
+`/would create a containment cycle/`, thrown at `hierarchy.ts:94`) is pinned by construction:
+no double can fake it, so the message mutation does not apply and the control arm is enough.
+
+**AND THE PORT ITSELF NEEDS ITS OWN MUTATION.** Reverting `requireMachineForRepo` from
+`Promise<void>` back to `void` at `types.ts:238`, with all six awaits left in place, produces
+**zero typecheck errors**. The awaits survive under the narrow port and nothing enforces them,
+which is rule 56's claim demonstrated rather than argued: the widening is the load-bearing
+half, and a reviewer who mutates only the call sites has not tested the fix.
+
+**ASYNC-UNDER-VOID IS NECESSARY BUT NOT SUFFICIENT.** POD-3500's census of the same interface
+found eight more bare-`void` ports and cleared all eight. One is genuinely async — `relay.ts`'s
+`stopClosedIssue` — but its body is `void stopClosedIssueNow(…).catch(log.warn)`, a deliberate
+fire-and-forget that can never reject. Widening it would assert that the caller waits for a
+stop it deliberately does not. The test for a site is not "is the implementation async" but
+**can the promise reject, or carry a result the caller needs**. Two others reach `EventBus.emit`,
+which is `: void` and isolates listener rejections itself.
