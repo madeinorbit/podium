@@ -543,16 +543,15 @@ describe('multi-instance runtime isolation', () => {
         cwd: ROOT,
         env: instanceEnv(spec),
         stdout: 'pipe',
-        stderr: 'pipe',
+        stderr: 'inherit',
       },
     )
     try {
-      const [stdout, stderr, code] = await Promise.all([
+      const [stdout, code] = await Promise.all([
         new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
         child.exited,
       ])
-      expect(code, `${stdout}\n${stderr}`).toBe(0)
+      expect(code, stdout).toBe(0)
       expect(stdout).toContain('"machineEvents":"passed"')
       console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))
     } finally {

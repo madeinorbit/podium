@@ -1,13 +1,21 @@
 /** Production machine gateway + registry composition, isolated by the parent test. */
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
+import { createServer } from 'node:net'
 import { asMachineId } from '@podium/model'
-import { createHandshakeDialer, type UpdateGrantMessage, type UpdateTarget } from '@podium/protocol'
+import {
+  createHandshakeDialer,
+  type MachineSupervisorReportMessage,
+  type UpdateGrantMessage,
+  type UpdateTarget,
+} from '@podium/protocol'
 import { SessionRegistry } from '../../apps/server/src/relay'
 import { attachWebSockets, serveNative } from '../../apps/server/src/gateway/ws-server'
 import type { UpdateOperationContext } from '../../apps/server/src/modules/updates/operation'
 
+console.error('[machine-events] constructing registry')
 const registry = new SessionRegistry(undefined, undefined, { instanceId: 'blue' })
+console.error('[machine-events] registry ready')
 const { machines, updates, operations } = registry.modules
 const machineId = asMachineId(randomUUID())
 const token = randomUUID()
@@ -52,8 +60,10 @@ const server = serveNative({
   port: 0,
   hostname: '127.0.0.1',
   websocket: transport.websocket,
-  fetch: (request, native) =>
-    transport.handleRequest(request, native) ?? new Response('not found', { status: 404 }),
+  fetch: (request, native) => {
+    const upgrade = transport.handleRequest(request, native)
+    return upgrade === null ? new Response('not found', { status: 404 }) : upgrade
+  },
 })
 const sockets: WebSocket[] = []
 let connects = 0
@@ -65,6 +75,7 @@ registry.bus.on('machine.disconnected', ({ machineId: id }) => {
   if (id === machineId) disconnects++
 })
 async function until(check: () => boolean, label: string, timeout = 5000) {
+  console.error(`[machine-events] waiting: ${label}`)
   const end = Date.now() + timeout
   while (!check()) {
     assert(Date.now() < end, `timed out: ${label}`)
@@ -93,16 +104,16 @@ async function connect() {
     server: false,
     agentExecution: false,
   })
-  socket.send(
-    JSON.stringify({
-      type: 'machineReport',
-      services: {
-        crashOwner: 'desktop',
-        server: { policy: 'disabled', state: 'stopped' },
-        agentExecution: { policy: 'disabled', state: 'stopped' },
-      },
-    }),
-  )
+  const observedAt = new Date().toISOString()
+  const report: MachineSupervisorReportMessage = {
+    type: 'machineReport',
+    services: {
+      crashOwner: 'desktop',
+      server: { policy: 'disabled', state: 'stopped', observedAt },
+      agentExecution: { policy: 'disabled', state: 'stopped', observedAt },
+    },
+  }
+  socket.send(JSON.stringify(report))
   await until(
     () =>
       machines.listMachines().find((m) => m.id === machineId)?.services?.server.state === 'stopped',
@@ -115,9 +126,12 @@ async function connect() {
   }
 }
 async function start() {
+  console.error('[machine-events] starting operation')
   const result = await operations.engine.start('update', context, { createdBy: 'user' })
   assert(result.started, JSON.stringify(result))
+  console.error(`[machine-events] settling operation ${result.operation.id}`)
   await operations.engine.whenSettled(result.operation.id)
+  console.error('[machine-events] operation settled')
   return result.operation.id
 }
 try {
@@ -231,10 +245,36 @@ try {
       ],
     }),
   )
+} catch (error) {
+  console.error('[machine-events] failure', error)
+  process.exitCode = 1
 } finally {
+  const closeDeadline = setTimeout(() => {
+    console.error('[machine-events] cleanup exceeded 8 seconds')
+    process.exit(1)
+  }, 8_000)
+  console.error('[machine-events] cleaning up')
   for (const socket of sockets) socket.close()
+  await until(
+    () => sockets.every((socket) => socket.readyState === WebSocket.CLOSED),
+    'client sockets closed',
+  )
   await transport.close()
-  await server.stop(true)
   registry.dispose()
+  console.error('[machine-events] transport closed')
+  // Bun can retain the stop promise after upgraded requests, even after every
+  // client is CLOSED. Verify the listener is actually released before exiting.
+  void Promise.resolve(server.stop(true)).catch((error) => {
+    console.error('[machine-events] native server stop failed', error)
+    process.exitCode = 1
+  })
+  await new Promise<void>((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(server.port, '127.0.0.1', () => {
+      probe.close((error) => error ? reject(error) : resolve())
+    })
+  })
+  clearTimeout(closeDeadline)
 }
-process.exit(0)
+process.exit(process.exitCode ?? 0)
