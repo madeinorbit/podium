@@ -83,7 +83,7 @@ const AGENT_TRANSPORTS = ['relay', 'mcp', 'cli', 'peer', 'outbox'] as const
 type MutationProcedure<N extends AutomationProcName> = TRPCMutationProcedure<{
   meta: unknown
   input: z.input<(typeof AUTOMATION_COMMANDS)[N]['contract']['input']>
-  output: ReturnType<(typeof AUTOMATION_COMMANDS)[N]['handler']>
+  output: Awaited<ReturnType<(typeof AUTOMATION_COMMANDS)[N]['handler']>>
 }>
 
 /**
