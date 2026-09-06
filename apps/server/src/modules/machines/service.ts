@@ -200,6 +200,8 @@ export interface MachinesDeps {
   userExists?(userId: UserId): boolean | Promise<boolean>
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
+  /** Awaited derived-state work that must complete before inventory observers run. */
+  onInventoryRecorded?(): Promise<void>
   /** Compatibility-only for isolated fixtures without a bus. */
   sessionsChangedForMachine?(machineId: MachineId): void
   /** Connected client fan-out (machinesChanged). */
@@ -963,6 +965,7 @@ export class MachinesService {
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
+    await this.deps.onInventoryRecorded?.()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
     this.broadcastMachines()

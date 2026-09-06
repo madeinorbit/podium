@@ -659,6 +659,7 @@ export class SessionRegistry {
     )
     let updates: UpdatesService | undefined
     let targetChanged: ((channel: UpdateChannel) => void) | undefined
+    let seedSuperagentDefaults: (() => Promise<void>) | undefined
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -687,6 +688,7 @@ export class SessionRegistry {
       // Quarantine resolution (D19.4b): an owner that no longer has an account row
       // must not keep use, and must not be rewritten to the first admin.
       userExists: async (userId) => await this.store.users.get(userId) !== undefined,
+      onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
       clients: () => clientRegistry.values(),
       machinesForPrincipal: async (principal, machineService) =>
         await machinesForPrincipal(
@@ -853,13 +855,10 @@ export class SessionRegistry {
       },
     })
     // An inventory report is the ONLY moment new availability becomes known, and
-    // a daemon that connects minutes after boot is the ordinary case — so the
-    // seed runs on the report rather than once at startup. `inventory` is the
-    // flag `recordInventory` sets; a rename or a machine name change must not
-    // re-run it.
-    this.bus.on('machine.metadataChanged', async ({ inventory }) => {
-      if (inventory) await superagentDefaults.seed()
-    })
+    // a daemon that connects minutes after boot is the ordinary case. The hook
+    // is awaited by recordInventory before it announces the metadata change, so
+    // every observer sees the seeded state and rename-only changes never re-run it.
+    seedSuperagentDefaults = async () => await superagentDefaults.seed()
     this.superagentDefaults = superagentDefaults
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),

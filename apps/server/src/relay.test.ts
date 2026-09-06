@@ -7105,7 +7105,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       const logs = captureLogs()
       let registry: SessionRegistry | undefined
       try {
-        registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+        const creating = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+        await expect(creating).resolves.not.toThrow()
+        registry = await creating
         expect(logs.at('warn')).toContainEqual(
           expect.objectContaining({
             msg: expect.stringContaining('queued message startup recovery failed'),
