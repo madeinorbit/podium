@@ -3188,3 +3188,37 @@ before running these arms rather than measuring from its own commit 33 behind, h
 verified its fix was an ancestor of the tip and that no `package.json` or lockfile changed
 across those commits so the install could not be stale. A result taken from a stale base
 describes something nobody will ship.
+
+### Rule 52c — TS2801 covers about HALF the class; the other half has to be read for
+
+POD-3507 asked for this amendment and earned it with the worst site the epic has found.
+
+`TS2801` fires on a bare promise **in a condition**. It is blind to:
+
+| spelling | what it does | compiler |
+|---|---|---|
+| `if (p())` | truthy | **flagged** |
+| `!p()` | always `false` — the guard never refuses | silent |
+| `xs.filter((x) => p(x))` | keeps **every element** | silent |
+| `p()` as a statement | floating; the work happens later or never | silent |
+| `while (p())` / `for (; p(); )` | truthy forever | silent |
+
+At `view.ts` all three silent spellings were present at once, and the `.filter` one projects
+**every session in the fleet to every reader**. Nothing static objected.
+
+**SO A CLEAN `lint:promise-truthiness` AND A CLEAN TSC ARE NOT A RESULT FOR THIS CLASS.** They
+are a result for the half that appears in a condition. The other half is found by reading the
+call sites of anything that became async, and by widening the port so the compiler can speak at
+all — which is why rule 56's *widen first* is not a style preference but the precondition for
+the compiler having an opinion.
+
+**AND THE `any` MULTIPLIES IT.** `SessionAuthzPorts` declared `store: any`, so the flip produced
+no error in that file at all; three further sites were spelled `live ?? store.sessions.getSession(id)`,
+where an `any` on the **left** of `??` makes the whole expression `any` — so even a correctly
+typed store could not have caught them. Rule 58a says an escape hatch manufactures findings;
+this is the same hatch deciding which defects are *possible to notice*.
+
+**THE PRACTICAL TEST.** After widening a port, do not stop when the compiler goes quiet. Grep
+the newly-async symbol's call sites for the four silent spellings above and judge each by hand.
+POD-3507 found eight more of the same three shapes in `session-state/service.ts` that way —
+"by reading, not by the compiler".
