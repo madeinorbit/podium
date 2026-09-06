@@ -9,7 +9,12 @@ export class QueuedMessageApply {
     private readonly deps: {
       messages: MessageDeliveryDeps['messages']
       events: MessageDeliveryDeps['events']
-      authorize(message: MessageRow): { ok: true } | { ok: false; reason: string }
+      authorize(
+        message: MessageRow,
+      ):
+        | { ok: true }
+        | { ok: false; reason: string }
+        | Promise<{ ok: true } | { ok: false; reason: string }>
       applied(messageId: string, sessionId: SessionId): void
       injected(messageId: string, sessionId: SessionId): void
       bus: EventBus
@@ -21,7 +26,7 @@ export class QueuedMessageApply {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     if (message.status !== 'queued') return { ok: false, reason: `message is ${message.status}` }
-    return this.deps.authorize(message)
+    return await this.deps.authorize(message)
   }
 
   applied(messageId: string, sessionId: SessionId): void {
