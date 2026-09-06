@@ -49,17 +49,21 @@ export interface ServerTransferDeps {
   stateRoot: string
   sourceInstanceId: string
   sourceMachineId: MachineId
-  sourceFeedIdentity: () => { feedId: string; feedEpoch: string }
+  sourceFeedIdentity: () =>
+    | { feedId: string; feedEpoch: string }
+    | Promise<{ feedId: string; feedEpoch: string }>
   sourceApplicationVersion: string
   sourceSchemaVersion: () => string
   sourceWireSchemaDigest: string
   rpc: ServerTransferRpc
-  targetState(machineId: MachineId): ServerTransferTargetState
+  targetState(machineId: MachineId): ServerTransferTargetState | Promise<ServerTransferTargetState>
   /** {@link targetState} for a whole fleet: ONE machines read, then a pure
    *  function answering for any id (POD-3257). Total by construction, so a
    *  caller in a loop never falls back to the per-machine form — which is the
    *  point, since that form is what re-read the table. */
-  targetStateResolver(): (machineId: MachineId) => ServerTransferTargetState
+  targetStateResolver():
+    | ((machineId: MachineId) => ServerTransferTargetState)
+    | Promise<(machineId: MachineId) => ServerTransferTargetState>
   localPromotedTransfer():
     | PromotedTargetMetadata
     | undefined
@@ -225,13 +229,13 @@ export class ServerTransferService {
     const entry = this.journal.read()
     const promoted = entry ? undefined : await this.deps.localPromotedTransfer()
     const promotedSourceConnected = promoted
-      ? this.deps.targetState(promoted.sourceMachineId).online
+      ? (await this.deps.targetState(promoted.sourceMachineId)).online
       : false
     // ONE machines read for the whole fleet (POD-3257). `targetState` reads the
     // WHOLE machines table to find one row, so asking it per machine inside the
     // map below was a full-table scan per machine — quadratic in fleet size, and
     // a round trip per machine on a networked backend.
-    const targetOf = this.deps.targetStateResolver()
+    const targetOf = await this.deps.targetStateResolver()
     return {
       sourceMachineId: promoted?.sourceMachineId ?? this.deps.sourceMachineId,
       targetEligibility: machines.map(({ id }) => {
@@ -364,7 +368,7 @@ export class ServerTransferService {
         this.journal.updateRecord(record)
 
         await authorization.reauthorize('stage')
-        this.assertTarget(input.targetMachineId)
+        await this.assertTarget(input.targetMachineId)
         prepared = {
           transferId: initialManifest.transferId,
           manifestDigest: initialManifest.digest,
@@ -375,12 +379,12 @@ export class ServerTransferService {
         this.journal.updateRecord(record)
 
         await authorization.reauthorize('validate')
-        this.assertTarget(input.targetMachineId)
+        await this.assertTarget(input.targetMachineId)
         await this.validate(initialManifest, input.targetMachineId)
         this.journal.transition('validated')
 
         await authorization.reauthorize('fence')
-        this.assertTarget(input.targetMachineId)
+        await this.assertTarget(input.targetMachineId)
         record = { ...record, phase: 'switching' }
         this.journal.updateRecord(record)
         // Persist fence intent first. A crash after this write must not reopen a
@@ -424,7 +428,7 @@ export class ServerTransferService {
           this.journal.updateRecord(record)
 
           await authorization.reauthorize('stage')
-          this.assertTarget(input.targetMachineId)
+          await this.assertTarget(input.targetMachineId)
           prepared = {
             transferId: finalManifest.transferId,
             manifestDigest: finalManifest.digest,
@@ -433,7 +437,7 @@ export class ServerTransferService {
           record = { ...record, phase: 'validating' }
           this.journal.updateRecord(record)
           await authorization.reauthorize('validate')
-          this.assertTarget(input.targetMachineId)
+          await this.assertTarget(input.targetMachineId)
           await this.validate(finalManifest, input.targetMachineId)
         }
 
@@ -441,7 +445,7 @@ export class ServerTransferService {
         this.journal.updateRecord(record)
 
         await authorization.reauthorize('commit')
-        this.assertTarget(input.targetMachineId)
+        await this.assertTarget(input.targetMachineId)
         this.journal.transition('committing')
         const promoted = await this.deps.rpc.serverTransferPromote(
           {
@@ -517,7 +521,7 @@ export class ServerTransferService {
   }
 
   private async snapshot(record: TransferRecord, packageDir: string) {
-    const identity = this.deps.sourceFeedIdentity()
+    const identity = await this.deps.sourceFeedIdentity()
     return await createPortableSnapshot({
       stateRoot: this.deps.stateRoot,
       packageDir,
@@ -662,7 +666,7 @@ export class ServerTransferService {
   }
 
   private async preflight(input: ServerTransferInput): Promise<void> {
-    this.assertTarget(input.targetMachineId)
+    await this.assertTarget(input.targetMachineId)
     await this.deps.sourceHealthy()
     const portableBytes = await estimatePortableBytes(this.deps.stateRoot)
     if (portableBytes > MAX_TRANSFER_BYTES) {
@@ -675,11 +679,11 @@ export class ServerTransferService {
     await assertSnapshotCapacity(this.deps.stateRoot, portableBytes, available)
   }
 
-  private assertTarget(targetMachineId: MachineId): void {
+  private async assertTarget(targetMachineId: MachineId): Promise<void> {
     if (targetMachineId === this.deps.sourceMachineId) {
       throw fail(TRANSFER_FAILURE_CODES.TARGET_IS_SOURCE, 'target machine is the current server')
     }
-    const target = this.deps.targetState(targetMachineId)
+    const target = await this.deps.targetState(targetMachineId)
     if (!target.exists)
       throw fail(TRANSFER_FAILURE_CODES.TARGET_NOT_FOUND, 'target machine is unavailable')
     if (!target.hasDaemon) {
