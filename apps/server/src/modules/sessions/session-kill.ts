@@ -37,7 +37,7 @@ import type { SessionStateService } from './session-state/service'
 const log = createLogger('server:sessions')
 
 export type KillLedger = {
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
 }
 
 export interface SessionKillPorts {

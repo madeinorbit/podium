@@ -89,7 +89,9 @@ export interface SessionLifecycleDeps {
   now(): number
   bus: EventBus
   /** Lazy source-message re-authorization; resolved on every inbox drain. */
-  authorizeQueuedMessage?(messageId: string): { ok: true } | { ok: false; reason: string }
+  authorizeQueuedMessage?(
+    messageId: string,
+  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
   /** Dead-letter the durable source intent after a drain-time refusal. */
   rejectQueuedMessage?(messageId: string, reason: string): void
   /** Advance the source intent only after queued input crosses into the PTY. */
