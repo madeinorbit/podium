@@ -57,7 +57,7 @@ interface PendingTelegramSetup {
  *  needs. A port rather than the repository so this module does not depend on
  *  the store, and so a test can observe the binding directly. */
 export interface TelegramBindingWriter {
-  upsert(binding: TelegramChatBinding): void
+  upsert(binding: TelegramChatBinding): Promise<void>
 }
 
 export interface TelegramSetupStartResult {
@@ -409,7 +409,7 @@ export class SettingsService {
     await this.assertNoSecretChange(previous, settings)
     await this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
     const next = await this.store.getSettingsFor(userId)
-    this.emitSettingsChanged(previous, next)
+    await this.emitSettingsChanged(previous, next)
     // The CALLER is served what it now resolves to, not the shared blob: a client
     // that posted its own preferences must get them back, or the next render
     // would show it the instance defaults and look like the save was lost.
@@ -438,9 +438,9 @@ export class SettingsService {
    * whole blob on every edit, so an unchanged save must not make every
    * subscriber re-run.
    */
-  private emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): void {
+  private async emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): Promise<void> {
     if (JSON.stringify(previous) === JSON.stringify(next)) return
-    this.bus.emit('settings.changed', { previous, next })
+    await this.bus.emitSettled('settings.changed', { previous, next })
   }
 
   // -------------------------------------------------------------------------
@@ -496,7 +496,7 @@ export class SettingsService {
     }
     const previous = await this.store.getSettingsFor(actor)
     const next = await this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
-    this.emitSettingsChanged(previous, next)
+    await this.emitSettingsChanged(previous, next)
     return next
   }
 
@@ -528,7 +528,7 @@ export class SettingsService {
     // react whichever command wrote it, and they read the material through
     // their own dependency rather than off this payload.
     const settings = await this.store.getSettings()
-    this.bus.emit('settings.changed', { previous: settings, next: settings })
+    await this.bus.emitSettled('settings.changed', { previous: settings, next: settings })
     return secretPresence(key, value, this.fingerprintKey(), updatedAt)
   }
 
@@ -544,7 +544,7 @@ export class SettingsService {
     // `''` spelling at the model; the migration removed it at rest).
     await this.secrets.clear(key)
     const settings = await this.store.getSettings()
-    this.bus.emit('settings.changed', { previous: settings, next: settings })
+    await this.bus.emitSettled('settings.changed', { previous: settings, next: settings })
     return secretPresence(key, '', this.fingerprintKey())
   }
 
@@ -685,7 +685,7 @@ export class SettingsService {
       this.telegramSetups.delete(setupId)
       return { status: 'expired' }
     }
-    this.telegramBindings.upsert(binding)
+    await this.telegramBindings.upsert(binding)
 
     // The INBOUND half is the binding above. This write is the OUTBOUND routing
     // address — a different fact on a different row (`preferences-personal`) —

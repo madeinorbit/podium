@@ -127,11 +127,11 @@ interface Harness {
 function makeTopicsStore(): NonNullable<MessagingDeps['topics']> {
   const rows: MessagingIssueTopicRow[] = []
   return {
-    listForChat: (chatId) => rows.filter((r) => r.chatId === chatId),
-    getByIssue: (chatId, issueId) => rows.find((r) => r.chatId === chatId && r.issueId === issueId),
-    getByThreadRef: (chatId, threadRef) =>
+    listForChat: async (chatId) => rows.filter((r) => r.chatId === chatId),
+    getByIssue: async (chatId, issueId) => rows.find((r) => r.chatId === chatId && r.issueId === issueId),
+    getByThreadRef: async (chatId, threadRef) =>
       rows.find((r) => r.chatId === chatId && r.threadRef === threadRef),
-    upsert: (row) => {
+    upsert: async (row) => {
       const i = rows.findIndex((r) => r.chatId === row.chatId && r.issueId === row.issueId)
       if (i >= 0) rows[i] = row
       else rows.push(row)
@@ -207,7 +207,7 @@ function liveIssue(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function makeHarness(
+async function makeHarness(
   opts: {
     sendTurnImpl?: () => Promise<unknown>
     issues?: MessagingDeps['issues']
@@ -268,7 +268,7 @@ function makeHarness(
   }))
   const topicRows: MessagingIssueTopicRow[] = []
   const topics = makeTopicsStore()
-  const getSuperagentThread = vi.fn((threadId: string) => {
+  const getSuperagentThread = vi.fn(async (threadId: string) => {
     if (threadId.startsWith('btw_')) {
       return { ownerUserId: BOUND_USER, originSessionId: threadId.slice(4), podiumSessionId: null }
     }
@@ -279,9 +279,9 @@ function makeHarness(
   }))
   const service = new MessagingService({
     bus,
-    routing: opts.routing ?? { chatIdForUser: () => '42' },
+    routing: opts.routing ?? { chatIdForUser: async () => '42' },
     // POD-419: the token comes from the server-only keyed store, not the blob.
-    telegramBotToken: () => 'tok',
+    telegramBotToken: async () => 'tok',
     superagent: {
       sendTurn: sendTurn as never,
       interruptTurn: interruptTurn as never,
@@ -291,7 +291,7 @@ function makeHarness(
     },
     topics,
     sessions: {
-      listSessions: () => [
+      listSessions: async () => [
         {
           sessionId: 'sess_1',
           agentKind: 'grok',
@@ -329,9 +329,9 @@ function makeHarness(
     // without a binding every one of them is refused at the gate (ADR 3
     // Amendment 1 D22.2). `telegram-binding.test.ts` is where the refusal
     // itself is asserted, against this same harness shape.
-    telegramBindings: { list: () => opts.bindings ?? [boundChat('42')] },
+    telegramBindings: { list: async () => opts.bindings ?? [boundChat('42')] },
   })
-  service.configure()
+  await service.configure()
   return {
     service,
     bus,
@@ -368,7 +368,7 @@ const flushMicro = () => Promise.resolve()
 
 describe('MessagingService', () => {
   it('dispatches an inbound message as a global-thread turn and relays the reply', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('status?')
     await flush()
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
@@ -385,7 +385,7 @@ describe('MessagingService', () => {
   })
 
   it('does not double-dispatch when two messages land before the first ack', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('first')
     h.inbound('second') // no flush between — dispatch promise still pending
     await flush()
@@ -394,7 +394,7 @@ describe('MessagingService', () => {
   })
 
   it('queues while a turn is in flight and drains on turnEnded', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('first')
     await flush()
     h.inbound('second')
@@ -413,7 +413,7 @@ describe('MessagingService', () => {
 
   it('keeps the message queued when someone else holds the thread, retries on turnEnded', async () => {
     let busy = true
-    const h = makeHarness({
+    const h = await makeHarness({
       sendTurnImpl: () =>
         busy
           ? Promise.reject(new Error('a turn is already running on this thread'))
@@ -442,7 +442,7 @@ describe('MessagingService', () => {
 
     it('starts at inbound accept before sendTurn resolves', async () => {
       let resolveTurn!: () => void
-      const h = makeHarness({
+      const h = await makeHarness({
         sendTurnImpl: () =>
           new Promise((resolve) => {
             resolveTurn = () => resolve({ threadId: 'global', podiumSessionId: 'ps1' })
@@ -459,7 +459,7 @@ describe('MessagingService', () => {
 
     it(`refreshes every ${TYPING_REFRESH_MS}ms while awaiting`, async () => {
       vi.useFakeTimers()
-      const h = makeHarness()
+      const h = await makeHarness()
       h.inbound('hello')
       await flushMicro()
       expect(h.typingCalls).toHaveLength(1)
@@ -471,7 +471,7 @@ describe('MessagingService', () => {
 
     it('clears typing on turnEnded reply', async () => {
       vi.useFakeTimers()
-      const h = makeHarness()
+      const h = await makeHarness()
       h.inbound('hello')
       await flushMicro()
       h.bus.emit('superagent.turnEnded', {
@@ -488,7 +488,7 @@ describe('MessagingService', () => {
 
     it('clears typing on failed turn', async () => {
       vi.useFakeTimers()
-      const h = makeHarness()
+      const h = await makeHarness()
       h.inbound('hello')
       await flushMicro()
       h.bus.emit('superagent.turnEnded', {
@@ -505,7 +505,7 @@ describe('MessagingService', () => {
 
     it('clears typing on dispatch error', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sendTurnImpl: () => Promise.reject(new Error('thread is open in a terminal')),
       })
       h.inbound('hello')
@@ -519,7 +519,7 @@ describe('MessagingService', () => {
 
     it('clears typing when the thread is busy elsewhere', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sendTurnImpl: () => Promise.reject(new Error('a turn is already running on this thread')),
       })
       h.inbound('hello')
@@ -531,15 +531,15 @@ describe('MessagingService', () => {
     })
 
     it('threads typing into the inbound forum topic', async () => {
-      const h = makeHarness()
-      h.topics.upsert({
+      const h = await makeHarness()
+      await h.topics.upsert({
         issueId: asIssueId('iss_i1'),
         chatId: '42',
         threadRef: '9001',
         superagentThreadId: asThreadId('btw_sess_1'),
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
-      h.service.configure()
+      await h.service.configure()
       h.inbound('status in topic', { threadRef: '9001' })
       await flushMicro()
       expect(h.typingCalls).toEqual([{ chatId: '42', threadRef: '9001' }])
@@ -572,7 +572,7 @@ describe('MessagingService', () => {
       const sessionId = opts.sessionId ?? 's_agent'
       const issueId = opts.issueId ?? 'iss_bound'
       const threadRef = opts.threadRef ?? '555'
-      h.topics.upsert({
+      await h.topics.upsert({
         issueId: asIssueId(issueId),
         chatId: '42',
         threadRef,
@@ -582,8 +582,8 @@ describe('MessagingService', () => {
       return { sessionId: asSessionId(sessionId), issueId, threadRef }
     }
 
-    it('sends typing into the bound topic when the session enters working', () => {
-      const h = makeHarness({
+    it('sends typing into the bound topic when the session enters working', async () => {
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h)
@@ -596,8 +596,8 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
     })
 
-    it('does not start ambient typing on compacting (only phase===working)', () => {
-      const h = makeHarness({
+    it('does not start ambient typing on compacting (only phase===working)', async () => {
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
@@ -610,9 +610,9 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toEqual([])
     })
 
-    it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, () => {
+    it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
@@ -637,7 +637,7 @@ describe('MessagingService', () => {
       'compacting',
     ] as const)('stops ambient typing on %s', (phase) => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
@@ -658,9 +658,9 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(countWhileWorking)
     })
 
-    it('stops ambient typing on session.exited', () => {
+    it('stops ambient typing on session.exited', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
@@ -676,9 +676,9 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(countWhileWorking)
     })
 
-    it('does not indicate for sessions without a bound topic', () => {
+    it('does not indicate for sessions without a bound topic', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: () => asIssueId('iss_unbound'),
       })
       h.bus.emit('session.stateChanged', {
@@ -693,11 +693,11 @@ describe('MessagingService', () => {
 
     it('does not double-fire when superagent-turn typing already covers the topic', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
-      h.topics.upsert({
+      await h.topics.upsert({
         issueId: asIssueId('iss_bound'),
         chatId: '42',
         threadRef,
@@ -733,7 +733,7 @@ describe('MessagingService', () => {
 
     it('keeps a single refresh cadence when ambient starts before the turn', async () => {
       vi.useFakeTimers()
-      const h = makeHarness({
+      const h = await makeHarness({
         sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
@@ -754,7 +754,7 @@ describe('MessagingService', () => {
   })
 
   it('surfaces terminal dispatch errors and keeps the queue moving', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       sendTurnImpl: () => Promise.reject(new Error('thread is open in a terminal')),
     })
     h.inbound('hello')
@@ -764,7 +764,7 @@ describe('MessagingService', () => {
   })
 
   it('relays a failed turn as an error message', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('hi')
     await flush()
     h.bus.emit('superagent.turnEnded', {
@@ -777,14 +777,14 @@ describe('MessagingService', () => {
     expect(h.sent[0]!.text).toContain('harness died')
   })
 
-  it('registers slash commands via setMyCommands when the adapter starts', () => {
-    const h = makeHarness()
+  it('registers slash commands via setMyCommands when the adapter starts', async () => {
+    const h = await makeHarness()
     expect(h.registerTelegramCommands).toHaveBeenCalledTimes(1)
     expect(h.registerTelegramCommands).toHaveBeenCalledWith('tok')
   })
 
   it('routes /help locally without dispatching a turn', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('/help')
     await flush()
     expect(h.sendTurn).not.toHaveBeenCalled()
@@ -792,7 +792,7 @@ describe('MessagingService', () => {
   })
 
   it('routes /stop to interruptTurn', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('/stop')
     await flush()
     expect(h.interruptTurn).toHaveBeenCalledWith({ ownerUserId: BOUND_USER, threadId: 'global' })
@@ -800,7 +800,7 @@ describe('MessagingService', () => {
   })
 
   it('routes /new to restartThread and drops the inbound queue', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('queued')
     await flush()
     h.inbound('/new')
@@ -818,9 +818,9 @@ describe('MessagingService', () => {
   })
 
   it('routes /issues active through the issue list with inline buttons', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       issues: {
-        list: () =>
+        list: async () =>
           [
             {
               id: 'iss_i1',
@@ -871,8 +871,8 @@ describe('MessagingService', () => {
   })
 
   it('opens a forum topic and maps threadRef to btw on issue button press', async () => {
-    const h = makeHarness({
-      issues: { list: () => [liveIssue()] as never },
+    const h = await makeHarness({
+      issues: { list: async () => [liveIssue()] as never },
     })
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
@@ -890,9 +890,9 @@ describe('MessagingService', () => {
   })
 
   it('posts a transcript recap when creating an issue topic [spec:SP-62c3]', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       topicRecap: true,
-      issues: { list: () => [liveIssue()] as never },
+      issues: { list: async () => [liveIssue()] as never },
     })
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
@@ -911,11 +911,11 @@ describe('MessagingService', () => {
   })
 
   it('posts a recap on issue-button re-tap of an existing topic [spec:SP-62c3]', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       topicRecap: true,
-      issues: { list: () => [liveIssue()] as never },
+      issues: { list: async () => [liveIssue()] as never },
     })
-    h.topics.upsert({
+    await h.topics.upsert({
       issueId: asIssueId('iss_i1'),
       chatId: '42',
       threadRef: '9001',
@@ -931,9 +931,9 @@ describe('MessagingService', () => {
   })
 
   it('posts inactivity recap before dispatching a topic message after 30min [spec:SP-62c3]', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       topicRecap: true,
-      issues: { list: () => [liveIssue()] as never },
+      issues: { list: async () => [liveIssue()] as never },
     })
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
@@ -974,9 +974,9 @@ describe('MessagingService', () => {
   })
 
   it('binds topics to repo concierge when the issue has no agent session', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       issues: {
-        list: () =>
+        list: async () =>
           [
             {
               id: 'iss_i2',
@@ -1031,9 +1031,9 @@ describe('MessagingService', () => {
   })
 
   it('guides the user to enable topic mode when the chat is not a forum', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       issues: {
-        list: () =>
+        list: async () =>
           [
             {
               id: 'iss_i2',
@@ -1058,7 +1058,7 @@ describe('MessagingService', () => {
   })
 
   it('still dispatches unknown slash commands to the superagent', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     h.inbound('/model opus')
     await flush()
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
@@ -1066,7 +1066,7 @@ describe('MessagingService', () => {
   })
 
   it('sendNotice routes through the adapter with formatted text', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     await h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
@@ -1076,9 +1076,9 @@ describe('MessagingService', () => {
   })
 
   it('routes notification reactions by owner and drops an unbound owner', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       routing: {
-        chatIdForUser: (ownerUserId) => (ownerUserId === BOUND_USER ? '42' : undefined),
+        chatIdForUser: async (ownerUserId) => (ownerUserId === BOUND_USER ? '42' : undefined),
       },
     })
     h.bus.emit('notification.telegramRequested', {
@@ -1094,11 +1094,11 @@ describe('MessagingService', () => {
   })
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       sessionIssueId: (sessionId) =>
         sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null,
     })
-    h.topics.upsert({
+    await h.topics.upsert({
       issueId: asIssueId('iss_pod'),
       chatId: '42',
       threadRef: '555',
@@ -1125,7 +1125,7 @@ describe('MessagingService', () => {
   })
 
   it('sendNotice with sessionId falls back to main chat when the issue has no bound topic', async () => {
-    const h = makeHarness({
+    const h = await makeHarness({
       sessionIssueId: () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
@@ -1147,7 +1147,7 @@ describe('MessagingService', () => {
   })
 
   it('sendNotice threads into the last inbound forum topic when no sessionId is given', async () => {
-    const h = makeHarness()
+    const h = await makeHarness()
     const bus = h.bus
     let onMessage: ((msg: InboundChatMessage) => void) | undefined
     const sent: Array<{ chatId: string; threadRef?: string; text: string }> = []
@@ -1167,8 +1167,8 @@ describe('MessagingService', () => {
     }
     const service = new MessagingService({
       bus,
-      routing: { chatIdForUser: () => '42' },
-      telegramBotToken: () => 'tok',
+      routing: { chatIdForUser: async () => '42' },
+      telegramBotToken: async () => 'tok',
       superagent: {
         sendTurn: vi.fn(() =>
           Promise.resolve({ threadId: asThreadId('global'), podiumSessionId: asSessionId('ps1') }),
@@ -1186,9 +1186,9 @@ describe('MessagingService', () => {
       },
       createTelegram: () => adapter,
       registerTelegramCommands: vi.fn(async () => {}),
-      telegramBindings: { list: () => [boundChat('42')] },
+      telegramBindings: { list: async () => [boundChat('42')] },
     })
-    service.configure()
+    await service.configure()
     onMessage?.({
       source: { channel: 'telegram', chatId: '42', threadRef: '77' },
       text: 'in topic',
@@ -1214,7 +1214,7 @@ describe('MessagingService', () => {
       json: async () => ({ ok: true }),
     })
     vi.stubGlobal('fetch', fetch)
-    const h = makeHarness()
+    const h = await makeHarness()
     await h.service.sendNotice('t\n\nb', { botToken: 'other', chatId: '42' })
     await flush()
     expect(h.sent).toEqual([])
@@ -1229,7 +1229,7 @@ describe('MessagingService', () => {
       json: async () => ({ ok: true }),
     })
     vi.stubGlobal('fetch', fetch)
-    const h = makeHarness()
+    const h = await makeHarness()
     h.service.stop()
     await h.service.sendNotice('t\n\nb', { botToken: 'tok', chatId: '42' })
     await flush()
@@ -1248,14 +1248,14 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
     // First, so every refusal below is a refusal of something this suite has
     // shown itself able to deliver. Without it, a gate that refused every
     // message would satisfy the whole describe block.
-    const h = makeHarness({ bindings: [boundChat('42')] })
+    const h = await makeHarness({ bindings: [boundChat('42')] })
     h.inbound('status?')
     await flush()
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
   })
 
   it('UNBOUND: an empty binding table means the message does nothing at all', async () => {
-    const h = makeHarness({ bindings: [] })
+    const h = await makeHarness({ bindings: [] })
     h.inbound('status?')
     await flush()
     expect(h.sendTurn).not.toHaveBeenCalled()
@@ -1265,7 +1265,7 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
     // D22.2: the refusal must not disclose more than an unbound chat already
     // knows. A "you are not authorised" reply would confirm a Podium instance is
     // behind this bot to anyone who found the handle.
-    const h = makeHarness({ bindings: [] })
+    const h = await makeHarness({ bindings: [] })
     h.inbound('status?')
     await flush()
     expect(h.sent).toEqual([])
@@ -1274,7 +1274,7 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
   it('A DIFFERENT chat’s binding does not admit this one', async () => {
     // The binding must be matched, not merely PRESENT. A gate that checked
     // "are there any bindings at all" passes the two tests above and fails here.
-    const h = makeHarness({ bindings: [boundChat('9999')] })
+    const h = await makeHarness({ bindings: [boundChat('9999')] })
     h.inbound('status?')
     await flush()
     expect(h.sendTurn).not.toHaveBeenCalled()
@@ -1283,14 +1283,14 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
   it('refuses a SLASH COMMAND from an unbound chat', async () => {
     // The gate sits before the three-way split, so each arm needs its own case:
     // a check on only the plain-turn path would leave /issues and callbacks open.
-    const h = makeHarness({ bindings: [], issues: { list: () => [liveIssue()] as never } })
+    const h = await makeHarness({ bindings: [], issues: { list: async () => [liveIssue()] as never } })
     h.inbound('/issues')
     await flush()
     expect(h.sent).toEqual([])
   })
 
   it('refuses a CALLBACK press from an unbound chat', async () => {
-    const h = makeHarness({ bindings: [], issues: { list: () => [liveIssue()] as never } })
+    const h = await makeHarness({ bindings: [], issues: { list: async () => [liveIssue()] as never } })
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
     expect(h.sent).toEqual([])
@@ -1300,9 +1300,9 @@ describe('an inbound chat must resolve to a user, or nothing happens', () => {
   it('ADMITS the same slash command and callback once the chat IS bound', async () => {
     // The positive control for the two arms above, so "slash commands are
     // refused" cannot be satisfied by a slash path that never worked here.
-    const h = makeHarness({
+    const h = await makeHarness({
       bindings: [boundChat('42')],
-      issues: { list: () => [liveIssue()] as never },
+      issues: { list: async () => [liveIssue()] as never },
     })
     h.inbound('/issues')
     await flush()

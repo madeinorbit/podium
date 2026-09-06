@@ -191,8 +191,9 @@ export type Listener<E extends EventName> = (payload: EventMap[E]) => unknown
 
 /**
  * Minimal typed emitter over {@link EventMap}. Regular dispatch invokes every
- * listener synchronously and observes asynchronous rejection without blocking;
- * durable dispatch additionally awaits every listener before it returns.
+ * listener synchronously and observes asynchronous rejection without blocking.
+ * Settled dispatch awaits while preserving that isolation; durable dispatch
+ * additionally reports failure to its caller.
  */
 export class EventBus {
   private readonly listeners = new Map<EventName, Set<Listener<EventName>>>()
@@ -229,6 +230,27 @@ export class EventBus {
         )
       } catch (err) {
         log.warn('event listener threw', { err, event })
+      }
+    }
+  }
+
+  /** Await every observer while preserving regular event isolation. Use this
+   * when a producer must not outrun an async reaction, but the state change is
+   * already durable and an observer cannot roll it back. */
+  async emitSettled<E extends EventName>(event: E, payload: EventMap[E]): Promise<void> {
+    const set = this.listeners.get(event)
+    if (!set) return
+    const pending: Promise<unknown>[] = []
+    for (const listener of [...set]) {
+      try {
+        pending.push(Promise.resolve(listener(payload)))
+      } catch (err) {
+        pending.push(Promise.reject(err))
+      }
+    }
+    for (const result of await Promise.allSettled(pending)) {
+      if (result.status === 'rejected') {
+        log.warn('settled event listener rejected', { err: result.reason, event })
       }
     }
   }
