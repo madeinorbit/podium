@@ -9,6 +9,7 @@ import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
+  resolvePrincipal,
   resolvePrincipalAsync,
   userCommandPrincipal,
 } from '../../command-principal'
@@ -173,7 +174,7 @@ export class SessionAuthz {
       issues: this.ports.deps.issueAccess,
       visibility: () => true,
     }
-    const resolved = resolveSessionTarget(principal, input.sessionId, access)
+    const resolved = await resolveSessionTarget(principal, input.sessionId, access)
     if (resolved.kind === 'absent') return refused
     /**
      * RIGHTS ARE RE-CHECKED; THE SCOPE CONFIRMATION IS NOT RE-ASKED (POD-3226).
