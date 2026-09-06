@@ -263,3 +263,45 @@ them afterwards:
     4. POD-3469  (12 conflicts, §4, plus the packages/protocol/handshake restore in §4a)
 
 Re-run the trial merges immediately before landing: B1 is still committing, so these numbers move.
+
+## 7. SECOND-HELLO POLICY — settled by reading rule 3, not by choosing between the two fixes
+
+POD-3469 raised this rather than let it arrive at merge as an unexamined default, and it was right to:
+resolving toward its files hands us its answer whether or not anyone decided one.
+
+THE TWO OUTCOMES DIFFER. On a second hello, POD-3469's branch replies
+`[peerHelloOk, peerHelloRejected]` with attach=1, terminate=0 — and measures IDENTICALLY for two
+hellos in one tick and two delivered sequentially, which is the point: its serialization does not pick
+a policy, it makes the concurrent case indistinguishable from the sequential one that already existed.
+POD-3263's fix (`c568511d6`) closes the connection instead, and neither hello establishes.
+
+WHAT RULE 3 ACTUALLY SAYS, from `acceptor.ts` at the merge-base:
+
+    3. a second hello after the handshake is a protocol violation, not a re-auth
+       (re-authentication on a live connection would be a principal-swap
+        primitive — ADR 3 D7's TOCTOU shape);
+
+THE PROPERTY IT PROTECTS IS "NO PRINCIPAL SWAP", NOT "TERMINATE THE SOCKET". Both shapes satisfy it.
+And POD-3469's acceptor is byte-untouched from the merge-base (verified: zero diff on
+`handshake/acceptor.ts`), so its second-hello arm still runs
+
+    state = 'closed'
+    return reject('unexpected-frame', 'second hello on an established connection')
+
+The acceptor is CLOSED afterwards — every later frame gets "frame after the connection was refused".
+So "the connection survives" is true of the socket and false of the protocol connection, which is the
+compliance-relevant half. There is no live re-auth path on either branch.
+
+RULING: POD-3469's behaviour stands, and no separate fix to the sequential path is needed. It is
+rule-3 compliant AND it is the status quo — the acceptor is unchanged from the merge-base — which
+makes it the no-behaviour-change answer, and this flip's contract is that it changes no behaviour.
+POD-3263's termination is not non-compliant; it is a behaviour change the flip does not need, and it
+falls out with the rest of that branch's gateway work under §4.
+
+KEEP POD-3263'S SEPARATE FIND. Writing the test first led it to a post-await re-check that POD-3469 did
+not have. Under POD-3469's serialization a second entrant cannot reach the await at all, so the
+re-check is belt-and-braces rather than load-bearing there — but if the merged result ever loses the
+serialization, that re-check is the second line of defence. Preserve it if it applies cleanly.
+
+POD-3469's committed test asserts only that the daemon attaches exactly once, which holds under either
+policy, so nothing in the pinned suite prejudges this ruling.
