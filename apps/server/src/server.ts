@@ -59,6 +59,7 @@ import {
   type ClientCredentialHeaders,
   clientAuthGuard,
   isSecureRequest,
+  maintainClientCredentialByHash,
   registerAuthRoute,
   requestUserId,
   resolveClientCredential,
@@ -1422,6 +1423,8 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
+        validateClientCredential: async (credentialId) =>
+          (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
           if (
             request.headers.has('authorization') &&
@@ -1445,12 +1448,7 @@ export async function startServer(
           return {
             userId: principal.user,
             userRole,
-            ...(credential
-              ? {
-                  credentialId: credential.tokenHash,
-                  credentialExpiresAt: credential.session.expiresAt,
-                }
-              : {}),
+            ...(credential ? { credentialId: credential.tokenHash } : {}),
           }
         },
       },
