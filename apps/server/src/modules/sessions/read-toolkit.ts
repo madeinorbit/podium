@@ -50,7 +50,7 @@ export type {
 }
 
 export interface SessionReadToolkitDeps {
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
@@ -97,8 +97,8 @@ export class SessionReadToolkit {
     return phase ?? (session.busy ? 'working' : 'idle')
   }
 
-  private subagentsOf(target: SessionMeta): SessionStatusSubagent[] {
-    const all = this.deps.listSessions()
+  private async subagentsOf(target: SessionMeta): Promise<SessionStatusSubagent[]> {
+    const all = await this.deps.listSessions()
     const result: SessionStatusSubagent[] = []
     const seen = new Set([target.sessionId])
     const queue = [target.sessionId]
@@ -130,7 +130,7 @@ export class SessionReadToolkit {
    *  (#N/seq/id) whose best member session (live preferred, else most recent
    *  agent) is picked. */
   async resolveTarget(ref: string): Promise<SessionMeta | undefined> {
-    const all = this.deps.listSessions()
+    const all = await this.deps.listSessions()
     const direct = resolveSessionIdentifier(ref, all)
     if (direct) return direct
     let issueId: string
@@ -212,7 +212,7 @@ export class SessionReadToolkit {
       draft: target.draftUpdatedAt !== undefined,
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
       nativeSubagents: target.agentState?.nativeSubagents ?? [],
-      subagents: this.subagentsOf(target),
+      subagents: await this.subagentsOf(target),
       issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),
@@ -226,7 +226,7 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; turns?: number; cursor?: string },
     reader: ReaderRef,
   ): Promise<SessionReadResult> {
-    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
+    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     await this.logRead('session.transcript_read', target.sessionId, reader)
     const limit = Math.min(Math.max(1, input.turns ?? 20), READ_TURN_CAP)
@@ -281,7 +281,7 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; since?: string },
     reader: ReaderRef,
   ): Promise<SessionRecapResult> {
-    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
+    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     await this.logRead('session.recap_read', target.sessionId, reader)
     const since =

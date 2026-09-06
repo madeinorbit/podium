@@ -13,7 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
-import { findSessionById } from './modules/sessions/session-by-id'
+import { findSessionByIdAsync } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
@@ -300,12 +300,12 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
-  listSessions: () => SessionMeta[]
+  listSessions: () => SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?: (sessionId: SessionId) => SessionMeta | undefined
+  sessionById?: (sessionId: SessionId) => SessionMeta | undefined | Promise<SessionMeta | undefined>
   sessionOwner?: (sessionId: SessionId) => UserId | undefined
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
    *  this is next-turn delivery; for parked/hibernated/exited sessions with a
@@ -328,8 +328,8 @@ export interface StewardDeps {
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
    *  composition root. Structurally typed (not the NotifyService type) so the
    *  steward's unit tests stay hermetic. Absent = notify is breadcrumb-only. */
-  notify?: (ownerUserId: UserId, notice: { title: string; body: string }) => void
-  getSettings: () => PodiumSettings
+  notify?: (ownerUserId: UserId, notice: { title: string; body: string }) => void | Promise<void>
+  getSettings: () => PodiumSettings | Promise<PodiumSettings>
   intervalMs?: number
   now?: () => string
 }
@@ -495,7 +495,7 @@ export class StewardService {
   }
 
   private async runTick(options: StewardTickOptions): Promise<void> {
-    if (!this.deps.getSettings().steward?.enabled) return
+    if (!(await this.deps.getSettings()).steward?.enabled) return
     if (options.owner === 'janitor') {
       const seededAt = await this.deps.store.activateJanitorSteward()
       if (seededAt !== undefined) {
@@ -674,7 +674,7 @@ export class StewardService {
   private async dispatchSubscriptions(events: StewardEvent[]): Promise<void> {
     const subs = await this.deps.store.listEnabledSubscriptions()
     if (subs.length === 0) return
-    const sessions = this.deps.listSessions()
+    const sessions = await this.deps.listSessions()
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
@@ -821,7 +821,7 @@ export class StewardService {
           sub.subscriberKind === 'session'
             ? this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
             : (await this.deps.issues.getMeta(sub.subscriberId))?.ownerUserId
-        if (ownerUserId) this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
+        if (ownerUserId) await this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {
         log.warn('subscription notify failed', { err, subscriptionId: sub.id })
       }
@@ -874,7 +874,7 @@ export class StewardService {
       // the note lives in the issue comment only.
       const candidates = sessionsForIssue(
         dependent.worktreePath,
-        this.deps.listSessions(),
+        await this.deps.listSessions(),
         dependent.id,
       ).filter(
         (s) =>
@@ -949,7 +949,7 @@ export class StewardService {
     if (!sub) return
     const last = batch[batch.length - 1]
     if (!last) return
-    const sessions = this.deps.listSessions()
+    const sessions = await this.deps.listSessions()
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
@@ -1056,7 +1056,7 @@ export class StewardService {
     const lastChild = (await this.deps.issues.list(parent.repoPath)).find((w) => w.seq === lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
-      this.deps.listSessions(),
+      await this.deps.listSessions(),
       parent.id,
     ).filter(
       (s) =>
@@ -1105,7 +1105,7 @@ export class StewardService {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
-    const issueId = findSessionById(this.deps, sessionId)?.issueId
+    const issueId = (await findSessionByIdAsync(this.deps, sessionId))?.issueId
     const factKey = `settle:${sessionId}`
     if (
       !await this.arbiter.claim(factKey, sessionId, {
