@@ -89,11 +89,11 @@ describe('harnessCandidates', () => {
 })
 
 describe('SuperagentDefaultSeeder', () => {
-  it('seeds the account, harness, model and effort of the best available harness', () => {
+  it('seeds the account, harness, model and effort of the best available harness', async () => {
     const { seeder, writes, current } = harness({
       machines: [machine([{ kind: 'codex', installed: true, state: 'in' }])],
     })
-    seeder.seed()
+    await seeder.seed()
     expect(writes).toEqual([
       {
         'roles.superagent.accountId': 'native:codex',
@@ -105,16 +105,16 @@ describe('SuperagentDefaultSeeder', () => {
     expect(current().roles.superagent.harness).toBe('codex')
   })
 
-  it('is idempotent — a second inventory report writes nothing', () => {
+  it('is idempotent — a second inventory report writes nothing', async () => {
     const { seeder, writes } = harness({
       machines: [machine([{ kind: 'grok', installed: true, state: 'in' }])],
     })
-    seeder.seed()
-    seeder.seed()
+    await seeder.seed()
+    await seeder.seed()
     expect(writes).toHaveLength(1)
   })
 
-  it('leaves a person who has already chosen an account alone', () => {
+  it('leaves a person who has already chosen an account alone', async () => {
     const chosen = normalizeSettings({
       roles: { superagent: { accountId: 'native:claude-code' } },
     })
@@ -122,38 +122,38 @@ describe('SuperagentDefaultSeeder', () => {
       settings: chosen,
       machines: [machine([{ kind: 'codex', installed: true, state: 'in' }])],
     })
-    seeder.seed()
+    await seeder.seed()
     expect(writes).toEqual([])
   })
 
-  it('keeps a model the person set while still seeding the account', () => {
+  it('keeps a model the person set while still seeding the account', async () => {
     const partial = normalizeSettings({ roles: { superagent: { model: 'gpt-5.5' } } })
     const { seeder, writes } = harness({
       settings: partial,
       machines: [machine([{ kind: 'codex', installed: true, state: 'in' }])],
     })
-    seeder.seed()
+    await seeder.seed()
     expect(writes[0]).not.toHaveProperty('roles.superagent.model')
     expect(writes[0]).toMatchObject({ 'roles.superagent.effort': 'max' })
   })
 
-  it('writes nothing before any machine has reported', () => {
+  it('writes nothing before any machine has reported', async () => {
     const { seeder, writes } = harness({ machines: [] })
-    seeder.seed()
+    await seeder.seed()
     expect(writes).toEqual([])
   })
 
-  it('writes nothing when the fleet carries no harness it would pick', () => {
+  it('writes nothing when the fleet carries no harness it would pick', async () => {
     const { seeder, writes } = harness({
       machines: [machine([{ kind: 'opencode', installed: true, state: 'in' }])],
     })
-    seeder.seed()
+    await seeder.seed()
     expect(writes).toEqual([])
   })
 
   // A seed is a convenience: the inventory report that triggered it must survive
   // a settings write that throws.
-  it('survives a failing write', () => {
+  it('survives a failing write', async () => {
     const seeder = new SuperagentDefaultSeeder({
       users: () => [USER],
       settingsFor: () => normalizeSettings({}),
@@ -162,6 +162,6 @@ describe('SuperagentDefaultSeeder', () => {
         throw new Error('write refused')
       },
     })
-    expect(() => seeder.seed()).not.toThrow()
+    await expect(seeder.seed()).resolves.not.toThrow()
   })
 })
