@@ -257,7 +257,9 @@ export interface MessageDeliveryDeps {
       via: 'now' | 'queue' | 'interrupt',
       input: InboxDeliveryInput,
       onReceipt?: (receipt: TurnReceipt) => void,
-    ): { ok: boolean; queued?: boolean; reason?: string; position?: number }
+    ):
+      | { ok: boolean; queued?: boolean; reason?: string; position?: number }
+      | Promise<{ ok: boolean; queued?: boolean; reason?: string; position?: number }>
   }
   /** Server-only fact for the live runtime contract. It is not part of the client session projection. */
   runtimeContractActive?(sessionId: SessionId): boolean
@@ -1463,7 +1465,7 @@ export class MessageDeliveryService {
         awaitReceipt && confirmed && via !== 'queue',
       )
     }
-    const r = sessions.receiptSend
+    const r = await (sessions.receiptSend
       ? sessions.receiptSend(via, input, async (receipt) => {
           if (recorded) await settleReceipt(receipt, true)
           else if (awaitReceipt) pendingReceipts.push(receipt)
@@ -1473,7 +1475,7 @@ export class MessageDeliveryService {
         ? sessions.sendText(input)
         : via === 'interrupt'
           ? sessions.interruptText(input)
-          : sessions.queueText(input)
+          : sessions.queueText(input))
     // Transport rejected the push (e.g. the daemon dropped offline mid-send). The
     // row was still captured + durably queued, so the SWEEP will re-attempt it —
     // `disposition: 'queued'` describes that row position, while `ok: false`
@@ -1924,17 +1926,17 @@ export class MessageDeliveryService {
     // row rather than per call: this helper dispatches several and `recordPush`
     // below is what puts each one's optimistic state on the ledger [POD-2298].
     const recorded = new Set<string>()
-    const push = (
+    const push = async (
       input: InboxDeliveryInput,
       reconcile: string,
-    ): { ok: boolean; queued?: boolean; reason?: string; position?: number } =>
-      sessions.receiptSend
+    ): Promise<{ ok: boolean; queued?: boolean; reason?: string; position?: number }> =>
+      await (sessions.receiptSend
         ? sessions.receiptSend('now', input, async (receipt) => {
             await this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
           })
-        : sessions.sendText(input)
+        : sessions.sendText(input))
     for (const m of inlineRows) {
-      const r = push(
+      const r = await push(
         {
           sessionId: session.sessionId,
           text: await this.render.renderFor(m, session.sessionId),
@@ -1951,7 +1953,7 @@ export class MessageDeliveryService {
       // One short fyi delivers inline with its full envelope (id present) — the
       // echo can still confirm it; record a push and let the echo/read follow.
       const m = pointerRows[0]!
-      const r = push(
+      const r = await push(
         {
           sessionId: session.sessionId,
           text: await this.render.renderFor(m, session.sessionId),
@@ -1967,7 +1969,7 @@ export class MessageDeliveryService {
       // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
       // can only be confirmed by an inbox READ. Record the push (injected) and
       // wait — the sweep never re-nudges a pointer row [POD-834].
-      const r = push(
+      const r = await push(
         {
           sessionId: session.sessionId,
           text: await this.render.pointerText(pointerRows),
