@@ -549,6 +549,7 @@ export class SessionRegistry {
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
+      recoveryOnly,
       targetVersion: (machineId) =>
         updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
       targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),

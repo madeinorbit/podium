@@ -160,6 +160,9 @@ function instanceEnv(
     'PODIUM_SESSION_ID',
     'PODIUM_SESSION_INSTANCE',
     'PODIUM_HOME',
+    // Packaged isolation cases must not inherit the hosting dev publisher opt-in.
+    'PODIUM_DEV_SOURCE_ROOT',
+    'PODIUM_DEV_ARTIFACT_BASE_URL',
     'NOTIFY_SOCKET',
     'ABDUCO_SOCKET_DIR',
   ])
@@ -1407,6 +1410,14 @@ exec "$CANARY_REAL_CLI" "$@"
             async () => (await version(target)) !== undefined,
             `${label} restarted target`,
           )
+          await waitForTransfer(() => {
+            const health = readDaemonHealth(target.stateDir)
+            return (
+              health?.state === 'connected' &&
+              health.serverUrl === sourceUrl &&
+              health.processId === read(target, 'run/daemon.pid').pid
+            )
+          }, `${label} target recovery daemon reconnected to sealed source`)
           await expect(
             sourceApi.issues.create.mutate({
               repoPath: TEST_ROOT,
@@ -1491,6 +1502,16 @@ exec "$CANARY_REAL_CLI" "$@"
         await run(target, [])
         await run(source, [])
         await assertTopology()
+        // A completed move must not hide failed presence callbacks behind the
+        // SQLite fence. Check both the live seal and recovery-only reconnects.
+        for (const spec of specs) {
+          const file = Bun.file(join(spec.stateDir, 'logs/server.log'))
+          if (!(await file.exists())) continue
+          const tail = await file.slice(Math.max(0, file.size - 262_144)).text()
+          expect(tail, `${label}: readonly write in ${spec.stateDir}`).not.toContain(
+            'attempt to write a readonly database',
+          )
+        }
         console.log(
           `PASS ${label}: compiled transfer, three endpoint rebinds, durable assignments, finalized restarts${interrupted ? ', sealed-source refusal and target restart during recovery' : ''}`,
         )
