@@ -20,14 +20,21 @@
  *   3. Refuses --force / TURBO_FORCE unless an explicit reason is given via
  *      --uncached-because="<reason>". A forced 22-package run costs ~3m of CPU
  *      (110x the cached 2s) on a host shared with a live Podium instance.
+ *   4. Runs every project and makes the run account for itself (POD-3517). Turbo
+ *      fail-fasts by default and abandons whatever it had not started, while its
+ *      footer keeps counting those tasks in the total — "23 successful, 26 total"
+ *      with one failure named is a run that silently dropped two projects. So the
+ *      wrapper passes --continue=always and then checks the run summary: if any
+ *      task in the graph reported no result, it says which, and an unverifiable
+ *      green is refused outright.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { arch, cpus, freemem, homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { type InstallTopology, readInstallTopology } from './install-topology'
 import { sharedCacheDir } from './shared-cache-dir'
-import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
+import { readWorkspaceResolutionCensus, workspaceDirectories } from './workspace-resolution-census'
 
 export interface ForceDecision {
   forceRequested: boolean
@@ -239,6 +246,154 @@ export function decideConcurrency(args: string[], env: { cores: number; availabl
   }
 }
 
+/**
+ * Turbo's `--continue` defaults to "never": the run stops at the first failing task and
+ * every task it had not started is abandoned. The footer does not say so. A real run of
+ * this gate printed
+ *
+ *   Tasks:    23 successful, 26 total
+ *   Failed:   @podium/scripts#typecheck
+ *
+ * which accounts for 24 of 26 tasks and says nothing about the other two — @podium/web
+ * and @podium/mobile, both of them red, one of them literally mid-compile ("cache miss,
+ * executing") when the run was cancelled. apps/web had been red behind that silence
+ * since the async flip (POD-3516), and scripts/ before it (POD-3508).
+ *
+ * "always" rather than "dependencies-successful", because a typecheck task consumes no
+ * artifact from the task it depends on: every package runs `tsgo --noEmit` and declares
+ * no outputs, and workspace imports resolve to a dependency's SOURCE. `^typecheck` is an
+ * ordering edge, so a red dependency does not make a dependent's own errors any less
+ * true — and under "dependencies-successful" a single red package near the root of the
+ * graph hides every package downstream of it, which is the defect this fixes, not a
+ * milder version of it.
+ *
+ * A caller who spells their own `--continue` means it and gets it.
+ */
+export function decideContinue(args: string[]): string[] {
+  const spelled = args.some((a) => a === '--continue' || a.startsWith('--continue='))
+  return spelled ? [] : ['--continue=always']
+}
+
+/** `--summarize` is how this wrapper reads what ran; a caller who asked for it keeps the file. */
+export function decideSummarize(args: string[]): { add: string[]; callerOwnsFile: boolean } {
+  const spelled = args.some((a) => a === '--summarize' || a.startsWith('--summarize='))
+  return spelled
+    ? { add: [], callerOwnsFile: true }
+    : { add: ['--summarize'], callerOwnsFile: false }
+}
+
+/** What a run summary says about coverage: the size of the graph, and who reported back. */
+export interface RunAccounting {
+  /** Turbo's own count of the tasks in the graph — present even when the run was cut short. */
+  attempted: number
+  /** Task ids that carry an execution record. A task turbo never started has none. */
+  reported: string[]
+}
+
+/**
+ * Read `--summarize` output for coverage, not for timings.
+ *
+ * The load-bearing detail: a task turbo never started is ABSENT from `tasks` altogether
+ * — the truncated run above wrote 24 task records for a graph of 26 — so the shortfall
+ * has to be counted against `execution.attempted` and cannot be read off the task list.
+ * A task that is listed but carries no execution record (a shape a later turbo could
+ * emit for a cancelled task) counts as unreported too, which is the same question asked
+ * the other way round.
+ */
+export function readRunAccounting(text: string): RunAccounting | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const summary = parsed as { execution?: { attempted?: unknown }; tasks?: unknown }
+  const attempted = summary.execution?.attempted
+  if (typeof attempted !== 'number' || !Array.isArray(summary.tasks)) return null
+  const reported: string[] = []
+  for (const entry of summary.tasks) {
+    if (typeof entry !== 'object' || entry === null) return null
+    const task = entry as { taskId?: unknown; execution?: { exitCode?: unknown } | null }
+    if (typeof task.taskId !== 'string') return null
+    if (task.execution && typeof task.execution.exitCode === 'number') reported.push(task.taskId)
+  }
+  return { attempted, reported }
+}
+
+/**
+ * Every task `turbo run typecheck` will attempt: one per workspace declaring the script.
+ *
+ * Derived from the manifests rather than from a second `turbo --dry` run, because the
+ * graph is a fact about the workspace and a dry run costs about what the cached gate it
+ * guards costs. It is used only to NAME what went missing; the count that decides the
+ * refusal is turbo's own, so a wrong universe cannot invent or suppress a refusal.
+ */
+export function expectedTypecheckTasks(root: string): string[] {
+  const tasks: string[] = []
+  for (const directory of workspaceDirectories(root)) {
+    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')) as {
+      name?: string
+      scripts?: Record<string, string>
+    }
+    if (typeof manifest.name === 'string' && manifest.scripts?.typecheck) {
+      tasks.push(`${manifest.name}#typecheck`)
+    }
+  }
+  return tasks.sort()
+}
+
+/**
+ * The other half of the fix, and the half that survives a turbo upgrade.
+ *
+ * `--continue=always` means nothing is skipped for a sibling's failure, but "nothing was
+ * skipped" is then an assumption, and this gate exists precisely because an assumption
+ * about coverage went unchecked for three days. So the run is made to account for itself:
+ * every task in the graph reports a result, or the gate says which ones did not and why
+ * that makes the run worthless as evidence.
+ *
+ * A green that cannot be verified is refused; a red that cannot be verified is annotated
+ * and keeps turbo's exit code. The asymmetry is deliberate — a red is already loud, and
+ * the failure this guards against is a truncated run being read as an all-clear.
+ */
+export function accountingRefusal(
+  accounting: RunAccounting | null,
+  expected: string[],
+  turboExitCode: number,
+): string | null {
+  const preamble =
+    turboExitCode === 0
+      ? 'typecheck refused: this run reported success for fewer projects than it had.'
+      : 'typecheck: the failure above is not the whole picture.'
+  if (!accounting) {
+    return (
+      `${preamble}\n` +
+      'No readable turbo run summary was produced, so there is no evidence that every ' +
+      'project ran. Re-run the gate; if the summary is still missing, the wrapper and ' +
+      "turbo's --summarize output have diverged and this check needs updating (POD-3517)."
+    )
+  }
+  const missing = accounting.attempted - accounting.reported.length
+  if (missing <= 0) return null
+  const seen = new Set(accounting.reported)
+  const unreported = expected.filter((task) => !seen.has(task))
+  const named =
+    unreported.length === missing
+      ? `Never ran: ${unreported.join(', ')}`
+      : `The workspace declares these typecheck tasks that this run did not report: ` +
+        `${unreported.join(', ') || '(none)'}. That list is a guide and not the graph — ` +
+        `a --filter narrows what turbo attempts.`
+  return (
+    `${preamble}\n` +
+    `${accounting.attempted} typecheck tasks were in the graph and ${accounting.reported.length} ` +
+    `reported a result. ${missing} never ran, so this run says NOTHING about ` +
+    `${missing === 1 ? 'it' : 'them'} — not that ${missing === 1 ? 'it is' : 'they are'} green.\n` +
+    `${named}\n` +
+    'Turbo abandons unstarted tasks when a task fails and its footer still counts them ' +
+    'in the total, which is how apps/web stayed red and unnoticed (POD-3516, POD-3517).'
+  )
+}
+
 export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
   const cacheDir = process.env.TURBO_CACHE_DIR ?? sharedTurboCacheDir(root)
   const existed = existsSync(cacheDir)
@@ -260,6 +415,36 @@ export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
     TURBO_CACHE_DIR: cacheDir,
     TURBO_FORCE: undefined,
   }
+}
+
+/**
+ * The summary turbo just wrote, identified by being new since the run started and by
+ * naming this task. Concurrent runs in one worktree share `.turbo/runs`, so the newest
+ * file is not necessarily ours; the command line pins it.
+ */
+function findRunSummary(directory: string, before: Set<string>): string | null {
+  if (!existsSync(directory)) return null
+  const candidates = readdirSync(directory)
+    .filter((name) => name.endsWith('.json') && !before.has(name))
+    .map((name) => join(directory, name))
+    .filter((path) => {
+      try {
+        const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+          execution?: { command?: unknown }
+        }
+        return typeof parsed.execution?.command === 'string'
+          ? parsed.execution.command.includes('run typecheck')
+          : false
+      } catch {
+        return false
+      }
+    })
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  return candidates[0] ?? null
+}
+
+function summaryNames(directory: string): Set<string> {
+  return new Set(existsSync(directory) ? readdirSync(directory) : [])
 }
 
 async function main() {
@@ -285,12 +470,17 @@ async function main() {
   })
   const concurrencyArgs = limit.cap === null ? [] : [`--concurrency=${limit.cap}`]
   if (limit.cap !== null) console.error(`typecheck concurrency ${limit.cap} (${limit.reason})`)
+  const summarize = decideSummarize(decision.forwardArgs)
+  const runsDir = join(root, '.turbo', 'runs')
+  const before = summaryNames(runsDir)
   const proc = Bun.spawn(
     [
       join(root, 'node_modules', '.bin', 'turbo'),
       'run',
       'typecheck',
       ...concurrencyArgs,
+      ...decideContinue(decision.forwardArgs),
+      ...summarize.add,
       ...decision.forwardArgs,
     ],
     {
@@ -299,7 +489,16 @@ async function main() {
       env: turboEnv(root, census),
     },
   )
-  process.exit(await proc.exited)
+  const exitCode = await proc.exited
+  const summaryPath = findRunSummary(runsDir, before)
+  const accounting = summaryPath ? readRunAccounting(readFileSync(summaryPath, 'utf8')) : null
+  if (summaryPath && !summarize.callerOwnsFile) rmSync(summaryPath, { force: true })
+  const coverage = accountingRefusal(accounting, expectedTypecheckTasks(root), exitCode)
+  if (coverage) {
+    console.error(coverage)
+    process.exit(exitCode === 0 ? 1 : exitCode)
+  }
+  process.exit(exitCode)
 }
 
 if (import.meta.main) await main()
