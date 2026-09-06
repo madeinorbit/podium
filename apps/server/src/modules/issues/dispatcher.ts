@@ -19,9 +19,9 @@ import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId } from '@podium/model'
 import { z } from 'zod'
-import { resolvePrincipal } from '../../command-principal'
+import { resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   commandAccess,
   type IssueCaller,
@@ -87,19 +87,19 @@ export class IssueCommandDispatcher {
   ): Promise<unknown | undefined> {
     if (router === 'repos') {
       if (proc !== 'inferFromPath') return undefined
-      return await Promise.resolve().then(() => {
-        const input = z.object({ path: z.string() }).parse(rawInput)
-        return { repoPath: this.deps.inferRepoFromPath(input.path) ?? null }
-      })
+      const input = z.object({ path: z.string() }).parse(rawInput)
+      return { repoPath: (await this.deps.inferRepoFromPath(input.path)) ?? null }
     }
     if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return undefined
     const effectiveCaller: IssueCaller = caller.principal
       ? caller
       : {
           ...caller,
-          principal: resolvePrincipal(caller.capability, {
-            parentSessionOf: (sessionId) =>
-              spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
+          principal: await resolvePrincipalAsync(caller.capability, {
+            parentSessionOf: async (sessionId) =>
+              spawnedByParentSessionId(
+                (await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy,
+              ),
           }),
         }
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
@@ -119,13 +119,8 @@ export class IssueCommandDispatcher {
    * compile-time hole, not a runtime maybe.
    */
   asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
-    const principal = resolvePrincipal(capability, {
-      parentSessionOf: (sessionId) =>
-        spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
-    })
     const caller: IssueCaller = {
       capability,
-      principal,
       ...(overrideScope ? { overrideScope } : {}),
     }
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {

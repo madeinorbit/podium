@@ -391,7 +391,7 @@ const defs = {
         // not agents on the issue, so they are not listed as such.
         const sessions = sessionsForIssue(
           issue.worktreePath,
-          ctx.deps.listSessions(),
+          await ctx.deps.listSessions(),
           issue.id,
         ).filter((session) => session.agentKind !== 'shell')
         return { ...issue, sessions }
@@ -1150,8 +1150,13 @@ const defs = {
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
     handler: async (ctx, input) => {
       const send = ctx.deps.sendMessage
-      if (!send) return await ctx.commentsMail.sendMail(input.id, await ctx.mailIdentity(), input.body)
-      const r = send(ctx.messageSender(), { to: { kind: 'issue', id: input.id }, body: input.body })
+      if (!send) {
+        return await ctx.commentsMail.sendMail(input.id, await ctx.mailIdentity(), input.body)
+      }
+      const r = await send(ctx.messageSender(), {
+        to: { kind: 'issue', id: input.id },
+        body: input.body,
+      })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only
       // r.legacy — the exact silent-drop that lost 70 POD-279 messages. When the

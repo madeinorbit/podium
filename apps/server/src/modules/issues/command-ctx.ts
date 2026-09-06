@@ -31,7 +31,7 @@ import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -84,20 +84,25 @@ export interface IssueCommandDeps {
    */
   mutations: MutationLedgerPort
   /** Session list — subscription source checks resolve session→issue through it. */
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+   *  correct via {@link findSessionByIdAsync}'s fallback, just slower. */
+  sessionById?(
+    sessionId: SessionId,
+  ): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
-  repoPaths(): string[]
+  repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
    *  relay-allowlisted `repos.inferFromPath` without touching the router. */
-  inferRepoFromPath(path: string): string | undefined
+  inferRepoFromPath(path: string): string | undefined | Promise<string | undefined>
   /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
    *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
-  sendMessage?(from: MessageSender, input: MessageSendInput): MessageSendResult
+  sendMessage?(
+    from: MessageSender,
+    input: MessageSendInput,
+  ): MessageSendResult | Promise<MessageSendResult>
   /** Deliver a Tray answer to the asking agent session (issue #53): the shared
    *  answer_question matching path (modules/superagent/answer-delivery) with
    *  text fallback for sessions without a live menu. Injected by the relay;
@@ -390,7 +395,7 @@ export class IssueCommandCtx {
     }
     // session source: the caller's own session, or one bound to an in-subtree issue.
     if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = findSessionById(this.deps, asSessionId(source.ref))?.issueId
+    const bound = (await findSessionByIdAsync(this.deps, asSessionId(source.ref)))?.issueId
     const ok =
       bound != null &&
       authorize(this.caller.capability, 'write', {

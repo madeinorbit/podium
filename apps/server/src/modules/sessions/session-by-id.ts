@@ -28,3 +28,18 @@ export function findSessionById<T extends { sessionId: SessionId }>(
   if (narrow) return narrow.call(deps, sessionId as SessionId)
   return deps.listSessions().find((session) => session.sessionId === sessionId)
 }
+
+/** Async counterpart for callers whose durable session source crossed the store boundary. */
+export interface AsyncSessionByIdPort<T extends { sessionId: SessionId }> {
+  listSessions(): T[] | Promise<T[]>
+  sessionById?(sessionId: SessionId): T | undefined | Promise<T | undefined>
+}
+
+export async function findSessionByIdAsync<T extends { sessionId: SessionId }>(
+  deps: AsyncSessionByIdPort<T>,
+  sessionId: SessionId,
+): Promise<T | undefined> {
+  const narrow = deps.sessionById
+  if (narrow) return await narrow.call(deps, sessionId)
+  return (await deps.listSessions()).find((session) => session.sessionId === sessionId)
+}
