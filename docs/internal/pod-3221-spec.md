@@ -1716,6 +1716,21 @@ and ask what its result is used AS, not merely whether it still compiles. A resu
 in a comparison, a condition, a ternary, a negation — is the dangerous case, and the compiler is silent
 on all of them because every one is legal.
 
+THE RUN OF CONSERVATIVE FAILURES IS A SAMPLING ARTEFACT, NOT A PROPERTY OF THE CLASS.
+[POD-3467, 2026-09-06, correcting this rule's own framing.] All seven confirmed instances failed toward
+a CONSERVATIVE branch — publications queued, digests coalesced, an operation treated as in flight — and
+that is precisely why they survived unnoticed. It would be a mistake to read that as the class being
+benign. It reflects only which sites happened to get converted naively first.
+
+`anchorFor` in `scoping.ts` is the counter-example, and it is worth studying even though the defect was
+never written: `currentValueOf` became async, and had the comparison been left inline,
+`value !== undefined` would have been true on every call and every REVOKED subject would have been
+re-admitted as an upsert carrying a promise as its wire value, instead of being evicted. There, truthy
+is the PERMISSIVE direction. A revocation that does not revoke is a data leak, not a latency bug.
+
+So WORK OUT THE DRIFT DIRECTION PER SITE. Ask what the comparison guards, not what the last six sites
+happened to do. The next permissive one will not announce itself either.
+
 AND NOTE WHICH WAY THE BUG WENT, because it is the reason this class is severe: the broken witness said
 TRUE always, so the system took the CONSERVATIVE branch and queued everything. A promise is always
 truthy, so this class fails toward whichever branch "truthy" selects — which may be the permissive one.
