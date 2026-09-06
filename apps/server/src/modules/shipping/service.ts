@@ -405,7 +405,7 @@ export class ShippingService {
    * every other Shipping caller. */
   async enqueueCurrent(input: CurrentShipOrderInput): Promise<EnqueuedShipOrder> {
     const issue = await this.deps.issues.get(input.issueId)
-    const policy = this.deps.policy.resolve(issue)
+    const policy = await this.deps.policy.resolve(issue)
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
       await this.deps.resolveBranchTip(issue),
       await this.deps.resolveRefTip(issue, policy.targetBranch),
@@ -482,7 +482,7 @@ export class ShippingService {
     if (!repoId) {
       throw new ShippingAdmissionError('missing-repository', `issue ${issue.id} has no repository`)
     }
-    const policy = this.deps.policy.resolve(issue)
+    const policy = await this.deps.policy.resolve(issue)
     const machineId = await this.deps.machineFor(issue)
     const validationProfile = {
       ...policy.validationProfile,
@@ -735,7 +735,7 @@ export class ShippingService {
         ],
         async () => {
           const live = await this.deps.issues.get(issue.id)
-          if (this.deps.policy.resolve(live).id !== policy.id) {
+          if ((await this.deps.policy.resolve(live)).id !== policy.id) {
             throw new ShippingAdmissionError('policy', 'repository shipping policy changed')
           }
           const receipt = await this.deps.evidence.rootIntegrationReceipt(issue.id, currentSourceHead)
@@ -926,7 +926,7 @@ export class ShippingService {
         })
       }
       const issue = await this.deps.issues.get(order.issueId)
-      const policy = this.deps.policy.resolve(issue)
+      const policy = await this.deps.policy.resolve(issue)
       const liveValidationProfile = {
         ...policy.validationProfile,
         resourceLocks: [...new Set(policy.validationProfile.resourceLocks)].sort(),
@@ -1870,7 +1870,7 @@ export class ShippingService {
     prefix: readonly ShipOrder[],
     tail: ShipOrder,
   ): Promise<boolean> {
-    const tailPolicy = this.deps.policy.resolve(await this.deps.issues.get(tail.issueId))
+    const tailPolicy = await this.deps.policy.resolve(await this.deps.issues.get(tail.issueId))
     if (!tail.validationProfile || !tail.validationProfileDigest) return false
     for (const member of prefix) {
       const live = await this.deps.repository.getOrder(member.id)
@@ -1885,7 +1885,7 @@ export class ShippingService {
         return false
       }
       const issue = await this.deps.issues.get(member.issueId)
-      const policy = this.deps.policy.resolve(issue)
+      const policy = await this.deps.policy.resolve(issue)
       if (
         policy.id !== member.policyId ||
         policy.validationProfileId !== tailPolicy.validationProfileId
@@ -3298,7 +3298,7 @@ export class ShippingService {
     } | null,
   ): Promise<Omit<ShippingJobRequestMessage, 'type' | 'requestId'>> {
     const train = await this.deps.repository.trainManifestForAttempt(attempt.id)
-    const policy = this.deps.policy.resolve(issue)
+    const policy = await this.deps.policy.resolve(issue)
     const durableRepair =
       repairOverride === null ? undefined : (repairOverride ?? await this.repairCandidate(attempt))
     const repairFacts = durableRepair

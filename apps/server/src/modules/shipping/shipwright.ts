@@ -54,7 +54,7 @@ export interface ShipwrightDeps {
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
   ): AccountId | null | Promise<AccountId | null>
-  validationProfile(issue: IssueWire): ShippingValidationProfile
+  validationProfile(issue: IssueWire): ShippingValidationProfile | Promise<ShippingValidationProfile>
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer

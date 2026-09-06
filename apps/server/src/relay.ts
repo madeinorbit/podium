@@ -2301,7 +2301,7 @@ export class SessionRegistry {
       quota: async (machineId) => (await rpc.agentQuota(false, machineId)).agents,
       nativeAccountId: async (machineId, agent, requested) =>
         await machines.nativeAccountIdForMachine(machineId, agent, requested),
-      validationProfile: (issue) => shippingPolicy.resolve(issue).validationProfile,
+      validationProfile: async (issue) => (await shippingPolicy.resolve(issue)).validationProfile,
       evidence: {
         materialize: async (input) => {
           const materialized: import('@podium/model').ShipwrightEvidenceRef[] = []
