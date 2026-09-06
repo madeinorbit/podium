@@ -105,6 +105,10 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/application/issue-attach-orchestrator.ts:26',
     why: 'Authority.finalize publishes immediately when AuthorityDeps.postCommit is UNSET, and relay.ts sets it — ledger §A row 3. The immediate branch is real code the type system cannot tell is unreachable in the server, so the lint sees it and this line records why it stands.',
   },
+  {
+    key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@packages/sync/src/authority/authority.ts:247',
+    why: "THE SAME BRANCH, from the Authority's OWN span rather than through the attach orchestrator's — `deps.transact` at authority.ts:247, finalize at :526, broadcast at :598, `subscription.deliver` at :607. Adjudicated against ledger §A row 3 and it stands for the reason the row itself gives: `AuthorityDeps.postCommit` is OPTIONAL, and unset MEANS immediate because that is what every client adapter and every unit test wants. relay.ts is what sets it in the server, so the immediate arm is unreachable there — a wiring fact, which is exactly the kind of fact a type checker cannot have. Making the arm unreachable in the type system would mean making the port required, which row 3 rules out in as many words. Two rows for one code path is not duplication: an ACCEPTED key names a capability AND the span root that reaches it, so the second root has to be adjudicated on its own or it reads as a new finding, which is what it did at the tip [POD-3518].",
+  },
 ]
 
 interface Options {
