@@ -334,16 +334,26 @@ describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
     // same rows in the same order.
     const { authority } = build()
     let reentered = false
+    // The reentrant commit is a PROMISE now that the store is async, so the
+    // subscriber cannot await it — a subscriber returns void by construction.
+    // The case awaits it before asserting instead. That is a settling await and
+    // not a relaxation: the ordering claim is unchanged, and the batch it waits
+    // for is the very one whose position is under test.
+    let reentrant: Promise<unknown> | undefined
     subscribe(authority, () => {
       if (reentered) return
       reentered = true
-      authority.commit({ write: async () => 'ok', changes: () => [upsert('s2', { b: 1 })] })
+      reentrant = authority.commit({
+        write: async () => 'ok',
+        changes: () => [upsert('s2', { b: 1 })],
+      })
     })
     const bSaw: number[] = []
     subscribe(authority, (changes) => {
       for (const c of changes) bSaw.push(c.seq)
     })
     await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
+    await reentrant
     expect(bSaw).toEqual([1, 2])
   })
 
