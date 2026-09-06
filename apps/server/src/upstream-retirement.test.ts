@@ -40,18 +40,18 @@ function sink(): RetirementEventSink & { events: AppendedEvent[] } {
 const source = (
   rows: { mutationId: string; proc: string; queuedAt: number }[],
 ): ParkedUpstreamSource => ({
-  listParkedUpstreamMutations: () =>
+  listParkedUpstreamMutations: async () =>
     rows.map((row) => ({ ...row, mutationId: asMutationId(row.mutationId) })),
 })
 
 const AT = Date.UTC(2026, 6, 30, 12, 0, 0)
 
 describe('reportParkedUpstreamMutations', () => {
-  it('reports NOTHING when the archived outbox is empty — no event, no warning', () => {
+  it('reports NOTHING when the archived outbox is empty — no event, no warning', async () => {
     const events = sink()
     const logs = captureLogs()
     try {
-      expect(reportParkedUpstreamMutations(source([]), events, () => AT)).toBe(0)
+      expect(await reportParkedUpstreamMutations(source([]), events, () => AT)).toBe(0)
       expect(events.events).toEqual([])
       expect(logs.records).toEqual([])
     } finally {
@@ -59,11 +59,11 @@ describe('reportParkedUpstreamMutations', () => {
     }
   })
 
-  it('surfaces every parked mutation on BOTH channels — the durable event and the log', () => {
+  it('surfaces every parked mutation on BOTH channels — the durable event and the log', async () => {
     const events = sink()
     const logs = captureLogs()
     try {
-      const count = reportParkedUpstreamMutations(
+      const count = await reportParkedUpstreamMutations(
         source([
           { mutationId: 'm1', proc: 'close', queuedAt: Date.UTC(2026, 6, 1) },
           { mutationId: 'm2', proc: 'update', queuedAt: Date.UTC(2026, 6, 2) },
@@ -119,7 +119,7 @@ describe('reportParkedUpstreamMutations', () => {
     }
   })
 
-  it('a database with no archived table does not stop the boot', () => {
+  it('a database with no archived table does not stop the boot', async () => {
     const events = sink()
     const logs = captureLogs()
     try {
@@ -128,7 +128,7 @@ describe('reportParkedUpstreamMutations', () => {
           throw new Error('no such table: upstream_outbox')
         },
       }
-      expect(reportParkedUpstreamMutations(throwing, events, () => AT)).toBe(0)
+      expect(await reportParkedUpstreamMutations(throwing, events, () => AT)).toBe(0)
       expect(events.events).toEqual([])
     } finally {
       logs.restore()
@@ -140,7 +140,7 @@ describe('reportParkedUpstreamMutations', () => {
    * must not take the server down. The count is still the truth about what is parked —
    * that is what makes the return value usable by a caller that wants to react.
    */
-  it('still warns and still reports the count when the durable append fails', () => {
+  it('still warns and still reports the count when the durable append fails', async () => {
     const logs = captureLogs()
     try {
       const broken: RetirementEventSink = {
@@ -149,7 +149,7 @@ describe('reportParkedUpstreamMutations', () => {
         },
       }
       expect(
-        reportParkedUpstreamMutations(
+        await reportParkedUpstreamMutations(
           source([{ mutationId: 'm1', proc: 'close', queuedAt: AT }]),
           broken,
           () => AT,

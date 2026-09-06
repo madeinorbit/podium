@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort } from '@podium/commands'
+import type { AdvanceIdempotencyPort, WorkflowOwnershipPort } from '@podium/commands'
 import {
   asUserId,
   asIssueId,
@@ -114,8 +114,8 @@ export interface WorkflowServiceDeps {
   store: WorkflowsRepository
   now(): string
   session(sessionId: SessionId): SessionInfo | undefined
-  issue(issueId: IssueId): IssueInfo | undefined
-  repoIdForPath(path: string): string | null
+  issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
+  repoIdForPath(path: string): string | null | Promise<string | null>
   notifyCoordinator?(sessionId: SessionId, text: string): void
 }
 
@@ -137,21 +137,21 @@ export interface WorkflowEngine {
   actor(caller: WorkflowCaller): WorkflowActor
   scopeRef(scope: z.infer<typeof WorkflowScope>, raw: string | null | undefined): string | null
   currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null
-  nextPacket(runId: string, message: string, warnings?: string[]): WorkflowNextActionWire
+  nextPacket(runId: string, message: string, warnings?: string[]): Promise<WorkflowNextActionWire>
   /** Resolves a run AND takes its visibility decision — an unknown id and an
    *  invisible one leave by the same throw (ADR 3 Amendment 1 D20.2). */
-  runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire
+  runFor(caller: WorkflowCaller, requested?: string): Promise<WorkflowRunWire>
   observationWarningsForRun(
     run: WorkflowRunWire,
     step: WorkflowRunStepWire,
     caller: WorkflowCaller,
     status: 'active' | 'blocked' | 'complete',
     observation: GitObservation | null,
-  ): string[]
+  ): string[] | Promise<string[]>
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
     input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
-  ): void
+  ): Promise<void>
   startRun(input: {
     sessionId: SessionId
     cwd: string
@@ -161,7 +161,7 @@ export interface WorkflowEngine {
     startStepId?: string
     /** The delegating human, when the caller could resolve one. */
     onBehalfOf?: string | null
-  }): WorkflowRunWire
+  }): Promise<WorkflowRunWire>
 }
 
 export class WorkflowService implements WorkflowEngine {
@@ -218,26 +218,36 @@ export class WorkflowService implements WorkflowEngine {
    */
   readonly access: WorkflowAccess
 
-  assertWorkflowRead(caller: WorkflowCaller, workflowId: string): WorkflowWire {
-    return this.access.assertWorkflowRead(caller, workflowId)
+  async assertWorkflowRead(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
+    return await this.access.assertWorkflowRead(caller, workflowId)
   }
 
-  canReadWorkflow(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
-    return this.access.canReadWorkflow(caller, workflow)
+  canReadWorkflow(
+    caller: WorkflowCaller,
+    workflow: WorkflowWire,
+    ownership: WorkflowOwnershipPort,
+  ): boolean {
+    return this.access.canReadWorkflow(caller, workflow, ownership)
   }
 
-  list(input: WorkflowListInput, caller: WorkflowCaller) {
-    return this.deps.store
-      .listWorkflows(input)
-      .filter((workflow) => this.canReadWorkflow(caller, workflow))
+  async list(input: WorkflowListInput, caller: WorkflowCaller) {
+    const workflows = await this.deps.store.listWorkflows(input)
+    // Resolved ONCE for the whole page, in front of the filter, so the predicate
+    // stays synchronous (rule 52) and every row is decided against the same
+    // per-pass view rather than N separate reads.
+    const ownership = await this.access.ownershipFor(this.access.workflowEntities(workflows))
+    return workflows.filter((workflow) => this.canReadWorkflow(caller, workflow, ownership))
   }
 
-  get(input: { id: string }, caller: WorkflowCaller) {
+  async get(input: { id: string }, caller: WorkflowCaller) {
     // ONE site, ONE message for both "no such workflow" and "not yours"
     // (ADR 3 Amendment 1 D20.2) — `assertWorkflowRead` is where that lives, so
     // this no longer resolves the row and then refuses it with a second string.
-    const workflow = this.access.assertWorkflowRead(caller, input.id)
-    return { workflow, revisions: this.deps.store.listRevisions(input.id) }
+    const workflow = await this.access.assertWorkflowRead(caller, input.id)
+    return {
+      workflow,
+      revisions: await this.deps.store.listRevisions(input.id),
+    }
   }
 
   /** QUERY, not a mutation — and one of the three read-shaped operator branches
@@ -247,14 +257,24 @@ export class WorkflowService implements WorkflowEngine {
    *  The ignored `_input` parameter is gone with `workflowInputs`: it existed
    *  only because the table gave every entry an input schema, and a parameter no
    *  body reads is a parameter a future caller will believe is honoured. */
-  bindings(caller: WorkflowCaller) {
-    return this.access.visibleBindings(caller, this.deps.store.listBindings())
+  async bindings(caller: WorkflowCaller) {
+    const all = await this.deps.store.listBindings()
+    return this.access.visibleBindings(
+      caller,
+      all,
+      await this.access.ownershipFor(this.access.bindingEntities(all)),
+    )
   }
 
   /** QUERY. Had NO gate at all and listed every profile — with its
    *  `accountId`, which names managed credentials — to any caller. */
-  profiles(caller: WorkflowCaller) {
-    return this.access.visibleProfiles(caller, this.deps.store.listProfiles())
+  async profiles(caller: WorkflowCaller) {
+    const all = await this.deps.store.listProfiles()
+    return this.access.visibleProfiles(
+      caller,
+      all,
+      await this.access.ownershipFor(this.access.profileEntities(all)),
+    )
   }
 
   /**
@@ -262,23 +282,25 @@ export class WorkflowService implements WorkflowEngine {
    * Standalone profile launches use the current shared profile; launches that
    * identify a run + step use the snapshot pinned when that run started.
    */
-  executionProfileForLaunch(input: {
+  async executionProfileForLaunch(input: {
     profileId: string
     runId?: string
     stepId?: string
     caller?: WorkflowCaller
-  }): ExecutionProfileWire & { harness: AgentKind } {
+  }): Promise<ExecutionProfileWire & { harness: AgentKind }> {
     let profile: ExecutionProfileWire | null
     if (input.runId && input.stepId) {
-      const run = this.deps.store.getRun(input.runId)
+      const run = await this.deps.store.getRun(input.runId)
       if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
-      const step = this.deps.store
-        .getRunSteps(run.id)
-        .find((candidate) => candidate.stepId === input.stepId)
+      const step = (await this.deps.store.getRunSteps(run.id)).find(
+        (candidate) => candidate.stepId === input.stepId,
+      )
       if (!step) throw new Error(`workflow run ${run.id} has no step ${input.stepId}`)
       if (step.executionProfileId !== input.profileId) {
         throw new Error(
-          `workflow step ${input.stepId} requires ${step.executionProfileId ?? 'no execution profile'}, not ${input.profileId}`,
+          `workflow step ${input.stepId} requires ${
+            step.executionProfileId ?? 'no execution profile'
+          }, not ${input.profileId}`,
         )
       }
       profile = step.executionProfileSnapshot
@@ -286,7 +308,7 @@ export class WorkflowService implements WorkflowEngine {
         throw new Error(`execution profile snapshot ${input.profileId} is unavailable`)
       }
     } else {
-      profile = this.deps.store.getProfile(input.profileId)
+      profile = await this.deps.store.getProfile(input.profileId)
       if (!profile) throw new Error(`unknown execution profile: ${input.profileId}`)
     }
     // PLACEMENT AT APPLY (readiness §3.1.4 M5, and the second half of the check
@@ -299,7 +321,7 @@ export class WorkflowService implements WorkflowEngine {
     // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
     // the current grants, every time work is actually placed.
     if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
-    this.access.assertMayPlaceOn(input.caller, profile.machineId)
+    await this.access.assertMayPlaceOn(input.caller, profile.machineId)
     const harness = AgentKind.safeParse(profile.harness)
     if (!harness.success) {
       throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
@@ -307,11 +329,11 @@ export class WorkflowService implements WorkflowEngine {
     return { ...profile, harness: harness.data }
   }
 
-  liveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
-    const direct = this.deps.store.findLiveRunForSession(sessionId)
+  async liveRunForSession(sessionId: SessionId): Promise<WorkflowRunRow | null> {
+    const direct = await this.deps.store.findLiveRunForSession(sessionId)
     if (direct) return direct
     const issueId = this.deps.session(sessionId)?.issueId
-    return issueId ? this.deps.store.findLiveRun('issue', issueId) : null
+    return issueId ? await this.deps.store.findLiveRun('issue', issueId) : null
   }
 
   /**
@@ -326,27 +348,37 @@ export class WorkflowService implements WorkflowEngine {
    * `canSeeRun`, the same decision `runFor` takes, so a run you cannot open is
    * a run you cannot list rather than two rules that could disagree.
    */
-  runs(input: { includeTerminal?: boolean | undefined }, caller: WorkflowCaller) {
+  async runs(input: { includeTerminal?: boolean | undefined }, caller: WorkflowCaller) {
     if (caller.actor.kind === 'session' && caller.actor.id !== null) {
-      const live = this.liveRunForSession(caller.actor.id)
+      const live = await this.liveRunForSession(caller.actor.id)
       if (!live) return []
-      const run = this.toRun(live)
-      return this.access.canSeeRun(caller, run) ? [run] : []
+      const run = await this.toRun(live)
+      const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
+      return this.access.canSeeRun(caller, run, ownership) ? [run] : []
     }
+    const runs = await Promise.all(
+      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(
+        async (row) => await this.toRun(row),
+      ),
+    )
     return this.access.visibleRuns(
       caller,
-      this.deps.store.listRuns(input.includeTerminal ?? false).map((row) => this.toRun(row)),
+      runs,
+      await this.access.ownershipFor(this.access.runEntities(runs)),
     )
   }
 
-  assertRevisionMatchesStart(
+  async assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
     input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
-  ): void {
-    const workflow = this.deps.store.getWorkflow(revision.workflowId)
+  ): Promise<void> {
+    const workflow = await this.deps.store.getWorkflow(revision.workflowId)
     if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
     if (workflow.scope === 'global') return
-    if (workflow.scope === 'repository' && workflow.scopeRef === this.deps.repoIdForPath(input.cwd))
+    if (
+      workflow.scope === 'repository' &&
+      workflow.scopeRef === (await this.deps.repoIdForPath(input.cwd))
+    )
       return
     if (
       workflow.scope === 'task' &&
@@ -356,62 +388,64 @@ export class WorkflowService implements WorkflowEngine {
     throw new Error(`workflow revision ${revision.id} is outside the requested start scope`)
   }
 
-  resolveRevision(input: {
+  async resolveRevision(input: {
     sessionId: SessionId
     cwd: string
     issueId?: IssueId
     explicitRevisionId?: string
-  }): WorkflowRevisionWire | null {
+  }): Promise<WorkflowRevisionWire | null> {
     if (input.explicitRevisionId) {
-      const revision = this.deps.store.getRevision(input.explicitRevisionId)
+      const revision = await this.deps.store.getRevision(input.explicitRevisionId)
       if (!revision) throw new Error(`unknown workflow revision: ${input.explicitRevisionId}`)
-      this.assertRevisionMatchesStart(revision, input)
+      await this.assertRevisionMatchesStart(revision, input)
       return revision
     }
-    const repoId = this.deps.repoIdForPath(input.cwd)
+    const repoId = await this.deps.repoIdForPath(input.cwd)
     const candidates = [
-      this.deps.store.getBinding('session', input.sessionId),
-      input.issueId ? this.deps.store.getBinding('issue', input.issueId) : null,
-      repoId ? this.deps.store.getBinding('repository', repoId) : null,
-      this.deps.store.getBinding('global', globalTargetId()),
+      await this.deps.store.getBinding('session', input.sessionId),
+      input.issueId ? await this.deps.store.getBinding('issue', input.issueId) : null,
+      repoId ? await this.deps.store.getBinding('repository', repoId) : null,
+      await this.deps.store.getBinding('global', globalTargetId()),
     ]
     const binding = candidates.find((candidate) => candidate !== null)
-    return binding ? this.deps.store.getRevision(binding.revisionId) : null
+    return binding ? await this.deps.store.getRevision(binding.revisionId) : null
   }
 
-  prepareStart(input: {
+  async prepareStart(input: {
     sessionId: SessionId
     cwd: string
     issueId?: IssueId
     explicitRevisionId?: string
-  }): { revision: WorkflowRevisionWire; prompt: string } | null {
-    const existing = input.issueId ? this.deps.store.findLiveRun('issue', input.issueId) : null
+  }): Promise<{ revision: WorkflowRevisionWire; prompt: string } | null> {
+    const existing = input.issueId
+      ? await this.deps.store.findLiveRun('issue', input.issueId)
+      : null
     if (existing) {
       if (input.explicitRevisionId && input.explicitRevisionId !== existing.revisionId)
         throw new Error('the issue already has a pinned workflow; adopt a new revision explicitly')
-      const revision = this.deps.store.getRevision(existing.revisionId)
+      const revision = await this.deps.store.getRevision(existing.revisionId)
       if (!revision) throw new Error(`workflow run ${existing.id} lost its revision`)
-      return { revision, prompt: this.renderRevisionPrompt(revision) }
+      return { revision, prompt: await this.renderRevisionPrompt(revision) }
     }
-    const revision = this.resolveRevision(input)
+    const revision = await this.resolveRevision(input)
     if (!revision) return null
-    return { revision, prompt: this.renderRevisionPrompt(revision) }
+    return { revision, prompt: await this.renderRevisionPrompt(revision) }
   }
 
-  prepareExistingSession(input: {
+  async prepareExistingSession(input: {
     sessionId: SessionId
     issueId?: IssueId
-  }): { revision: WorkflowRevisionWire; prompt: string } | null {
+  }): Promise<{ revision: WorkflowRevisionWire; prompt: string } | null> {
     const existing =
-      this.deps.store.findLiveRunForSession(input.sessionId) ??
-      (input.issueId ? this.deps.store.findLiveRun('issue', input.issueId) : null)
+      (await this.deps.store.findLiveRunForSession(input.sessionId)) ??
+      (input.issueId ? await this.deps.store.findLiveRun('issue', input.issueId) : null)
     if (!existing) return null
-    const revision = this.deps.store.getRevision(existing.revisionId)
+    const revision = await this.deps.store.getRevision(existing.revisionId)
     if (!revision) throw new Error(`workflow run ${existing.id} lost its revision`)
-    return { revision, prompt: this.renderRevisionPrompt(revision) }
+    return { revision, prompt: await this.renderRevisionPrompt(revision) }
   }
 
-  startRun(input: {
+  async startRun(input: {
     sessionId: SessionId
     cwd: string
     issueId?: IssueId
@@ -420,12 +454,12 @@ export class WorkflowService implements WorkflowEngine {
     startStepId?: string
     /** The delegating human, when the caller could resolve one. */
     onBehalfOf?: string | null
-  }): WorkflowRunWire {
+  }): Promise<WorkflowRunWire> {
     const subjectKind = input.issueId ? 'issue' : 'session'
     const subjectId = input.issueId ?? input.sessionId
-    const existing = this.deps.store.findLiveRun(subjectKind, subjectId)
-    if (existing && !input.supersedesRunId) return this.toRun(existing)
-    const revision = this.deps.store.getRevision(input.revisionId)
+    const existing = await this.deps.store.findLiveRun(subjectKind, subjectId)
+    if (existing && !input.supersedesRunId) return await this.toRun(existing)
+    const revision = await this.deps.store.getRevision(input.revisionId)
     if (!revision) throw new Error(`unknown workflow revision: ${input.revisionId}`)
     const startPosition = input.startStepId
       ? revision.steps.findIndex((step) => step.id === input.startStepId)
@@ -436,7 +470,9 @@ export class WorkflowService implements WorkflowEngine {
     const ownerUserId =
       input.onBehalfOf !== undefined
         ? input.onBehalfOf
-        : this.access.owner({ actor: { kind: 'session', id: input.sessionId } })
+        : this.access.owner({
+            actor: { kind: 'session', id: input.sessionId },
+          })
     if (ownerUserId === null) throw new Error('workflow run has no live owner')
     const run: WorkflowRunRow = {
       id: `wrun_${randomUUID()}`,
@@ -450,19 +486,21 @@ export class WorkflowService implements WorkflowEngine {
       completedAt: null,
       ownerUserId: asUserId(ownerUserId),
     }
-    this.deps.store.insertRun({
+    await this.deps.store.insertRun({
       run,
-      steps: revision.steps.map((step) => ({
-        ...step,
-        profile: step.executionProfileId
-          ? this.deps.store.getProfile(step.executionProfileId)
-          : null,
-      })),
+      steps: await Promise.all(
+        revision.steps.map(async (step) => ({
+          ...step,
+          profile: step.executionProfileId
+            ? await this.deps.store.getProfile(step.executionProfileId)
+            : null,
+        })),
+      ),
     })
     if (input.startStepId && startPosition > 0) {
-      const steps = this.deps.store.getRunSteps(run.id)
+      const steps = await this.deps.store.getRunSteps(run.id)
       for (const step of steps.filter((candidate) => candidate.position < startPosition)) {
-        this.deps.store.updateStep({
+        await this.deps.store.updateStep({
           runId: run.id,
           stepId: step.stepId,
           status: 'skipped',
@@ -476,7 +514,7 @@ export class WorkflowService implements WorkflowEngine {
         })
       }
     }
-    this.deps.store.appendEvent({
+    await this.deps.store.appendEvent({
       workflowId: revision.workflowId,
       runId: run.id,
       kind: input.supersedesRunId ? 'workflow.run_adopted' : 'workflow.run_started',
@@ -503,17 +541,24 @@ export class WorkflowService implements WorkflowEngine {
       onBehalfOf:
         input.onBehalfOf !== undefined
           ? input.onBehalfOf
-          : this.access.onBehalfOf({ actor: { kind: 'session', id: input.sessionId } }),
-      payload: { revisionId: revision.id, subjectKind, subjectId, startStepId: input.startStepId },
+          : this.access.onBehalfOf({
+              actor: { kind: 'session', id: input.sessionId },
+            }),
+      payload: {
+        revisionId: revision.id,
+        subjectKind,
+        subjectId,
+        startStepId: input.startStepId,
+      },
       now,
     })
-    const inserted = this.deps.store.getRun(run.id)
+    const inserted = await this.deps.store.getRun(run.id)
     if (!inserted) throw new Error(`workflow run ${run.id} was not persisted`)
-    return this.toRun(inserted)
+    return await this.toRun(inserted)
   }
 
-  toRun(row: WorkflowRunRow): WorkflowRunWire {
-    const revision = this.deps.store.getRevision(row.revisionId)
+  async toRun(row: WorkflowRunRow): Promise<WorkflowRunWire> {
+    const revision = await this.deps.store.getRevision(row.revisionId)
     if (!revision) throw new Error(`workflow run ${row.id} lost revision ${row.revisionId}`)
     return {
       id: row.id,
@@ -523,22 +568,22 @@ export class WorkflowService implements WorkflowEngine {
       revision,
       status: row.status,
       supersedesRunId: row.supersedesRunId,
-      steps: this.deps.store.getRunSteps(row.id),
+      steps: await this.deps.store.getRunSteps(row.id),
       // The attribution PAIR for every recorded act on this run (readiness
       // §3.1.3 A3). Projected HERE, at the one place a run becomes a wire, so
       // the surfaces that display it cannot diverge on where it came from — and
       // so it can never be supplied by a caller.
-      history: this.deps.store.listRunEvents(row.id),
+      history: await this.deps.store.listRunEvents(row.id),
       startedAt: row.startedAt,
       completedAt: row.completedAt,
     }
   }
 
-  runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire {
+  async runFor(caller: WorkflowCaller, requested?: string): Promise<WorkflowRunWire> {
     const row = requested
-      ? this.deps.store.getRun(requested)
+      ? await this.deps.store.getRun(requested)
       : caller.actor.id
-        ? this.liveRunForSession(caller.actor.id)
+        ? await this.liveRunForSession(caller.actor.id)
         : null
     // THE CONSISTENT-ERROR RULE, by construction (ADR 3 Amendment 1 D20.2).
     //
@@ -548,20 +593,21 @@ export class WorkflowService implements WorkflowEngine {
     // outside this session` — the second of which confirms the run exists.
     // There is now one site and one string, so they cannot drift back apart.
     if (!row) throw new Error(NO_RUN)
-    const run = this.toRun(row)
-    if (!this.access.canSeeRun(caller, run)) throw new Error(NO_RUN)
+    const run = await this.toRun(row)
+    const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
+    if (!this.access.canSeeRun(caller, run, ownership)) throw new Error(NO_RUN)
     return run
   }
 
-  status(input: { runId?: string | undefined }, caller: WorkflowCaller) {
-    return this.runFor(caller, input.runId)
+  async status(input: { runId?: string | undefined }, caller: WorkflowCaller) {
+    return await this.runFor(caller, input.runId)
   }
 
-  prime(caller: WorkflowCaller): string {
+  async prime(caller: WorkflowCaller): Promise<string> {
     if (!caller.actor.id) return 'No workflow is attached to this operator context.'
-    const row = this.liveRunForSession(caller.actor.id)
+    const row = await this.liveRunForSession(caller.actor.id)
     if (!row) return 'No workflow is attached to this session.'
-    return this.renderRunPrime(this.toRun(row), caller.actor.id)
+    return await this.renderRunPrime(await this.toRun(row), caller.actor.id)
   }
 
   currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null {
@@ -572,21 +618,25 @@ export class WorkflowService implements WorkflowEngine {
     )
   }
 
-  nextPacket(runId: string, message: string, warnings: string[] = []): WorkflowNextActionWire {
-    const row = this.deps.store.getRun(runId)
+  async nextPacket(
+    runId: string,
+    message: string,
+    warnings: string[] = [],
+  ): Promise<WorkflowNextActionWire> {
+    const row = await this.deps.store.getRun(runId)
     if (!row) throw new Error(`workflow run ${runId} disappeared`)
-    const run = this.toRun(row)
+    const run = await this.toRun(row)
     const current = this.currentStep(run)
     return { run, currentStep: current, nextStep: current, message, warnings }
   }
 
-  observationWarningsForRun(
+  async observationWarningsForRun(
     run: WorkflowRunWire,
     step: WorkflowRunStepWire,
     caller: WorkflowCaller,
     status: 'active' | 'blocked' | 'complete',
     observation: GitObservation | null,
-  ): string[] {
+  ): Promise<string[]> {
     const warnings: string[] = []
     const session = caller.actor.id ? this.deps.session(caller.actor.id) : undefined
     const profile = step.executionProfileSnapshot
@@ -609,7 +659,7 @@ export class WorkflowService implements WorkflowEngine {
       warnings.push('step completed with uncommitted worktree changes')
     }
     if (run.subjectKind === 'issue') {
-      const issue = this.deps.issue(asIssueId(run.subjectId))
+      const issue = await this.deps.issue(asIssueId(run.subjectId))
       if (
         issue?.worktreePath &&
         observation?.worktree &&
@@ -668,8 +718,8 @@ export class WorkflowService implements WorkflowEngine {
     ) as ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
   }
 
-  renderRevisionPrompt(revision: WorkflowRevisionWire): string {
-    const workflow = this.deps.store.getWorkflow(revision.workflowId)
+  async renderRevisionPrompt(revision: WorkflowRevisionWire): Promise<string> {
+    const workflow = await this.deps.store.getWorkflow(revision.workflowId)
     const heading = workflow?.name ?? revision.workflowId
     const steps = revision.steps.length
       ? `\n\nOrdered steps:\n${revision.steps
@@ -690,8 +740,8 @@ export class WorkflowService implements WorkflowEngine {
       .join('\n\n')
   }
 
-  renderRunPrime(run: WorkflowRunWire, sessionId: SessionId): string {
-    const workflow = this.deps.store.getWorkflow(run.revision.workflowId)
+  async renderRunPrime(run: WorkflowRunWire, sessionId: SessionId): Promise<string> {
+    const workflow = await this.deps.store.getWorkflow(run.revision.workflowId)
     const current = this.currentStep(run)
     const role =
       run.coordinatorSessionId === sessionId

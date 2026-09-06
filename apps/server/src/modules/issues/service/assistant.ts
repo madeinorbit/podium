@@ -1,7 +1,7 @@
 import type { IssueWire, SessionId } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 
 /**
@@ -37,9 +37,9 @@ export class IssueAssistantDigestModule {
 
   /** A member session did something. Debounce a digest refresh for the issue that
    *  owns its worktree — 120s after the LAST activity, not once per event. */
-  onSessionActivity(sessionId: SessionId): void {
-    if (!this.store.d.getSettings().issues?.assistantEnabled) return
-    const sess = findSessionById(this.store.d, sessionId)
+  async onSessionActivity(sessionId: SessionId): Promise<void> {
+    if (!(await this.store.d.getSettings()).issues?.assistantEnabled) return
+    const sess = await findSessionByIdAsync(this.store.d, sessionId)
     if (!sess) return
     const row = [...this.store.rows.values()].find(
       (r) =>
@@ -61,10 +61,10 @@ export class IssueAssistantDigestModule {
   async refreshAssistant(id: string): Promise<IssueWire> {
     // `let`, because this draft does NOT survive the awaits below — the status/log
     // probes and the LLM completion — and is re-cut after them (POD-3375).
-    let row = this.store.draftOrThrow(id)
-    if (!row.worktreePath) return this.store.toWire(row)
-    const settings = this.store.d.getSettings()
-    const members = this.store.sessionsFor(row).map((s) => ({
+    let row = await this.store.draftOrThrow(id)
+    if (!row.worktreePath) return await this.store.toWire(row)
+    const settings = await this.store.d.getSettings()
+    const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
       tail: '',
@@ -73,7 +73,7 @@ export class IssueAssistantDigestModule {
       this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
       this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
-    const inScope = this.store.repoScopeFilter(row.repoPath)
+    const inScope = await this.store.repoScopeFilter(row.repoPath)
     const others = [...this.store.rows.values()]
       .filter((r) => r.id !== row.id && inScope(r) && !r.archived && !r.deletedAt)
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
@@ -99,7 +99,7 @@ export class IssueAssistantDigestModule {
           settings,
           // POD-419: the provider's key, resolved at the moment of use out of
           // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: (provider) => this.store.d.store.secrets.apiKeyFor(provider),
+          apiKey: async (provider) => await this.store.d.store.secrets.apiKeyFor(provider),
           llm: this.store.d.llm,
         },
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
@@ -128,8 +128,8 @@ export class IssueAssistantDigestModule {
      * Placed before the `!result` return so the early exit also reports the current
      * row rather than a wire built from a spent draft.
      */
-    row = this.store.draftOrThrow(id)
-    if (!result) return this.store.toWire(row) // leave prior state intact on any LLM/parse failure
+    row = await this.store.draftOrThrow(id)
+    if (!result) return await this.store.toWire(row) // leave prior state intact on any LLM/parse failure
     row.activityNotes = result.activityNotes || row.activityNotes
     row.notesUpdatedAt = this.store.now()
     row.blockedBy = result.blockedBy
@@ -138,6 +138,6 @@ export class IssueAssistantDigestModule {
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return this.store.persistRow(row)
+    return await this.store.persistRow(row)
   }
 }

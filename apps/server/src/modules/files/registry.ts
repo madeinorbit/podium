@@ -55,8 +55,8 @@ export interface FileCommand {
 
 /** The shipped FORBIDDEN, moved verbatim. Shared by the write and the two reads
  *  so the three cannot drift into three notions of "an allowed root". */
-export const assertAllowedRoot = (state: FileState, root: string): void => {
-  if (!isAllowedRoot(state.repos.list(), root)) {
+export const assertAllowedRoot = async (state: FileState, root: string): Promise<void> => {
+  if (!isAllowedRoot(await state.repos.list(), root)) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
   }
 }
@@ -64,12 +64,12 @@ export const assertAllowedRoot = (state: FileState, root: string): void => {
 export const FILE_COMMANDS_TRPC = {
   write: {
     contract: FILE_CONTRACTS.write,
-    handler: ((state, input) => {
+    handler: (async (state, input) => {
       // The union's session-addressed arm resolves its root from the session and
       // carries no `root` to check; the explicit arm is gated. Shipped behaviour,
       // moved rather than rewritten.
-      if ('root' in input) assertAllowedRoot(state, input.root)
-      return state.rpc.writeFile(input)
+      if ('root' in input) await assertAllowedRoot(state, input.root)
+      return await state.rpc.writeFile(input)
     }) satisfies FileHandler<z.infer<(typeof FILE_CONTRACTS)['write']['input']>, unknown>,
   },
 } as const satisfies Record<FileContractName, FileCommand>

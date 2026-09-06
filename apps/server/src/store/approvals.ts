@@ -2,7 +2,8 @@ import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { approvalRequests } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** One approval-broker row [spec:SP-edbb] as stored (wire enrichment — machine
  *  name, issue seq/title — happens in the service layer). */
@@ -35,7 +36,7 @@ function toRow(r: ApprovalSelection): ApprovalRow {
 }
 
 export class ApprovalsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -48,19 +49,19 @@ export class ApprovalsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
-  insert(row: {
+  async insert(row: {
     id: string
     machineId: MachineId
     sessionId: SessionId
     issueId: IssueId | null
     op: ApprovalOp
     createdAt: string
-  }): void {
-    this.db
+  }): Promise<void> {
+    ;await (this.db
       .insert(approvalRequests)
       .values({
         id: row.id,
@@ -70,22 +71,22 @@ export class ApprovalsRepository {
         opJson: JSON.stringify(row.op),
         status: 'pending',
         createdAt: row.createdAt,
-      })
+      }))
       .run()
   }
 
-  get(id: string): ApprovalRow | null {
-    const r = this.db.select().from(approvalRequests).where(eq(approvalRequests.id, id)).get()
+  async get(id: string): Promise<ApprovalRow | null> {
+    const r = await this.db.select().from(approvalRequests).where(eq(approvalRequests.id, id)).get()
     return r ? toRow(r) : null
   }
 
-  listPending(): ApprovalRow[] {
-    return this.db
+  async listPending(): Promise<ApprovalRow[]> {
+    return (await this.db
       .select()
       .from(approvalRequests)
       .where(eq(approvalRequests.status, 'pending'))
       .orderBy(asc(approvalRequests.createdAt))
-      .all()
+      .all())
       .map(toRow)
   }
 
@@ -93,22 +94,22 @@ export class ApprovalsRepository {
    *  reads this; it is bounded by how many approvals are in flight at once, which is
    *  a human-paced number. `decided_at` is the approve instant — `transition` sets it
    *  on the first move out of `pending`, and pending → executing IS that move. */
-  listExecuting(): ApprovalRow[] {
-    return this.db
+  async listExecuting(): Promise<ApprovalRow[]> {
+    return (await this.db
       .select()
       .from(approvalRequests)
       .where(eq(approvalRequests.status, 'executing'))
       .orderBy(asc(approvalRequests.decidedAt))
-      .all()
+      .all())
       .map(toRow)
   }
 
   /** Atomic state transition; returns false when the row wasn't in `from`
    *  (double-click / racing decisions decide once). */
-  transition(id: string, from: ApprovalStatus, to: ApprovalStatus, resultText?: string): boolean {
+  async transition(id: string, from: ApprovalStatus, to: ApprovalStatus, resultText?: string): Promise<boolean> {
     const now = new Date().toISOString()
     const next = resultText ?? null
-    const r = this.db
+    const r = await this.db
       .update(approvalRequests)
       .set({
         status: to,

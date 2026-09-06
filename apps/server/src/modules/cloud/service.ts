@@ -72,12 +72,12 @@ export class CloudService {
     this.provider = deps.provider ?? disabledCloudRuntimeProvider
   }
 
-  capabilities() {
-    return this.provider.capabilities()
+  async capabilities() {
+    return await this.provider.capabilities()
   }
 
-  getRuntime(id: string) {
-    return this.provider.getRuntime(id)
+  async getRuntime(id: string) {
+    return await this.provider.getRuntime(id)
   }
 
   async createCloudMachine(input: Parameters<CloudRuntimeProvider['createCloudMachine']>[0]) {
@@ -139,7 +139,7 @@ export class CloudService {
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
   }) {
-    const session = this.deps.sessions.sessionById(input.sessionId as SessionId)
+    const session = await this.deps.sessions.sessionById(input.sessionId as SessionId)
     if (!session) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
     }
@@ -168,7 +168,7 @@ export class CloudService {
         tenantId: input.tenantId,
         displayName: session.name?.trim() || session.title || `${agent} session`,
         ...(input.size ? { size: input.size } : {}),
-        repo: input.repo ?? this.inferCloudRepoForSession(session),
+        repo: input.repo ?? await this.inferCloudRepoForSession(session),
         ...(session.issueId ? { issueId: session.issueId } : {}),
         purpose: 'move-session',
         sourceSession: toCloudAgentSourceSession({
@@ -181,7 +181,7 @@ export class CloudService {
       })
 
       if (input.hibernateLocal) {
-        const parked = this.deps.sessions.hibernateSession({ sessionId: session.sessionId })
+        const parked = await this.deps.sessions.hibernateSession({ sessionId: session.sessionId })
         if (!parked.ok) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
@@ -214,14 +214,14 @@ export class CloudService {
    * be registered without a GitHub origin — a cloud runtime clones from a forge,
    * so a local-only repo genuinely cannot be moved.
    */
-  private inferCloudRepoForSession(
+  private async inferCloudRepoForSession(
     // The session row's OWN type, read off the service rather than restated as a
     // structural shape. The first draft wrote `{ cwd?: string }` and tsgo caught
     // it: `inferFromPath` takes a required path, so a looser local shape would
     // have been a second, wrong declaration of what a session is.
-    session: ReturnType<RegistryModules['sessions']['listSessions']>[number],
-  ): CloudRepoRequest {
-    const repoPath = this.deps.repos.inferFromPath(session.cwd, session.machineId)
+    session: Awaited<ReturnType<RegistryModules['sessions']['listSessions']>>[number],
+  ): Promise<CloudRepoRequest> {
+    const repoPath = await this.deps.repos.inferFromPath(session.cwd, session.machineId)
     if (!repoPath) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
@@ -230,8 +230,8 @@ export class CloudService {
     }
 
     const repoRow =
-      this.deps.store.repos.listRepos(session.machineId).find((row) => row.path === repoPath) ??
-      this.deps.store.repos.listRepos().find((row) => row.path === repoPath)
+      (await this.deps.store.repos.listRepos(session.machineId)).find((row) => row.path === repoPath) ??
+      (await this.deps.store.repos.listRepos()).find((row) => row.path === repoPath)
     const repo = githubRepoFromOrigin(repoRow?.originUrl)
     if (!repo) {
       throw new TRPCError({

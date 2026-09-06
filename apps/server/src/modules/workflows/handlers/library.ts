@@ -21,7 +21,7 @@ import type {
 } from '@podium/commands'
 import { unknownRevision, type WorkflowHandlerContext } from './context'
 
-export function createHandler(
+export async function createHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowCreateContract>,
 ) {
@@ -30,7 +30,7 @@ export function createHandler(
   access.assertCreateScope(caller, input.scope, scopeRef)
   const now = deps.now()
   const workflowId = `wf_${randomUUID()}`
-  deps.store.insertWorkflow({
+  await deps.store.insertWorkflow({
     id: workflowId,
     name: input.name,
     description: input.description,
@@ -40,7 +40,7 @@ export function createHandler(
     ownerUserId: asUserId(access.owner(caller)),
     now,
   })
-  const revision = deps.store.insertRevision({
+  const revision = await deps.store.insertRevision({
     id: `wfr_${randomUUID()}`,
     workflowId,
     instructions: input.instructions,
@@ -48,7 +48,7 @@ export function createHandler(
     actor: engine.actor(caller),
     now,
   })
-  deps.store.appendEvent({
+  await deps.store.appendEvent({
     workflowId,
     kind: 'workflow.created',
     actor: engine.actor(caller),
@@ -56,21 +56,21 @@ export function createHandler(
     payload: { revisionId: revision.id, scope: input.scope, scopeRef },
     now,
   })
-  const workflow = deps.store.getWorkflow(workflowId)
+  const workflow = await deps.store.getWorkflow(workflowId)
   if (!workflow) throw new Error(`workflow creation lost ${workflowId}`)
   return { workflow, revision }
 }
 
-export function reviseHandler(
+export async function reviseHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowReviseContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  access.assertWorkflowWrite(caller, input.workflowId)
+  await access.assertWorkflowWrite(caller, input.workflowId)
   const now = deps.now()
   // REVISION IMMUTABILITY, unchanged: this APPENDS a version and never edits a
   // prior one in place, and publication is not a lock (POD-730 §2).
-  const revision = deps.store.insertRevision({
+  const revision = await deps.store.insertRevision({
     id: `wfr_${randomUUID()}`,
     workflowId: input.workflowId,
     instructions: input.instructions,
@@ -78,7 +78,7 @@ export function reviseHandler(
     actor: engine.actor(caller),
     now,
   })
-  deps.store.appendEvent({
+  await deps.store.appendEvent({
     workflowId: input.workflowId,
     kind: 'workflow.revised',
     actor: engine.actor(caller),
@@ -89,23 +89,23 @@ export function reviseHandler(
   return revision
 }
 
-export function forkHandler(
+export async function forkHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowForkContract>,
 ) {
   const { caller, deps, access } = ctx
-  const source = deps.store.getRevision(input.revisionId)
+  const source = await deps.store.getRevision(input.revisionId)
   // THE REVISION EXISTENCE LEAK, closed. POD-730 §10: an out-of-scope revision
   // id used to CONFIRM the revision existed (it resolved, then the workflow
   // read refused with a different message). Both outcomes now leave here with
   // the same string, so a revision id is no longer an oracle.
   if (!source) throw new Error(unknownRevision(input.revisionId))
   try {
-    access.assertWorkflowRead(caller, source.workflowId)
+    await access.assertWorkflowRead(caller, source.workflowId)
   } catch {
     throw new Error(unknownRevision(input.revisionId))
   }
-  return createHandler(ctx, {
+  return await createHandler(ctx, {
     name: input.name,
     description: input.description,
     scope: input.scope,
@@ -115,24 +115,24 @@ export function forkHandler(
   })
 }
 
-export function publishHandler(
+export async function publishHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowPublishContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const revision = deps.store.getRevision(input.revisionId)
+  const revision = await deps.store.getRevision(input.revisionId)
   if (!revision) throw new Error(unknownRevision(input.revisionId))
-  const workflow = deps.store.getWorkflow(revision.workflowId)
+  const workflow = await deps.store.getWorkflow(revision.workflowId)
   if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
   // ONE decision, where there used to be two. `assertWorkflowWrite` now refuses
   // a non-admin on a global workflow itself, which is exactly what the shipped
   // "approval required to publish a global workflow revision" check did for
   // this one command — so the brake is no longer a special case bolted beside
   // the guard, it IS the guard, and it now covers create and revise too.
-  access.assertWorkflowWrite(caller, workflow.id)
+  await access.assertWorkflowWrite(caller, workflow.id)
   const now = deps.now()
-  deps.store.publishRevision(revision.id, now)
-  deps.store.appendEvent({
+  await deps.store.publishRevision(revision.id, now)
+  await deps.store.appendEvent({
     workflowId: workflow.id,
     kind: 'workflow.published',
     actor: engine.actor(caller),
@@ -140,20 +140,20 @@ export function publishHandler(
     payload: { revisionId: revision.id },
     now,
   })
-  const published = deps.store.getRevision(revision.id)
+  const published = await deps.store.getRevision(revision.id)
   if (!published) throw new Error(`published workflow revision ${revision.id} disappeared`)
   return published
 }
 
-export function assignHandler(
+export async function assignHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowAssignContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const revision = deps.store.getRevision(input.revisionId)
+  const revision = await deps.store.getRevision(input.revisionId)
   if (!revision) throw new Error(unknownRevision(input.revisionId))
   try {
-    access.assertWorkflowRead(caller, revision.workflowId)
+    await access.assertWorkflowRead(caller, revision.workflowId)
   } catch {
     throw new Error(unknownRevision(input.revisionId))
   }
@@ -189,16 +189,16 @@ export function assignHandler(
     // `targetId` is polymorphic by `targetKind` (a session id here, an issue id on
     // the other arm), so the brand is recovered INSIDE the narrowed branch — the
     // same rule POD-362 applies to MessageRow.toId and EntityChangeSpec.id.
-    access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
+    await access.assertMayPlaceOn(caller, access.machineForSession(asSessionId(input.targetId)))
   }
   const now = deps.now()
-  const binding = deps.store.setBinding({
+  const binding = await deps.store.setBinding({
     ...input,
     actor: engine.actor(caller),
     ownerUserId: asUserId(access.owner(caller)),
     now,
   })
-  deps.store.appendEvent({
+  await deps.store.appendEvent({
     workflowId: revision.workflowId,
     kind: 'workflow.assigned',
     actor: engine.actor(caller),
@@ -209,19 +209,23 @@ export function assignHandler(
   return binding
 }
 
-export function profileSaveHandler(
+export async function profileSaveHandler(
   ctx: WorkflowHandlerContext,
   input: ContractInput<typeof workflowProfileSaveContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  access.assertProfileWrite(caller, input.id)
+  access.assertProfileWrite(
+    caller,
+    input.id,
+    await access.ownershipFor(input.id ? [{ kind: 'execution-profile', id: input.id }] : []),
+  )
   // The machine a profile PINS is the machine its runs will execute on, so the
   // `use` grant is checked when the pin is written as well as when it is used.
   // Checking only at launch would let a principal stage a binding it may not
   // run and hand it to someone who can.
-  access.assertMayPlaceOn(caller, input.machineId)
+  await access.assertMayPlaceOn(caller, input.machineId)
   const now = deps.now()
-  return deps.store.upsertProfile({
+  return await deps.store.upsertProfile({
     id: input.id ?? `wfp_${randomUUID()}`,
     name: input.name,
     accountId: input.accountId,

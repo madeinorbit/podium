@@ -40,35 +40,35 @@ type In<C extends { input: z.ZodTypeAny }> = z.infer<C['input']>
 export const SETUP_COMMANDS_TRPC = {
   complete: {
     contract: SETUP_CONTRACTS.complete,
-    handler: ((svc, input) => svc.complete(input)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.complete(input)) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.complete>,
       unknown
     >,
   },
   join: {
     contract: SETUP_CONTRACTS.join,
-    handler: ((svc, input) => svc.join(input.code)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.join(input.code)) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.join>,
       unknown
     >,
   },
   connect: {
     contract: SETUP_CONTRACTS.connect,
-    handler: ((svc, input) => svc.connect(input)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.connect(input)) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.connect>,
       unknown
     >,
   },
   setChannel: {
     contract: SETUP_CONTRACTS.setChannel,
-    handler: ((svc, input) => svc.setChannel(input.channel)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.setChannel(input.channel)) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.setChannel>,
       unknown
     >,
   },
   activate: {
     contract: SETUP_CONTRACTS.activate,
-    handler: ((svc) => svc.activate()) satisfies InstanceHandler<
+    handler: (async (svc) => await svc.activate()) satisfies InstanceHandler<
       In<typeof SETUP_CONTRACTS.activate>,
       unknown
     >,
@@ -78,14 +78,14 @@ export const SETUP_COMMANDS_TRPC = {
 export const AUTH_COMMANDS_TRPC = {
   setPassword: {
     contract: AUTH_CONTRACTS.setPassword,
-    handler: ((svc, input) => svc.setPassword(input)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.setPassword(input)) satisfies InstanceHandler<
       In<typeof AUTH_CONTRACTS.setPassword>,
       unknown
     >,
   },
   setLoginRequired: {
     contract: AUTH_CONTRACTS.setLoginRequired,
-    handler: ((svc, input) => svc.setLoginRequired(input)) satisfies InstanceHandler<
+    handler: (async (svc, input) => await svc.setLoginRequired(input)) satisfies InstanceHandler<
       In<typeof AUTH_CONTRACTS.setLoginRequired>,
       unknown
     >,

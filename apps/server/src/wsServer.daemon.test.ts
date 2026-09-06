@@ -32,8 +32,8 @@ function fakeWs() {
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => {
-      for (const handler of handlers[ev] ?? []) handler(...a)
+    emit: async (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) await handler(...a)
     },
   }
 }
@@ -50,17 +50,17 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
     // First frame is junk (not a handshake) → ignored, no attach.
-    ws.emit('message', frame({ type: 'input', sessionId: asSessionId('s'), data: '' }))
+    await ws.emit('message', frame({ type: 'input', sessionId: asSessionId('s'), data: '' }))
     expect(attach).not.toHaveBeenCalled()
 
     // A valid hello whose token is in the store → attach + helloOk.
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     expect(attach).toHaveBeenCalledWith(
       machinePrincipal('m1'),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
@@ -83,13 +83,13 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('sekret'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'hello',
@@ -109,7 +109,7 @@ describe('daemon socket auth', () => {
 
     // A subsequent (post-auth) frame routes through the gateway mux under the
     // principal the TRANSPORT resolved — the frame body never names a machine.
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'bind',
@@ -129,7 +129,7 @@ describe('daemon socket auth', () => {
     // `machineId` routes under the SAME transport principal: the claim is not
     // read, not merged, and not even representable in the routed argument.
     onMsg.mockClear()
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'bind',
@@ -150,12 +150,12 @@ describe('daemon socket auth', () => {
 
   it('rejects an unknown hello with helloRejected and does not attach', async () => {
     const store = await openTestStore(':memory:')
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
-    ws.emit('message', frame({ type: 'hello', machineId: 'ghost', token: 'nope', hostname: 'box' }))
+    await ws.emit('message', frame({ type: 'hello', machineId: 'ghost', token: 'nope', hostname: 'box' }))
     expect(attach).not.toHaveBeenCalled()
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
@@ -163,7 +163,7 @@ describe('daemon socket auth', () => {
   it('a pair frame redeems a code, replies once with paired, then attaches', async () => {
     const store = await openTestStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
-    const reg = SessionRegistry.create(store, undefined, {
+    const reg = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
     })
@@ -172,7 +172,7 @@ describe('daemon socket auth', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'pair',
@@ -205,15 +205,19 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' }))
-    ws.emit('close')
-    // Close detaches against THIS socket's send fn, so a superseded socket's late
-    // close can't evict a daemon that has already reconnected.
-    expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' }))
+    await ws.emit('close')
+    // Close detaches against THIS socket's transport, so a superseded socket's late
+    // close can't evict a daemon that has already reconnected. Pin the identity:
+    // the object handed to detach must be the one this socket attached with.
+    expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.anything())
+    // toHaveBeenCalledWith compares structurally, so identity needs its own check.
+    expect(detach.mock.calls[0]?.[1]).toBe(attach.mock.calls[0]?.[1])
   })
 
   it('does not detach when the socket closes before it ever attached', async () => {
@@ -225,14 +229,14 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // A failed handshake (bad token) never attaches — closing must not detach the
     // machine, which may well have a healthy daemon on another socket.
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }))
-    ws.emit('close')
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }))
+    await ws.emit('close')
     expect(detach).not.toHaveBeenCalled()
   })
 })

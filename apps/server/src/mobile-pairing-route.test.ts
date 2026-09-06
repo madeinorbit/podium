@@ -41,7 +41,7 @@ async function post(path: string, body: unknown, headers: Record<string, string>
 }
 
 beforeEach(async () => {
-  const stage = createBunStoreExecutor({ database: openMigratedTestDatabase() }).syncQueries
+  const stage = createBunStoreExecutor({ database: openMigratedTestDatabase() }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   store = new AuthRepository(stage)
   await store.createClientSession(
@@ -60,7 +60,7 @@ beforeEach(async () => {
       instanceId: 'instance-one',
     }),
     loginRequired: () => true,
-    resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+    resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
     trustedProxyHops: 1,
     requestPeerAddress: () => peerAddress,
   })
@@ -278,7 +278,7 @@ describe('mobile pairing routes', () => {
       pairing,
       serverIdentity: () => ({ publicUrl: 'https://podium.example.ts.net', instanceId: 'one' }),
       loginRequired: () => true,
-      resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+      resolveUserId: async (headers) => (await resolveClientCredential(store, headers))?.session.userId,
       trustedProxyHops: 1,
       localControlRequest: (request) => request.headers.get('x-test-local') === 'yes',
       requestPeerAddress: () => peerAddress,

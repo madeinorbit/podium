@@ -43,7 +43,7 @@ import { Session } from './session'
  * `test-support` would put six parallel conversion waves in one shared file.
  */
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).syncQueries
+  const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }
@@ -119,7 +119,7 @@ describe('a runtime model change survives a server restart', () => {
       // (2) IT CAME BACK. Writing columns nothing reads is worse than not having
       // them: the value is durable and invisible, which looks identical to the
       // bug it was supposed to fix.
-      const rehydrated = hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
+      const rehydrated = await hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
       expect(rehydrated?.requestedModel).toBe('gpt-5.1-codex-max')
       expect(rehydrated?.requestedEffort).toBe('high')
       expect(rehydrated?.model).toBe('gpt-5-codex')
@@ -136,7 +136,7 @@ describe('a runtime model change survives a server restart', () => {
       await store.upsertSession(launched().toRow())
 
       const stored = await store.getSession(SID)
-      const rehydrated = hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
+      const rehydrated = await hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
 
       /**
        * ABSENT, NOT BACKFILLED FROM THE LAUNCH VALUE. "Launched as gpt-5-codex"
@@ -167,7 +167,7 @@ describe('a runtime model change survives a server restart', () => {
       // The upsert's ON CONFLICT arm has to carry BOTH columns; a set-list that
       // named only one would leave the second at whatever the first INSERT wrote
       // and the drift would only show on the second change to a live session.
-      const rehydrated = hydrator().sessionFromStoredRow(
+      const rehydrated = await hydrator().sessionFromStoredRow(
         storedRow(await store.getSession(SID)),
         'boot',
       )

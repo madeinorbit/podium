@@ -33,27 +33,7 @@ import ts from 'typescript'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** The twelve timing-sensitive suites: the helper, but never an `await`. */
-export const EXCLUDED_SUITES = new Set([
-  'apps/server/src/store-issues-frame-cache.test.ts',
-  'apps/server/src/superagent-concierge.test.ts',
-  'apps/server/src/superagent.test.ts',
-  'apps/server/src/gateway/feed-serving.principal-wiring.test.ts',
-  'apps/server/src/superagent-headless.test.ts',
-  'apps/server/src/modules/daemon-request.test.ts',
-  'apps/server/src/offer.test.ts',
-  'apps/server/src/relay.test.ts',
-  'apps/server/src/relay.outbox.test.ts',
-  'apps/server/src/modules/messages/service.test.ts',
-  'apps/server/src/modules/maintenance/service.test.ts',
-  'apps/server/src/modules/shipping/service.test.ts',
-  // Added by POD-3262 from the lane: it asserts WHEN a feed announcement leaves
-  // a span, which is the property an await between two lines changes.
-  'apps/server/src/store/executor/span-side-effects.test.ts',
-  // Added by POD-3262 from the lane: the spec names the ISSUES frame cache; the
-  // USERS one asserts the same "once per frame" property and fails the same way
-  // (1 read becomes 3), which is rule 6.9's mechanism seen directly.
-  'apps/server/src/store-users-frame-cache.test.ts',
-])
+export const EXCLUDED_SUITES = new Set<string>()
 
 /** The helper module itself constructs the store; it is not a caller to rewrite. */
 const NEVER_EDIT = new Set(['apps/server/src/test-support/open-test-store.ts'])
@@ -228,6 +208,25 @@ function isTestOrHelper(file: string): boolean {
   )
 }
 
+function isAwaitTarget(file: string): boolean {
+  const r = rel(file)
+  return (
+    isTestOrHelper(file) ||
+    r.startsWith('apps/server/src/') ||
+    r.startsWith('packages/sync/src/')
+  )
+}
+
+function isRepositorySource(file: string): boolean {
+  const r = rel(file)
+  if (r.endsWith('.test.ts')) return false
+  if (r === 'apps/server/src/modules/operations/store.ts') return true
+  if (r === 'packages/sync/src/adapters/sqlite/sync-repository.ts') return true
+  return r.startsWith('apps/server/src/store/') && !r.startsWith('apps/server/src/store/executor/')
+}
+
+const DRIZZLE_TERMINALS = new Set(['run', 'get', 'all', 'execute'])
+
 type FnLike =
   | ts.FunctionDeclaration
   | ts.FunctionExpression
@@ -360,11 +359,69 @@ function acceptsPromise(t: ts.Type): boolean {
   return t.getProperty('then') !== undefined
 }
 
-/** Is this call already inside an `await`, directly or through parentheses? */
+/** Is this call the promise handed to an existing `.rejects`/`.resolves` matcher? */
+export function isPromiseMatcherSubject(call: ts.Node): boolean {
+  let argument = call
+  while (argument.parent !== undefined && ts.isParenthesizedExpression(argument.parent)) {
+    argument = argument.parent
+  }
+  const expectCall = argument.parent
+  if (
+    expectCall === undefined ||
+    !ts.isCallExpression(expectCall) ||
+    !ts.isIdentifier(expectCall.expression) ||
+    expectCall.expression.text !== 'expect' ||
+    !expectCall.arguments.includes(argument as ts.Expression)
+  ) {
+    return false
+  }
+  let chain: ts.Node = expectCall
+  while (chain.parent !== undefined) {
+    const parent = chain.parent
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === chain) {
+      if (parent.name.text === 'rejects' || parent.name.text === 'resolves') return true
+      chain = parent
+      continue
+    }
+    if (ts.isCallExpression(parent) && parent.expression === chain) {
+      chain = parent
+      continue
+    }
+    break
+  }
+  return false
+}
+
+/** Is this call already awaited, or intentionally handed to a promise matcher? */
 function alreadyAwaited(call: ts.Node): boolean {
   let n: ts.Node = call
   while (n.parent !== undefined && ts.isParenthesizedExpression(n.parent)) n = n.parent
-  return ts.isAwaitExpression(n.parent)
+  return ts.isAwaitExpression(n.parent) || isPromiseMatcherSubject(call)
+}
+
+interface RejectionAssertion {
+  arrow: ts.ArrowFunction
+  expectCall: ts.CallExpression
+}
+
+/** The Rule 48a shape: a positive sync throw assertion around one async call. */
+function rejectionAssertion(call: ts.CallExpression): RejectionAssertion | undefined {
+  let body: ts.Node = call
+  while (body.parent !== undefined && ts.isParenthesizedExpression(body.parent)) body = body.parent
+  const arrow = body.parent
+  if (!ts.isArrowFunction(arrow) || arrow.body !== body) return undefined
+  const expectCall = arrow.parent
+  if (
+    !ts.isCallExpression(expectCall) ||
+    !ts.isIdentifier(expectCall.expression) ||
+    expectCall.expression.text !== 'expect' ||
+    !expectCall.arguments.includes(arrow)
+  ) {
+    return undefined
+  }
+  const matcher = expectCall.parent
+  if (!ts.isPropertyAccessExpression(matcher) || matcher.name.text !== 'toThrow') return undefined
+  return { arrow, expectCall }
 }
 
 /** Does this expression sit at the very start of its statement? */
@@ -430,9 +487,7 @@ export function run(opts: RunOptions): RunResult {
   const keepSyncUsed = new Set<string>()
 
   const storeFile = program.getSourceFile(join(ROOT, 'apps/server/src/store.ts'))
-  if (storeFile === undefined) throw new Error('store.ts not in program')
-
-  if (opts.pass === 'awaits') {
+  if (opts.pass === 'awaits' && storeFile !== undefined) {
     // The helper is the store's construction, and it is async at the flip.
     const helper = program.getSourceFile(
       join(ROOT, 'apps/server/src/test-support/open-test-store.ts'),
@@ -473,13 +528,24 @@ export function run(opts: RunOptions): RunResult {
   const awaitSites = new Map<ts.SourceFile, Set<ts.Node>>()
   const parenSites = new Set<ts.Node>()
   const asyncSites = new Map<ts.SourceFile, Set<FnLike>>()
+  if (opts.pass === 'awaits') {
+    for (const declaration of seed) {
+      if (!ts.isMethodDeclaration(declaration) || isAsyncFn(declaration)) continue
+      const sf = declaration.getSourceFile()
+      const forFile = asyncSites.get(sf) ?? new Set<FnLike>()
+      forFile.add(declaration)
+      asyncSites.set(sf, forFile)
+    }
+  }
   /** For each recorded await site: the function it sits in, and what it calls. */
   const siteHost = new Map<ts.Node, FnLike | undefined>()
   const siteTarget = new Map<ts.Node, ts.Node | undefined>()
   const mustStaySync = new Set<FnLike>()
+  const rejectionAssertions = new Map<ts.SourceFile, Map<ts.CallExpression, RejectionAssertion>>()
   const targets = program
     .getSourceFiles()
-    .filter((sf) => !sf.isDeclarationFile && isTestOrHelper(sf.fileName))
+    .filter((sf) => !sf.isDeclarationFile && isAwaitTarget(sf.fileName))
+
 
   const record = (sf: ts.SourceFile, call: ts.Node): void => {
     const forFile = awaitSites.get(sf) ?? new Set<ts.Node>()
@@ -499,6 +565,15 @@ export function run(opts: RunOptions): RunResult {
       const visit = (node: ts.Node): void => {
         let hit = false
         if (ts.isCallExpression(node) && opts.pass === 'awaits') {
+          if (
+            isRepositorySource(sf.fileName) &&
+            ts.isPropertyAccessExpression(node.expression) &&
+            DRIZZLE_TERMINALS.has(node.expression.name.text) &&
+            (node.getText(sf).includes('this.db') ||
+              node.getText(sf).startsWith('this.prepared'))
+          ) {
+            hit = true
+          }
           const sig = checker.getResolvedSignature(node)
           const decl = sig?.declaration
           if (decl !== undefined && seed.has(decl)) hit = true
@@ -519,6 +594,27 @@ export function run(opts: RunOptions): RunResult {
           ) {
             mustStaySync.add(target)
             changed = true
+          }
+        }
+        if (hit && !excluded && ts.isCallExpression(node)) {
+          const assertion = rejectionAssertion(node)
+          if (assertion !== undefined) {
+            const forFile = rejectionAssertions.get(sf) ?? new Map()
+            rejectionAssertions.set(sf, forFile)
+            if (!forFile.has(node)) {
+              forFile.set(node, assertion)
+              const outer = enclosingFn(assertion.expectCall)
+              if (outer !== undefined && outer !== 'illegal' && !isAsyncFn(outer)) {
+                const asyncForFile = asyncSites.get(sf) ?? new Set<FnLike>()
+                asyncSites.set(sf, asyncForFile)
+                if (!asyncForFile.has(outer)) {
+                  asyncForFile.add(outer)
+                  seed.add(outer)
+                  changed = true
+                }
+              }
+            }
+            return
           }
         }
         if (hit && !excluded) {
@@ -676,7 +772,12 @@ export function run(opts: RunOptions): RunResult {
   let sites = 0
   const files =
     opts.pass === 'awaits'
-      ? new Set([...awaitSites.keys(), ...asyncSites.keys(), ...awaitedTypeRefs.keys()])
+      ? new Set([
+          ...awaitSites.keys(),
+          ...asyncSites.keys(),
+          ...awaitedTypeRefs.keys(),
+          ...rejectionAssertions.keys(),
+        ])
       : opts.pass === 'rename'
         ? new Set(targets.filter(hasConstruction))
         : new Set<ts.SourceFile>()
@@ -688,8 +789,29 @@ export function run(opts: RunOptions): RunResult {
       parenthesised: parenSites.has(call),
       atStatementStart: startsAStatement(call, sf),
     }))
-    sites += callSites.length
+    const rejections = [...(rejectionAssertions.get(sf)?.values() ?? [])]
+    sites += callSites.length + rejections.length
     const edits: Edit[] = awaitEdits(callSites)
+    for (const { arrow, expectCall } of rejections) {
+      edits.push({
+        start: arrow.getStart(sf),
+        end: arrow.body.getStart(sf),
+        text: '',
+        why: 'unwrap throw callback',
+      })
+      edits.push({
+        start: expectCall.getStart(sf),
+        end: expectCall.getStart(sf),
+        text: 'await ',
+        why: 'await rejection assertion',
+      })
+      edits.push({
+        start: expectCall.getEnd(),
+        end: expectCall.getEnd(),
+        text: '.rejects',
+        why: 'rejection matcher',
+      })
+    }
     for (const fn of asyncSites.get(sf) ?? []) {
       // `async` goes after `export`/`static`, never before them.
       const mods = (fn as ts.HasModifiers).modifiers
@@ -698,7 +820,7 @@ export function run(opts: RunOptions): RunResult {
       const at = afterMods ?? (ts.isMethodDeclaration(fn) ? fn.name.getStart(sf) : fn.getStart(sf))
       edits.push({ start: at, end: at, text: 'async ', why: 'async' })
       // An explicit return type is now the resolved type of a promise.
-      if (fn.type !== undefined) {
+      if (fn.type !== undefined && !fn.type.getText(sf).startsWith('Promise<')) {
         edits.push({
           start: fn.type.getStart(sf),
           end: fn.type.getStart(sf),

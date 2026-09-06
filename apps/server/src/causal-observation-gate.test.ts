@@ -22,7 +22,7 @@ describe('causal session observation gate', () => {
   it('restores one snapshot, emits only live edges, and survives restart idempotently', async () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
-    const reg = SessionRegistry.create(
+    const reg = await SessionRegistry.create(
       store,
       {
         ntfy: vi.fn(),
@@ -31,7 +31,7 @@ describe('causal session observation gate', () => {
       { instanceId: 'default' },
     )
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -77,7 +77,7 @@ describe('causal session observation gate', () => {
 
     observe(base)
     expect(
-      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(10) })
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
@@ -143,14 +143,14 @@ describe('causal session observation gate', () => {
       state: runtime('working', 40),
     })
     expect(
-      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
 
     reg.dispose()
     const restartedSent: ControlMessage[] = []
-    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(
-      restarted.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
+      (await restarted.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
@@ -193,9 +193,9 @@ describe('causal session observation gate', () => {
   it('routes a foreign lease advance to an explicit rejection acknowledgement', async () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -247,9 +247,9 @@ describe('causal session observation gate', () => {
     const sent: ControlMessage[] = []
     const ntfy = vi.fn()
     const telegram = vi.fn()
-    const reg = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -316,7 +316,7 @@ describe('causal session observation gate', () => {
       checkpoint: null,
     })
     expect(
-      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
+      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
@@ -400,7 +400,7 @@ describe('causal session observation gate', () => {
       rejectionReason: 'provider_binding_mismatch',
     })
     expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
@@ -409,12 +409,12 @@ describe('causal session observation gate', () => {
       observationGeneration: 2,
       checkpoint: { lastTransitionId: 'thread-2-bootstrap' },
     })
-    const thread2Conversation = store.conversations.registry.podiumId(
+    const thread2Conversation = await store.conversations.registry.podiumId(
       store.hostMachineId,
       'thread-2',
     )
     expect(thread2Conversation).toBeDefined()
-    expect(store.conversations.registry.podiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
+    expect(await store.conversations.registry.podiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
@@ -438,7 +438,7 @@ describe('causal session observation gate', () => {
 
     reg.dispose()
     const restartedSent: ControlMessage[] = []
-    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
     )
@@ -464,16 +464,16 @@ describe('causal session observation gate', () => {
   it('rejects a fresh rebind to a provider thread already owned by another session', async () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
-    const owner = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const owner = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: owner.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-owned' },
       confidence: 'exact',
     })
-    const fresh = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const fresh = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
@@ -502,11 +502,11 @@ describe('causal session observation gate', () => {
       bindingVersion: 1,
     })
     expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === fresh.sessionId)
+      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === fresh.sessionId)
         ?.resume,
     ).toBeUndefined()
     expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === owner.sessionId)
+      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === owner.sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-owned' })
 
@@ -542,9 +542,9 @@ describe('causal session observation gate', () => {
 
   it('rolls back resume and lease when conversation linking throws', async () => {
     const store = await openTestStore(':memory:')
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
@@ -593,7 +593,7 @@ describe('causal session observation gate', () => {
       }),
     ).toThrow('link failed')
     expect(
-      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
+      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-1' })
     expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       providerSessionId: 'thread-1',

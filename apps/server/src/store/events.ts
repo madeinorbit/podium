@@ -17,7 +17,8 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import { afterCommit } from './executor/synchronous-span'
 import type { Subscription } from './types'
 
@@ -126,7 +127,7 @@ export class EventsRepository {
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
 
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -142,20 +143,20 @@ export class EventsRepository {
    * (rule 35) this resolves the ENCLOSING transaction on every access, and a
    * field frozen at construction could never do that. B1 changes this one line.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /** Install the post-append announcement. One listener: this is the feed's
    *  seam, not a general event bus (the orchestrator already has one). */
-  onAppend(listener: EventAppendListener): void {
+  async onAppend(listener: EventAppendListener): Promise<void> {
     this.appendListener = listener
   }
 
   // ---- coarse runtime event log + restart head ----
 
-  runtimeEventCheckpoint(sessionId: SessionId): RuntimeEventCheckpoint | null {
-    const row = this.db
+  async runtimeEventCheckpoint(sessionId: SessionId): Promise<RuntimeEventCheckpoint | null> {
+    const row = await this.db
       .select({
         observerGeneration: runtimeEventCheckpoints.observerGeneration,
         cursorJson: runtimeEventCheckpoints.cursorJson,
@@ -186,8 +187,8 @@ export class EventsRepository {
     }
   }
 
-  saveRuntimeEventCheckpoint(checkpoint: RuntimeEventCheckpoint): void {
-    this.db
+  async saveRuntimeEventCheckpoint(checkpoint: RuntimeEventCheckpoint): Promise<void> {
+    ;await (this.db
       .insert(runtimeEventCheckpoints)
       .values({
         sessionId: checkpoint.sessionId,
@@ -196,7 +197,7 @@ export class EventsRepository {
         turnEpoch: checkpoint.turnEpoch,
         closedTurnEpoch: checkpoint.closedTurnEpoch,
         updatedAt: checkpoint.updatedAt,
-      })
+      }))
       .onConflictDoUpdate({
         target: runtimeEventCheckpoints.sessionId,
         set: {
@@ -210,8 +211,8 @@ export class EventsRepository {
       .run()
   }
 
-  listRuntimeEvents(sessionId: SessionId, limit = 64): RuntimeEvent[] {
-    const rows = this.db
+  async listRuntimeEvents(sessionId: SessionId, limit = 64): Promise<RuntimeEvent[]> {
+    const rows = await this.db
       .select({ payload: podiumEvents.payload })
       .from(podiumEvents)
       .where(
@@ -230,7 +231,7 @@ export class EventsRepository {
   }
 
   /** Read complete transcript items committed by a runtime driver. */
-  listRuntimeTranscriptEvents(sessionId: SessionId, limit = 12_000): RuntimeEvent[] {
+  async listRuntimeTranscriptEvents(sessionId: SessionId, limit = 12_000): Promise<RuntimeEvent[]> {
     // The inner query takes the NEWEST `limit` matching rows and the outer one
     // puts them back in ascending order. Both orderings are load-bearing: taking
     // the newest is what bounds the read, and returning them oldest-first is what
@@ -249,7 +250,7 @@ export class EventsRepository {
       .orderBy(desc(podiumEvents.id))
       .limit(limit)
       .as('recent')
-    const rows = this.db
+    const rows = await this.db
       .select({ payload: recent.payload })
       .from(recent)
       .orderBy(asc(recent.id))
@@ -285,8 +286,8 @@ export class EventsRepository {
    * counting it as ownership would silence the shadow with nothing in its
    * place.
    */
-  hasCausalTurnFailure(sessionId: SessionId, turnEpoch: number): boolean {
-    const row = this.db
+  async hasCausalTurnFailure(sessionId: SessionId, turnEpoch: number): Promise<boolean> {
+    const row = await this.db
       .select({ present: sql<number>`1` })
       .from(podiumEvents)
       .where(
@@ -304,8 +305,8 @@ export class EventsRepository {
     return row !== undefined && row !== null
   }
 
-  listRuntimeEventsAfter(afterId: number, limit = 128): RuntimeEventLogRecord[] {
-    const rows = this.db
+  async listRuntimeEventsAfter(afterId: number, limit = 128): Promise<RuntimeEventLogRecord[]> {
+    const rows = await this.db
       .select({
         id: podiumEvents.id,
         subject: podiumEvents.subject,
@@ -325,8 +326,8 @@ export class EventsRepository {
     }))
   }
 
-  runtimeEventProjectionCursor(projector: string): number {
-    const row = this.db
+  async runtimeEventProjectionCursor(projector: string): Promise<number> {
+    const row = await this.db
       .select({ lastEventId: runtimeEventProjectionCursors.lastEventId })
       .from(runtimeEventProjectionCursors)
       .where(eq(runtimeEventProjectionCursors.projector, projector))
@@ -334,10 +335,10 @@ export class EventsRepository {
     return row ? row.lastEventId : 0
   }
 
-  saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): void {
-    this.db
+  async saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): Promise<void> {
+    ;await (this.db
       .insert(runtimeEventProjectionCursors)
-      .values({ projector, lastEventId: eventId, updatedAt })
+      .values({ projector, lastEventId: eventId, updatedAt }))
       .onConflictDoUpdate({
         target: runtimeEventProjectionCursors.projector,
         set: { lastEventId: eventId, updatedAt },
@@ -354,7 +355,7 @@ export class EventsRepository {
 
   // ---- event log ----
 
-  appendEvent(
+  async appendEvent(
     e: {
       ts: string
       kind: string
@@ -363,8 +364,8 @@ export class EventsRepository {
       payload?: unknown
     },
     options: { announce?: boolean } = {},
-  ): number {
-    const r = this.db
+  ): Promise<number> {
+    const r = await (this.db
       .insert(podiumEvents)
       .values({
         ts: e.ts,
@@ -372,7 +373,7 @@ export class EventsRepository {
         subject: e.subject,
         repoPath: e.repoPath ?? null,
         payload: JSON.stringify(e.payload ?? {}),
-      })
+      }))
       .run()
     const id = Number(r.lastInsertRowid)
     // AFTER the insert, never before: the feed must not carry a row the log does
@@ -406,9 +407,9 @@ export class EventsRepository {
 
   /** Announce an event that was inserted silently inside a wider transaction.
    * The caller invokes this only after that transaction commits. */
-  announceEvent(id: number): void {
+  async announceEvent(id: number): Promise<void> {
     if (!this.appendListener) return
-    const row = this.db.select().from(podiumEvents).where(eq(podiumEvents.id, id)).get()
+    const row = await this.db.select().from(podiumEvents).where(eq(podiumEvents.id, id)).get()
     if (!row) throw new Error(`unknown podium event ${id}`)
     const event = rowToEvent(row)
     this.appendListener(id, {
@@ -430,15 +431,15 @@ export class EventsRepository {
    * fell outside the newest page. `idx_podium_events_subject` makes the narrowed
    * read a search rather than a table walk.
    */
-  listEventsSince(
+  async listEventsSince(
     sinceId: number,
     opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
-  ): PodiumEventRecord[] {
+  ): Promise<PodiumEventRecord[]> {
     const where = [gt(podiumEvents.id, sinceId)]
     if (opts?.kinds?.length) where.push(inArray(podiumEvents.kind, opts.kinds))
     if (opts?.repoPath) where.push(eq(podiumEvents.repoPath, opts.repoPath))
     if (opts?.subject) where.push(eq(podiumEvents.subject, opts.subject))
-    const rows = this.db
+    const rows = await this.db
       .select()
       .from(podiumEvents)
       .where(and(...where))
@@ -455,15 +456,15 @@ export class EventsRepository {
    * its first bucket. Keeping that lookup here avoids teaching feature modules
    * about the event table's JSON column or ordering tie-breaker.
    */
-  listKindSinceWithPrior(kind: string, since: string): PodiumEventRecord[] {
-    const prior = this.db
+  async listKindSinceWithPrior(kind: string, since: string): Promise<PodiumEventRecord[]> {
+    const prior = await this.db
       .select()
       .from(podiumEvents)
       .where(and(eq(podiumEvents.kind, kind), sql`${podiumEvents.ts} < ${since}`))
       .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
       .limit(1)
       .get()
-    const rows = this.db
+    const rows = await this.db
       .select()
       .from(podiumEvents)
       .where(and(eq(podiumEvents.kind, kind), sql`${podiumEvents.ts} >= ${since}`))
@@ -478,8 +479,8 @@ export class EventsRepository {
    * served by `idx_podium_events_subject`. A per-session step-function reader
    * (session.phase) needs the carried-in value exactly like the fleet one does.
    */
-  listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): PodiumEventRecord[] {
-    const prior = this.db
+  async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): Promise<PodiumEventRecord[]> {
+    const prior = await this.db
       .select()
       .from(podiumEvents)
       .where(
@@ -492,7 +493,7 @@ export class EventsRepository {
       .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
       .limit(1)
       .get()
-    const rows = this.db
+    const rows = await this.db
       .select()
       .from(podiumEvents)
       .where(
@@ -509,8 +510,8 @@ export class EventsRepository {
 
   /** The highest event id in the log (0 when empty) — the "now" mark for
    *  seeding a consumer cursor that must not replay history. */
-  maxEventId(): number {
-    const r = this.db
+  async maxEventId(): Promise<number> {
+    const r = await this.db
       .select({ m: max(podiumEvents.id) })
       .from(podiumEvents)
       .get()
@@ -530,7 +531,7 @@ export class EventsRepository {
    * That is BY DESIGN — first-enable seeds the cursor to MAX(id) ("now") anyway,
    * so replaying deep history was never part of the contract.
    */
-  planEventPrune(opts: { maxAgeDays: number; maxRows: number }): EventPrunePlan {
+  async planEventPrune(opts: { maxAgeDays: number; maxRows: number }): Promise<EventPrunePlan> {
     if (!Number.isInteger(opts.maxRows) || opts.maxRows < 0) {
       throw new RangeError('maxRows must be a non-negative integer')
     }
@@ -540,7 +541,7 @@ export class EventsRepository {
     // Compute the cap threshold once per job. Repeating this OFFSET scan before
     // every delete unit made a 50k-row retention pass itself monopolize the loop.
     // Rows appended after this snapshot are intentionally handled by the next pass.
-    const cap = this.db
+    const cap = await this.db
       .select({ id: podiumEvents.id })
       .from(podiumEvents)
       .orderBy(desc(podiumEvents.id))
@@ -551,7 +552,7 @@ export class EventsRepository {
   }
 
   /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */
-  pruneEventBatch(plan: EventPrunePlan, batchSize = 500): number {
+  async pruneEventBatch(plan: EventPrunePlan, batchSize = 500): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
@@ -578,14 +579,14 @@ export class EventsRepository {
       )
       .orderBy(asc(podiumEvents.id))
       .limit(batchSize)
-    const result = this.db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).run()
+    const result = await this.db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).run()
     return Number(result.changes)
   }
 
   // ---- steward state ----
 
-  getStewardState(key: string): string | undefined {
-    const row = this.db
+  async getStewardState(key: string): Promise<string | undefined> {
+    const row = await this.db
       .select({ value: stewardState.value })
       .from(stewardState)
       .where(eq(stewardState.key, key))
@@ -593,15 +594,15 @@ export class EventsRepository {
     return row?.value
   }
 
-  setStewardState(key: string, value: string): void {
+  async setStewardState(key: string, value: string): Promise<void> {
     // `INSERT OR REPLACE` before the conversion. `steward_state` is
     // `(key PRIMARY KEY, value NOT NULL)` and carries no second uniqueness
     // constraint — checked in schema.ts and in the baseline migration — so the
     // conflict target is unambiguous and there is no third column for a replace
     // to have blanked (spec rule 27, amended checklist item 1).
-    this.db
+    ;await (this.db
       .insert(stewardState)
-      .values({ key, value })
+      .values({ key, value }))
       .onConflictDoUpdate({ target: stewardState.key, set: { value } })
       .run()
   }
@@ -619,26 +620,26 @@ export class EventsRepository {
    * Returns the seeded head only for the caller that made the claim. A crash
    * cannot leave a new cursor without its ownership watermark (or vice versa).
    */
-  activateJanitorSteward(): number | undefined {
-    return this.createOrJoinTransaction(() => {
+  async activateJanitorSteward(): Promise<number | undefined> {
+    return await this.createOrJoinTransaction(async () => {
       const ownershipKey = 'janitor-ownership-v1'
-      const owned = this.db
+      const owned = await this.db
         .select({ present: sql<number>`1` })
         .from(stewardState)
         .where(eq(stewardState.key, ownershipKey))
         .get()
       if (owned) return undefined
-      const head = this.maxEventId()
-      this.setStewardState('cursor', String(head))
-      this.setStewardState(ownershipKey, String(head))
+      const head = await this.maxEventId()
+      await this.setStewardState('cursor', String(head))
+      await this.setStewardState(ownershipKey, String(head))
       return head
     })
   }
 
   // ---- event subscriptions (event-subscriptions design, Phase B) ----
 
-  addSubscription(sub: Subscription): void {
-    this.db
+  async addSubscription(sub: Subscription): Promise<void> {
+    ;await (this.db
       .insert(subscriptions)
       .values({
         id: sub.id,
@@ -652,16 +653,16 @@ export class EventsRepository {
         origin: sub.origin,
         enabled: sub.enabled,
         createdAt: sub.createdAt,
-      })
+      }))
       .run()
   }
 
-  removeSubscription(id: string): void {
-    this.db.delete(subscriptions).where(eq(subscriptions.id, id)).run()
+  async removeSubscription(id: string): Promise<void> {
+    await this.db.delete(subscriptions).where(eq(subscriptions.id, id)).run()
   }
 
-  listSubscriptions(filter?: { subscriberId?: string }): Subscription[] {
-    const rows = this.db
+  async listSubscriptions(filter?: { subscriberId?: string }): Promise<Subscription[]> {
+    const rows = await this.db
       .select()
       .from(subscriptions)
       .where(filter?.subscriberId ? eq(subscriptions.subscriberId, filter.subscriberId) : undefined)
@@ -671,18 +672,18 @@ export class EventsRepository {
   }
 
   /** Flip a subscription's enabled flag. Returns true when a row was updated. */
-  setSubscriptionEnabled(id: string, enabled: boolean): boolean {
-    const r = this.db.update(subscriptions).set({ enabled }).where(eq(subscriptions.id, id)).run()
+  async setSubscriptionEnabled(id: string, enabled: boolean): Promise<boolean> {
+    const r = await this.db.update(subscriptions).set({ enabled }).where(eq(subscriptions.id, id)).run()
     return r.changes > 0
   }
 
-  getSubscription(id: string): Subscription | undefined {
-    const row = this.db.select().from(subscriptions).where(eq(subscriptions.id, id)).get()
+  async getSubscription(id: string): Promise<Subscription | undefined> {
+    const row = await this.db.select().from(subscriptions).where(eq(subscriptions.id, id)).get()
     return row ? rowToSubscription(row) : undefined
   }
 
-  listEnabledSubscriptions(): Subscription[] {
-    const rows = this.db
+  async listEnabledSubscriptions(): Promise<Subscription[]> {
+    const rows = await this.db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.enabled, true))
@@ -694,7 +695,7 @@ export class EventsRepository {
   /** Record a (subscription, event) delivery. Returns true only when the pair was
    *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
    *  steward delivers exactly once. */
-  markDelivered(subscriptionId: string, eventId: number): boolean {
+  async markDelivered(subscriptionId: string, eventId: number): Promise<boolean> {
     // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec rule
     // 31), which matters because this RETURN VALUE is the steward's
     // exactly-once guard. The forms differ only on NOT NULL and CHECK:
@@ -704,9 +705,9 @@ export class EventsRepository {
     // subscription id and an event id that are both non-nullable. So the
     // primary-key conflict is the only thing OR IGNORE could have suppressed,
     // and `changes > 0` keeps meaning exactly what it meant.
-    const r = this.db
+    const r = await (this.db
       .insert(subscriptionDeliveries)
-      .values({ subscriptionId, eventId })
+      .values({ subscriptionId, eventId }))
       .onConflictDoNothing()
       .run()
     return Number(r.changes) > 0

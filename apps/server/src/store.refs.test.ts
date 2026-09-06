@@ -28,10 +28,9 @@ describe('repo prefixes', () => {
     const s = await memStore()
     await s.repos.addRepo('/a/podium', asMachineId('__local__'), undefined, 'PDM')
     expect(await s.repos.prefixForPath('/a/podium')).toBe('PDM')
-    expect(() =>
-      s.repos.addRepo('/b/thing', asMachineId('__local__'), undefined, 'lower'),
-    ).toThrow()
-    expect(() => s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM')).toThrow(
+    await expect(s.repos.addRepo('/b/thing', asMachineId('__local__'), undefined, 'lower'),
+    ).rejects.toThrow()
+    await expect(s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM')).rejects.toThrow(
       /already in use/,
     )
     s.close()
@@ -53,7 +52,7 @@ describe('repo prefixes', () => {
     await s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', 'PODX')
     expect(await s.repos.prefixForPath('/a/podium')).toBe('PODX')
     const otherPrefix = (await s.repos.prefixForPath('/b/other'))!
-    expect(() => s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).toThrow(
+    await expect(s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).rejects.toThrow(
       /already used/,
     )
     s.close()

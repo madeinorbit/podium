@@ -72,8 +72,13 @@ import type { MutationId } from '@podium/model'
  */
 export interface AppliedMutationStore {
   /** The stored result of an already-applied mutation, or undefined if new. */
-  getAppliedMutation(mutationId: MutationId): string | undefined
-  recordAppliedMutation(mutationId: MutationId, proc: string, result: string, appliedAt: number): void
+  getAppliedMutation(mutationId: MutationId): string | undefined | Promise<string | undefined>
+  recordAppliedMutation(
+    mutationId: MutationId,
+    proc: string,
+    result: string,
+    appliedAt: number,
+  ): void | Promise<void>
 }
 
 /** Whether a call APPLIED its body or REPLAYED a recorded result. */
@@ -106,47 +111,54 @@ export class MutationLedger {
    * and a proc-qualified key would let the same queued write apply twice by
    * arriving on two transports.
    */
-  apply<T>(mutationId: MutationId | undefined, proc: string, body: () => T): MutationApplication<T> {
-    if (!mutationId) return { outcome: 'applied', value: body() }
-
-    const prior = this.store.getAppliedMutation(mutationId)
-    if (prior !== undefined) return { outcome: 'replayed', value: JSON.parse(prior) as T }
+  async apply<T>(
+    mutationId: MutationId | undefined,
+    proc: string,
+    body: () => T | Promise<T>,
+  ): Promise<MutationApplication<Awaited<T>>> {
+    if (!mutationId) return { outcome: 'applied', value: await body() }
 
     const inFlight = this.inFlight.get(mutationId)
-    if (inFlight !== undefined) return { outcome: 'replayed', value: inFlight as T }
-
-    const result = body()
-
-    // An async body (issues.create → createAndMaybeStart) must record its RESOLVED
-    // value: stringifying the pending Promise itself would durably record '{}' —
-    // poisoning every replay — and would mark a rejected mutation as applied.
-    if (result instanceof Promise) {
-      const tracked = result.then(
-        (value) => {
-          this.record(mutationId, proc, value)
-          this.inFlight.delete(mutationId)
-          return value
-        },
-        (err) => {
-          this.inFlight.delete(mutationId)
-          throw err
-        },
-      )
-      this.inFlight.set(mutationId, tracked)
-      return { outcome: 'applied', value: tracked as T }
+    if (inFlight !== undefined) {
+      return { outcome: 'replayed', value: (await inFlight) as Awaited<T> }
     }
 
-    this.record(mutationId, proc, result)
-    return { outcome: 'applied', value: result }
+    // Establish the join point BEFORE the durable lookup yields. Two deliveries
+    // arriving together must not both observe a missing row and run the body.
+    const owner = (async (): Promise<MutationApplication<Awaited<T>>> => {
+      const prior = await this.store.getAppliedMutation(mutationId)
+      if (prior !== undefined) {
+        return { outcome: 'replayed', value: JSON.parse(prior) as Awaited<T> }
+      }
+      const value = await body()
+      await this.record(mutationId, proc, value)
+      return { outcome: 'applied', value: value as Awaited<T> }
+    })()
+    const tracked = owner.then(({ value }) => value)
+    this.inFlight.set(mutationId, tracked)
+    try {
+      return await owner
+    } finally {
+      if (this.inFlight.get(mutationId) === tracked) this.inFlight.delete(mutationId)
+    }
   }
 
   /** {@link apply} when the caller does not need the outcome — the common case. */
-  once<T>(mutationId: MutationId | undefined, proc: string, body: () => T): T {
-    return this.apply(mutationId, proc, body).value
+  async once<T>(
+    mutationId: MutationId | undefined,
+    proc: string,
+    body: () => T | Promise<T>,
+  ): Promise<Awaited<T>> {
+    return (await this.apply(mutationId, proc, body)).value
   }
 
-  private record(mutationId: MutationId, proc: string, value: unknown): void {
-    this.store.recordAppliedMutation(mutationId, proc, JSON.stringify(value ?? null), this.now())
+  private async record(mutationId: MutationId, proc: string, value: unknown): Promise<void> {
+    await this.store.recordAppliedMutation(
+      mutationId,
+      proc,
+      JSON.stringify(value ?? null),
+      this.now(),
+    )
   }
 }
 

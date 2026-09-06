@@ -24,7 +24,7 @@ import {
   asThreadId,
   shipRepairRef,
 } from '@podium/model'
-import type { PodiumSettings } from '@podium/runtime'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { ShippingJobClassification, ShippingValidationProfile } from '@podium/protocol/daemon'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 import { jsonSchema } from '../../llm-roles'
@@ -44,15 +44,17 @@ export interface ShipwrightDeps {
     HeadlessService,
     'createHeadlessSession' | 'headlessSession' | 'headlessTurn' | 'headlessTurnAck'
   >
-  settingsFor(userId: UserId): PodiumSettings
-  modelCatalog(machineId: ShipAttempt['machineId']): ModelCatalogSnapshot
+  settingsFor(userId: UserId): PodiumSettings | Promise<PodiumSettings>
+  modelCatalog(machineId: ShipAttempt['machineId']):
+    | ModelCatalogSnapshot
+    | Promise<ModelCatalogSnapshot>
   quota(machineId: ShipAttempt['machineId']): Promise<AgentQuotaWire[]>
   nativeAccountId(
     machineId: ShipAttempt['machineId'],
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
-  ): AccountId | null
-  validationProfile(issue: IssueWire): ShippingValidationProfile
+  ): AccountId | null | Promise<AccountId | null>
+  validationProfile(issue: IssueWire): ShippingValidationProfile | Promise<ShippingValidationProfile>
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer
@@ -201,9 +203,9 @@ export interface MaterializedEvidence {
 }
 
 export interface ShippingEvidenceStore {
-  shippingEvidence(ref: string): MaterializedEvidence | null
-  shippingEvidenceForSource(custodyDigest: string, sourceRef: string): MaterializedEvidence | null
-  recordShippingEvidence(input: MaterializedEvidence): MaterializedEvidence
+  shippingEvidence(ref: string): Promise<MaterializedEvidence | null>
+  shippingEvidenceForSource(custodyDigest: string, sourceRef: string): Promise<MaterializedEvidence | null>
+  recordShippingEvidence(input: MaterializedEvidence): Promise<MaterializedEvidence>
 }
 
 /** Server custody for daemon evidence. Native paths never enter this registry:
@@ -236,14 +238,14 @@ export class ShippingEvidenceRegistry {
       .digest('hex')
   }
 
-  materialize(input: {
+  async materialize(input: {
     sourceRef: string
     content: string
     order: ShipOrder
     attempt: ShipAttempt
     custody: ShipwrightRepairInput['custody']
     authority: ShipwrightRepairInput['authority']
-  }): ShipwrightEvidenceRefValue {
+  }): Promise<ShipwrightEvidenceRefValue> {
     const custodyDigest = this.custodyDigest(input)
     const contentDigest = createHash('sha256').update(input.content).digest('hex')
     const ref = ShipwrightEvidenceRef.parse(
@@ -251,7 +253,7 @@ export class ShippingEvidenceRegistry {
         .update(`${custodyDigest}\0${input.sourceRef}\0${contentDigest}`)
         .digest('hex')}`,
     )
-    this.store.recordShippingEvidence({
+    await this.store.recordShippingEvidence({
       ref,
       custodyDigest,
       contentDigest,
@@ -262,15 +264,15 @@ export class ShippingEvidenceRegistry {
     return ref
   }
 
-  resolve(input: {
+  async resolve(input: {
     sourceRef: string
     order: ShipOrder
     attempt: ShipAttempt
     custody: ShipwrightRepairInput['custody']
     authority: ShipwrightRepairInput['authority']
-  }): ShipwrightEvidenceRefValue | null {
+  }): Promise<ShipwrightEvidenceRefValue | null> {
     const custodyDigest = this.custodyDigest(input)
-    const entry = this.store.shippingEvidenceForSource(custodyDigest, input.sourceRef)
+    const entry = await this.store.shippingEvidenceForSource(custodyDigest, input.sourceRef)
     if (!entry) return null
     const ref = ShipwrightEvidenceRef.parse(entry.ref)
     const expectedRef = `artifact://shipwright/${createHash('sha256')
@@ -287,8 +289,12 @@ export class ShippingEvidenceRegistry {
     return ref
   }
 
-  read(input: ShipwrightContextInput, ref: ShipwrightEvidenceRefValue, maxBytes: number): string {
-    const entry = this.store.shippingEvidence(ref)
+  async read(
+    input: ShipwrightContextInput,
+    ref: ShipwrightEvidenceRefValue,
+    maxBytes: number,
+  ): Promise<string> {
+    const entry = await this.store.shippingEvidence(ref)
     const expectedRef = entry
       ? `artifact://shipwright/${createHash('sha256')
           .update(`${entry.custodyDigest}\0${entry.sourceRef}\0${entry.contentDigest}`)
@@ -853,15 +859,25 @@ export class ShipwrightService {
         accountId: existing.accountId,
       }
     } else {
-      const quota = await this.deps.quota(input.attempt.machineId)
+      const [quota, settings, catalog] = await Promise.all([
+        this.deps.quota(input.attempt.machineId),
+        this.deps.settingsFor(owner),
+        this.deps.modelCatalog(input.attempt.machineId),
+      ])
+      const preferred = resolveRole(settings, 'shipwright')
+      const accountId = await this.deps.nativeAccountId(
+        input.attempt.machineId,
+        preferred.harness,
+        preferred.accountId,
+      )
       const selected = routeShipwright({
-        settings: this.deps.settingsFor(owner),
-        catalog: this.deps.modelCatalog(input.attempt.machineId),
+        settings,
+        catalog,
         quota,
         level: input.level,
         priorFamilies: input.priorFamilies,
         resolveAccount: (agent, requested) =>
-          this.deps.nativeAccountId(input.attempt.machineId, agent, requested),
+          agent === preferred.harness && requested === preferred.accountId ? accountId : null,
       })
       route = selected
     }

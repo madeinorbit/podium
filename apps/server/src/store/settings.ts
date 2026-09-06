@@ -35,7 +35,8 @@ import type { MachineId, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
@@ -44,7 +45,7 @@ export class SettingsRepository {
    *  resolver that lived above them both would be a third place that knows which
    *  tier a key is in. */
   readonly userPreferences: UserPreferencesRepository
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -67,8 +68,8 @@ export class SettingsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -79,8 +80,8 @@ export class SettingsRepository {
    * genuinely instance-wide and most consumers of this method want exactly that
    * (hibernation policy, git workflow, the steward toggle).
    */
-  getSettings(): PodiumSettings {
-    const row = this.db
+  async getSettings(): Promise<PodiumSettings> {
+    const row = await this.db
       .select({ value: meta.value })
       .from(meta)
       .where(eq(meta.key, 'settings'))
@@ -93,8 +94,8 @@ export class SettingsRepository {
     }
   }
 
-  setSettings(settings: PodiumSettings): void {
-    this.writeMeta('settings', JSON.stringify(settings))
+  async setSettings(settings: PodiumSettings): Promise<void> {
+    await this.writeMeta('settings', JSON.stringify(settings))
   }
 
   /**
@@ -105,10 +106,10 @@ export class SettingsRepository {
    * `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly (checklist item 1,
    * as amended: every column is named).
    */
-  private writeMeta(key: string, value: string): void {
-    this.db
+  private async writeMeta(key: string, value: string): Promise<void> {
+    ;await (this.db
       .insert(meta)
-      .values({ key, value })
+      .values({ key, value }))
       .onConflictDoUpdate({ target: meta.key, set: { value } })
       .run()
   }
@@ -130,9 +131,9 @@ export class SettingsRepository {
    * this build no longer accepts is refused by the same schema that governs the
    * blob rather than by a second validation written here.
    */
-  getSettingsFor(userId: UserId): PodiumSettings {
-    const base = this.getSettings()
-    const overlay = this.userPreferences.getFor(userId)
+  async getSettingsFor(userId: UserId): Promise<PodiumSettings> {
+    const base = await this.getSettings()
+    const overlay = await this.userPreferences.getFor(userId)
     if (overlay.size === 0) return base
     return normalizeSettings(applySettingsPatch(base, Object.fromEntries(overlay)))
   }
@@ -156,12 +157,12 @@ export class SettingsRepository {
    * Returns the blob as it now stands (instance tier), for the caller's
    * `settings.changed` event pair.
    */
-  setSettingsFor(userId: UserId, next: PodiumSettings, updatedAt: string): PodiumSettings {
-    const resolved = this.getSettingsFor(userId)
+  async setSettingsFor(userId: UserId, next: PodiumSettings, updatedAt: string): Promise<PodiumSettings> {
+    const resolved = await this.getSettingsFor(userId)
     const instancePatch: Record<string, unknown> = {}
     for (const leaf of changedSettingsLeaves(resolved, next)) {
       if (isPersonalPreferenceKey(leaf.path)) {
-        this.userPreferences.set(userId, leaf.path, leaf.value, updatedAt)
+        await this.userPreferences.set(userId, leaf.path, leaf.value, updatedAt)
         continue
       }
       // Unclassified leaves land here too, and deliberately: they are members of
@@ -171,10 +172,10 @@ export class SettingsRepository {
       // blob write, whose job is to not lose them.
       instancePatch[leaf.path] = leaf.value
     }
-    const blob = this.getSettings()
+    const blob = await this.getSettings()
     if (Object.keys(instancePatch).length === 0) return blob
     const updated = normalizeSettings(applySettingsPatch(blob, instancePatch))
-    this.setSettings(updated)
+    await this.setSettings(updated)
     return updated
   }
 
@@ -187,31 +188,31 @@ export class SettingsRepository {
    * path anyway means the ONE answer to "where does this key live" is the
    * classification, at both entry points.
    */
-  applyPreferencePatch(
+  async applyPreferencePatch(
     userId: UserId,
     values: Readonly<Record<string, unknown>>,
     updatedAt: string,
-  ): PodiumSettings {
+  ): Promise<PodiumSettings> {
     const instancePatch: Record<string, unknown> = {}
     for (const [path, value] of Object.entries(values)) {
       if (isPersonalPreferenceKey(path)) {
-        this.userPreferences.set(userId, path, value, updatedAt)
+        await this.userPreferences.set(userId, path, value, updatedAt)
         continue
       }
       instancePatch[path] = value
     }
     if (Object.keys(instancePatch).length > 0) {
-      this.setSettings(normalizeSettings(applySettingsPatch(this.getSettings(), instancePatch)))
+      await this.setSettings(normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)))
     }
-    return this.getSettingsFor(userId)
+    return await this.getSettingsFor(userId)
   }
 
   /** One person's value for one dotted path, resolved: their row, else the blob.
    *  For the consumers that need a single preference and should not materialise a
    *  whole settings object to get it. */
-  preferenceFor(userId: UserId, path: string): unknown {
-    const own = this.userPreferences.get(userId, path)
-    return own !== undefined ? own : readSettingsLeaf(this.getSettings(), path)
+  async preferenceFor(userId: UserId, path: string): Promise<unknown> {
+    const own = await this.userPreferences.get(userId, path)
+    return own !== undefined ? own : readSettingsLeaf(await this.getSettings(), path)
   }
 
   // ---- live model catalog (SWR cache, persisted so it survives restarts and the
@@ -220,13 +221,13 @@ export class SettingsRepository {
   //      (ADR 1 Amendment 1 D13.5). The meta key is `model_catalog:<machineId>`
   //      so two machines never share a row. Pre-split unkeyed `model_catalog`
   //      rows are left inert — MODEL_CATALOG_VERSION bumps discard them. ----
-  getModelCatalog(machineId: MachineId): {
+  async getModelCatalog(machineId: MachineId): Promise<{
     machineId: MachineId
     byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
     fetchedAt: number
     version?: number
-  } | null {
-    const row = this.db
+  } | null> {
+    const row = await this.db
       .select({ value: meta.value })
       .from(meta)
       .where(eq(meta.key, `model_catalog:${machineId}`))
@@ -254,13 +255,13 @@ export class SettingsRepository {
     }
   }
 
-  setModelCatalog(snapshot: {
+  async setModelCatalog(snapshot: {
     machineId: MachineId
     byAgent: Record<string, unknown>
     fetchedAt: number
     version?: number
-  }): void {
-    this.writeMeta(`model_catalog:${snapshot.machineId}`, JSON.stringify(snapshot))
+  }): Promise<void> {
+    await this.writeMeta(`model_catalog:${snapshot.machineId}`, JSON.stringify(snapshot))
   }
 
   // RETIRED at POD-309: the node⇄hub cursor (`upstream_sync_cursor`) and the

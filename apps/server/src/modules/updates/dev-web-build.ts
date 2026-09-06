@@ -189,8 +189,8 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   const units = DEV_WEB_BUILD_STEPS.map((step) => devBuildScopeUnit(step.role, deps.instanceId))
   const runStep =
     deps.runStep ??
-    ((step: { role: string; label: string; args: readonly string[] }, appVersion?: string) =>
-      runLowTierBuild({
+    (async (step: { role: string; label: string; args: readonly string[] }, appVersion?: string) =>
+      await runLowTierBuild({
         unit: devBuildScopeUnit(step.role, deps.instanceId),
         slice: instanceBuildSliceName(deps.instanceId),
         description: `Podium development web build (${step.label})`,
@@ -280,10 +280,10 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     }
   }
 
-  const ensure = (headSha: string, appVersion?: string): Promise<void> => {
+  const ensure = async (headSha: string, appVersion?: string): Promise<void> => {
     if (websiteAtHead(headSha, appVersion)) {
       state = { state: 'ready', headSha }
-      return Promise.resolve()
+      return await Promise.resolve()
     }
     const identity = `${headSha}\0${appVersion ?? ''}`
     if (inFlight && inFlight.identity === identity) return inFlight.promise

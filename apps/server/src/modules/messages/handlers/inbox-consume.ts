@@ -10,10 +10,10 @@ import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
-export function inboxConsumeHandler(
+export async function inboxConsumeHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailInboxConsumeContract>,
-): MessageWire[] {
+): Promise<MessageWire[]> {
   const { caller, deps, access } = ctx
   const svc = deps.messages
   if (input?.issue) {
@@ -28,7 +28,7 @@ export function inboxConsumeHandler(
     // `unresolvable` and answers with an EMPTY list — the same answer as an
     // issue that exists and has no mail. Empty and forbidden look alike here for
     // exactly the reason they must on the send path.
-    const resolved = access.resolveIssueAddress(input.issue)
+    const resolved = await access.resolveIssueAddress(input.issue)
     if (resolved.kind !== 'issue') return []
     const id = resolved.id
     const scope = caller.capability.scope
@@ -38,16 +38,23 @@ export function inboxConsumeHandler(
       own ||
       (scope.kind === 'subtree' &&
         scope.rootId !== undefined &&
-        deps.issues.ancestorIds(id).includes(scope.rootId))
+        (await deps.issues.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
-    const rows = svc.readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
-    return (inScope ? rows : rows.filter((m) => access.mayView(caller.capability, m))).map((m) =>
-      access.wire(m),
+    const rows = await svc.readInbox(
+      [{ kind: 'issue', id }],
+      consume !== undefined ? { consume } : {},
+    )
+    return await Promise.all(
+      (inScope ? rows : rows.filter((m) => access.mayView(caller.capability, m))).map(
+        async (m) => await access.wire(m),
+      ),
     )
   }
   const principals = access.callerPrincipals(caller.capability)
   if (principals.length === 0) throw new Error('no mailbox bound to this caller')
-  return svc
-    .readInbox(principals, { consume: caller.capability.actorSessionId ?? null })
-    .map((m) => access.wire(m))
+  return await Promise.all(
+    (await svc.readInbox(principals, { consume: caller.capability.actorSessionId ?? null })).map(
+      async (m) => await access.wire(m),
+    ),
+  )
 }

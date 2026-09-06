@@ -152,8 +152,8 @@ export interface MobilePairingRouteOptions {
     appUrl?: string
     instanceId: string
   }
-  loginRequired: () => boolean
-  resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined
+  loginRequired: () => boolean | Promise<boolean>
+  resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined | Promise<UserId | undefined>
   now?: () => number
   trustedProxyHops?: number
   /** A verified same-host browser or desktop request may control the ceremony
@@ -203,7 +203,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   const controlTransportAllowed = (c: Context): boolean =>
     secure(c) || opts.localControlRequest?.(c.req.raw) === true
 
-  app.post('/auth/mobile-pair/start', (c) => {
+  app.post('/auth/mobile-pair/start', async (c) => {
     const identity = opts.serverIdentity()
     if (!identity.publicUrl) return c.json({ error: 'public URL is not configured' }, 409)
     let serverUrl: string
@@ -213,7 +213,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       return c.json({ error: 'public URL is invalid' }, 409)
     }
 
-    if (!opts.loginRequired()) {
+    if (!(await opts.loginRequired())) {
       return c.json({
         mode: 'open' as const,
         canonicalOrigin: serverUrl,
@@ -226,7 +226,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     if (!controlTransportAllowed(c) || !serverUrl.startsWith('https://')) {
       return c.json({ error: 'secure HTTPS is required for mobile pairing' }, 400)
     }
-    const userId = opts.resolveUserId(headersFor(c))
+    const userId = await opts.resolveUserId(headersFor(c))
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const grant = opts.pairing.mint(userId, now())
     const payload: MobilePairEnvelope = {
@@ -276,7 +276,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
 
   app.post('/auth/mobile-pair/status', async (c) => {
     if (!controlTransportAllowed(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
-    const userId = opts.resolveUserId(headersFor(c))
+    const userId = await opts.resolveUserId(headersFor(c))
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
     if (!parsed.success) return c.json(PAIRING_UNAVAILABLE, 400)
@@ -285,7 +285,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
 
   const decision = (value: 'approved' | 'denied') => async (c: Context) => {
     if (!controlTransportAllowed(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
-    const userId = opts.resolveUserId(headersFor(c))
+    const userId = await opts.resolveUserId(headersFor(c))
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
     if (!parsed.success || !opts.pairing.decide(parsed.data.pairingId, userId, value, now())) {
@@ -322,7 +322,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     pairingFailures.clear(key)
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(at + SESSION_TTL_MS).toISOString()
-    opts.store.createClientSession(hashToken(token), completed.userId, expiresAt, 'mobile', {
+    await opts.store.createClientSession(hashToken(token), completed.userId, expiresAt, 'mobile', {
       sessionId: randomBytes(18).toString('base64url'),
       deviceId: completed.deviceId,
       deviceName: completed.deviceName,
@@ -347,14 +347,14 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     })
   })
 
-  app.get('/auth/client-sessions', (c) => {
+  app.get('/auth/client-sessions', async (c) => {
     if (c.req.header('authorization') && !secure(c)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
-    const credential = resolveClientCredential(opts.store, headersFor(c), now())
+    const credential = await resolveClientCredential(opts.store, headersFor(c), now())
     if (!credential) return c.json({ error: 'authentication required' }, 401)
-    const sessions = opts.store
-      .listMobileClientSessions(credential.session.userId)
+    const sessions = (await opts.store
+      .listMobileClientSessions(credential.session.userId))
       .flatMap((row) =>
         row.sessionId
           ? [
@@ -383,13 +383,13 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     if (c.req.header('authorization') && !secure(c)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
-    const credential = resolveClientCredential(opts.store, headersFor(c), now())
+    const credential = await resolveClientCredential(opts.store, headersFor(c), now())
     if (!credential) return c.json({ error: 'authentication required' }, 401)
     const parsed = RevokeMobileClientSessionRequest.safeParse(
       await c.req.json().catch(() => undefined),
     )
     const revokedTokenHash = parsed.success
-      ? opts.store.deleteOwnedMobileClientSession(parsed.data.sessionId, credential.session.userId)
+      ? await opts.store.deleteOwnedMobileClientSession(parsed.data.sessionId, credential.session.userId)
       : undefined
     if (!revokedTokenHash) {
       return c.json({ error: 'mobile session not found' }, 404)

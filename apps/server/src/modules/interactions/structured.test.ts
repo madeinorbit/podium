@@ -131,8 +131,8 @@ describe('a protocol ask entering the aggregate', () => {
     await h.service.ask({ interaction: protocolAsk('per_a') })
     await h.service.ask({ interaction: protocolAsk('per_b') })
     expect(
-      h.service
-        .listOpen(SESSION)
+      (await h.service
+        .listOpen(SESSION))
         .map((r) => r.id)
         .sort(),
     ).toEqual(['per_a', 'per_b'])
@@ -159,8 +159,8 @@ describe('answering a structured ask', () => {
     expect(h.delivered[0]?.answer).toEqual({ kind: 'permission', decision: 'allow-once' })
     // …and the row records HOW it was delivered, which is the audit trail a
     // headless run is judged on.
-    expect(h.service.get('per_live_1')?.deliveredVia).toBe('structured')
-    expect(h.service.get('per_live_1')?.status).toBe('answered')
+    expect((await h.service.get('per_live_1'))?.deliveredVia).toBe('structured')
+    expect((await h.service.get('per_live_1'))?.status).toBe('answered')
   })
 
   it('is REFUSED when no structured route is wired, with the true reason', async () => {
@@ -179,7 +179,7 @@ describe('answering a structured ask', () => {
     expect(h.keystrokes).toHaveLength(0)
     // The ask stays OPEN, which is what keeps the session visibly blocked
     // instead of falsely resolved.
-    expect(h.service.get('per_live_1')?.status).toBe('asked')
+    expect((await h.service.get('per_live_1'))?.status).toBe('asked')
   })
 
   it('hands a delivery-failed ask BACK, and does not fall back to keystrokes', async () => {
@@ -206,7 +206,7 @@ describe('answering a structured ask', () => {
     // holds this line for `not-yet-supported`; the two reasons differ in whether
     // a RETRY is worth it, not in whether the ask survives.
     expect(outcome).toMatchObject({ ok: false, reason: 'delivery-failed' })
-    expect(h.service.get('per_live_1')?.status).toBe('asked')
+    expect((await h.service.get('per_live_1'))?.status).toBe('asked')
     // NEVER a keystroke fallback: a session with no terminal cannot be typed at,
     // and degrading to it would report an answer that reached nothing.
     expect(h.keystrokes).toHaveLength(0)
@@ -232,7 +232,7 @@ describe('answering a structured ask', () => {
     // SUPERSEDED, not expired: somebody reached it first, which is a different
     // fact from the session ending underneath it — and the one the operator
     // needs, because their answer was late rather than wasted.
-    expect(h.service.get('per_live_1')?.status).toBe('superseded')
+    expect((await h.service.get('per_live_1'))?.status).toBe('superseded')
   })
 
   it('retires the row as expired when the driver says the request expired', async () => {
@@ -245,7 +245,7 @@ describe('answering a structured ask', () => {
       principal: SYSTEM_INBOX_PRINCIPAL,
     })
     expect(outcome).toMatchObject({ ok: false, reason: 'expired' })
-    expect(h.service.get('per_live_1')?.status).toBe('expired')
+    expect((await h.service.get('per_live_1'))?.status).toBe('expired')
   })
 
   it('does NOT manufacture an open ask from unknown-interaction', async () => {
@@ -264,8 +264,8 @@ describe('answering a structured ask', () => {
     // has already failed to close its answered form — a permanently open ask
     // with nothing able to accept it. Answered/unverified is the one statement
     // true either way.
-    expect(h.service.get('per_live_1')?.status).toBe('answered')
-    expect(h.service.get('per_live_1')?.deliveredVia).toBe('unverified')
+    expect((await h.service.get('per_live_1'))?.status).toBe('answered')
+    expect((await h.service.get('per_live_1'))?.deliveredVia).toBe('unverified')
   })
 
   it('is idempotent — a second answer is refused, not re-delivered', async () => {

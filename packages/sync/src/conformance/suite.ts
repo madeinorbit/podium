@@ -208,7 +208,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           op: 'upsert',
           payload: { n: 20 },
         })
-        ada.replica.receive(authority.frameFor(ADA, secondSeq - 1, secondSeq))
+        await ada.replica.receive(authority.frameFor(ADA, secondSeq - 1, secondSeq))
         await ada.settle()
 
         expect(ada.replicaEvents.some((e) => e.type === 'heal' && e.rung === 1)).toBe(true)
@@ -261,15 +261,15 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         })
         const frame = authority.frameFor(ADA, seq - 1, seq)
 
-        ada.replica.receive(frame)
+        await ada.replica.receive(frame)
         await ada.settle()
         const afterFirst = ada.replica.cursor as Cursor
         const entitiesAfterFirst = sliceOf(ada)
 
         // The SAME frame again. Its `fromSeq` is now below the cursor, so it is stale,
         // not a gap — and a replica that treated it as a gap would heal forever.
-        ada.replica.receive(frame)
-        ada.replica.receive(frame)
+        await ada.replica.receive(frame)
+        await ada.replica.receive(frame)
         await ada.settle()
 
         expect(ada.replica.cursor).toEqual(afterFirst)
@@ -359,9 +359,9 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const eventsBefore = ada.replicaEvents.length
         const outboxEventsBefore = ada.outboxEvents.length
         storage.failNextCommit(new Error('power loss mid-transaction'))
-        ada.replica.receive(frame)
+        await ada.replica.receive(frame)
         // SURFACED on the unit of work the Replica joined, not swallowed.
-        await expect(ada.settle()).rejects.toThrow('power loss')
+        await expect(await ada.settle()).rejects.toThrow('power loss')
         // ONE transaction was opened for both regions, not two — through the kernel's
         // own commit path, which is what POD-1158's fix made reachable.
         expect(storage.unitOfWorkTransactions()).toBe(transactionsBefore + 1)
@@ -399,7 +399,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // could be satisfied by a path that never wrote anything.
         recovered.replica.connect()
         await recovered.settle()
-        recovered.replica.receive(nextFrame(authority, recovered))
+        await recovered.replica.receive(nextFrame(authority, recovered))
         await recovered.settle()
         expect(recovered.view.cache.readCursor()?.seq).toBe(frame.seq)
         expect(recovered.view.cache.read('issue', 'ADA-1')?.value).toEqual({ closed: true })
@@ -441,13 +441,13 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // A rescope puts the replica in `bootstrapping` SYNCHRONOUSLY, so the frame
         // delivered next is BUFFERED rather than applied live — which is how a delta
         // carrying my own command's provenance ends up inside the install.
-        ada.replica.receive({
+        await ada.replica.receive({
           kind: 'rescope',
           feedId: authority.feedId,
           epoch: authority.epoch,
         })
         expect(ada.replica.posture).toBe('bootstrapping')
-        ada.replica.receive(nextFrame(authority, ada))
+        await ada.replica.receive(nextFrame(authority, ada))
         expect(ada.replica.stats().bufferedFrames).toBe(1)
 
         storage.failNextCommit(new Error('power loss during install'))
@@ -531,12 +531,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         })
         await clean.outbox.drain()
         authority.pinSnapshotSeq = (clean.replica.cursor as Cursor).seq - 1
-        clean.replica.receive({
+        await clean.replica.receive({
           kind: 'rescope',
           feedId: authority.feedId,
           epoch: authority.epoch,
         })
-        clean.replica.receive(nextFrame(authority, clean))
+        await clean.replica.receive(nextFrame(authority, clean))
         await clean.settle()
         expect(clean.outboxEvents.some((e) => e.type === 'retired')).toBe(true)
         expect(clean.outbox.find(graceWrite.mutationId)).toBeUndefined()
@@ -585,7 +585,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // dropped as covered — the drain's own commit would never run, and this case
         // would be the all-green probe its sibling already was.
         authority.changesSinceCeiling = plain
-        ada.replica.receive(authority.frameFor(ADA, plain))
+        await ada.replica.receive(authority.frameFor(ADA, plain))
         expect(ada.replica.stats().bufferedFrames).toBe(1)
         // Armed with NO await between this and the `receive` above.
         storage.failNextCommit(new Error('power loss draining the buffer'))
@@ -632,7 +632,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         expect(ada.replica.cursor?.seq).toBe(authority.head())
         expect(ada.replica.stats().bufferedFrames).toBe(0)
         // The failure was reported ONCE, not stuck on the replica forever.
-        await expect(ada.settle()).resolves.toBeUndefined()
+        await expect(await ada.settle()).resolves.toBeUndefined()
       })
 
       it(`${ledger.cover('base/quota-exhaustion')} — a denied durable write surfaces and loses nothing`, async () => {
@@ -649,7 +649,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // ADR 6 D4.4 — the denial must SURFACE and must not partially apply.
         storage.setWritesDenied(true)
         await expect(
-          enqueueWrite(ada, { entity: 'issue', entityId: 'ADA-2', value: { second: true } }),
+          await enqueueWrite(ada, { entity: 'issue', entityId: 'ADA-2', value: { second: true } }),
         ).rejects.toThrow(/quota/i)
 
         // Nothing half-landed: the store holds exactly what it held before.
@@ -699,7 +699,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // The authority MINTS the new epoch; the case does not supply it. That is
         // the difference between proving a replica compares two strings a test
         // handed it and proving an authority can produce a fresh generation id.
-        const restoredEpoch = authority.bumpEpoch('restore')
+        const restoredEpoch = await authority.bumpEpoch('restore')
         expect(restoredEpoch).not.toBe(cursorBefore.epoch)
         authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { post: 1 } })
 
@@ -708,7 +708,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         expect(divergent.seq).toBeLessThanOrEqual(cursorBefore.seq + 2)
         expect(divergent.epoch).not.toBe(cursorBefore.epoch)
 
-        ada.replica.receive(divergent)
+        await ada.replica.receive(divergent)
         await ada.settle()
 
         // DETECTED, by identity and not by seq: rung 4, then a re-bootstrap.
@@ -726,7 +726,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           op: 'upsert',
           payload: { same: true },
         })
-        ada.replica.receive(authority.frameFor(ADA, seq - 1, seq))
+        await ada.replica.receive(authority.frameFor(ADA, seq - 1, seq))
         await ada.settle()
         expect(ada.replica.view('issue', 'ADA-2')).toEqual({ same: true })
       })
@@ -785,7 +785,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await ada.outbox.drain() // unreachable: both stay queued
 
         // THE EPOCH BUMP. The cache is worthless; the queue is not.
-        const bumpedEpoch = authority.bumpEpoch('log-reset')
+        const bumpedEpoch = await authority.bumpEpoch('log-reset')
         ada.replica.connect()
         await ada.settle()
         expect(ada.replica.cursor?.epoch).toBe(bumpedEpoch)
@@ -835,7 +835,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // silent-divergence option wearing the appearance of a working one.
         expect(slowQueue.queuedBytes()).toBe(0)
 
-        ada.replica.receive(demotion as ServerFrame)
+        await ada.replica.receive(demotion as ServerFrame)
         await ada.settle()
 
         // CONVERGENCE, asserted on content and cursor — not "posture is live".
@@ -887,7 +887,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // POSITIVE CONTROL FIRST: a real tombstone DOES render as a deletion, on the
         // same replica, through the same pipe. Without it "not a deletion" is unfalsifiable.
         const removeSeq = authority.append({ entity: 'issue', entityId: 'ADA-2', op: 'remove' })
-        ada.replica.receive(authority.frameFor(ADA, removeSeq - 1, removeSeq))
+        await ada.replica.receive(authority.frameFor(ADA, removeSeq - 1, removeSeq))
         await ada.settle()
         expect(ada.replicaEvents.some((e) => e.type === 'removed' && e.entityId === 'ADA-2')).toBe(
           true,
@@ -896,7 +896,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // Now the revoke.
         const revokeSeq = authority.revoke('ada', 'issue', 'SHARED')
-        ada.replica.receive(authority.frameFor(ADA, revokeSeq - 1, revokeSeq))
+        await ada.replica.receive(authority.frameFor(ADA, revokeSeq - 1, revokeSeq))
         await ada.settle()
 
         // Gone from the view…
@@ -951,7 +951,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         })
 
         // Force rung 1 by delivering only the tail.
-        ada.replica.receive(authority.frameFor(ADA, last - 1, last))
+        await ada.replica.receive(authority.frameFor(ADA, last - 1, last))
         await ada.settle()
 
         expect(ada.replicaEvents.some((e) => e.type === 'heal' && e.rung === 1)).toBe(true)
@@ -1037,7 +1037,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         authority.append({ entity: 'issue', entityId: 'GRACE-1', op: 'upsert', payload: { v: 'g' } })
         authority.append({ entity: 'issue', entityId: 'ADA-2', op: 'upsert', payload: { v: 'b' } })
 
-        ada.replica.receive({
+        await ada.replica.receive({
           kind: 'resync-required',
           feedId: authority.feedId,
           epoch: authority.epoch,
@@ -1075,8 +1075,8 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const preCursor = ada.replica.cursor as Cursor
         const preOutbox = await ada.view.outbox.read()
         storage.failNextCommit(new Error('crash with watermark in flight'))
-        ada.replica.receive(frame)
-        await expect(ada.settle()).rejects.toThrow('crash with watermark')
+        await ada.replica.receive(frame)
+        await expect(await ada.settle()).rejects.toThrow('crash with watermark')
 
         const recovered = (await ada.recover()) as Client
         // ONE TRANSACTION RULE HELD: neither region moved.
@@ -1089,7 +1089,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         recovered.replica.connect()
         await recovered.settle()
         const healsBefore = recovered.replicaEvents.filter((e) => e.type === 'heal').length
-        recovered.replica.receive(nextFrame(authority, recovered))
+        await recovered.replica.receive(nextFrame(authority, recovered))
         await recovered.settle()
         expect(recovered.replica.cursor?.seq).toBe(authority.head())
         expect(recovered.replicaEvents.filter((e) => e.type === 'heal').length).toBe(healsBefore)
@@ -1119,7 +1119,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // A colleague changes a share. Under private-by-default this is ROUTINE, and it
         // resolves to rung 2 — the same rung an epoch bump takes.
         authority.grant('ada', 'issue', 'SHARED')
-        ada.replica.receive({
+        await ada.replica.receive({
           kind: 'rescope',
           feedId: authority.feedId,
           epoch: authority.epoch,
@@ -1215,7 +1215,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const a = authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { g: 1 } })
         const b = authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { g: 2 } })
         expect(b).toBe(a + 1)
-        ada.replica.receive(authority.frameFor(ADA, b - 1, b))
+        await ada.replica.receive(authority.frameFor(ADA, b - 1, b))
         await ada.settle()
         expect(ada.replicaEvents.some((e) => e.type === 'heal' && e.rung === 1)).toBe(true)
         const healsAfterControl = ada.replicaEvents.filter((e) => e.type === 'heal').length
@@ -1231,7 +1231,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           const to = Math.min(from + 1, authority.head())
           const frame = authority.frameFor(ADA, from, to)
           expect(frame.changes).toEqual([]) // it IS a watermark, asserted not assumed
-          ada.replica.receive(frame)
+          await ada.replica.receive(frame)
           from = to
         }
         await ada.settle()
@@ -1328,8 +1328,8 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // NOT the agent's session id as the owner: the pair is carried, not collapsed.
         expect(projected.provisionalOwner).not.toBe('ses_ada_agent')
         const frame = nextFrame(authority, recovered)
-        recovered.replica.receive(frame)
-        recovered.replica.receive(frame)
+        await recovered.replica.receive(frame)
+        await recovered.replica.receive(frame)
         await recovered.settle()
         expect(recovered.outbox.find(stillQueued.mutationId)?.attribution).toEqual(
           agentAttribution,
@@ -1424,7 +1424,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         const uowBefore = storage.unitOfWorkTransactions()
         const outboxWritesBefore = storage.outboxWrites()
-        ada.replica.receive(nextFrame(authority, ada))
+        await ada.replica.receive(nextFrame(authority, ada))
         await ada.settle()
 
         // ONE transaction for the whole logical commit (D10 clause 5).
@@ -1451,7 +1451,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           op: 'upsert',
           payload: { n: 7 },
         })
-        ada.replica.receive(authority.frameFor(ADA, seq - 1, seq))
+        await ada.replica.receive(authority.frameFor(ADA, seq - 1, seq))
         await ada.settle()
 
         expect(ada.replica.view('issue', 'ADA-1')).toEqual({ n: 7 })
@@ -1465,7 +1465,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           value: { closed: true },
         })
         await ada.outbox.drain()
-        ada.replica.receive(nextFrame(authority, ada))
+        await ada.replica.receive(nextFrame(authority, ada))
         await ada.settle()
         expect(storage.unitOfWorkTransactions()).toBe(uowBefore + 1)
         expect(ada.outbox.find(record.mutationId)).toBeUndefined()

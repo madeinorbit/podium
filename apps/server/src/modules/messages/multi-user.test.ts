@@ -39,8 +39,8 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
     const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
@@ -66,8 +66,8 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
     const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
@@ -92,8 +92,8 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
     const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     hidden.push(theirs.id)
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
@@ -135,14 +135,14 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
     const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
     // A row this agent may `mayView` in the OTHER issue's box — one it sent
     // itself. Without it the peek returns [] for mayView reasons and the test
     // would pass whether or not the ceiling was ever consulted (the read path
     // has no delivery step, so nothing else would catch it).
-    h.svc.send(
+    await h.svc.send(
       { kind: 'agent', issueId: mine.id, sessionId: asSessionId('sMine') },
       { to: { kind: 'issue', id: theirs.id }, body: 'mine to see' },
     )
@@ -181,31 +181,29 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
             { ok: false, reason: 'sender no longer has access to the target' }
           : { ok: true },
     })
-    const target = h.createIssue({ title: 'target' })
-    const sender = h.createIssue({ title: 'sender' })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
     // No live session on the target, so the row is ACCEPTED and stays queued —
     // which is the state the whole re-authorization rule is about.
-    const r = h.svc.send(
+    const r = await h.svc.send(
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
     expect(r.disposition).toBe('held')
-    expect(h.svc.message(r.message.id)?.status).toBe('queued')
+    expect((await h.svc.message(r.message.id))?.status).toBe('queued')
 
     // Access is revoked BETWEEN accept and drain.
     revoked = true
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
-    h.svc.sweep()
+    await h.svc.sweep()
 
-    const after = h.svc.message(r.message.id)
+    const after = await h.svc.message(r.message.id)
     // REJECTED at apply: never applied…
     expect(after?.status).toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped — the sender is told (ADR 3 D9).
-    const notices = h.svc
-      .inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })
-      .filter((m) => m.body.includes(r.message.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(r.message.id))
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('sender no longer has access to the target')
   })
@@ -223,18 +221,18 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
       authorizeAtApply: () =>
         allowed ? { ok: true } : { ok: false, reason: 'issue no longer exists' },
     })
-    const target = h.createIssue({ title: 'target' })
-    const sender = h.createIssue({ title: 'sender' })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
 
     // THE INSTRUMENT SAYS YES FIRST: allowed, the mirror row IS written.
-    const ok = h.svc.send(
+    const ok = await h.svc.send(
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'legitimate' },
     )
     expect(await h.store.issues.getIssueMessage(ok.message.id)).not.toBeNull()
 
     allowed = false
-    const denied = h.svc.send(
+    const denied = await h.svc.send(
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'injected' },
     )
@@ -246,16 +244,16 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
   it('delivers the same message when access was NOT revoked — the instrument can say yes', async () => {
     const h = await mailHarness({ authorizeAtApply: () => ({ ok: true }) })
-    const target = h.createIssue({ title: 'target' })
-    const sender = h.createIssue({ title: 'sender' })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
-    const r = h.svc.send(
+    const r = await h.svc.send(
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
-    h.svc.sweep()
-    expect(h.svc.message(r.message.id)?.status).not.toBe('dead_letter')
+    await h.svc.sweep()
+    expect((await h.svc.message(r.message.id))?.status).not.toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
   })
 })
@@ -270,15 +268,15 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     isReachable: () => opts.reachable,
   })
 
-  const withMachine = (h: ReturnType<typeof mailHarness>): { id: string; seq: number } => {
-    const issue = h.createIssue({ title: 'work' })
-    h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
+  const withMachine = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<{ id: string; seq: number }> => {
+    const issue = await h.createIssue({ title: 'work' })
+    await h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     return issue
   }
 
   it('denies a spawn onto a machine the effective principal may not USE', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const issue = withMachine(h)
+    const issue = await withMachine(h)
     await expect(
       h.gate.dispatch(
         h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
@@ -297,9 +295,9 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   it('keeps UNAUTHORIZED distinguishable from UNREACHABLE — the deliberate opposite of the address rule', async () => {
     const denied = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
-    const a = withMachine(denied)
-    const b = withMachine(offline)
-    const message = async (h: ReturnType<typeof mailHarness>, id: string): Promise<string> => {
+    const a = await withMachine(denied)
+    const b = await withMachine(offline)
+    const message = async (h: Awaited<ReturnType<typeof mailHarness>>, id: string): Promise<string> => {
       try {
         await h.gate.dispatch(
           h.agentCap(asIssueId(id), asSessionId('sMe')),
@@ -324,7 +322,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
 
   it('spawns when the principal holds `use` — the instrument can say yes', async () => {
     const h = await mailHarness({ machines: machines({ use: true, reachable: true }) })
-    const issue = withMachine(h)
+    const issue = await withMachine(h)
     const r = (await h.gate.dispatch(
       h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
       undefined,
@@ -368,8 +366,8 @@ describe('a wake refuses to start a process without `use` on the target machine 
     isReachable: () => reachable,
   })
 
-  const parkedOnAlice = (h: ReturnType<typeof mailHarness>) => {
-    const issue = h.createIssue({ title: 'work' })
+  const parkedOnAlice = async (h: Awaited<ReturnType<typeof mailHarness>>) => {
+    const issue = await h.createIssue({ title: 'work' })
     h.put({
       sessionId: asSessionId('sParked'),
       issueId: issue.id,
@@ -381,7 +379,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
 
   it('dead-letters a wake to a parked session when the sender may not USE its machine', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const issue = parkedOnAlice(h)
+    const issue = await parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
       body: 'wake up',
@@ -401,7 +399,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
       machines: machines({ use: false, reachable: true }),
       awaitPollMs: 1,
     })
-    const issue = parkedOnAlice(h)
+    const issue = await parkedOnAlice(h)
     // timeoutSeconds:0 — ask always awaits the ack bound; the question row is
     // already dead-lettered before the wait, so a zero window returns immediately.
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'ask', {
@@ -411,7 +409,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     })) as { answered: boolean; questionId: string }
 
     expect(r.answered).toBe(false)
-    expect(h.svc.message(r.questionId)?.status).toBe('dead_letter')
+    expect((await h.svc.message(r.questionId))?.status).toBe('dead_letter')
     expect(h.pushes).toEqual([])
     expect(h.wakeSpawns).toEqual([])
   })
@@ -419,10 +417,10 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('UNAUTHORIZED and UNREACHABLE collapse — the deliberate opposite of spawnAgent', async () => {
     const denied = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
-    const a = parkedOnAlice(denied)
-    const b = parkedOnAlice(offline)
+    const a = await parkedOnAlice(denied)
+    const b = await parkedOnAlice(offline)
 
-    const wake = async (h: ReturnType<typeof mailHarness>, issueId: string) => {
+    const wake = async (h: Awaited<ReturnType<typeof mailHarness>>, issueId: string) => {
       const r = (await h.gate.dispatch(
         h.agentCap(asIssueId(issueId), asSessionId('sMe')),
         undefined,
@@ -453,7 +451,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
 
   it('wakes when the principal holds `use` — the instrument can say yes', async () => {
     const h = await mailHarness({ machines: machines({ use: true, reachable: true }) })
-    const issue = parkedOnAlice(h)
+    const issue = await parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
       body: 'wake up',
@@ -467,7 +465,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
 
   it('a wait-lifecycle message to a parked session does NOT need use — no process starts', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const issue = parkedOnAlice(h)
+    const issue = await parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
       body: 'parked note',
@@ -477,13 +475,13 @@ describe('a wake refuses to start a process without `use` on the target machine 
     expect(r.ok).toBe(true)
     expect(r.disposition).toBe('queued')
     expect(h.pushes).toEqual([])
-    expect(h.svc.message(r.id)?.status).toBe('queued')
+    expect((await h.svc.message(r.id))?.status).toBe('queued')
   })
 
   it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const issue = h.createIssue({ title: 'empty' })
-    h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    const issue = await h.createIssue({ title: 'empty' })
+    await h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     // No sessions on the issue → wake tries trySpawn on the issue machine.
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), true, 'send', {
       to: issue.id,
@@ -504,7 +502,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     // session on Bob must dead-letter; waking one on Alice must resume.
     const usable = new Set(['mac_alices_laptop'])
     const h = await mailHarness({ machines: machinesFor(usable) })
-    const issue = h.createIssue({ title: 'shared work' })
+    const issue = await h.createIssue({ title: 'shared work' })
     h.put(
       {
         sessionId: asSessionId('sOnAlice'),
@@ -549,8 +547,8 @@ describe('a wake refuses to start a process without `use` on the target machine 
     // on Bob. Without the issue-machine re-check the spawn would fire.
     const usable = new Set(['mac_alices_laptop'])
     const h = await mailHarness({ machines: machinesFor(usable) })
-    const issue = h.createIssue({ title: 'cross-machine' })
-    h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
+    const issue = await h.createIssue({ title: 'cross-machine' })
+    await h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
     h.put({
       sessionId: asSessionId('sUnresumable'),
       issueId: issue.id,
@@ -586,8 +584,8 @@ describe('a wake refuses to start a process without `use` on the target machine 
         return usable.has(machineId) ? 'allowed' : 'unauthorized'
       },
     })
-    const first = h.createIssue({ title: 'same-pass fallback' })
-    h.issues.update(first.id, { machineId: bob })
+    const first = await h.createIssue({ title: 'same-pass fallback' })
+    await h.issues.update(first.id, { machineId: bob })
     h.put({
       sessionId: asSessionId('sUnresumable'),
       issueId: first.id,
@@ -598,7 +596,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     h.transport.reason = 'no resume ref'
     h.transport.failSessions = ['sUnresumable']
 
-    const applied = h.svc.send(
+    const applied = await h.svc.send(
       { kind: 'operator' },
       {
         to: { kind: 'session', id: 'sUnresumable' },
@@ -609,9 +607,9 @@ describe('a wake refuses to start a process without `use` on the target machine 
     expect(applied.disposition).not.toBe('dead_letter')
     expect(h.wakeSpawns).toHaveLength(1)
 
-    const next = h.createIssue({ title: 'next apply' })
-    h.issues.update(next.id, { machineId: bob })
-    const denied = h.svc.send(
+    const next = await h.createIssue({ title: 'next apply' })
+    await h.issues.update(next.id, { machineId: bob })
+    const denied = await h.svc.send(
       { kind: 'operator' },
       {
         to: { kind: 'issue', id: next.id },
@@ -651,14 +649,14 @@ describe('sender identity is stamped from the capability and cannot be influence
 
   it('ignores every impersonation field on `send`', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     const cap: Capability = h.agentCap(mine.id, asSessionId('sMine'))
     const r = (await h.gate.dispatch(cap, undefined, 'send', {
       to: mine.id,
       body: 'x',
       ...IMPERSONATION_PAYLOAD,
     })) as { id: string }
-    const row = h.svc.message(r.id)
+    const row = await h.svc.message(r.id)
     expect(row?.fromKind).toBe('agent')
     expect(row?.fromIssue).toBe(mine.id)
     expect(row?.fromSession).toBe('sMine')
@@ -667,9 +665,9 @@ describe('sender identity is stamped from the capability and cannot be influence
 
   it('ignores them on `reply` too — the second write surface', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
-    const original = h.svc.send(
+    const original = await h.svc.send(
       { kind: 'operator' },
       { to: { kind: 'issue', id: mine.id }, body: 'ping' },
     )
@@ -683,7 +681,7 @@ describe('sender identity is stamped from the capability and cannot be influence
         ...IMPERSONATION_PAYLOAD,
       },
     )) as { id: string }
-    const row = h.svc.message(r.id)
+    const row = await h.svc.message(r.id)
     expect(row?.fromKind).toBe('agent')
     expect(row?.fromIssue).toBe(mine.id)
     expect(row?.fromSession).toBe('sMine')
@@ -693,7 +691,7 @@ describe('sender identity is stamped from the capability and cannot be influence
     // Same payload, a different capability: the stamped sender MOVES. Without
     // this, "fromKind is agent" would pass against a surface that hard-coded it.
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: mine.id,
@@ -702,6 +700,6 @@ describe('sender identity is stamped from the capability and cannot be influence
       fromKind: 'agent',
       fromIssue: mine.id,
     })) as { id: string }
-    expect(h.svc.message(r.id)?.fromKind).toBe('operator')
+    expect((await h.svc.message(r.id))?.fromKind).toBe('operator')
   })
 })

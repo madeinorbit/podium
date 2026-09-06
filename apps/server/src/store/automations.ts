@@ -18,7 +18,8 @@ import type {
 } from '@podium/model'
 import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -94,7 +95,7 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
 }
 
 export class AutomationsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -111,21 +112,21 @@ export class AutomationsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
-  list(): AutomationRow[] {
-    return this.db
+  async list(): Promise<AutomationRow[]> {
+    return (await this.db
       .select()
       .from(automations)
       .where(isNull(automations.deletedAt))
       .orderBy(asc(automations.createdAt))
-      .all()
+      .all())
       .map(rowToAutomation)
   }
 
-  get(id: string): AutomationRow | undefined {
-    const r = this.db
+  async get(id: string): Promise<AutomationRow | undefined> {
+    const r = await this.db
       .select()
       .from(automations)
       .where(and(eq(automations.id, id as AutomationId), isNull(automations.deletedAt)))
@@ -152,27 +153,27 @@ export class AutomationsRepository {
    * read in this file carries one; a conversion that made this file internally
    * consistent would break the scoped feed silently.
    */
-  ownerOf(id: string): UserId | undefined {
-    return this.db
+  async ownerOf(id: string): Promise<UserId | undefined> {
+    return (await this.db
       .select({ ownerUserId: automations.ownerUserId })
       .from(automations)
       .where(eq(automations.id, id as AutomationId))
-      .get()?.ownerUserId
+      .get())?.ownerUserId
   }
 
   /** The owning user of a run's automation, through both tombstones. Same
    *  contract and the same reason as {@link ownerOf}. */
-  runOwnerOf(id: string): UserId | undefined {
-    return this.db
+  async runOwnerOf(id: string): Promise<UserId | undefined> {
+    return (await this.db
       .select({ ownerUserId: automations.ownerUserId })
       .from(automationRuns)
       .innerJoin(automations, eq(automations.id, automationRuns.automationId))
       .where(eq(automationRuns.id, id as AutomationRunId))
-      .get()?.ownerUserId
+      .get())?.ownerUserId
   }
 
-  insert(a: AutomationRow): void {
-    this.db
+  async insert(a: AutomationRow): Promise<void> {
+    ;await (this.db
       .insert(automations)
       .values({
         id: a.id,
@@ -194,13 +195,13 @@ export class AutomationsRepository {
         ownerUserId: a.ownerUserId,
         createdByActor: a.createdByActor,
         createdByOnBehalfOf: a.createdByOnBehalfOf,
-      })
+      }))
       .run()
   }
 
   /** Whole-row update (the service reads, patches, writes back). */
-  update(a: AutomationRow): void {
-    this.db
+  async update(a: AutomationRow): Promise<void> {
+    await this.db
       .update(automations)
       .set({
         name: a.name,
@@ -238,17 +239,17 @@ export class AutomationsRepository {
    * fires now that the parent row stays; a cascade that silently stopped
    * happening would leave every run of a deleted automation live and listable.
    */
-  remove(id: string, deletedAt: string): boolean {
+  async remove(id: string, deletedAt: string): Promise<boolean> {
     const removed =
       Number(
-        this.db
+        (await this.db
           .update(automations)
           .set({ deletedAt })
           .where(and(eq(automations.id, id as AutomationId), isNull(automations.deletedAt)))
-          .run().changes,
+          .run()).changes,
       ) > 0
     if (removed) {
-      this.db
+      await this.db
         .update(automationRuns)
         .set({ deletedAt })
         .where(
@@ -264,8 +265,8 @@ export class AutomationsRepository {
 
   // ---- runs ----
 
-  addRun(run: AutomationRunRow): void {
-    this.db
+  async addRun(run: AutomationRunRow): Promise<void> {
+    ;await (this.db
       .insert(automationRuns)
       .values({
         id: run.id,
@@ -276,12 +277,12 @@ export class AutomationsRepository {
         detail: run.detail,
         actor: run.actor,
         onBehalfOf: run.onBehalfOf,
-      })
+      }))
       .run()
   }
 
-  getRun(id: string): AutomationRunRow | undefined {
-    const r = this.db
+  async getRun(id: string): Promise<AutomationRunRow | undefined> {
+    const r = await this.db
       .select()
       .from(automationRuns)
       .where(and(eq(automationRuns.id, id as AutomationRunId), isNull(automationRuns.deletedAt)))
@@ -291,11 +292,11 @@ export class AutomationsRepository {
 
   /** Finalize a reserved occurrence after side effects [POD-925]. A tombstoned
    *  run is not finalizable: its automation is gone and the row is history. */
-  updateRun(
+  async updateRun(
     id: string,
     patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
-  ): void {
-    this.db
+  ): Promise<void> {
+    await this.db
       .update(automationRuns)
       .set({ sessionId: patch.sessionId, outcome: patch.outcome, detail: patch.detail })
       .where(and(eq(automationRuns.id, id as AutomationRunId), isNull(automationRuns.deletedAt)))
@@ -303,9 +304,9 @@ export class AutomationsRepository {
   }
 
   /** Most recent runs first — the tab's "Recent runs" list. */
-  listRuns(automationId: AutomationId, limit = 20): AutomationRunRow[] {
+  async listRuns(automationId: AutomationId, limit = 20): Promise<AutomationRunRow[]> {
     return (
-      this.db
+      (await this.db
         .select()
         .from(automationRuns)
         .where(and(eq(automationRuns.automationId, automationId), isNull(automationRuns.deletedAt)))
@@ -313,19 +314,19 @@ export class AutomationsRepository {
         // timestamp, and without it the page is whatever the engine returns.
         .orderBy(desc(automationRuns.firedAt), desc(sql`rowid`))
         .limit(limit)
-        .all()
+        .all())
         .map(rowToRun)
     )
   }
 
   /** Full run truth for durable snapshots and boot reconciliation. */
-  listAllRuns(): AutomationRunRow[] {
-    return this.db
+  async listAllRuns(): Promise<AutomationRunRow[]> {
+    return (await this.db
       .select()
       .from(automationRuns)
       .where(isNull(automationRuns.deletedAt))
       .orderBy(asc(automationRuns.firedAt), asc(sql`rowid`))
-      .all()
+      .all())
       .map(rowToRun)
   }
 
@@ -334,8 +335,8 @@ export class AutomationsRepository {
    *  spawned are absent from the map. Latest = highest rowid (insertion order), not
    *  MAX(fired_at): two fires can share a timestamp, and insertion order is the
    *  truth about which ran last. */
-  lastSpawnedSessions(): Map<AutomationId, SessionId> {
-    const rows = this.db
+  async lastSpawnedSessions(): Promise<Map<AutomationId, SessionId>> {
+    const rows = await this.db
       .select({
         automationId: automationRuns.automationId,
         sessionId: automationRuns.sessionId,

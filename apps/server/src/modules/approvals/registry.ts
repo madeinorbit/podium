@@ -48,14 +48,14 @@ export interface ApprovalCommand {
 export const APPROVAL_COMMANDS_TRPC = {
   approve: {
     contract: APPROVAL_CONTRACTS.approve,
-    handler: ((svc, input) => svc.approve(input.id)) satisfies ApprovalHandler<
+    handler: (async (svc, input) => await svc.approve(input.id)) satisfies ApprovalHandler<
       z.infer<(typeof APPROVAL_CONTRACTS)['approve']['input']>,
       unknown
     >,
   },
   deny: {
     contract: APPROVAL_CONTRACTS.deny,
-    handler: ((svc, input) => svc.deny(input.id)) satisfies ApprovalHandler<
+    handler: (async (svc, input) => await svc.deny(input.id)) satisfies ApprovalHandler<
       z.infer<(typeof APPROVAL_CONTRACTS)['deny']['input']>,
       unknown
     >,

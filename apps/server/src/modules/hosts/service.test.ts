@@ -86,12 +86,24 @@ function sample(
   }
 }
 
+/**
+ * THE FAKES RESOLVE, THEY DO NOT RETURN (POD-3263).
+ *
+ * Every port these stand in for is a durable read now. A synchronous fake
+ * satisfies BOTH the awaited and the un-awaited spelling of its call site, so it
+ * cannot fail on a dropped await — the value simply arrives early. Returning
+ * promises is what makes a missing `await` show up as a `Promise` where a value
+ * was expected, which is the only thing that distinguishes a converted call site
+ * from one that merely compiles.
+ */
 function harness(input: {
   sessions: HostSessionView[]
   maxIdleSessions: number | null
   enabled?: boolean
   loadPerCore?: number | null
   idleShellMinutes?: number | null
+  backstopMinutes?: number | null
+  scheduledWakeups?: Set<string>
   fail?: Set<string>
   proven?: Set<string>
   daemonRequest?: HostsDeps['daemonRequest']
@@ -104,6 +116,7 @@ function harness(input: {
       maxIdleSessions: input.maxIdleSessions,
       ...(input.loadPerCore !== undefined ? { loadPerCore: input.loadPerCore } : {}),
       ...(input.idleShellMinutes !== undefined ? { idleShellMinutes: input.idleShellMinutes } : {}),
+      ...(input.backstopMinutes !== undefined ? { backstopMinutes: input.backstopMinutes } : {}),
     },
   })
   const parked: string[] = []
@@ -111,11 +124,11 @@ function harness(input: {
   const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
   const toMachine: Array<{ machineId: string; type: string }> = []
   const deps: HostsDeps = {
-    getSettings: () => settings,
+    getSettings: async () => settings,
     clients: () => [],
-    machineName: (id) => id,
-    sessions: () => input.sessions,
-    hibernateSession: ({ sessionId, requireTerminalProof }) => {
+    machineName: async (id) => id,
+    sessions: async () => input.sessions,
+    hibernateSession: async ({ sessionId, requireTerminalProof }) => {
       hibernateRequireProof.push({ sessionId, requireTerminalProof })
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
@@ -133,7 +146,7 @@ function harness(input: {
       parked.push(sessionId)
       return { ok: true }
     },
-    hasScheduledWakeup: () => false,
+    hasScheduledWakeup: async (sessionId) => input.scheduledWakeups?.has(sessionId) ?? false,
     parkShellSession: ({ sessionId }) => {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
@@ -143,8 +156,8 @@ function harness(input: {
       shellParked.push(sessionId)
       return { ok: true }
     },
-    hasValidTerminalProof: (sessionId) => input.proven?.has(sessionId) ?? true,
-    terminalProofMissing: (sessionId) => !(input.proven?.has(sessionId) ?? true),
+    hasValidTerminalProof: async (sessionId) => input.proven?.has(sessionId) ?? true,
+    terminalProofMissing: async (sessionId) => !(input.proven?.has(sessionId) ?? true),
     // The auto-hibernate sweep makes no daemon round-trip, so an inert
     // correlator is enough here — a call to one would be the failure.
     daemonRequest:
@@ -178,7 +191,7 @@ describe('idle-session cap', () => {
     vi.useRealTimers()
   })
 
-  it('converges below the cap without memory pressure, oldest effective idle first', () => {
+  it('converges below the cap without memory pressure, oldest effective idle first', async () => {
     const sessions = [
       session(asSessionId('old-activity-recent-input'), {
         lastActiveAt: new Date(NOW - 3 * HOUR).toISOString(),
@@ -193,12 +206,12 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 2 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['old-effective-idle'])
   })
 
-  it('allows zero and re-evaluates after every successful hibernation', () => {
+  it('allows zero and re-evaluates after every successful hibernation', async () => {
     const sessions = [
       session(asSessionId('one')),
       session(asSessionId('two')),
@@ -206,44 +219,44 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['one', 'two', 'three'])
     expect(sessions.every((item) => item.status === 'hibernated')).toBe(true)
   })
 
-  it('uses a separate conservative burst and refill budget per machine', () => {
+  it('uses a separate conservative burst and refill budget per machine', async () => {
     const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
     vi.advanceTimersByTime(15_000)
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(5)
   })
 
-  it('keeps memory pressure independent of the count target and its limiter', () => {
+  it('keeps memory pressure independent of the count target and its limiter', async () => {
     const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
     // Count pressure has exhausted its burst, but memory has its own budget.
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toHaveLength(5)
   })
 
-  it('hibernates for memory pressure even when the idle count is below its target', () => {
+  it('hibernates for memory pressure even when the idle count is below its target', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 10 })
 
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual(['one'])
   })
@@ -254,11 +267,11 @@ describe('idle-session cap', () => {
    * terminal — possibly the very thing that crossed the threshold — sits idle is
    * the inversion §5 rules out.
    */
-  it('gives back client terminals BEFORE parking any agent under memory pressure', () => {
+  it('gives back client terminals BEFORE parking any agent under memory pressure', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
 
-    service.onHostMetrics(asMachineId('local'), {
+    await service.onHostMetrics(asMachineId('local'), {
       ...sample(90),
       reclaimableAttachments: 2,
     })
@@ -270,45 +283,45 @@ describe('idle-session cap', () => {
     expect(parked).toEqual([])
   })
 
-  it('parks an agent on the NEXT sample when giving the terminals back was not enough', () => {
+  it('parks an agent on the NEXT sample when giving the terminals back was not enough', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
 
-    service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 1 })
+    await service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 1 })
     expect(parked).toEqual([])
 
     // The cooldown the reclaim spent has to pass, exactly as a park's would.
     vi.advanceTimersByTime(60_000)
-    service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 0 })
+    await service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 0 })
 
     expect(toMachine).toHaveLength(1)
     expect(parked).toEqual(['one'])
   })
 
-  it('parks as it always did for a daemon too old to report attachments', () => {
+  it('parks as it always did for a daemon too old to report attachments', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
 
     // `undefined`, not 0 — the field is absent from the sample entirely. A
     // mixed-version fleet must not stall its pressure relief waiting for a
     // machine that has nothing to give.
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(toMachine).toEqual([])
     expect(parked).toEqual(['one'])
   })
 
-  it('hibernates for load pressure using load1/cores (not load5) at the default threshold', () => {
+  it('hibernates for load pressure using load1/cores (not load5) at the default threshold', async () => {
     // POD-526-shaped host: load1 14 on 8 cores = 1.75× ≥ default 1.5×.
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 10 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10, { one: 14, cpuCount: 8 }))
+    await service.onHostMetrics(asMachineId('local'), sample(10, { one: 14, cpuCount: 8 }))
 
     expect(parked).toEqual(['one'])
   })
 
-  it('ignores load pressure when loadPerCore is null (off)', () => {
+  it('ignores load pressure when loadPerCore is null (off)', async () => {
     const sessions = [session(asSessionId('one'))]
     const { service, parked } = harness({
       sessions,
@@ -316,34 +329,34 @@ describe('idle-session cap', () => {
       loadPerCore: null,
     })
 
-    service.onHostMetrics(asMachineId('local'), sample(10, { one: 100, cpuCount: 1 }))
+    await service.onHostMetrics(asMachineId('local'), sample(10, { one: 100, cpuCount: 1 }))
 
     expect(parked).toEqual([])
   })
 
-  it('ignores a sample with no load field (pre-field daemon)', () => {
+  it('ignores a sample with no load field (pre-field daemon)', async () => {
     const sessions = [session(asSessionId('one'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual([])
   })
 
-  it('keeps load pressure independent of the count target and its limiter', () => {
+  it('keeps load pressure independent of the count target and its limiter', async () => {
     const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
     expect(parked).toHaveLength(4)
 
     // Count pressure has exhausted its burst, but load has its own budget
     // (shared with memory via the per-machine cooldown map).
-    service.onHostMetrics(asMachineId('local'), sample(10, { one: 20, cpuCount: 8 }))
+    await service.onHostMetrics(asMachineId('local'), sample(10, { one: 20, cpuCount: 8 }))
     expect(parked).toHaveLength(5)
   })
 
-  it('shares the memory cooldown map so dual pressure parks once per window', () => {
+  it('shares the memory cooldown map so dual pressure parks once per window', async () => {
     const sessions = [
       session(asSessionId('first')),
       session(asSessionId('second')),
@@ -352,14 +365,14 @@ describe('idle-session cap', () => {
     const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
     // Memory parks first and spends the shared cooldown; load must not double-park.
-    service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
+    await service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
     expect(parked).toEqual(['first'])
 
-    service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
+    await service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
     expect(parked).toEqual(['first'])
   })
 
-  it('refuses legacy or unfenced sessions without a terminal proof', () => {
+  it('refuses legacy or unfenced sessions without a terminal proof', async () => {
     const sessions = [session(asSessionId('legacy')), session(asSessionId('proven'))]
     const { service, parked } = harness({
       sessions,
@@ -367,13 +380,13 @@ describe('idle-session cap', () => {
       proven: new Set(['proven']),
     })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['proven'])
     expect(sessions[0]?.status).toBe('live')
   })
 
-  it('logs a mixed-version terminal rejected solely for missing proof once', () => {
+  it('logs a mixed-version terminal rejected solely for missing proof once', async () => {
     const logs = captureLogs()
     const sessions = [session(asSessionId('legacy'))]
     const { service } = harness({
@@ -382,8 +395,8 @@ describe('idle-session cap', () => {
       proven: new Set(),
     })
 
-    service.onHostMetrics(asMachineId('local'), sample(90))
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
 
     // ONCE, and about THIS session. `legacy` is the session id: it used to be
     // pinned by sitting next to the reason in the sentence, and is now its own
@@ -396,18 +409,18 @@ describe('idle-session cap', () => {
     logs.restore()
   })
 
-  it('runs count pressure even when the memory sample cannot produce a percentage', () => {
+  it('runs count pressure even when the memory sample cannot produce a percentage', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
     const invalidMemory = sample(10)
     invalidMemory.memory.totalBytes = 0
     invalidMemory.memory.availableBytes = 0
 
-    service.onHostMetrics(asMachineId('local'), invalidMemory)
+    await service.onHostMetrics(asMachineId('local'), invalidMemory)
 
     expect(parked).toEqual(['one'])
   })
-  it('retries memory pressure after a race without spending the cooldown', () => {
+  it('retries memory pressure after a race without spending the cooldown', async () => {
     const failures = new Set(['raced'])
     const sessions = [
       session(asSessionId('raced')),
@@ -420,15 +433,15 @@ describe('idle-session cap', () => {
       fail: failures,
     })
 
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toEqual(['next'])
 
     failures.clear()
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
     expect(parked).toEqual(['next'])
   })
 
-  it('keeps count-pressure burst budgets independent per machine', () => {
+  it('keeps count-pressure burst budgets independent per machine', async () => {
     const sessions = [
       ...Array.from({ length: 5 }, (_, index) =>
         session(asSessionId(`a${index}`), { machineId: asMachineId('a') }),
@@ -439,14 +452,14 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('a'), sample(10))
-    service.onHostMetrics(asMachineId('b'), sample(10))
+    await service.onHostMetrics(asMachineId('a'), sample(10))
+    await service.onHostMetrics(asMachineId('b'), sample(10))
 
     expect(parked.filter((id) => id.startsWith('a'))).toHaveLength(4)
     expect(parked.filter((id) => id.startsWith('b'))).toHaveLength(4)
   })
 
-  it('tries another eligible candidate after a hibernation race', () => {
+  it('tries another eligible candidate after a hibernation race', async () => {
     const sessions = [session(asSessionId('raced')), session(asSessionId('next'))]
     const { service, parked } = harness({
       sessions,
@@ -454,12 +467,12 @@ describe('idle-session cap', () => {
       fail: new Set(['raced']),
     })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['next'])
   })
 
-  it('reports the remaining overage when protected sessions prevent convergence', () => {
+  it('reports the remaining overage when protected sessions prevent convergence', async () => {
     const logs = captureLogs()
     const sessions = [
       session(asSessionId('parkable')),
@@ -475,7 +488,7 @@ describe('idle-session cap', () => {
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['parkable'])
     expect(logs.at('info')).toContainEqual(
@@ -485,20 +498,20 @@ describe('idle-session cap', () => {
     expect(service.hostMetricsMessage()).toMatchObject({ hosts: [{ idleCapUnmet: 3 }] })
   })
 
-  it('disables both memory and count pressure when hibernation is disabled', () => {
+  it('disables both memory and count pressure when hibernation is disabled', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0, enabled: false })
 
-    service.onHostMetrics(asMachineId('local'), sample(90))
+    await service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual([])
   })
 
-  it('leaves count pressure off when the target is unlimited', () => {
+  it('leaves count pressure off when the target is unlimited', async () => {
     const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
-    service.onHostMetrics(asMachineId('local'), sample(10))
+    await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual([])
   })
@@ -506,7 +519,7 @@ describe('idle-session cap', () => {
   // POD-568. Finished work is reaped first, and that is ALL the lifecycle tier
   // does — every case below keeps the safety gates deciding who may be parked.
   describe('lifecycle ordering', () => {
-    it('reaps closed work first, then unbound sessions, then open work', () => {
+    it('reaps closed work first, then unbound sessions, then open work', async () => {
       // Idle age is deliberately INVERTED against the tiers: the open-issue
       // session is the oldest, so age alone would park it first.
       const sessions = [
@@ -524,12 +537,12 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['closed', 'unbound', 'open'])
     })
 
-    it('still breaks ties inside a tier by effective idle age', () => {
+    it('still breaks ties inside a tier by effective idle age', async () => {
       const sessions = [
         session(asSessionId('closed-newer'), {
           issueClosed: true,
@@ -542,7 +555,7 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['closed-older'])
     })
@@ -550,7 +563,7 @@ describe('idle-session cap', () => {
     // THE CASE THE OPERATOR RULED ON. An agent that marked its issue done and
     // kept writing must not be parked ahead of live work — being first in the
     // queue is not permission to skip the gates.
-    it('refuses a closed-issue session that is still producing output', () => {
+    it('refuses a closed-issue session that is still producing output', async () => {
       const sessions = [
         session(asSessionId('closed-but-writing'), {
           issueClosed: true,
@@ -560,12 +573,12 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['open-and-quiet'])
     })
 
-    it('refuses a closed-issue session that has not been idle long enough', () => {
+    it('refuses a closed-issue session that has not been idle long enough', async () => {
       const sessions = [
         session(asSessionId('closed-but-active'), {
           issueClosed: true,
@@ -575,24 +588,24 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['open-and-idle'])
     })
 
-    it('refuses a closed-issue session with no resume ref rather than killing it', () => {
+    it('refuses a closed-issue session with no resume ref rather than killing it', async () => {
       const sessions = [
         session(asSessionId('closed-no-resume'), { issueClosed: true, resume: undefined }),
         session(asSessionId('open-resumable'), { issueClosed: false }),
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['open-resumable'])
     })
 
-    it('orders memory-pressure candidates the same way', () => {
+    it('orders memory-pressure candidates the same way', async () => {
       const sessions = [
         session(asSessionId('open'), {
           issueClosed: false,
@@ -602,7 +615,7 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
-      service.onHostMetrics(asMachineId('local'), sample(90))
+      await service.onHostMetrics(asMachineId('local'), sample(90))
 
       expect(parked).toEqual(['closed'])
     })
@@ -612,7 +625,7 @@ describe('idle-session cap', () => {
   // to every pressure source. Count them after a long quiet window; act only
   // when a resume ref exists; shells get a separate opt-in policy.
   describe('unobserved phase (POD-565)', () => {
-    it('counts a quiet unobserved agent that HAS a resume ref — it pays its own overage', () => {
+    it('counts a quiet unobserved agent that HAS a resume ref — it pays its own overage', async () => {
       // Cap 1: one known idle + one long-quiet unobserved holding a resume ref →
       // overage 1, and the unobserved session is itself eligible to pay it.
       const sessions = [
@@ -621,12 +634,12 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toHaveLength(1)
     })
 
-    it('does NOT count an unobserved session nothing can park, so no observed agent pays', () => {
+    it('does NOT count an unobserved session nothing can park, so no observed agent pays', async () => {
       // THE REGRESSION THIS PINS. A session with no resume ref can never enter
       // hibernateSession, so counting it would raise an overage that only
       // OBSERVED agents could pay — a debt that never retires, leaving the loop
@@ -638,14 +651,14 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual([])
       expect(sessions[0]?.status).toBe('live')
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('does not count a recently-active unobserved session', () => {
+    it('does not count a recently-active unobserved session', async () => {
       const sessions = [
         session(asSessionId('known-idle')),
         unobserved(asSessionId('still-noisy'), {
@@ -657,13 +670,13 @@ describe('idle-session cap', () => {
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       // Only known-idle is in the idle-live set → under the cap of 1.
       expect(parked).toEqual([])
     })
 
-    it('logs when unobserved quiet sessions enter the idle-live set', () => {
+    it('logs when unobserved quiet sessions enter the idle-live set', async () => {
       const logs = captureLogs()
       const sessions = [
         unobserved(asSessionId('hookless-a'), { resume: undefined }),
@@ -671,8 +684,8 @@ describe('idle-session cap', () => {
       ]
       const { service } = harness({ sessions, maxIdleSessions: 0 })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       const lines = logs
         .at('info')
@@ -688,7 +701,7 @@ describe('idle-session cap', () => {
       logs.restore()
     })
 
-    it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', () => {
+    it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', async () => {
       const sessions = [unobserved(asSessionId('hookless-resumable'))]
       const { service, parked, hibernateRequireProof } = harness({
         sessions,
@@ -697,7 +710,7 @@ describe('idle-session cap', () => {
         proven: new Set(),
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['hookless-resumable'])
       expect(hibernateRequireProof).toEqual([
@@ -705,21 +718,21 @@ describe('idle-session cap', () => {
       ])
     })
 
-    it('never routes an unobserved session without a resume ref into hibernateSession', () => {
+    it('never routes an unobserved session without a resume ref into hibernateSession', async () => {
       const sessions = [unobserved(asSessionId('no-resume'), { resume: undefined })]
       const { service, parked, hibernateRequireProof } = harness({
         sessions,
         maxIdleSessions: 0,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual([])
       expect(hibernateRequireProof).toEqual([])
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('a quiet shell does not inflate the cap while idleShellMinutes is off', () => {
+    it('a quiet shell does not inflate the cap while idleShellMinutes is off', async () => {
       // With the shell policy off, applyShellIdlePressure never runs, so nothing
       // on this host can park a shell. Counting it would make the known-idle
       // agent pay for a session no policy is acting on. The POD-526 host had a
@@ -731,7 +744,7 @@ describe('idle-session cap', () => {
         idleShellMinutes: null,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual([])
       expect(shellParked).toEqual([])
@@ -739,7 +752,7 @@ describe('idle-session cap', () => {
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('the same shell DOES count once idleShellMinutes turns the policy on', () => {
+    it('the same shell DOES count once idleShellMinutes turns the policy on', async () => {
       // The predicate follows the policy rather than a constant: switch shell
       // reaping on and the shell becomes both parkable and countable in the same
       // breath. Cap 1 with two sessions is an overage of 1; the shell is quiet
@@ -751,12 +764,12 @@ describe('idle-session cap', () => {
         idleShellMinutes: 1,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(shellParked).toEqual(['old-shell'])
     })
 
-    it('parks a quiet shell when idleShellMinutes is set', () => {
+    it('parks a quiet shell when idleShellMinutes is set', async () => {
       const sessions = [
         shell(asSessionId('old-shell'), {
           lastActiveAt: new Date(NOW - 48 * 60_000).toISOString(),
@@ -775,14 +788,14 @@ describe('idle-session cap', () => {
         idleShellMinutes: 24,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(shellParked).toEqual(['old-shell'])
       expect(parked).toEqual([])
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('never auto-parks a native login shell', () => {
+    it('never auto-parks a native login shell', async () => {
       const sessions = [
         shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
         shell(asSessionId('ordinary-shell')),
@@ -793,13 +806,13 @@ describe('idle-session cap', () => {
         idleShellMinutes: 1,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(shellParked).toEqual(['ordinary-shell'])
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('does not make an idle agent pay for a protected login shell', () => {
+    it('does not make an idle agent pay for a protected login shell', async () => {
       const sessions = [
         session(asSessionId('known-idle')),
         shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
@@ -810,14 +823,14 @@ describe('idle-session cap', () => {
         idleShellMinutes: 1,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual([])
       expect(shellParked).toEqual([])
       expect(sessions.every((item) => item.status === 'live')).toBe(true)
     })
 
-    it('leaves shells alone when idleShellMinutes is explicitly off', () => {
+    it('leaves shells alone when idleShellMinutes is explicitly off', async () => {
       const sessions = [shell(asSessionId('ancient-shell'))]
       const { service, shellParked } = harness({
         sessions,
@@ -825,13 +838,13 @@ describe('idle-session cap', () => {
         idleShellMinutes: null,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(shellParked).toEqual([])
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('parks the oldest quiet shell first under idleShellMinutes', () => {
+    it('parks the oldest quiet shell first under idleShellMinutes', async () => {
       const sessions = [
         shell(asSessionId('newer'), {
           lastActiveAt: new Date(NOW - 30 * 60_000).toISOString(),
@@ -850,9 +863,57 @@ describe('idle-session cap', () => {
         idleShellMinutes: 24,
       })
 
-      service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(shellParked).toEqual(['older'])
+    })
+  })
+
+  /**
+   * THE BACKSTOP HAD NO TEST AT ALL — `backstopMinutes` was `null` in every
+   * harness, so `applyIdleBackstop` never ran (POD-3263). It is the one sweep
+   * path whose predicate consumes `hasScheduledWakeup`, which is a durable read
+   * now: handing an async callback to `.filter` there would have made the guard
+   * silently permissive (a promise is always truthy) and parked a session with a
+   * wake-up already scheduled. These two cover both answers of that guard.
+   */
+  describe('idle backstop', () => {
+    const ancient = (sessionId: SessionId): HostSessionView =>
+      session(sessionId, {
+        agentState: undefined,
+        lastActiveAt: new Date(NOW - 5 * 24 * HOUR).toISOString(),
+        lastInputAtMs: NOW - 5 * 24 * HOUR,
+        lastOutputAtMs: NOW - 5 * 24 * HOUR,
+      })
+
+    it('parks a session quiet past the backstop', async () => {
+      const sessions = [ancient(asSessionId('forgotten'))]
+      const { service, parked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 2 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['forgotten'])
+    })
+
+    it('leaves a backstop-quiet session alone when a wake-up is already scheduled', async () => {
+      const sessions = [ancient(asSessionId('forgotten'))]
+      const { service, parked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 2 * 24 * 60,
+        scheduledWakeups: new Set(['forgotten']),
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
     })
   })
 })
@@ -875,7 +936,7 @@ describe('reclaim disk estimate cache', () => {
     })
 
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r', '/r/.worktrees/a'],
         ['/r/.worktrees/a'],
         asMachineId('local'),
@@ -885,7 +946,7 @@ describe('reclaim disk estimate cache', () => {
     await Promise.resolve()
 
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r/.worktrees/a', '/r'],
         ['/r/.worktrees/a'],
         asMachineId('local'),
@@ -899,7 +960,7 @@ describe('reclaim disk estimate cache', () => {
 
     now.mockReturnValue(5 * 60_000 + 1)
     expect(
-      service.reclaimDiskEstimate(
+      await service.reclaimDiskEstimate(
         ['/r/.worktrees/a', '/r'],
         ['/r/.worktrees/a'],
         asMachineId('local'),

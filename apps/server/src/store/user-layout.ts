@@ -25,10 +25,11 @@
 import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
 import { and, asc, eq } from 'drizzle-orm'
 import { userLayout } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export class UserLayoutRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -41,8 +42,8 @@ export class UserLayoutRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -50,8 +51,8 @@ export class UserLayoutRepository {
    * POD-403 hydrates ui-state from this object (bootstrap / command response).
    * Unparseable rows are skipped (same posture as preferences).
    */
-  getSnapshot(userId: UserId): LayoutSnapshot {
-    const rows = this.db
+  async getSnapshot(userId: UserId): Promise<LayoutSnapshot> {
+    const rows = await this.db
       .select({ key: userLayout.key, value: userLayout.value })
       .from(userLayout)
       .where(eq(userLayout.userId, userId))
@@ -68,8 +69,8 @@ export class UserLayoutRepository {
   }
 
   /** One key's value, or `undefined` when never set. */
-  get(userId: UserId, key: string): unknown {
-    const row = this.db
+  async get(userId: UserId, key: string): Promise<unknown> {
+    const row = await this.db
       .select({ value: userLayout.value })
       .from(userLayout)
       .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
@@ -86,17 +87,17 @@ export class UserLayoutRepository {
    * Write one layout key. THROWS on a key outside the closed vocabulary so a
    * mis-routed device-local key cannot grow a server row.
    */
-  set(userId: UserId, key: string, value: unknown, updatedAt: string): void {
+  async set(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
     if (!isLayoutKey(key)) {
       throw new Error(
         `'${key}' is not a replicated layout key (POD-1350 / isLayoutKey), so it has no server row`,
       )
     }
-    this.write(userId, key, value, updatedAt)
+    await this.write(userId, key, value, updatedAt)
   }
 
   /** Apply a multi-key patch. Refuses the whole batch if any key is inadmissible. */
-  setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): void {
+  async setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): Promise<void> {
     for (const key of Object.keys(values)) {
       if (!isLayoutKey(key)) {
         throw new Error(
@@ -104,9 +105,9 @@ export class UserLayoutRepository {
         )
       }
     }
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (const [key, value] of Object.entries(values)) {
-        this.write(userId, key, value, updatedAt)
+        await this.write(userId, key, value, updatedAt)
       }
     })
   }
@@ -118,11 +119,11 @@ export class UserLayoutRepository {
    * uniqueness constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE`
    * exactly (checklist item 1, as amended: every column is named).
    */
-  private write(userId: UserId, key: string, value: unknown, updatedAt: string): void {
+  private async write(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
     const encoded = JSON.stringify(value ?? null)
-    this.db
+    ;await (this.db
       .insert(userLayout)
-      .values({ userId, key, value: encoded, updatedAt })
+      .values({ userId, key, value: encoded, updatedAt }))
       .onConflictDoUpdate({
         target: [userLayout.userId, userLayout.key],
         set: { value: encoded, updatedAt },
@@ -131,21 +132,21 @@ export class UserLayoutRepository {
   }
 
   /** Forget one key — the client falls back to its default. */
-  clear(userId: UserId, key: string): void {
-    this.db
+  async clear(userId: UserId, key: string): Promise<void> {
+    await this.db
       .delete(userLayout)
       .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
       .run()
   }
 
-  clearMany(userId: UserId, keys: readonly string[]): void {
-    this.createOrJoinTransaction(() => {
-      for (const key of keys) this.clear(userId, key)
+  async clearMany(userId: UserId, keys: readonly string[]): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      for (const key of keys) await this.clear(userId, key)
     })
   }
 
-  keysFor(userId: UserId): string[] {
-    const rows = this.db
+  async keysFor(userId: UserId): Promise<string[]> {
+    const rows = await this.db
       .select({ key: userLayout.key })
       .from(userLayout)
       .where(eq(userLayout.userId, userId))

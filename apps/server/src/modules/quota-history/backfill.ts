@@ -49,11 +49,11 @@ export function toQuotaSample(wire: QuotaHistorySampleWire): QuotaSample | undef
  * them as they came would open and close windows in the wrong sequence. Sorting
  * by `atMs` first replays the real history.
  */
-export function ingestBackfill(
+export async function ingestBackfill(
   history: QuotaHistoryRepository,
   wires: QuotaHistorySampleWire[],
   intervalMs: number = QUOTA_SAMPLE_INTERVAL_MS,
-): { recorded: number; skipped: number } {
+): Promise<{ recorded: number; skipped: number }> {
   const samples = wires
     .map(toQuotaSample)
     .filter((s): s is QuotaSample => s !== undefined)
@@ -61,7 +61,7 @@ export function ingestBackfill(
   let recorded = 0
   for (const sample of samples) {
     try {
-      history.record(sample, intervalMs)
+      await history.record(sample, intervalMs)
       recorded += 1
     } catch (err) {
       log.debug('backfill sample not recorded', { err: String(err) })
@@ -125,11 +125,11 @@ export class QuotaBackfill {
       return { recorded: 0, skipped: 0 }
     }
     if (this.disposed || wires.length === 0) return { recorded: 0, skipped: 0 }
-    const result = ingestBackfill(this.history, wires)
+    const result = await ingestBackfill(this.history, wires)
     log.info('quota history backfilled', {
       samples: wires.length,
       recorded: result.recorded,
-      windows: this.history.countAll(),
+      windows: await this.history.countAll(),
     })
     return result
   }

@@ -50,19 +50,19 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 
 async function harness(role: UserRole | undefined) {
   const store = await openTestStore(':memory:')
-  const registry = SessionRegistry.create(store, undefined, {
+  const registry = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
   })
-  registry.modules.machines.ensureHostMachine('machine-under-test')
+  await registry.modules.machines.ensureHostMachine('machine-under-test')
 
   // Override only after boot has loaded the real migration account. The command
   // gate must see the requested role (including unreadable), while unrelated
   // session-state bootstrap remains a production-valid account read.
-  const users = store.users as { roleOf: (id: UserId) => UserRole | undefined }
-  users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
+  const users = store.users as { roleOf: (id: UserId) => Promise<UserRole | undefined> }
+  users.roleOf = async (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     store,
     call: appRouter.createCaller({
@@ -211,8 +211,7 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
     })
     expect((await store.settingsAudit.list()).at(-1)?.actorKind).toBe('system')
 
-    expect(() =>
-      store.settingsAudit.append({
+    await expect(store.settingsAudit.append({
         command: 'settings.updateInstance',
         outcome: 'applied',
         actorKind: 'system',
@@ -223,6 +222,6 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
         redactedPaths: [],
         createdAt: '2026-07-31T00:00:00.000Z',
       }),
-    ).toThrow()
+    ).rejects.toThrow()
   })
 })

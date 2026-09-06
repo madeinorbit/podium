@@ -67,7 +67,7 @@ function instantiateKernelPorts(name: string) {
   let minted = 0
 
   const store: ChangeLogStore = {
-    appendChanges(batch) {
+    async appendChanges(batch) {
       const seqs: number[] = []
       for (const r of batch) {
         rows.push({ seq: nextSeq, ...r })
@@ -76,12 +76,12 @@ function instantiateKernelPorts(name: string) {
       }
       return seqs
     },
-    maxChangeSeq: () => nextSeq - 1,
-    minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
-    planChangePrune: () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: () => 0,
-    latestChangeStates: () => {
+    maxChangeSeq: async () => nextSeq - 1,
+    minChangeSeq: async () => rows[0]?.seq ?? null,
+    changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    planChangePrune: async () => ({ thresholdSeq: 0 }),
+    pruneChangeBatch: async () => 0,
+    latestChangeStates: async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
@@ -90,11 +90,11 @@ function instantiateKernelPorts(name: string) {
 
   // A REAL span: it snapshots and restores, so an atomicity claim here is measured
   // rather than assumed. A pass-through `(fn) => fn()` would make rollback vacuous.
-  const transact = <T>(fn: () => T): T => {
+  const transact = async <T>(fn: () => Promise<T>): Promise<T> => {
     const snapshot = rows.slice()
     const savedSeq = nextSeq
     try {
-      return fn()
+      return await fn()
     } catch (err) {
       rows = snapshot
       nextSeq = savedSeq
@@ -103,8 +103,8 @@ function instantiateKernelPorts(name: string) {
   }
 
   const identityStore: FeedIdentityStore = {
-    readIdentity: () => identity,
-    writeIdentity: (next) => {
+    readIdentity: async () => identity,
+    writeIdentity: async (next) => {
       identity = next
     },
   }
@@ -142,35 +142,35 @@ const upsert = (id: string): StagedChangeSpec => ({
   value: { id },
 })
 
-function commit(
+async function commit(
   world: ReturnType<typeof instantiateKernelPorts>,
   id: string,
-): readonly number[] | undefined {
-  const outcome = world.authority.commit({
-    write: () => undefined,
+): Promise<readonly number[] | undefined> {
+  const outcome = await world.authority.commit({
+    write: async () => undefined,
     changes: () => [upsert(id)],
   })
   return outcome.outcome === 'committed' ? outcome.changes.map((c) => c.seq) : undefined
 }
 
 describe('ADR 5 D8 — a SECOND Authority instantiates against the kernel ports', () => {
-  it('both authorities accept writes — the control that keeps the isolation cases honest', () => {
+  it('both authorities accept writes — the control that keeps the isolation cases honest', async () => {
     const a = instantiateKernelPorts('a')
     const b = instantiateKernelPorts('b')
     // An authority that refuses everything would satisfy every "B never sees A's row"
     // assertion in this file. This is the case that fails first if that ever happens.
-    expect(commit(a, 'a1')).toEqual([1])
-    expect(commit(b, 'b1')).toEqual([1])
+    expect(await commit(a, 'a1')).toEqual([1])
+    expect(await commit(b, 'b1')).toEqual([1])
     expect(a.ids()).toEqual(['a1'])
     expect(b.ids()).toEqual(['b1'])
   })
 
-  it('two Authorities over separate ports share NO state — no same-machine singleton', () => {
+  it('two Authorities over separate ports share NO state — no same-machine singleton', async () => {
     const a = instantiateKernelPorts('a')
     const b = instantiateKernelPorts('b')
-    commit(a, 'a1')
-    commit(a, 'a2')
-    commit(b, 'b1')
+    await commit(a, 'a1')
+    await commit(a, 'a2')
+    await commit(b, 'b1')
     // Global seq is per-authority: B's first row is seq 1 even though A has already
     // assigned 1 and 2. A module-level counter, a shared baseline or a process-wide
     // store would show up here as B starting at 3 — or as A's ids appearing in B.
@@ -180,9 +180,10 @@ describe('ADR 5 D8 — a SECOND Authority instantiates against the kernel ports'
     expect(b.ids()).toEqual(['b1'])
   })
 
-  it('each Authority carries its OWN feed identity (S1) — a cursor is meaningless alone', () => {
+  it('each Authority carries its OWN feed identity (S1) — a cursor is meaningless alone', async () => {
     const a = instantiateKernelPorts('a')
     const b = instantiateKernelPorts('b')
+    await Promise.all([a.feed.resolve(), b.feed.resolve()])
     const idA = a.feed.current()
     const idB = b.feed.current()
     // Opaque, checked by the SHIPPED guard rather than by a regex written here: if a
@@ -193,15 +194,16 @@ describe('ADR 5 D8 — a SECOND Authority instantiates against the kernel ports'
     expect(idA.epoch).not.toBe(idB.epoch)
     // The property a future node needs: seq 1 exists in BOTH feeds and means two
     // different things, so `(feedId, epoch, seq)` is the identity and `seq` is not.
-    commit(a, 'a1')
-    commit(b, 'b1')
+    await commit(a, 'a1')
+    await commit(b, 'b1')
     expect(a.seqs()).toEqual([1])
     expect(b.seqs()).toEqual([1])
     expect(idA).not.toEqual(idB)
   })
 
-  it('identity survives rebuilding the registry over the SAME ports, per authority', () => {
+  it('identity survives rebuilding the registry over the SAME ports, per authority', async () => {
     const a = instantiateKernelPorts('a')
+    await a.feed.resolve()
     const first = a.feed.current()
     // Not a second world: the same `a`, asked again. This is what makes the
     // distinct-feedId case above a statement about two AUTHORITIES rather than about a

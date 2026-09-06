@@ -143,15 +143,15 @@ export class IssueArtifactStore {
    * partial dir and rethrows — nothing half-registered.
    */
   async snapshot(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
-    const write = () => this.snapshotWritable(o)
-    return this.writeFence ? this.writeFence.runWriter(write) : write()
+    const write = async () => await this.snapshotWritable(o)
+    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
   }
 
   /** Store browser-provided bytes as an issue artifact without first writing a
    *  source file into a checkout or daemon upload directory. */
   async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
-    const write = () => this.uploadWritable(o)
-    return this.writeFence ? this.writeFence.runWriter(write) : write()
+    const write = async () => await this.uploadWritable(o)
+    return this.writeFence ? await this.writeFence.runWriter(write) : await write()
   }
 
   private async uploadWritable(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
@@ -362,15 +362,15 @@ export class IssueArtifactStore {
 
   /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
-    const write = () => rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
-    await (this.writeFence ? this.writeFence.runWriter(write) : write())
+    const write = async () => await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
+    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 
   /** Delete every snapshot of an issue (hard issue deletion). */
   async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
-    const write = () => rm(join(this.baseDir, issueId), { recursive: true, force: true })
-    await (this.writeFence ? this.writeFence.runWriter(write) : write())
+    const write = async () => await rm(join(this.baseDir, issueId), { recursive: true, force: true })
+    await (this.writeFence ? await this.writeFence.runWriter(write) : await write())
   }
 
   private assertInBase(p: string): void {

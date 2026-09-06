@@ -39,7 +39,7 @@ const BOB = asUserId('user:bob')
 
 async function fixture() {
   const store = await openTestStore(':memory:')
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessionState = new SessionStateRegistry({
@@ -66,7 +66,7 @@ async function fixture() {
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
-  const session = () => reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const session = async () => await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   return { store, reg, sessionState, asUser, asVisibleUser, session }
 }
 
@@ -77,15 +77,15 @@ async function fixture() {
 describe('per-user state is isolated between principals', () => {
   it('two principals snooze the SAME session and each reads only its own value', async () => {
     const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const until = new Date(Date.now() + 60_000).toISOString()
     const other = new Date(Date.now() + 120_000).toISOString()
 
     expect(
-      sessionState.execute('snoozes.set', { sessionId, until }, asVisibleUser(ALICE)).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId, until }, asVisibleUser(ALICE))).outcome,
     ).toBe('applied')
     expect(
-      sessionState.execute('snoozes.set', { sessionId, until: other }, asVisibleUser(BOB)).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId, until: other }, asVisibleUser(BOB))).outcome,
     ).toBe('applied')
 
     // Same entity, two rows, two values. Neither principal's write moved the
@@ -98,11 +98,11 @@ describe('per-user state is isolated between principals', () => {
     // The sharper case: a delete keyed too loosely would take both rows out, and
     // the set-only test above would not notice.
     const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = session()
-    sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(ALICE))
-    sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(BOB))
+    const { sessionId } = await session()
+    await sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(ALICE))
+    await sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(BOB))
 
-    sessionState.execute('snoozes.clear', { sessionId }, asVisibleUser(ALICE))
+    await sessionState.execute('snoozes.clear', { sessionId }, asVisibleUser(ALICE))
 
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({})
     expect(await store.sessions.listSnoozes(BOB)).toEqual({ [sessionId]: null })
@@ -111,10 +111,10 @@ describe('per-user state is isolated between principals', () => {
   it('pins are per-principal, and an unpin only unpins the caller', async () => {
     const { store, sessionState, asVisibleUser } = await fixture()
     const pin = { kind: 'panel', id: 'sess-1', pinned: true }
-    sessionState.execute('pins.set', pin, asVisibleUser(ALICE))
-    sessionState.execute('pins.set', pin, asVisibleUser(BOB))
+    await sessionState.execute('pins.set', pin, asVisibleUser(ALICE))
+    await sessionState.execute('pins.set', pin, asVisibleUser(BOB))
 
-    sessionState.execute('pins.set', { ...pin, pinned: false }, asVisibleUser(ALICE))
+    await sessionState.execute('pins.set', { ...pin, pinned: false }, asVisibleUser(ALICE))
 
     expect((await store.sessions.listPins(ALICE)).panels).toEqual([])
     expect((await store.sessions.listPins(BOB)).panels).toEqual(['sess-1'])
@@ -122,15 +122,15 @@ describe('per-user state is isolated between principals', () => {
 
   it('tab order is per-principal for the SAME worktree', async () => {
     const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = session().sessionId
-    const b = session().sessionId
+    const a = (await session()).sessionId
+    const b = (await session()).sessionId
 
-    sessionState.execute(
+    await sessionState.execute(
       'tabs.setOrder',
       { worktree: '/w', sessionIds: [a, b] },
       asVisibleUser(ALICE),
     )
-    sessionState.execute(
+    await sessionState.execute(
       'tabs.setOrder',
       { worktree: '/w', sessionIds: [b, a] },
       asVisibleUser(BOB),
@@ -142,11 +142,11 @@ describe('per-user state is isolated between principals', () => {
 
   it('the empty-list DELETE stays scoped too — it removes the caller’s row only', async () => {
     const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = session().sessionId
-    sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(ALICE))
-    sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(BOB))
+    const a = (await session()).sessionId
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(ALICE))
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(BOB))
 
-    sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [] }, asVisibleUser(ALICE))
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [] }, asVisibleUser(ALICE))
 
     expect(await store.sessions.listTabOrders(ALICE)).toEqual({})
     expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [a] })
@@ -160,11 +160,11 @@ describe('per-user state is isolated between principals', () => {
 describe('per-user writes are SELF-SCOPED', () => {
   it('a userId in the PAYLOAD is inert — it cannot redirect the write (ADR 3 D7)', async () => {
     const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
 
     // The strongest form of the self-scoping property: the attack does not fail,
     // it is not expressible. The row lands on ALICE regardless of the payload.
-    const result = sessionState.execute(
+    const result = await sessionState.execute(
       'snoozes.set',
       { sessionId, until: null, userId: BOB, onBehalfOf: BOB },
       asVisibleUser(ALICE),
@@ -177,7 +177,7 @@ describe('per-user writes are SELF-SCOPED', () => {
 
   it('a principal whose capability names ANOTHER user is denied, and the same call as itself is allowed', async () => {
     const { store, sessionState, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     // A forged/stale principal: identity says alice, capability is scoped to bob.
     // authorize() compares the target row's user against the CAPABILITY's user, so
     // the mismatch is caught rather than trusted.
@@ -189,7 +189,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     }
 
     expect(
-      sessionState.execute('snoozes.set', { sessionId, until: null }, mismatched).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId, until: null }, mismatched)).outcome,
     ).toBe('denied')
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({})
     expect(await store.sessions.listSnoozes(BOB)).toEqual({})
@@ -197,7 +197,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     // THE COUNTERFACTUAL: the identical call with a coherent principal applies. So
     // the denial above is the scope check talking, not a broken fixture.
     const coherent: SessionStatePrincipal = { ...mismatched, capability: OPERATOR }
-    expect(sessionState.execute('snoozes.set', { sessionId, until: null }, coherent).outcome).toBe(
+    expect((await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome).toBe(
       'applied',
     )
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({ [sessionId]: null })
@@ -208,24 +208,27 @@ describe('per-user writes are SELF-SCOPED', () => {
     // OWNER does not let you set somebody's read state on it — or your own through
     // an ownership capability.
     const { store, sessionState, asUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
 
     expect(
-      sessionState.execute('snoozes.set', { sessionId, until: null }, asUser(ALICE, 'owned'))
-        .outcome,
+      (await sessionState.execute(
+        'snoozes.set',
+        { sessionId, until: null },
+        asUser(ALICE, 'owned'),
+      )).outcome,
     ).toBe('denied')
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({})
   })
   it('an invisible session read is identical to a nonexistent-session read', async () => {
     const { reg, asUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const stranger = asUser(BOB, 'self')
     const missing = asSessionId('00000000-0000-4000-8000-000000000000')
 
-    expect(reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual(
-      reg.modules.sessions.state.readOverlay(stranger, missing),
+    expect(await reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual(
+      await reg.modules.sessions.state.readOverlay(stranger, missing),
     )
-    expect(reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual({ kind: 'absent' })
+    expect(await reg.modules.sessions.state.readOverlay(stranger, sessionId)).toEqual({ kind: 'absent' })
   })
 })
 
@@ -259,7 +262,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
 
   it.each(SHARED)('%s: the OWNER is allowed', async (name) => {
     const { sessionState, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     // Sessions are owned by SOLE_USER_ID until POD-1075 (SessionLifecycle.sessionOwner).
     const owner: SessionStatePrincipal = {
       userId: asUserId(SOLE_USER_ID),
@@ -268,25 +271,25 @@ describe('owner-or-grant policy on the shared session writes', () => {
       humanDirect: true,
     }
 
-    expect(sessionState.execute(name, inputFor(name, sessionId), owner).outcome).toBe('applied')
+    expect((await sessionState.execute(name, inputFor(name, sessionId), owner)).outcome).toBe('applied')
   })
 
   it.each(SHARED)('%s: a principal without owner or grant is DENIED', async (name) => {
     const { sessionState, asUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
 
     expect(
-      sessionState.execute(name, inputFor(name, sessionId), asUser(BOB, 'owned')).outcome,
+      (await sessionState.execute(name, inputFor(name, sessionId), asUser(BOB, 'owned'))).outcome,
     ).toBe('denied')
   })
 
   it('the denial is INDISTINGUISHABLE from not-found (§3.1.5)', async () => {
     const { sessionState, asUser, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const stranger = asUser(BOB, 'owned')
 
-    const denied = sessionState.execute('sessions.rename', { sessionId, name: 'x' }, stranger)
-    const missing = sessionState.execute(
+    const denied = await sessionState.execute('sessions.rename', { sessionId, name: 'x' }, stranger)
+    const missing = await sessionState.execute(
       'sessions.rename',
       { sessionId: asSessionId('00000000-0000-4000-8000-000000000000'), name: 'x' },
       stranger,
@@ -302,7 +305,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     // envelope refusing uniformly: the OWNER gets a DIFFERENT outcome for the
     // session that exists, and the SAME not-found for the one that does not.
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
-    expect(sessionState.execute('sessions.rename', { sessionId, name: 'x' }, owner).outcome).toBe(
+    expect((await sessionState.execute('sessions.rename', { sessionId, name: 'x' }, owner)).outcome).toBe(
       'applied',
     )
   })
@@ -310,11 +313,11 @@ describe('owner-or-grant policy on the shared session writes', () => {
   it('a session that does not exist denies even the OPERATOR — absence is not a permission question', async () => {
     const { sessionState } = await fixture()
     expect(
-      sessionState.execute(
+      (await sessionState.execute(
         'sessions.rename',
         { sessionId: asSessionId('nope'), name: 'x' },
         soleHumanSessionStatePrincipal(OPERATOR),
-      ).outcome,
+      )).outcome,
     ).toBe('denied')
   })
 })
@@ -351,22 +354,22 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
 
   it('the SAME queued rename applies while granted and is rejected after revocation', async () => {
     const { sessionState, asUser, session, revoke, reg } = await grantableFixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const grantee = asUser(BOB, 'owned')
 
     // Drain #1, still granted: applied. This is the arm that proves the fixture
     // can say YES — without it, the rejection below would prove nothing.
     const queued = { sessionId, name: 'from the outbox', mutationId: 'm-offline-1' }
-    expect(sessionState.execute('sessions.rename', queued, grantee).outcome).toBe('applied')
-    expect(reg.modules.sessions.listSessions()[0]?.name).toBe('from the outbox')
+    expect((await sessionState.execute('sessions.rename', queued, grantee)).outcome).toBe('applied')
+    expect((await reg.modules.sessions.listSessions())[0]?.name).toBe('from the outbox')
 
     revoke()
 
     // Drain #2 — a DIFFERENT queued write, authored before the revocation, draining
     // after it. Rejected at apply time.
     const laterQueued = { sessionId, name: 'authored before revocation', mutationId: 'm-offline-2' }
-    expect(sessionState.execute('sessions.rename', laterQueued, grantee).outcome).toBe('denied')
-    expect(reg.modules.sessions.listSessions()[0]?.name).toBe('from the outbox')
+    expect((await sessionState.execute('sessions.rename', laterQueued, grantee)).outcome).toBe('denied')
+    expect((await reg.modules.sessions.listSessions())[0]?.name).toBe('from the outbox')
   })
 
   it('a REPLAY of an already-applied write is re-authorized, not served from the dedup cache', async () => {
@@ -374,17 +377,17 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
     // this replay would return the cached result and read as a success — the dedup
     // cache would have laundered a write the principal may no longer make.
     const { sessionState, asUser, session, revoke } = await grantableFixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const grantee = asUser(BOB, 'owned')
     const write = { sessionId, name: 'first apply', mutationId: 'm-replay' }
 
-    expect(sessionState.execute('sessions.rename', write, grantee).outcome).toBe('applied')
+    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('applied')
     // Replay while STILL granted: served from the cache, as idempotency requires.
-    expect(sessionState.execute('sessions.rename', write, grantee).outcome).toBe('replayed')
+    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('replayed')
 
     revoke()
 
-    expect(sessionState.execute('sessions.rename', write, grantee).outcome).toBe('denied')
+    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('denied')
   })
 })
 
@@ -395,50 +398,50 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
 describe('the envelope refuses before it reads anything', () => {
   it('a transport the contract does not declare is refused — and the declared one is not', async () => {
     const { sessionState, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
     const input = { sessionId, name: 'via relay' }
 
     // POD-379 pinned that session-state writes have NO agent path. The contracts declare
     // only 'trpc', so the relay is refused by the exposure gate rather than by an
     // allowlist that could drift from the contract.
-    expect(sessionState.execute('sessions.rename', input, owner, 'relay').outcome).toBe(
+    expect((await sessionState.execute('sessions.rename', input, owner, 'relay')).outcome).toBe(
       'not-exposed',
     )
-    expect(sessionState.execute('sessions.rename', input, owner, 'cli').outcome).toBe('not-exposed')
-    expect(sessionState.execute('sessions.rename', input, owner, 'trpc').outcome).toBe('applied')
+    expect((await sessionState.execute('sessions.rename', input, owner, 'cli')).outcome).toBe('not-exposed')
+    expect((await sessionState.execute('sessions.rename', input, owner, 'trpc')).outcome).toBe('applied')
   })
 
   it('the composer draft is WS-only — not reachable over tRPC', async () => {
     const { sessionState, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
     const input = { sessionId, edit: { kind: 'replace', text: 'typing' } }
 
-    expect(sessionState.execute('sessions.setDraft', input, owner, 'trpc').outcome).toBe(
+    expect((await sessionState.execute('sessions.setDraft', input, owner, 'trpc')).outcome).toBe(
       'not-exposed',
     )
-    expect(sessionState.execute('sessions.setDraft', input, owner, 'ws').outcome).toBe('applied')
+    expect((await sessionState.execute('sessions.setDraft', input, owner, 'ws')).outcome).toBe('applied')
   })
 
   it('an unknown or prototype-chain command name is refused', async () => {
     const { sessionState } = await fixture()
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
     for (const name of ['sessions.nope', 'toString', 'constructor', '__proto__']) {
-      expect(sessionState.execute(name, {}, owner).outcome).toBe('not-exposed')
+      expect((await sessionState.execute(name, {}, owner)).outcome).toBe('not-exposed')
     }
   })
 
   it('invalid input is reported as invalid, not silently no-opped', async () => {
     const { sessionState, session } = await fixture()
-    const { sessionId } = session()
+    const { sessionId } = await session()
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
 
-    expect(sessionState.execute('sessions.rename', { sessionId }, owner).outcome).toBe(
+    expect((await sessionState.execute('sessions.rename', { sessionId }, owner)).outcome).toBe(
       'invalid-input',
     )
     expect(
-      sessionState.execute('sessions.rename', { sessionId, name: 'x'.repeat(121) }, owner).outcome,
+      (await sessionState.execute('sessions.rename', { sessionId, name: 'x'.repeat(121) }, owner)).outcome,
     ).toBe('invalid-input')
   })
 })
@@ -457,7 +460,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
       ...(await store.settings.getSettings()),
       experimental: { 'draft-sync': true },
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reg)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionState = new SessionStateRegistry({
@@ -466,7 +469,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
 
       mutations: reg.modules.mutations,
     })
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const svc = reg.modules.sessions as unknown as {
       draftRevision: (id: string) => number | undefined
     }
@@ -479,12 +482,12 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     const { sessionState, sessionId, owner, svc } = await flaggedFixture()
 
     expect(
-      sessionState.execute(
+      (await sessionState.execute(
         'sessions.setDraft',
         { sessionId, edit: edit('half typed') },
         owner,
         'ws',
-      ).outcome,
+      )).outcome,
     ).toBe('applied')
     // The instrument check: a revision now EXISTS, so the stale test below has
     // something real to be stale against.
@@ -493,7 +496,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
 
   it('an edit at the CURRENT revision applies, and one at a STALE revision is rejected', async () => {
     const { sessionState, sessionId, owner, svc } = await flaggedFixture()
-    sessionState.execute(
+    await sessionState.execute(
       'sessions.setDraft',
       { sessionId, edit: edit('first writer') },
       owner,
@@ -503,7 +506,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     expect(revision).toBeGreaterThan(0)
 
     // Fresh: accepted.
-    const fresh = sessionState.execute(
+    const fresh = await sessionState.execute(
       'sessions.setDraft',
       { sessionId, baseRevision: revision, edit: edit('same writer continues') },
       owner,
@@ -517,7 +520,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     // which is the one promise the op-stream reservation makes today (§3.3/§4).
     const staleAt = svc.draftRevision(sessionId)
     expect(staleAt).toBeGreaterThan(0)
-    const stale = sessionState.execute(
+    const stale = await sessionState.execute(
       'sessions.setDraft',
       { sessionId, baseRevision: (staleAt as number) - 1, edit: edit('CLOBBER') },
       owner,

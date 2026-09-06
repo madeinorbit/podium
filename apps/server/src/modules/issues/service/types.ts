@@ -40,7 +40,7 @@ import type { PublishSpec } from '../publish'
  * because there is nothing left for the feature to do after it has committed.
  */
 export interface IssueFunnel {
-  run<T>(op: { authorize?: () => void; write: () => T }): T
+  run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T>
 }
 
 /** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an
@@ -49,7 +49,7 @@ export interface IssueFunnel {
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
 export interface IssueLedger {
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
    *  alongside 'issue', reconciled from the same truth in the same pass, never a
    *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
@@ -61,9 +61,9 @@ export interface IssueLedger {
   reconcile(
     entity: 'issue' | 'issueProjection' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],
-  ): MetadataChange[]
+  ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */
-  capture(specs: EntityChangeSpec[]): MetadataChange[]
+  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it
@@ -152,6 +152,21 @@ export interface DepReportEntry {
  *  import surface did not. */
 export type { IssueTree, IssueTreeNode, IssueTreeSession }
 
+/** What a spawn reports back. Named so `spawnSession` can widen to a promise
+ *  without restating the shape twice. */
+export interface SpawnedSessionResult {
+  sessionId: SessionId
+  agentId?: string
+  harness?: string
+  model?: string | null
+  effort?: string | null
+  /** The machine the session landed on. REQUIRED (POD-318): the spawn path resolves a
+   *  machine before it creates anything, so a spawn result that cannot say where the
+   *  work went is a spawn that did not happen. It used to be optional, and the issue
+   *  workflow made up `'__local__'` when it was missing. */
+  machine: string
+}
+
 export interface IssueDeps {
   store: SessionStore
   /**
@@ -165,18 +180,21 @@ export interface IssueDeps {
    * happens today.
    */
   applyCommit?: BaselineFoldPort
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, without wiring every other session
    *  [POD-1639]. Optional so the test fixtures that satisfy this interface with
    *  `listSessions` alone keep working — `IssueStore.sessionsFor` falls back to
    *  filtering the full list, which is the same answer at the old price. */
-  listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
-  getSettings(): PodiumSettings
+  listSessionsForIssue?(
+    worktreePath: string | null,
+    issueId: IssueId,
+  ): SessionMeta[] | Promise<SessionMeta[]>
+  getSettings(): PodiumSettings | Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
    *  resolved inside createSession), which is the race-free way to start the work.
@@ -199,18 +217,7 @@ export interface IssueDeps {
     spawnedBy?: string
     machineId?: MachineId
     ownerUserId?: import('@podium/model').UserId
-  }): {
-    sessionId: SessionId
-    agentId?: string
-    harness?: string
-    model?: string | null
-    effort?: string | null
-    /** The machine the session landed on. REQUIRED (POD-318): the spawn path resolves a
-     *  machine before it creates anything, so a spawn result that cannot say where the
-     *  work went is a spawn that did not happen. It used to be optional, and the issue
-     *  workflow made up `'__local__'` when it was missing. */
-    machine: string
-  }
+  }): SpawnedSessionResult | Promise<SpawnedSessionResult>
   repoOp(
     op: RepoOp,
     cwd: string,
@@ -224,7 +231,7 @@ export interface IssueDeps {
    * and pass that same id to the operation. Optional only for the existing unit
    * fixtures; production injects the daemon router's exact resolver.
    */
-  resolveMachine?(requested: string | undefined, cwd: string): MachineId
+  resolveMachine?(requested: string | undefined, cwd: string): MachineId | Promise<MachineId>
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
@@ -267,7 +274,7 @@ export interface IssueDeps {
    * clone anything, so they get the lookup-only resolver and keep requireMachineForRepo
    * as the refusal. Optional so existing test deps literals stay valid.
    */
-  findRepoOnMachine?(repoPath: string, machineId: MachineId): string | null
+  findRepoOnMachine?(repoPath: string, machineId: MachineId): string | null | Promise<string | null>
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

@@ -198,7 +198,7 @@ export function createHeadShaCache(deps: {
   }
 
   return {
-    read() {
+    async read() {
       // A second caller arriving mid-read joins it rather than forking its own
       // git. `/version` reads HEAD several times per poll.
       if (inFlight) return inFlight
@@ -210,7 +210,7 @@ export function createHeadShaCache(deps: {
           const stamp = await deps.stamp()
           if (stamp !== null && stamp === held.stamp) return held.sha
         }
-        return fromGit()
+        return await fromGit()
       })()
       inFlight = request
       void request.then(
@@ -248,7 +248,7 @@ export function createGitHeadShaCache(
         located = null
         return null
       }
-      return readHeadStamp(where)
+      return await readHeadStamp(where)
     },
     ...options,
   })

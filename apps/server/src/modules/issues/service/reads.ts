@@ -32,6 +32,17 @@ import type { IssueRow, SessionStore } from '../../../store'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
+
+type IssueReadPredicate = (id: string) => boolean | Promise<boolean>
+
+async function filterReadable<T extends { id: string }>(
+  rows: readonly T[],
+  mayRead: IssueReadPredicate,
+): Promise<T[]> {
+  const readable = await Promise.all(rows.map((row) => mayRead(row.id)))
+  return rows.filter((_, index) => readable[index])
+}
+
 import type {
   DepReportEntry,
   DepReportRef,
@@ -75,12 +86,12 @@ export class IssueReportsModule {
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
   ) {}
 
-  list(...args: Parameters<IssueStore['list']>): ReturnType<IssueStore['list']> {
-    return this.store.list(...args)
+  async list(...args: Parameters<IssueStore['list']>): Promise<Awaited<ReturnType<IssueStore['list']>>> {
+    return await this.store.list(...args)
   }
 
-  resolveRef(...args: Parameters<IssueStore['resolveRef']>): ReturnType<IssueStore['resolveRef']> {
-    return this.store.resolveRef(...args)
+  async resolveRef(...args: Parameters<IssueStore['resolveRef']>): Promise<Awaited<ReturnType<IssueStore['resolveRef']>>> {
+    return await this.store.resolveRef(...args)
   }
 
   worktreePaths(): ReturnType<IssueStore['worktreePaths']> {
@@ -90,37 +101,45 @@ export class IssueReportsModule {
   unreadFor(...args: Parameters<IssueStore['unreadFor']>): ReturnType<IssueStore['unreadFor']> {
     return this.store.unreadFor(...args)
   }
-  readyList(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueWire[] {
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && !r.deletedAt && inScope(r))
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+  async readyList(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueWire[]> {
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const wires = await Promise.all(
+      (await filterReadable(
+        [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+        mayRead,
+      )).map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+    )
+    return wires
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  blockedList(repoPath?: string): IssueWire[] {
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => !r.deletedAt && inScope(r))
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+  async blockedList(repoPath?: string): Promise<IssueWire[]> {
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const wires = await Promise.all(
+      [...this.store.rows.values()]
+        .filter((r) => !r.deletedAt && inScope(r))
+        .map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+    )
+    return wires
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  graph(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueGraph {
-    const inScope = this.store.repoScopeFilter(repoPath)
-    const rows = [...this.store.rows.values()].filter(
-      (r) => mayRead(r.id) && !r.deletedAt && inScope(r),
+  async graph(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueGraph> {
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = await filterReadable(
+      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+      mayRead,
     )
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const nodes = rows.map((r) => {
-      const w = this.store.toWire(r, commentCounts, batch)
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const nodes = await Promise.all(rows.map(async (r) => {
+      const w = await this.store.toWire(r, commentCounts, batch)
       return {
         id: r.id,
         seq: r.seq,
@@ -131,7 +150,7 @@ export class IssueReportsModule {
         ready: w.ready,
         blocked: w.blocked,
       }
-    })
+    }))
     // Real dependency edges from the store + the hierarchy edge synthesized
     // from parent_id (single parent storage, #164).
     const edges = rows.flatMap((r) => [
@@ -141,10 +160,11 @@ export class IssueReportsModule {
     return { nodes, edges }
   }
 
-  epicStatus(id: string, mayRead: (id: string) => boolean = () => true): EpicStatus {
-    const row = this.store.rowOrThrow(id)
-    const children = [...this.store.rows.values()].filter(
-      (r) => mayRead(r.id) && r.parentId === row.id && !r.deletedAt,
+  async epicStatus(id: string, mayRead: IssueReadPredicate = () => true): Promise<EpicStatus> {
+    const row = await this.store.rowOrThrow(id)
+    const children = await filterReadable(
+      [...this.store.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt),
+      mayRead,
     )
     const childDoneCount = children.filter((c) => this.store.isClosed(c)).length
     return {
@@ -158,25 +178,27 @@ export class IssueReportsModule {
   /** Subissues of an issue — direct children, or the whole subtree with
    *  `recursive`. Sorted by seq; wires carry ready/blocked so a caller can
    *  attack an epic without stitching list+graph together. */
-  children(
+  async children(
     id: string,
     recursive = false,
-    mayRead: (id: string) => boolean = () => true,
-  ): IssueWire[] {
-    const root = this.store.rowOrThrow(id)
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<IssueWire[]> {
+    const root = await this.store.rowOrThrow(id)
     const rows: IssueRow[] = []
-    const walk = (pid: string): void => {
+    const walk = async (pid: string): Promise<void> => {
       for (const r of this.store.rows.values()) {
-        if (!mayRead(r.id) || r.parentId !== pid) continue
+        if (!(await mayRead(r.id)) || r.parentId !== pid) continue
         if (r.deletedAt) continue
         rows.push(r)
-        if (recursive) walk(r.id)
+        if (recursive) await walk(r.id)
       }
     }
-    walk(root.id)
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.store.toWire(r, commentCounts, batch))
+    await walk(root.id)
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    return await Promise.all(
+      rows.sort((a, b) => a.seq - b.seq).map(async (r) => await this.store.toWire(r, commentCounts, batch)),
+    )
   }
 
   /** One-call epic survey (issue #82): the root + its whole descendant subtree,
@@ -188,46 +210,46 @@ export class IssueReportsModule {
    *  manager can see live reviewers/implementers before spawn [spec:SP-99d3].
    *  Children omitted by the depth or node cap are counted on their parent
    *  (`omittedChildren`) and in the total (`omitted`). */
-  tree(
+  async tree(
     ref: string,
     opts: { maxDepth?: number; maxNodes?: number } = {},
-    mayRead: (id: string) => boolean = () => true,
-  ): IssueTree {
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<IssueTree> {
     const maxDepth = opts.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
     const maxNodes = opts.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
-    const rootRow = this.store.rowOrThrow(this.store.resolveRef(ref))
-    if (!mayRead(rootRow.id)) throw new IssueNotFound(ref)
+    const rootRow = await this.store.rowOrThrow(await this.store.resolveRef(ref))
+    if (!(await mayRead(rootRow.id))) throw new IssueNotFound(ref)
     const byParent = new Map<string, IssueRow[]>()
     for (const r of this.store.rows.values()) {
-      if (!mayRead(r.id) || !r.parentId || r.archived) continue
+      if (!(await mayRead(r.id)) || !r.parentId || r.archived) continue
       if (r.deletedAt) continue
       const list = byParent.get(r.parentId)
       if (list) list.push(r)
       else byParent.set(r.parentId, [r])
     }
     // One session list for the whole walk — same membership rules as IssueWire.
-    const sessionList = this.store.deps.listSessions()
+    const sessionList = await this.store.deps.listSessions()
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
-    const batch = this.store.wireBatch()
+    const batch = await this.store.wireBatch()
     let count = 0
     let omitted = 0
-    const node = (row: IssueRow, depth: number): IssueTreeNode => {
+    const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {
       count++
       const closed = this.store.isClosed(row)
-      const blocked = this.store.computeBlocked(row, batch)
-      const blocksDeps = (batch.depsByFrom.get(row.id) ?? [])
-        .filter((d) => d.type === 'blocks')
-        .flatMap((d) => {
-          const target = this.store.rows.get(d.toId)
-          return target && mayRead(target.id) ? [target.seq] : []
-        })
+      const blocked = await this.store.computeBlocked(row, batch)
+      const blocksDeps: number[] = []
+      for (const d of batch.depsByFrom.get(row.id) ?? []) {
+        if (d.type !== 'blocks') continue
+        const target = this.store.rows.get(d.toId)
+        if (target && (await mayRead(target.id))) blocksDeps.push(target.seq)
+      }
       const kids = (byParent.get(row.id) ?? []).sort((a, b) => a.seq - b.seq)
       const children: IssueTreeNode[] = []
       let omittedChildren = 0
       for (const k of kids) {
-        if (depth < maxDepth && count < maxNodes) children.push(node(k, depth + 1))
+        if (depth < maxDepth && count < maxNodes) children.push(await node(k, depth + 1))
         else omittedChildren++
       }
       omitted += omittedChildren
@@ -275,7 +297,7 @@ export class IssueReportsModule {
         omittedChildren,
       }
     }
-    const root = node(rootRow, 0)
+    const root = await node(rootRow, 0)
     return { root, totalNodes: count, omitted, maxDepth, maxNodes }
   }
 
@@ -283,52 +305,52 @@ export class IssueReportsModule {
    *  root included) or a whole repo. One entry per member with its blocks/waits
    *  edges resolved to seq+open/closed state, so an agent can see at a glance
    *  what is ready, what blocks what, and why something is not ready. */
-  depReport(
+  async depReport(
     opts: { id?: string; repoPath?: string } = {},
-    mayRead: (id: string) => boolean = () => true,
-  ): DepReportEntry[] {
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<DepReportEntry[]> {
     let members: IssueRow[]
     if (opts.id) {
-      const root = this.store.rowOrThrow(opts.id)
-      if (!mayRead(root.id)) throw new IssueNotFound(opts.id)
+      const root = await this.store.rowOrThrow(opts.id)
+      if (!(await mayRead(root.id))) throw new IssueNotFound(opts.id)
       members = [root]
-      const walk = (pid: string): void => {
+      const walk = async (pid: string): Promise<void> => {
         for (const r of this.store.rows.values()) {
-          if (!mayRead(r.id) || r.parentId !== pid) continue
+          if (!(await mayRead(r.id)) || r.parentId !== pid) continue
           if (r.deletedAt) continue
           members.push(r)
-          walk(r.id)
+          await walk(r.id)
         }
       }
-      walk(root.id)
+      await walk(root.id)
     } else {
-      const inScope = this.store.repoScopeFilter(opts.repoPath)
-      members = [...this.store.rows.values()].filter(
-        (r) => mayRead(r.id) && !r.deletedAt && inScope(r),
+      const inScope = await this.store.repoScopeFilter(opts.repoPath)
+      members = await filterReadable(
+        [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+        mayRead,
       )
     }
-    const batch = this.store.wireBatch()
+    const batch = await this.store.wireBatch()
     const ref = (row: IssueRow, type: string): DepReportRef => ({
       seq: row.seq,
       title: row.title,
       type,
       closed: this.store.isClosed(row),
     })
-    return members
-      .sort((a, b) => a.seq - b.seq)
-      .map((row) => {
+    return await Promise.all(
+      members.sort((a, b) => a.seq - b.seq).map(async (row) => {
         const closed = this.store.isClosed(row)
-        const blocked = this.store.computeBlocked(row, batch)
+        const blocked = await this.store.computeBlocked(row, batch)
         // Hierarchy is not scheduling: parent-child never appears here — it
         // lives in issues.parent_id, not in issue_deps (#164).
-        const deps = (batch.depsByFrom.get(row.id) ?? []).flatMap((d) => {
+        const deps = (await Promise.all((batch.depsByFrom.get(row.id) ?? []).map(async (d) => {
           const target = this.store.rows.get(d.toId)
-          return target && mayRead(target.id) ? [ref(target, d.type)] : []
-        })
-        const dependents = (batch.dependentsByTo.get(row.id) ?? []).flatMap((d) => {
+          return target && (await mayRead(target.id)) ? [ref(target, d.type)] : []
+        }))).flat()
+        const dependents = (await Promise.all((batch.dependentsByTo.get(row.id) ?? []).map(async (d) => {
           const source = this.store.rows.get(d.fromId)
-          return source && mayRead(source.id) ? [ref(source, d.type)] : []
-        })
+          return source && (await mayRead(source.id)) ? [ref(source, d.type)] : []
+        }))).flat()
         return {
           id: row.id,
           seq: row.seq,
@@ -346,33 +368,41 @@ export class IssueReportsModule {
           deps,
           dependents,
         }
-      })
+      }),
+    )
   }
 
-  closeEligibleEpics(
+  async closeEligibleEpics(
     repoPath?: string,
-    mayRead: (id: string) => boolean = () => true,
-  ): IssueWire[] {
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && inScope(r) && r.type === 'epic' && !this.store.isClosed(r))
-      .filter((r) => this.epicStatus(r.id, mayRead).complete)
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<IssueWire[]> {
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const candidates = await filterReadable(
+      [...this.store.rows.values()].filter(
+        (r) => inScope(r) && r.type === 'epic' && !this.store.isClosed(r),
+      ),
+      mayRead,
+    )
+    const statuses = await Promise.all(candidates.map(async (r) => await this.epicStatus(r.id, mayRead)))
+    const eligible = candidates.filter((_, index) => statuses[index]?.complete)
+    return await Promise.all(eligible.map(async (r) => await this.store.toWire(r, commentCounts, batch)))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
    *  Returns id pairs (`a.seq < b.seq`) whose token-set similarity over
    *  `title + ' ' + description` is >= threshold, sorted by score desc. */
-  findDuplicates(
+  async findDuplicates(
     repoPath?: string,
     threshold = 0.6,
-    mayRead: (id: string) => boolean = () => true,
-  ): DuplicateCandidate[] {
-    const inScope = this.store.repoScopeFilter(repoPath)
-    const open = [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && inScope(r) && !this.store.isClosed(r))
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<DuplicateCandidate[]> {
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const open = (await filterReadable(
+      [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
+      mayRead,
+    ))
       .sort((a, b) => a.seq - b.seq)
     const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
     const out: DuplicateCandidate[] = []
@@ -391,42 +421,47 @@ export class IssueReportsModule {
 
   /** Open issues whose `updatedAt` is older than `days` days before `nowMs`,
    *  oldest-first. `nowMs` is injectable so tests can pin "now". */
-  staleList(
+  async staleList(
     repoPath?: string,
     days = 30,
     nowMs = Date.now(),
-    mayRead: (id: string) => boolean = () => true,
-  ): IssueWire[] {
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<IssueWire[]> {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && inScope(r) && !this.store.isClosed(r))
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = (await filterReadable(
+      [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
+      mayRead,
+    ))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+    return await Promise.all(rows.map(async (r) => await this.store.toWire(r, commentCounts, batch)))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
-  lint(repoPath?: string, mayRead: (id: string) => boolean = () => true): LintFinding[] {
-    const inScope = this.store.repoScopeFilter(repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && inScope(r) && !this.store.isClosed(r))
+  async lint(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<LintFinding[]> {
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    return (await filterReadable(
+      [...this.store.rows.values()].filter((r) => inScope(r) && !this.store.isClosed(r)),
+      mayRead,
+    ))
       .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
   }
 
-  doctor(repoPath?: string, mayRead: (id: string) => boolean = () => true): DoctorReport {
-    const inScope = this.store.repoScopeFilter(repoPath)
-    const rows = [...this.store.rows.values()].filter(
-      (r) => mayRead(r.id) && !r.deletedAt && inScope(r),
+  async doctor(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<DoctorReport> {
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = await filterReadable(
+      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+      mayRead,
     )
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
     const adj = new Map<IssueId, IssueId[]>()
     for (const r of rows) {
-      for (const d of this.store.deps.store.issues.listIssueDeps(r.id)) {
+      for (const d of await this.store.deps.store.issues.listIssueDeps(r.id)) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
         if (d.type === 'blocks') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
@@ -452,22 +487,22 @@ export class IssueReportsModule {
     return {
       cycles,
       danglingDeps,
-      lintCount: this.lint(repoPath, mayRead).length,
-      staleCount: this.staleList(repoPath, 30, Date.now(), mayRead).length,
+      lintCount: (await this.lint(repoPath, mayRead)).length,
+      staleCount: (await this.staleList(repoPath, 30, Date.now(), mayRead)).length,
     }
   }
 
-  preflight(
+  async preflight(
     repoPath?: string,
-    mayRead: (id: string) => boolean = () => true,
-  ): { ok: boolean; report: DoctorReport } {
-    const report = this.doctor(repoPath, mayRead)
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<{ ok: boolean; report: DoctorReport }> {
+    const report = await this.doctor(repoPath, mayRead)
     return { ok: report.cycles.length === 0 && report.danglingDeps.length === 0, report }
   }
 
   async orphans(
     repoPath: string,
-    mayRead: (id: string) => boolean = () => true,
+    mayRead: IssueReadPredicate = () => true,
   ): Promise<OrphanIssue[]> {
     const res = await this.store.deps
       .repoOp('log', repoPath)
@@ -475,9 +510,9 @@ export class IssueReportsModule {
     if (!res.ok || !res.output) return []
     const log = res.output
     const out: OrphanIssue[] = []
-    const inScope = this.store.repoScopeFilter(repoPath)
+    const inScope = await this.store.repoScopeFilter(repoPath)
     for (const r of this.store.rows.values()) {
-      if (!mayRead(r.id) || !inScope(r) || this.store.isClosed(r)) continue
+      if (!(await mayRead(r.id)) || !inScope(r) || this.store.isClosed(r)) continue
       // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
       if (r.deletedAt) continue
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
@@ -488,14 +523,16 @@ export class IssueReportsModule {
     return out.sort((a, b) => a.seq - b.seq)
   }
 
-  search(filter: IssueSearchFilter, mayRead: (id: string) => boolean = () => true): IssueWire[] {
+  async search(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true): Promise<IssueWire[]> {
     const text = filter.text?.toLowerCase()
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(filter.repoPath)
-    return [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && inScope(r))
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(filter.repoPath)
+    const wires = await Promise.all((await filterReadable(
+      [...this.store.rows.values()].filter((r) => inScope(r)),
+      mayRead,
+    )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
+    return wires
       .filter((r) => !r.deletedAt)
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
@@ -518,10 +555,11 @@ export class IssueReportsModule {
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
-  count(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueCount {
-    const inScope = this.store.repoScopeFilter(repoPath)
-    const rows = [...this.store.rows.values()].filter(
-      (r) => mayRead(r.id) && !r.deletedAt && inScope(r),
+  async count(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueCount> {
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = await filterReadable(
+      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+      mayRead,
     )
     const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
     const bump = (m: Record<string, number>, k: string): void => {
@@ -536,13 +574,14 @@ export class IssueReportsModule {
     return c
   }
 
-  stats(repoPath?: string, mayRead: (id: string) => boolean = () => true): IssueStats {
-    const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.store.wireBatch()
-    const inScope = this.store.repoScopeFilter(repoPath)
-    const wires = [...this.store.rows.values()]
-      .filter((r) => mayRead(r.id) && !r.deletedAt && inScope(r))
-      .map((r) => this.store.toWire(r, commentCounts, batch))
+  async stats(repoPath?: string, mayRead: IssueReadPredicate = () => true): Promise<IssueStats> {
+    const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.store.wireBatch()
+    const inScope = await this.store.repoScopeFilter(repoPath)
+    const wires = await Promise.all((await filterReadable(
+      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+      mayRead,
+    )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
       total: wires.length,
@@ -554,26 +593,26 @@ export class IssueReportsModule {
     }
   }
 
-  get(id: string): IssueWire | null {
-    const r = this.store.rows.get(this.store.resolveRef(id))
-    return r ? this.store.toWire(r) : null
+  async get(id: string): Promise<IssueWire | null> {
+    const r = this.store.rows.get(await this.store.resolveRef(id))
+    return r ? await this.store.toWire(r) : null
   }
 
   /** Raw issue metadata for server-side readers that do not need the wire
    *  projection. This deliberately avoids toWire() and session enumeration.
    *  [spec:SP-fb7e] [spec:SP-c29e] */
-  getMeta(id: string): IssueRow | null {
-    return this.store.rows.get(this.store.resolveRef(id)) ?? null
+  async getMeta(id: string): Promise<IssueRow | null> {
+    return this.store.rows.get(await this.store.resolveRef(id)) ?? null
   }
 
   /** Session-free existence check for server-side issue references. [spec:SP-fb7e] */
-  has(id: string): boolean {
-    return this.store.rows.has(this.store.resolveRef(id))
+  async has(id: string): Promise<boolean> {
+    return this.store.rows.has(await this.store.resolveRef(id))
   }
 
   /** Live authorization target: owner plus grantees whose verb covers this action. */
-  ownedTarget(id: string, action: import('@podium/model').IssueAction) {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+  async ownedTarget(id: string, action: import('@podium/model').IssueAction) {
+    const row = this.store.rows.get(await this.store.resolveRef(id))
     if (!row) return undefined
     const covers = (verb: string): boolean =>
       action === 'read'
@@ -585,8 +624,8 @@ export class IssueReportsModule {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: this.store.deps.store.grants
-        .listForResource('issue', row.id)
+      grants: (await this.store.deps.store.grants
+        .listForResource('issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }
@@ -595,9 +634,9 @@ export class IssueReportsModule {
   /** One issue's comment thread, oldest-first (#175): comment BODIES left
    *  IssueWire (it carries only commentCount now), so clients fetch them lazily
    *  through this read (the `issues.comments` proc / CLI show). */
-  comments(id: string): IssueComment[] {
-    const row = this.store.rowOrThrow(this.store.resolveRef(id))
-    return this.store.deps.store.issues.listIssueComments(row.id).map((c) => ({
+  async comments(id: string): Promise<IssueComment[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return (await this.store.deps.store.issues.listIssueComments(row.id)).map((c) => ({
       id: c.id,
       author: c.author,
       body: c.body,
@@ -625,8 +664,8 @@ export class IssueReportsModule {
    *  A registered repo MAIN checkout is shared workspace, never an issue's own
    *  worktree — an issue claiming it must not swallow every session spawned
    *  there ([spec:SP-595b] #582). */
-  soleOwnerForCwd(cwd: string): IssueId | null {
-    const repoRoots = new Set(this.store.deps.store.repos.listRepoPaths())
+  async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
+    const repoRoots = new Set(await this.store.deps.store.repos.listRepoPaths())
     const owners = [...this.store.rows.values()].filter(
       (r) =>
         !r.deletedAt &&
@@ -642,27 +681,27 @@ export class IssueReportsModule {
   }
 
   /** Durable event-log read; cursor = the last event id the caller has seen. */
-  listEvents(
+  async listEvents(
     sinceId: number,
     opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
-  ): ReturnType<SessionStore['events']['listEventsSince']> {
-    return this.store.deps.store.events.listEventsSince(sinceId, opts)
+  ): Promise<Awaited<ReturnType<SessionStore['events']['listEventsSince']>>> {
+    return await this.store.deps.store.events.listEventsSince(sinceId, opts)
   }
 
   /** The human-facing nice id for an issue row (`POD-13`, or `#13` before a
    *  prefix exists) — the form agents should use when referencing issues (#474). */
-  niceRef(row: { repoPath: string; seq: number }): string {
-    const prefix = this.store.deps.store.repos.prefixForPath(row.repoPath)
+  async niceRef(row: { repoPath: string; seq: number }): Promise<string> {
+    const prefix = await this.store.deps.store.repos.prefixForPath(row.repoPath)
     return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
   }
 
   /** Agent-facing context at session start / on demand. Bound = the issue + open
    *  children + blockers; unbound = a ready-work lobby. Ends with prime-only
    *  rules — system-pointer policy is not restated. */
-  prime(
+  async prime(
     opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: SessionId },
-    mayRead: (id: string) => boolean = () => true,
-  ): string {
+    mayRead: IssueReadPredicate = () => true,
+  ): Promise<string> {
     // Static tail: only what the always-on system pointer does NOT already carry.
     // Stages, discovered-from, spin-off litmus, general title doctrine,
     // description-vs-brief, --outside-scope, mail-send, artifacts, and offers
@@ -684,25 +723,30 @@ export class IssueReportsModule {
       DELEGATION_RULE,
     ]
     if (opts.boundIssueId) {
-      const me = mayRead(opts.boundIssueId) ? this.get(opts.boundIssueId) : null
+      const me = (await mayRead(opts.boundIssueId)) ? await this.get(opts.boundIssueId) : null
       if (me) {
-        const kids = this.store
-          .list(me.repoPath)
-          .filter(
-            (i) => mayRead(i.id) && i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
-          )
+        const kids = await filterReadable(
+          (await this.store.list(me.repoPath)).filter(
+            (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
+          ),
+          mayRead,
+        )
         // Match computeBlocked: only blocks-deps whose TARGET is open (not closed)
         // actually block — a resolved blocker must not be listed under "Blocked by:".
-        const blockers = (me.deps ?? [])
+        const blockerRows = (me.deps ?? [])
           .filter((d) => d.type === 'blocks')
           .map((d) => this.store.rows.get(d.id))
-          .filter((b): b is IssueRow => b != null && mayRead(b.id) && !this.store.isClosed(b))
-          .map((b) => `${this.niceRef(b)} (${b.title})`)
-        const parent = me.parentId && mayRead(me.parentId) ? this.get(me.parentId) : null
+          .filter((b): b is IssueRow => b != null && !this.store.isClosed(b))
+        const blockers = await Promise.all(
+          (await filterReadable(blockerRows, mayRead)).map(
+            async (b) => `${await this.niceRef(b)} (${b.title})`,
+          ),
+        )
+        const parent = me.parentId && (await mayRead(me.parentId)) ? await this.get(me.parentId) : null
         if (me.draft) {
           const artifacts = me.panel?.artifacts ?? []
           return [
-            `This session is attached to a draft work item (${this.niceRef(me)}).`,
+            `This session is attached to a draft work item (${await this.niceRef(me)}).`,
             artifacts.length > 0
               ? `User attachments on this draft:\n${artifacts.map((artifact, index) => `  - ${index + 1}. ${artifact.title ?? artifact.path}`).join('\n')}\nRead one with: podium issue artifact ${me.seq} --get <number> [--out <path>]`
               : null,
@@ -725,18 +769,18 @@ export class IssueReportsModule {
         // circular import through the inheritance chain.
         // Per-READER count [POD-1379]: a fresh/resumed agent is told about the
         // mail IT has not seen, not about whatever a peer on the issue left.
-        const unreadMail = countContextAwarePendingMail(
+        const unreadMail = (await countContextAwarePendingMail(
           this.store.deps.store,
           me.id,
           undefined,
           opts.sessionId,
-        ).unread
+        )).unread
         return [
           // The opening line is the agent's first and most salient framing of its own
           // issue, so it DEMONSTRATES the self-reference rule rather than contradicting
           // it — the old `You are working on POD-N: title` taught the bare ref that
           // SELF_REF_RULE then forbade 25 lines later, and the ref won (POD-389).
-          `You are working on this issue — \`${this.niceRef(me)}\` (${me.title}). "This issue" is what you call it when you write to the user; the ref is for commands and for readers who cannot know which issue you mean.`,
+          `You are working on this issue — \`${await this.niceRef(me)}\` (${me.title}). "This issue" is what you call it when you write to the user; the ref is for commands and for readers who cannot know which issue you mean.`,
           issueTitleNeedsRetitle(me.title)
             ? `This issue's title violates the 3–5 word rule. Retitle it now: \`podium issue update --id ${me.seq} --title "…"\`. Name the thing, not the activity.`
             : null,
@@ -748,10 +792,10 @@ export class IssueReportsModule {
           me.brief ? `Brief:\n${me.brief}` : null,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
           me.parentId
-            ? `Parent epic: ${parent ? `${this.niceRef(parent)} (${parent.title})` : me.parentId}`
+            ? `Parent epic: ${parent ? `${await this.niceRef(parent)} (${parent.title})` : me.parentId}`
             : null,
           kids.length
-            ? `Open children:\n${kids.map((k) => `  - ${this.niceRef(k)} (${k.title})`).join('\n')}`
+            ? `Open children:\n${(await Promise.all(kids.map(async (k) => `  - ${await this.niceRef(k)} (${k.title})`))).join('\n')}`
             : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           unreadMail > 0
@@ -770,11 +814,14 @@ export class IssueReportsModule {
           .join('\n')
       }
     }
-    const ready = this.store.list(opts.repoPath).filter((i) => mayRead(i.id) && i.ready)
+    const ready = await filterReadable(
+      (await this.store.list(opts.repoPath)).filter((i) => i.ready),
+      mayRead,
+    )
     return [
       'No issue bound to this session.',
       ready.length
-        ? `Ready work:\n${ready.map((i) => `  - ${this.niceRef(i)} (${i.title})`).join('\n')}`
+        ? `Ready work:\n${(await Promise.all(ready.map(async (i) => `  - ${await this.niceRef(i)} (${i.title})`))).join('\n')}`
         : '(no ready issues)',
       'Use `podium issue start <id>` to claim one, or `podium issue create` to file new work.',
       '',

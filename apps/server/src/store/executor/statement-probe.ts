@@ -95,8 +95,8 @@ export interface StatementObservation {
   readonly batchSize: number
   /** 0 for a lone statement; the position within the batch otherwise. */
   readonly batchIndex: number
-  /** Which seam saw it. `legacy-handle` disappears with the executor's `legacy` field. */
-  readonly seam: 'driver' | 'legacy-handle'
+  /** Which execution seam saw it. */
+  readonly seam: 'driver'
   /**
    * The RAW stack captured where the statement entered the driver, present only
    * while a probe asked for it ({@link StatementProbeHub.captureIssueSites}).
@@ -197,6 +197,42 @@ export class StatementProbeHub {
   }
 }
 
+/** Anything that identifies the bun connection an executor was composed over. */
+export interface StatementProbeHolder {
+  readonly db: object
+}
+
+/**
+ * One hub per bun connection, retained only as long as that connection is.
+ *
+ * A probe may attach before or after executor composition: the bare-repository
+ * budget tests attach first, while store-level measurements attach after boot.
+ * Observation still happens only at the driver session; the connection is a
+ * stable lookup key, never an execution seam.
+ */
+const hubsByConnection = new WeakMap<object, StatementProbeHub>()
+const attributionInstalled = new WeakSet<StatementProbeHub>()
+
+export function statementProbeHubFor(connection: object): StatementProbeHub {
+  const held = hubsByConnection.get(connection)
+  if (held) return held
+  const hub = new StatementProbeHub()
+  hubsByConnection.set(connection, hub)
+  return hub
+}
+
+/** Attach a late probe to the driver hub for a bun-backed holder. */
+export function probeStatements(holder: StatementProbeHolder, probe: StatementProbe): () => void {
+  return statementProbeHubFor(holder.db).attach(probe)
+}
+
+/** Install the process profiler exactly once on a connection's hub. */
+export function installQueryAttributionProbe(hub: StatementProbeHub): void {
+  if (attributionInstalled.has(hub)) return
+  attributionInstalled.add(hub)
+  hub.attach(queryAttributionProbe)
+}
+
 /**
  * The profiler, as a probe (spec §6 rule 8: observability moves WITH the
  * queries, at the execution seam, not the logger).
@@ -240,7 +276,7 @@ export function instrumentDriver<TClient>(
     },
     ...(reader ? { openReader: async () => observeSession(await reader(), hub) } : {}),
     client: (route, routeBatch) => driver.client(route, routeBatch),
-    close: () => driver.close(),
+    close: async () => await driver.close(),
   }
 }
 
@@ -249,7 +285,7 @@ export function instrumentDriver<TClient>(
 function observeSession(session: DriverSession, hub: StatementProbeHub): DriverSession {
   return {
     async execute(statement) {
-      if (!hub.active) return session.execute(statement)
+      if (!hub.active) return await session.execute(statement)
       // BEFORE the await: see StatementObservation.issueStack.
       const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
@@ -262,7 +298,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       }
     },
     async executeBatch(statements) {
-      if (!hub.active) return session.executeBatch(statements)
+      if (!hub.active) return await session.executeBatch(statements)
       const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
@@ -288,13 +324,13 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
         })
       }
     },
-    begin: (lane) => session.begin(lane),
-    commit: () => session.commit(),
-    rollback: () => session.rollback(),
-    enterSavepoint: (name) => session.enterSavepoint(name),
-    releaseSavepoint: (name) => session.releaseSavepoint(name),
-    rollbackToSavepoint: (name) => session.rollbackToSavepoint(name),
-    close: () => session.close(),
+    begin: async (lane) => await session.begin(lane),
+    commit: async () => await session.commit(),
+    rollback: async () => await session.rollback(),
+    enterSavepoint: async (name) => await session.enterSavepoint(name),
+    releaseSavepoint: async (name) => await session.releaseSavepoint(name),
+    rollbackToSavepoint: async (name) => await session.rollbackToSavepoint(name),
+    close: async () => await session.close(),
   }
 }
 

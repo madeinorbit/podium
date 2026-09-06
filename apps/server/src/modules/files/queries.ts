@@ -49,8 +49,8 @@ export const FILE_QUERIES = {
           ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
           : { ok: false, path: input.path, error: 'artifact file not found' }
       }
-      if ('root' in input) assertAllowedRoot(state, input.root)
-      return state.rpc.readFile(input)
+      if ('root' in input) await assertAllowedRoot(state, input.root)
+      return await state.rpc.readFile(input)
     },
   ),
   list: query(
@@ -59,9 +59,9 @@ export const FILE_QUERIES = {
       root: z.string(),
       path: z.string().optional(),
     }),
-    (state, input) => {
-      assertAllowedRoot(state, input.root)
-      return state.rpc.listDir(input)
+    async (state, input) => {
+      await assertAllowedRoot(state, input.root)
+      return await state.rpc.listDir(input)
     },
   ),
   /**
@@ -86,10 +86,10 @@ export const FILE_QUERIES = {
       limit: z.number().int().positive().max(50).default(10),
     }),
     async (state, input): Promise<{ paths: string[] }> => {
-      assertAllowedRoot(state, input.root)
+      await assertAllowedRoot(state, input.root)
       const key = { ...(input.machineId ? { machineId: input.machineId } : {}), root: input.root }
-      const paths = await PATH_INDEX.paths(key, () =>
-        state.rpc.repoOp('lsFiles', input.root, undefined, input.machineId),
+      const paths = await PATH_INDEX.paths(key, async () =>
+        await state.rpc.repoOp('lsFiles', input.root, undefined, input.machineId),
       )
       return { paths: rankPaths(paths, input.query.trim(), input.limit).map((hit) => hit.path) }
     },

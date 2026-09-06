@@ -20,13 +20,13 @@ export interface ClientSessionStore {
     expiresAt: string,
     label?: string,
     metadata?: ClientSessionMetadata,
-  ): void
-  getClientSession(tokenHash: string): ClientSessionRecord | undefined
-  isClientSessionValid(tokenHash: string, nowIso: string): boolean
-  extendClientSession(tokenHash: string, expiresAt: string): void
-  deleteClientSession(tokenHash: string): void
-  touchClientSession?(tokenHash: string, lastSeenAt: string): void
-  deleteExpiredClientSessions?(nowIso: string): void
+  ): Promise<void>
+  getClientSession(tokenHash: string): Promise<ClientSessionRecord | undefined>
+  isClientSessionValid(tokenHash: string, nowIso: string): Promise<boolean>
+  extendClientSession(tokenHash: string, expiresAt: string): Promise<void>
+  deleteClientSession(tokenHash: string): Promise<void>
+  touchClientSession?(tokenHash: string, lastSeenAt: string): Promise<void>
+  deleteExpiredClientSessions?(nowIso: string): Promise<void>
 }
 
 export interface ClientSessionMetadata {
@@ -77,18 +77,18 @@ export function hashToken(token: string): string {
 
 /** True when the request carries a valid (unexpired) session cookie. Reused by the
  *  auth middleware and the /client WS upgrade gate so they share one definition of "authed". */
-export function resolveClientCredential(
+export async function resolveClientCredential(
   store: ClientSessionStore,
   headers: ClientCredentialHeaders,
   nowMs: number = Date.now(),
-): ResolvedClientCredential | undefined {
+): Promise<ResolvedClientCredential | undefined> {
   const fromBearer = headers.authorizationHeader !== undefined
   const token = fromBearer
     ? parseBearerToken(headers.authorizationHeader)
     : parseSessionCookie(headers.cookieHeader)
   if (!token) return undefined
   const tokenHash = hashToken(token)
-  const maintained = maintainClientCredentialByHash(store, tokenHash, nowMs)
+  const maintained = await maintainClientCredentialByHash(store, tokenHash, nowMs)
   if (!maintained) return undefined
   if (fromBearer && maintained.session.label !== 'mobile') return undefined
   return {
@@ -100,48 +100,48 @@ export function resolveClientCredential(
 }
 
 /** Validate and maintain a credential when a transport retains only its token hash (WebSocket). */
-export function maintainClientCredentialByHash(
+export async function maintainClientCredentialByHash(
   store: ClientSessionStore,
   tokenHash: string,
   nowMs: number = Date.now(),
-): { session: ClientSessionRecord; renewed: boolean } | undefined {
-  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
-  const current = store.getClientSession(tokenHash)
+): Promise<{ session: ClientSessionRecord; renewed: boolean } | undefined> {
+  if (!await store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
+  const current = await store.getClientSession(tokenHash)
   if (!current) return undefined
   let session = current
   if (
     session.label === 'mobile' &&
     (!session.lastSeenAt || nowMs - Date.parse(session.lastSeenAt) >= 5 * 60_000)
   ) {
-    store.touchClientSession?.(tokenHash, new Date(nowMs).toISOString())
+    await store.touchClientSession?.(tokenHash, new Date(nowMs).toISOString())
   }
   const renewed =
     ((session.label ?? 'login') === 'login' || session.label === 'mobile') &&
     SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
   if (renewed) {
     const expiresAt = new Date(nowMs + SESSION_TTL_MS).toISOString()
-    store.extendClientSession(tokenHash, expiresAt)
+    await store.extendClientSession(tokenHash, expiresAt)
     session = { ...session, expiresAt }
   }
   return { session, renewed }
 }
 
-export function requestUserId(
+export async function requestUserId(
   store: ClientSessionStore,
   cookieHeader: string | undefined,
   nowMs: number = Date.now(),
   authorizationHeader?: string,
-): UserId | undefined {
-  return resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs)?.session
+): Promise<UserId | undefined> {
+  return (await resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs))?.session
     .userId
 }
 
-export function isRequestAuthed(
+export async function isRequestAuthed(
   store: ClientSessionStore,
   cookieHeader: string | undefined,
   nowMs: number = Date.now(),
-): boolean {
-  return requestUserId(store, cookieHeader, nowMs) !== undefined
+): Promise<boolean> {
+  return (await requestUserId(store, cookieHeader, nowMs)) !== undefined
 }
 
 function parseSessionCookie(cookieHeader: string | undefined): string | undefined {
@@ -203,7 +203,7 @@ export function clientAuthGuard(opts: {
   store?: ClientSessionStore
   users?: AccountCredentialStore
   /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
-  loginRequired?: () => boolean
+  loginRequired?: () => boolean | Promise<boolean>
   now?: () => number
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
   trustedProxyHops?: number
@@ -211,15 +211,15 @@ export function clientAuthGuard(opts: {
   const now = opts.now ?? (() => Date.now())
   const loginRequired = opts.loginRequired ?? (() => Boolean(opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
-    if (c.req.method === 'OPTIONS') return next()
-    if (!loginRequired()) return next()
+    if (c.req.method === 'OPTIONS') return await next()
+    if (!(await loginRequired())) return await next()
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const store = opts.store
     const nowMs = now()
     const credential = store
-      ? resolveClientCredential(
+      ? await resolveClientCredential(
           store,
           {
             cookieHeader: c.req.header('cookie'),
@@ -246,12 +246,12 @@ export function clientAuthGuard(opts: {
       const token = parseSessionCookie(c.req.header('cookie'))
       if (token) setSessionCookie(c, token, opts.trustedProxyHops)
     }
-    return next()
+    return await next()
   }
 }
 
 export interface AccountCredentialStore {
-  get(userId: UserId): { role: UserRole } | undefined
+  get(userId: UserId): Promise<{ role: UserRole } | undefined>
   create(
     account: {
       id: string
@@ -261,11 +261,11 @@ export interface AccountCredentialStore {
       disabledAt: null
     },
     passwordHash: string,
-  ): void
+  ): Promise<void>
   credentialFor(
     userId: UserId,
-  ): { source: CredentialSource; passwordHash: string | null } | undefined
-  hasPerUserCredentials(): boolean
+  ): Promise<{ source: CredentialSource; passwordHash: string | null } | undefined>
+  hasPerUserCredentials(): Promise<boolean>
 }
 
 export interface AuthRouteOptions {
@@ -279,7 +279,7 @@ export interface AuthRouteOptions {
    * This keeps the open/dev bootstrap policy in one place instead of growing a
    * second first-admin fallback at an unauthenticated status endpoint.
    */
-  resolveUserId?: (headers: ClientCredentialHeaders) => UserId | undefined
+  resolveUserId?: (headers: ClientCredentialHeaders) => UserId | undefined | Promise<UserId | undefined>
   /**
    * IS LOGIN REQUIRED ON THIS INSTANCE — the one predicate every gate reads (POD-1554).
    *
@@ -292,7 +292,7 @@ export interface AuthRouteOptions {
    *
    * Defaults to the credential half alone when not supplied (tests, embedded servers).
    */
-  loginRequired?: () => boolean
+  loginRequired?: () => boolean | Promise<boolean>
   /** Same public lifecycle projection served by GET /readiness. */
   readiness?: () => ServerReadiness
   throttle?: { maxFailures?: number; lockoutMs?: number }
@@ -323,19 +323,19 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   let failures = 0
   let lockedUntil = 0
 
-  app.get('/auth/status', (c) => {
+  app.get('/auth/status', async (c) => {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
-    const needsAuth = loginRequired()
+    const needsAuth = await loginRequired()
     const headers = {
       cookieHeader: c.req.header('cookie'),
       authorizationHeader: c.req.header('authorization'),
     }
     const userId = opts.resolveUserId
-      ? opts.resolveUserId(headers)
+      ? await opts.resolveUserId(headers)
       : store
-        ? requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
+        ? await requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
         : undefined
     const authed = userId !== undefined
     return c.json({
@@ -347,7 +347,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/login', async (c) => {
-    if (!loginRequired()) {
+    if (!(await loginRequired())) {
       // No password configured → auth is disabled; there's nothing to log into.
       return c.json({ error: 'auth disabled' }, 400)
     }
@@ -396,7 +396,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // a secret that belonged to the INSTANCE, which is precisely what cannot survive
     // accounts — and the fallback did it while unable to name whose account it was. A
     // server with no user store now serves no login at all, which is the honest answer.
-    const credential = users?.credentialFor(userId)
+    const credential = await users?.credentialFor(userId)
     const ok =
       password && credential?.passwordHash
         ? await verifyPasswordHash(password, credential.passwordHash)
@@ -454,7 +454,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         expiresAt,
       })
     }
-    store?.createClientSession(hashToken(token), userId, expiresAt)
+    await store?.createClientSession(hashToken(token), userId, expiresAt)
     reportLogin({ userId, delivery: 'cookie' })
 
     setSessionCookie(c, token, opts.trustedProxyHops)
@@ -463,9 +463,9 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
 
   app.post('/auth/users', async (c) => {
     if (!store || !users) return c.json({ error: 'account store unavailable' }, 503)
-    const actorId = requestUserId(store, c.req.header('cookie'), now())
+    const actorId = await requestUserId(store, c.req.header('cookie'), now())
     if (!actorId) return c.json({ error: 'authentication required' }, 401)
-    if (users.get(actorId)?.role !== 'admin') {
+    if ((await users.get(actorId))?.role !== 'admin') {
       return c.json({ error: 'admin account required' }, 403)
     }
     let body: { userId?: unknown; displayName?: unknown; role?: unknown; password?: unknown }
@@ -489,9 +489,9 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       )
     }
     const userId = asUserId(body.userId.trim())
-    if (users.get(userId)) return c.json({ error: 'account already exists' }, 409)
+    if (await users.get(userId)) return c.json({ error: 'account already exists' }, 409)
     const createdAt = new Date(now()).toISOString()
-    users.create(
+    await users.create(
       {
         id: userId,
         displayName: body.displayName.trim(),
@@ -504,12 +504,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     return c.json({ id: userId, displayName: body.displayName.trim(), role: body.role }, 201)
   })
 
-  app.post('/auth/logout', (c) => {
+  app.post('/auth/logout', async (c) => {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const credential = store
-      ? resolveClientCredential(
+      ? await resolveClientCredential(
           store,
           {
             cookieHeader: c.req.header('cookie'),
@@ -519,7 +519,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         )
       : undefined
     if (credential && store) {
-      store.deleteClientSession(credential.tokenHash)
+      await store.deleteClientSession(credential.tokenHash)
       opts.onCredentialRevoked?.(credential.tokenHash)
     }
     deleteCookie(c, SESSION_COOKIE, { path: '/' })

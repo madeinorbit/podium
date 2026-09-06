@@ -54,37 +54,37 @@ beforeEach(() => {
 })
 
 describe('TranscriptCostsRepository.costedSessionIds', () => {
-  it('is empty when nothing has been harvested', () => {
-    expect(costs.costedSessionIds()).toEqual(new Set())
+  it('is empty when nothing has been harvested', async () => {
+    expect(await costs.costedSessionIds()).toEqual(new Set())
   })
 
-  it('reports the session of a transcript that holds messages', () => {
-    costs.record([record()], '2026-01-01T00:00:00.000Z')
+  it('reports the session of a transcript that holds messages', async () => {
+    await costs.record([record()], '2026-01-01T00:00:00.000Z')
 
-    expect(costs.costedSessionIds()).toEqual(new Set(['session-1']))
+    expect(await costs.costedSessionIds()).toEqual(new Set(['session-1']))
   })
 
-  it('excludes a transcript that resolved to no session', () => {
-    costs.record([record({ nativeId: 'native-2', sessionId: null })], '2026-01-01T00:00:00.000Z')
+  it('excludes a transcript that resolved to no session', async () => {
+    await costs.record([record({ nativeId: 'native-2', sessionId: null })], '2026-01-01T00:00:00.000Z')
 
     // The row exists and was counted as read — it just cannot name a session.
-    expect(costs.countAll()).toBe(1)
-    expect(costs.costedSessionIds()).toEqual(new Set())
+    expect(await costs.countAll()).toBe(1)
+    expect(await costs.costedSessionIds()).toEqual(new Set())
   })
 
-  it('excludes a transcript whose fold holds no messages', () => {
-    costs.record(
+  it('excludes a transcript whose fold holds no messages', async () => {
+    await costs.record(
       [record({ nativeId: 'native-3', sessionId: 'session-empty' as SessionId, models: [] })],
       '2026-01-01T00:00:00.000Z',
     )
 
     // `messages > 0`, not `>= 0`: a walked-but-empty transcript is not a fold.
-    expect(costs.countAll()).toBe(1)
-    expect(costs.costedSessionIds()).toEqual(new Set())
+    expect(await costs.countAll()).toBe(1)
+    expect(await costs.costedSessionIds()).toEqual(new Set())
   })
 
-  it('names a session once however many of its transcripts were harvested', () => {
-    costs.record(
+  it('names a session once however many of its transcripts were harvested', async () => {
+    await costs.record(
       [
         record({ nativeId: 'native-a' }),
         record({ nativeId: 'native-b' }),
@@ -93,19 +93,19 @@ describe('TranscriptCostsRepository.costedSessionIds', () => {
       '2026-01-01T00:00:00.000Z',
     )
 
-    expect(costs.countAll()).toBe(3)
-    expect(costs.costedSessionIds()).toEqual(new Set(['session-1', 'session-2']))
+    expect(await costs.countAll()).toBe(3)
+    expect(await costs.costedSessionIds()).toEqual(new Set(['session-1', 'session-2']))
   })
 
-  it('drops a session whose re-harvest folded to nothing', () => {
-    costs.record([record()], '2026-01-01T00:00:00.000Z')
-    expect(costs.costedSessionIds()).toEqual(new Set(['session-1']))
+  it('drops a session whose re-harvest folded to nothing', async () => {
+    await costs.record([record()], '2026-01-01T00:00:00.000Z')
+    expect(await costs.costedSessionIds()).toEqual(new Set(['session-1']))
 
     // The upsert REPLACES the measurement — `messages = excluded.messages` — so
     // a re-read that found an empty file takes the session back out. This is the
     // arm a single-write test never walks.
-    costs.record([record({ models: [] })], '2026-01-02T00:00:00.000Z')
+    await costs.record([record({ models: [] })], '2026-01-02T00:00:00.000Z')
 
-    expect(costs.costedSessionIds()).toEqual(new Set())
+    expect(await costs.costedSessionIds()).toEqual(new Set())
   })
 })

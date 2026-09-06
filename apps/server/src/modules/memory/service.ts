@@ -25,8 +25,11 @@ export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
 export interface MemoryLedger {
-  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T>
-  reconcile(entity: 'conversation', rows: { id: string; value: unknown }[]): MetadataChange[]
+  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
+  reconcile(
+    entity: 'conversation',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 export interface MemoryServiceDeps {
@@ -103,8 +106,8 @@ export class MemoryService {
    * service never touches the database. The order the root calls it in is the
    * order the constructor established.
    */
-  repairSubagentEvidence(): void {
-    this.deps.store.conversations.registry.repairSubagentSegmentPaths()
+  async repairSubagentEvidence(): Promise<void> {
+    await this.deps.store.conversations.registry.repairSubagentSegmentPaths()
   }
 
   forReader(reader: MemoryReader): MemoryReaderView {
@@ -119,31 +122,31 @@ export class MemoryService {
     return this.latestDiagnostics
   }
 
-  onDiscovery(
+  async onDiscovery(
     machineId: MachineId,
     conversations: ConversationSummaryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed: string[] = [],
-  ): void {
+  ): Promise<void> {
     for (const conversation of conversations)
       this.machineByConversation.set(conversation.id, machineId)
     for (const id of removed) this.machineByConversation.delete(id)
-    this.latestConversations.install(this.indexConversations(conversations, machineId, removed))
+    this.latestConversations.install(await this.indexConversations(conversations, machineId, removed))
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
   }
 
-  private indexConversations(
+  private async indexConversations(
     conversations: ConversationSummaryWire[],
     machineId: MachineId,
     removed: string[],
-  ): ConversationSummaryWire[] {
+  ): Promise<ConversationSummaryWire[]> {
     const podiumIds = new Map<string, ConversationId>()
     for (const conversation of conversations) {
       if (conversation.parentConversationId) continue
       podiumIds.set(
         conversation.id,
-        this.ensureConversationIdentity({
+        await this.ensureConversationIdentity({
           machineId,
           nativeId: conversation.id,
           providerId: conversation.providerId,
@@ -156,14 +159,14 @@ export class MemoryService {
       if (!conversation.parentConversationId) continue
       const parentPodiumId =
         podiumIds.get(conversation.parentConversationId) ??
-        this.ensureConversationIdentity({
+        await this.ensureConversationIdentity({
           machineId,
           nativeId: conversation.parentConversationId,
           providerId: conversation.providerId,
         })
       podiumIds.set(
         conversation.id,
-        this.ensureConversationIdentity({
+        await this.ensureConversationIdentity({
           machineId,
           nativeId: conversation.id,
           providerId: conversation.providerId,
@@ -174,7 +177,7 @@ export class MemoryService {
       )
     }
 
-    const curated = this.deps.store.conversations.index.curatedMeta()
+    const curated = await this.deps.store.conversations.index.curatedMeta()
     const enriched = conversations.map((conversation) => ({
       ...conversation,
       ...(podiumIds.get(conversation.id)
@@ -182,9 +185,9 @@ export class MemoryService {
         : {}),
       ...(curated.get(conversation.id) ?? {}),
     }))
-    this.deps.ledger.commit({
-      write: () => {
-        this.deps.store.conversations.index.upsert(
+    await this.deps.ledger.commit({
+      write: async () => {
+        await this.deps.store.conversations.index.upsert(
           conversations.map((conversation) => ({
             id: conversation.id,
             agentKind: conversation.agentKind,
@@ -207,7 +210,7 @@ export class MemoryService {
               : {}),
           })),
         )
-        if (removed.length) this.deps.store.conversations.index.delete(removed)
+        if (removed.length) await this.deps.store.conversations.index.delete(removed)
       },
       changes: () => [
         ...enriched.map(
@@ -227,12 +230,12 @@ export class MemoryService {
         ),
       ],
     })
-    this.triggerLakeSweep(machineId)
+    await this.triggerLakeSweep(machineId)
     return enriched
   }
 
-  reconcileConversationList(): void {
-    this.deps.ledger.reconcile(
+  async reconcileConversationList(): Promise<void> {
+    await this.deps.ledger.reconcile(
       'conversation',
       this.latestConversations.read().map((conversation) => ({
         id: conversation.id,
@@ -249,21 +252,21 @@ export class MemoryService {
     this.deps.onDiagnosticsChanged(this.latestDiagnostics)
   }
 
-  searchConversations(
+  async searchConversations(
     reader: MemoryReader,
     opts: { query?: string; projectPath?: string; limit?: number },
   ) {
-    return this.searcher.searchConversations(reader, opts)
+    return await this.searcher.searchConversations(reader, opts)
   }
 
-  search(reader: MemoryReader, opts: { text: string; limit?: number; now?: () => number }) {
-    return this.searcher.search(reader, opts)
+  async search(reader: MemoryReader, opts: { text: string; limit?: number; now?: () => number }) {
+    return await this.searcher.search(reader, opts)
   }
 
-  setConversationMeta(
+  async setConversationMeta(
     reader: MemoryReader,
     input: { id: string; name?: string; summary?: string },
-  ): void {
+  ): Promise<void> {
     const current = this.latestConversations
       .read()
       .find((conversation) => conversation.id === input.id)
@@ -274,7 +277,7 @@ export class MemoryService {
     if (
       !current ||
       !machineId ||
-      !this.visibility.mayRead(reader, {
+      !await this.visibility.mayRead(reader, {
         class: 'conversation',
         machineId,
         nativeId: input.id,
@@ -288,8 +291,8 @@ export class MemoryService {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
     }
-    this.deps.ledger.commit({
-      write: () => this.deps.store.conversations.index.setMeta(input.id, input),
+    await this.deps.ledger.commit({
+      write: async () => await this.deps.store.conversations.index.setMeta(input.id, input),
       changes: () => [
         {
           entity: 'conversation',
@@ -307,54 +310,54 @@ export class MemoryService {
     )
   }
 
-  ensureConversationIdentity(
+  async ensureConversationIdentity(
     input: Parameters<SessionStore['conversations']['registry']['ensure']>[0],
   ) {
-    return this.deps.store.conversations.registry.ensure(input)
+    return await this.deps.store.conversations.registry.ensure(input)
   }
 
-  linkConversationSegment(
+  async linkConversationSegment(
     input: Parameters<SessionStore['conversations']['registry']['linkSegment']>[0],
   ) {
-    return this.deps.store.conversations.registry.linkSegment(input)
+    return await this.deps.store.conversations.registry.linkSegment(input)
   }
 
-  conversationPodiumId(
+  async conversationPodiumId(
     reader: MemoryReader,
     machineId: MachineId,
     nativeId: string,
-  ): ConversationId | undefined {
-    if (!this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId })) {
+  ): Promise<ConversationId | undefined> {
+    if (!await this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId })) {
       return undefined
     }
-    return this.deps.store.conversations.registry.podiumId(machineId, nativeId)
+    return await this.deps.store.conversations.registry.podiumId(machineId, nativeId)
   }
 
-  canReadSession(reader: MemoryReader, sessionId: SessionId): boolean {
-    return this.visibility.mayReadSession(reader, sessionId)
+  async canReadSession(reader: MemoryReader, sessionId: SessionId): Promise<boolean> {
+    return await this.visibility.mayReadSession(reader, sessionId)
   }
 
-  transcriptPathHint(
+  async transcriptPathHint(
     reader: MemoryReader,
     session: { id: string; machineId: MachineId; resume?: { value: string } },
-  ): { pathHint: string } | undefined {
-    if (!this.canReadSession(reader, asSessionId(session.id))) return undefined
+  ): Promise<{ pathHint: string } | undefined> {
+    if (!await this.canReadSession(reader, asSessionId(session.id))) return undefined
     const nativeId = session.resume?.value
-    return nativeId ? this.lake.pathHint(session.machineId, nativeId) : undefined
+    return nativeId ? await this.lake.pathHint(session.machineId, nativeId) : undefined
   }
 
-  triggerLakeSweep(machineId: MachineId): void {
-    this.lake.triggerSweep(machineId)
+  async triggerLakeSweep(machineId: MachineId): Promise<void> {
+    await this.lake.triggerSweep(machineId)
   }
 
   /** Drain and pause transcript mirroring before the transfer's final snapshot. */
-  pauseMirroringForTransfer(): Promise<void> {
-    return this.lake.pauseMirroring()
+  async pauseMirroringForTransfer(): Promise<void> {
+    return await this.lake.pauseMirroring()
   }
 
   /** Resume transcript mirroring after a transfer abort releases the source fence. */
-  resumeMirroringAfterTransfer(): void {
-    this.lake.resumeMirroring()
+  async resumeMirroringAfterTransfer(): Promise<void> {
+    await this.lake.resumeMirroring()
   }
 
   /**
@@ -371,16 +374,16 @@ export class MemoryService {
     return this.lake.pendingReads
   }
 
-  readTranscriptFromLake(
+  async readTranscriptFromLake(
     session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },
   ) {
-    return this.lake.readWindow(session, input)
+    return await this.lake.readWindow(session, input)
   }
 
-  transcriptHasPredecessors(session: LakeReadSession): boolean {
+  async transcriptHasPredecessors(session: LakeReadSession): Promise<boolean> {
     const nativeId = session.resume?.value
-    return nativeId ? this.lake.hasPredecessors(session.machineId, nativeId) : false
+    return nativeId ? await this.lake.hasPredecessors(session.machineId, nativeId) : false
   }
 
   /** `machineId` is the machine that ANSWERED (from the authenticated transport,
@@ -408,15 +411,15 @@ export class MemoryReaderView {
     readonly reader: MemoryReader,
   ) {}
 
-  searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
-    return this.memory.searchConversations(this.reader, opts)
+  async searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
+    return await this.memory.searchConversations(this.reader, opts)
   }
 
-  search(opts: { text: string; limit?: number; now?: () => number }) {
-    return this.memory.search(this.reader, opts)
+  async search(opts: { text: string; limit?: number; now?: () => number }) {
+    return await this.memory.search(this.reader, opts)
   }
 
-  setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
-    this.memory.setConversationMeta(this.reader, input)
+  async setConversationMeta(input: { id: string; name?: string; summary?: string }): Promise<void> {
+    await this.memory.setConversationMeta(this.reader, input)
   }
 }

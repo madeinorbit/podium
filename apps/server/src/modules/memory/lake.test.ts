@@ -49,7 +49,7 @@ describe('TranscriptLake mirror fence', () => {
         message: { role: 'user', content: 'preserve me across an aborted transfer' },
       })}\n`,
     )
-    store.conversations.registry.ensure({
+    await store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId,
       providerId: 'claude-code-jsonl',
@@ -57,7 +57,7 @@ describe('TranscriptLake mirror fence', () => {
       sizeBytes: content.length,
     })
 
-    lake.triggerSweep(asMachineId('m1'))
+    await lake.triggerSweep(asMachineId('m1'))
     await vi.waitFor(() => expect(sent).toHaveLength(1))
     const first = sent[0]?.message
     expect(first?.type).toBe('transcriptMirrorRead')
@@ -79,15 +79,15 @@ describe('TranscriptLake mirror fence', () => {
     await paused
 
     const lakePath = join(lakeDir, 'm1', `${nativeId}.jsonl`)
-    expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(0)
+    expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(0)
     expect(existsSync(lakePath)).toBe(false)
 
     // A scan during transfer stays queued/dirty and does not issue another read.
-    lake.triggerSweep(asMachineId('m1'))
+    await lake.triggerSweep(asMachineId('m1'))
     await Promise.resolve()
     expect(sent).toHaveLength(1)
 
-    lake.resumeMirroring()
+    await lake.resumeMirroring()
     await vi.waitFor(() => expect(sent).toHaveLength(2))
     const resumed = sent[1]?.message
     expect(resumed?.type).toBe('transcriptMirrorRead')
@@ -102,11 +102,11 @@ describe('TranscriptLake mirror fence', () => {
       fileSize: content.length,
       eof: true,
     })
-    await vi.waitFor(() => {
-      expect(store.conversations.mirror.segmentsToMirrorDirty(asMachineId('m1'))).toEqual([])
+    await vi.waitFor(async () => {
+      expect(await store.conversations.mirror.segmentsToMirrorDirty(asMachineId('m1'))).toEqual([])
     })
 
-    expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(
+    expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(
       content.length,
     )
     expect(readFileSync(lakePath)).toEqual(content)
@@ -185,14 +185,14 @@ describe('the transcript indexer follows the search flag', () => {
 
     forceFeature('command-palette', false)
     const off = await openTestStore(dbPath)
-    off.conversations.registry.ensure({
+    await off.conversations.registry.ensure({
       machineId,
       nativeId: 'native-a',
       providerId: 'claude-code-jsonl',
       path: lakePath,
       sizeBytes: bytes.length,
     })
-    off.conversations.mirror.setMirrorCursor(
+    await off.conversations.mirror.setMirrorCursor(
       machineId,
       'native-a',
       bytes.length,
@@ -202,11 +202,11 @@ describe('the transcript indexer follows the search flag', () => {
       mirror: off.conversations.mirror,
       index: off.conversations.transcriptIndex,
     })
-    idle.onBytes(machineId, 'native-a', lakePath)
+    await idle.onBytes(machineId, 'native-a', lakePath)
     await idle.settled()
     // Nothing consumed and, crucially, nothing claimed: the cursor still says
     // these bytes are unread, which is what makes the catch-up below possible.
-    expect(off.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(0)
+    expect(await off.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(0)
     idle.dispose()
     off.close()
 
@@ -216,11 +216,11 @@ describe('the transcript indexer follows the search flag', () => {
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,
     })
-    indexer.onBytes(machineId, 'native-a', lakePath)
+    await indexer.onBytes(machineId, 'native-a', lakePath)
     await indexer.settled()
-    expect(on.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(bytes.length)
+    expect(await on.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(bytes.length)
     expect(
-      on.conversations.transcriptIndex.searchCandidates('capacitor').map((c) => c.nativeId),
+      (await on.conversations.transcriptIndex.searchCandidates('capacitor')).map((c) => c.nativeId),
     ).toEqual(['native-a'])
     indexer.dispose()
     on.close()

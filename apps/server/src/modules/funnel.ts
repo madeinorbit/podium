@@ -52,9 +52,11 @@ export interface FeedServingPort {
   flushPending(): void
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
-  identity(): { readonly feedId: string; readonly epoch: string }
+  identity():
+    | { readonly feedId: string; readonly epoch: string }
+    | Promise<{ readonly feedId: string; readonly epoch: string }>
   /** ADR 2 D5's floor, from the SAME source every published frame reads it from. */
-  retentionFloor(): number
+  retentionFloor(): number | Promise<number>
 }
 
 /**
@@ -143,7 +145,7 @@ export class WriteFunnel {
    * subscriptions — durable writes whose fan-out, if any, happens elsewhere).
    * `authorize` throwing stops everything: a forbidden op must never write.
    */
-  run<T>(op: { authorize?: () => void; write: () => T }): T {
+  async run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T> {
     // Through the KERNEL, so the order is the Authority's to enforce rather than
     // this method's to remember. `changes: () => []` is the honest declaration
     // for these call sites: issue mail, subscriptions and locks are durable
@@ -154,7 +156,7 @@ export class WriteFunnel {
     // No `arbitrate`, so this cannot be rejected; the outcome is committed by
     // construction. Asserted rather than cast, because "cannot happen" plus a
     // cast is how a silently dropped write ships.
-    const outcome = this.deps.authority.commit({
+    const outcome = await this.deps.authority.commit({
       ...(op.authorize === undefined ? {} : { authorize: op.authorize }),
       write: op.write,
       changes: () => [],
@@ -169,21 +171,21 @@ export class WriteFunnel {
   }
 
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
-  changesSince(
+  async changesSince(
     cursor: number | null,
     principal: Principal = DEVICE_GRADE_PRINCIPAL,
-  ): MetadataChange[] | null {
-    const delivery = this.deps.authority.changesSince(cursor, principal)
+  ): Promise<MetadataChange[] | null> {
+    const delivery = await this.deps.authority.changesSince(cursor, principal)
     if (delivery === null || delivery.kind !== 'batch') return null
     return delivery.changes.flatMap(toBusChange)
   }
 
-  snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): MetadataChange[] {
-    return this.deps.authority.bootstrap(principal).changes.flatMap(toBusChange)
+  async snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): Promise<MetadataChange[]> {
+    return (await this.deps.authority.bootstrap(principal)).changes.flatMap(toBusChange)
   }
 
-  cursor(): number {
-    return this.deps.authority.cursor()
+  async cursor(): Promise<number> {
+    return await this.deps.authority.cursor()
   }
 
   /** What kind of answer this server's visibility policy gives (POD-376). A
@@ -196,13 +198,13 @@ export class WriteFunnel {
    *  and catch-up reply so a replica can compare the identity of the stream it
    *  is reading, not just its position in it. Read from the serving edge, which
    *  is the same source every published frame reads it from. */
-  feedIdentity(): { readonly feedId: string; readonly epoch: string } {
-    return this.deps.serving.identity()
+  async feedIdentity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
+    return await this.deps.serving.identity()
   }
 
   /** The published retention horizon (ADR 2 D5), from that same source. */
-  minAvailableSeq(): number {
-    return this.deps.serving.retentionFloor()
+  async minAvailableSeq(): Promise<number> {
+    return await this.deps.serving.retentionFloor()
   }
 
   /**
@@ -225,16 +227,16 @@ export class WriteFunnel {
    * different number lines. The replica's own rung 4 would catch it on the next
    * frame; catching it here means the wrong answer is never produced.
    */
-  feedChangesSince(
+  async feedChangesSince(
     cursor: FeedCursorField | null,
     principal: import('@podium/protocol').Principal,
-  ): FeedChangesSinceReply {
-    const identity = this.deps.serving.identity()
+  ): Promise<FeedChangesSinceReply> {
+    const identity = await this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
     }
     const from = cursor?.seq ?? null
-    const delivery = this.deps.authority.changesSince(from, principal)
+    const delivery = await this.deps.authority.changesSince(from, principal)
     if (delivery === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
     if (delivery.kind !== 'batch') {
       // The authority derived a rescope for this range. Answering it as a delta
@@ -248,7 +250,7 @@ export class WriteFunnel {
       epoch: identity.epoch,
       fromSeq: from ?? 0,
       seq: delivery.throughSeq,
-      minAvailableSeq: this.deps.serving.retentionFloor(),
+      minAvailableSeq: await this.deps.serving.retentionFloor(),
       // NOT `toBusChange`, and this cost a live-server debugging session: that
       // helper produces the v1 `MetadataChange`, whose target field is `id`. The
       // v2 row's is `entityId`, so every healed row reached the replica with
@@ -278,14 +280,14 @@ export class WriteFunnel {
    * and a version, and shipping every row's value to a diagnostic read would make
    * a debugging aid the largest response on the wire.
    */
-  feedSlice(principal: import('@podium/protocol').Principal): {
+  async feedSlice(principal: import('@podium/protocol').Principal): Promise<{
     feedId: string
     epoch: string
     throughSeq: number
     rows: { entity: string; entityId: string }[]
-  } {
-    const identity = this.deps.serving.identity()
-    const world = this.deps.authority.bootstrap(principal)
+  }> {
+    const identity = await this.deps.serving.identity()
+    const world = await this.deps.authority.bootstrap(principal)
     return {
       feedId: identity.feedId,
       epoch: identity.epoch,

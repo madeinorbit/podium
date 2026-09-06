@@ -63,15 +63,15 @@ afterEach(() => {
 /** One real stack. Two of these, seeded identically, are the shadow pair. */
 async function stack() {
   const store = await openTestStore(':memory:')
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return { store, sessions: reg.modules.sessions, mutations: reg.modules.mutations }
 }
 
 /** What both paths write, read back off the row. The shared observable truth. */
-function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: string) {
-  const row = sessions.listSessions().find((s) => s.sessionId === sessionId)
+async function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: string) {
+  const row = (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
   return { name: row?.name, nameSource: row?.nameSource }
 }
 
@@ -108,11 +108,11 @@ type Actor = 'human' | 'agent'
 /** Run one rename on the LEGACY path and report the verdict + resulting row. */
 async function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
   const { store, sessions, mutations } = await stack()
-  const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
 
-  const result = presence.execute(
+  const result = await presence.execute(
     'sessions.rename',
     { ...input, sessionId: created.sessionId },
     soleHumanSessionStatePrincipal(capability),
@@ -129,16 +129,16 @@ async function runLegacy(input: { sessionId: string; name: string }, actor: Acto
         ? { kind: 'rejected', reason: value.reason ?? '' }
         : { kind: 'applied' }
 
-  return { verdict, row: observe(sessions, created.sessionId), sessions, store, mutations, created }
+  return { verdict, row: await observe(sessions, created.sessionId), sessions, store, mutations, created }
 }
 
 /** Run the SAME rename on the TARGET path, on its own identically-seeded stack. */
 async function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
   const { sessions, mutations } = await stack()
-  const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   const deps = { sessions: sessions as RenameServices, mutations }
 
-  const dispatch = renameOnTargetPath(
+  const dispatch = await renameOnTargetPath(
     deps,
     { ...input, sessionId: created.sessionId },
     actor === 'agent' ? agentPrincipal : humanPrincipal,
@@ -152,7 +152,7 @@ async function runTarget(input: { sessionId: string; name: string }, actor: Acto
         ? { kind: 'applied' }
         : { kind: 'rejected', reason: dispatch.result.reason }
 
-  return { verdict, row: observe(sessions, created.sessionId), sessions, created, deps }
+  return { verdict, row: await observe(sessions, created.sessionId), sessions, created, deps }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // verbatim — a migration that quietly reworded a user-visible refusal would
     // fail here rather than ship.
     const legacy = await runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
-    const legacyAgent = new SessionStateRegistry({
+    const legacyAgent = await new SessionStateRegistry({
       sessions: legacy.sessions,
       state: legacy.sessions.state,
       mutations: legacy.mutations,
@@ -208,7 +208,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     )
 
     const target = await runTarget({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
-    const targetAgent = renameOnTargetPath(
+    const targetAgent = await renameOnTargetPath(
       target.deps,
       { sessionId: target.created.sessionId, name: 'agent guess' },
       agentPrincipal,
@@ -225,10 +225,10 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // The reasons match, verbatim.
     expect(targetAgent.result.reason).toBe(legacyValue.reason)
     // And neither path moved the human's name.
-    expect(observe(target.sessions, target.created.sessionId)).toEqual(
-      observe(legacy.sessions, legacy.created.sessionId),
+    expect(await observe(target.sessions, target.created.sessionId)).toEqual(
+      await observe(legacy.sessions, legacy.created.sessionId),
     )
-    expect(observe(target.sessions, target.created.sessionId).nameSource).toBe('user')
+    expect((await observe(target.sessions, target.created.sessionId)).nameSource).toBe('user')
   })
 
   it('agrees that an unknown session is a silent no-op on both paths', async () => {
@@ -237,13 +237,13 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // answer or the migration itself becomes the oracle.
     const { store, sessions, mutations } = await stack()
     const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
-    const legacy = presence.execute(
+    const legacy = await presence.execute(
       'sessions.rename',
       { sessionId: asSessionId('no-such-session'), name: 'x' },
       soleHumanSessionStatePrincipal(OPERATOR),
       'trpc',
     )
-    const target = renameOnTargetPath(
+    const target = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: asSessionId('no-such-session'), name: 'x' },
       humanPrincipal,
@@ -276,10 +276,11 @@ describe('the shadow comparison is able to FAIL', () => {
     // Divergence injected into the TARGET stack only, through the real service —
     // the same method the path calls, so this is the divergence a real regression
     // would produce rather than a hand-built object.
-    target.sessions.renameSession({ sessionId: target.created.sessionId, name: 'diverged' })
+    await target.sessions.renameSession({ sessionId: target.created.sessionId, name: 'diverged' })
 
+    const observed = await observe(target.sessions, target.created.sessionId)
     expect(() =>
-      expect({ row: observe(target.sessions, target.created.sessionId) }).toEqual({
+      expect({ row: observed }).toEqual({
         row: legacy.row,
       }),
     ).toThrow()
@@ -398,7 +399,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // everything — which is exactly what the unreconciled constants DID, and
     // what nothing in the suite would have distinguished from correctness.
     const { sessions, mutations } = await stack()
-    const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const ownAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-8'),
@@ -407,7 +408,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
       chain: [],
     }
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: created.sessionId, name: 'mine to rename' },
       ownAgent,
@@ -415,7 +416,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     )
 
     expect(dispatch.outcome).toBe('applied')
-    expect(observe(sessions, created.sessionId).name).toBe('mine to rename')
+    expect((await observe(sessions, created.sessionId)).name).toBe('mine to rename')
   })
 
   it('an agent whose human does NOT hold the session is denied at apply', async () => {
@@ -423,7 +424,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // two together are what make the ceiling an instrument rather than a
     // constant answer.
     const { sessions, mutations } = await stack()
-    const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-9'),
@@ -432,7 +433,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
       chain: [],
     }
 
-    const dispatch = renameOnTargetPath(
+    const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
       { sessionId: created.sessionId, name: 'not yours' },
       strangersAgent,
@@ -442,7 +443,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // Denied even though the AGENT's own capability is admin/all — the human
     // ceiling is what refuses, which is the intersection A1 requires.
     expect(dispatch.outcome).toBe('denied')
-    expect(observe(sessions, created.sessionId).name).toBeUndefined()
+    expect((await observe(sessions, created.sessionId)).name).toBeUndefined()
   })
 })
 

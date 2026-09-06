@@ -36,15 +36,15 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
   let overrideClient: IssueTrpc
 
   beforeAll(async () => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
     // A is a subtree root with a worktree; a session running INSIDE it → a worker capability
     // rooted at A's subtree. B is unrelated (outside A's subtree). Mirrors the P1b-server tests.
-    A = registry.issues.create({ repoPath, title: 'epic root A', startNow: false })
-    registry.issues.update(A.id, { worktreePath: '/wt/A' })
-    const wtA = registry.issues.get(A.id)?.worktreePath as string
-    B = registry.issues.create({ repoPath, title: 'unrelated B', startNow: false })
-    sA = registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
+    A = await registry.issues.create({ repoPath, title: 'epic root A', startNow: false })
+    await registry.issues.update(A.id, { worktreePath: '/wt/A' })
+    const wtA = (await registry.issues.get(A.id))?.worktreePath as string
+    B = await registry.issues.create({ repoPath, title: 'unrelated B', startNow: false })
+    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
 
     // The capability-scoped command service is built into the registry (issue #13
     // Phase 2 step 4) — the P1a gate (checkIssueAccess) runs on every relayed op

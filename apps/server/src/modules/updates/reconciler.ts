@@ -244,7 +244,7 @@ export interface UpdateReconcilerDeps {
    * the answer changes on every operation transition, and a captured one would
    * make the pause outlive the operation that justified it.
    */
-  operationActive: () => boolean
+  operationActive: () => boolean | Promise<boolean>
   /** Deferred wake-up. Injected so no test ever sleeps. */
   schedule?: (fn: () => void, ms: number) => void
   /** How long between two grants; also how often an outstanding one is re-read. */
@@ -302,9 +302,10 @@ export class UpdateReconciler {
    * the handshake — so the version compared below is the version it just booted
    * with, not the one it had when it went away.
    */
-  onMachineConnected(machineId: string): void {
+  onMachineConnected(machineId: string): Promise<void> {
     this.wokenBy = 'machine-connected'
     this.enqueue(machineId)
+    return this.pump()
   }
 
   /**
@@ -326,11 +327,11 @@ export class UpdateReconciler {
    * current target" (§3.6), not to any one operation. The cancel ended an
    * operation; it did not unpublish the target.
    */
-  onOperationSettled(outcome?: string): void {
+  async onOperationSettled(outcome?: string): Promise<void> {
     if (outcome === 'canceled') return
     this.wokenBy = 'operation-settled'
-    for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
-    this.pump()
+    for (const machine of await this.deps.updates.fleet()) this.enqueue(machine.id)
+    await this.pump()
   }
 
   /**
@@ -377,11 +378,12 @@ export class UpdateReconciler {
       this.queued.add(machineId)
       this.queue.push(machineId)
     }
-    // Pumped even when it was already waiting: the reason it is still waiting
-    // may be exactly the thing that just changed (an operation that ended, a
-    // grant that finished), and a queue that only moves on NEW arrivals would
+    // The caller pumps. Queuing and pumping are separated so a fleet-wide
+    // sweep is ONE pump rather than one per machine — and so the wake-up can
+    // hand its caller a promise. Pumping still happens even when the queue was
+    // already waiting: the reason it is still waiting may be exactly the thing
+    // that just changed, and a queue that only moved on NEW arrivals would
     // strand whoever was already in it.
-    this.pump()
   }
 
   /**
@@ -401,19 +403,24 @@ export class UpdateReconciler {
    * because a grant to the last machine in the queue leaves nothing to pump and
    * a poll that only runs while somebody is waiting would never reach it.
    */
-  private pump(): void {
+  /**
+   * THE CONVERGENCE PUMP. Async since `consider` asks whether an exclusive
+   * operation holds the group, which is a durable read now. The re-entrancy
+   * guard spans the awaits, which is what it always meant: one pump at a time.
+   */
+  private async pump(): Promise<void> {
     if (this.pumping) return
     this.pumping = true
     let wait = false
     try {
       while (this.queue.length > 0) {
-        if (this.outstandingStillRunning()) {
+        if (await this.outstandingStillRunning()) {
           wait = true
           break
         }
         const machineId = this.queue[0]
         if (machineId === undefined) break
-        const disposition = this.consider(machineId)
+        const disposition = await this.consider(machineId)
         // PAUSED LEAVES THE QUEUE STANDING. An operation owns granting while it
         // runs, and everyone waiting is still waiting — draining them here would
         // answer "should this machine converge?" with a fact about the SERVER
@@ -436,10 +443,12 @@ export class UpdateReconciler {
   }
 
   /** Is the grant this issued still in flight? Re-read live, never remembered. */
-  private outstandingStillRunning(): boolean {
+  private async outstandingStillRunning(): Promise<boolean> {
     if (this.outstanding === undefined) return false
     const outstanding = this.outstanding
-    const machine = this.deps.updates.fleet().find((candidate) => candidate.id === outstanding)
+    const machine = (await this.deps.updates.fleet()).find(
+      (candidate) => candidate.id === outstanding,
+    )
     if (machine && IN_FLIGHT_STATES.has(machine.state)) return true
     this.outstanding = undefined
     return false
@@ -467,10 +476,10 @@ export class UpdateReconciler {
    * finished while this timer was pending — costs nothing and changes nothing,
    * and this path never continues a wave from inside its own lookup (POD-2180).
    */
-  private expireGrant(machineId: string, token: number): void {
+  private async expireGrant(machineId: string, token: number): Promise<void> {
     if (this.outstanding !== machineId || this.grants !== token) return
     this.outstanding = undefined
-    const abandoned = this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
+    const abandoned = await this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
     if (abandoned.length > 0) {
       log.info('reconciler gave up on a machine that took a grant and went silent', {
         machineId,
@@ -478,7 +487,7 @@ export class UpdateReconciler {
       })
     }
     // Whoever was queued behind it has been waiting since the grant went out.
-    this.pump()
+    this.schedulePump()
   }
 
   /**
@@ -493,21 +502,36 @@ export class UpdateReconciler {
     const schedule = this.deps.schedule ?? defaultSchedule
     schedule(() => {
       this.waiting = false
-      this.pump()
+      this.schedulePump()
     }, this.deps.spacingMs ?? DEFAULT_GRANT_SPACING_MS)
+  }
+
+  /**
+   * Every wake-up into this reconciler is a NOTIFICATION, not a request: a
+   * reconnect, a settled operation, an expired grant, a spacing timer. None of
+   * them reads a result, and two of them are timer callbacks with nobody to
+   * return a promise to. So the pump is scheduled and its rejection is logged
+   * rather than becoming an unhandled one with no machine on it.
+   */
+  private schedulePump(): void {
+    void this.pump().catch((err: unknown) => {
+      log.warn('update reconciler pump failed', { err })
+    })
   }
 
   /** Consider one machine. Deliberately does NOT touch the queue — the caller
    *  decides what a disposition means for the machine's place in it. */
-  private consider(machineId: string): 'granted' | 'refused' | 'paused' {
-    const machine = this.deps.updates.fleet().find((candidate) => candidate.id === machineId)
+  private async consider(machineId: string): Promise<'granted' | 'refused' | 'paused'> {
+    const machine = (await this.deps.updates.fleet()).find(
+      (candidate) => candidate.id === machineId,
+    )
     const target = machine ? this.targetFor(machine) : undefined
     const key = target ? attemptKey(machineId, target.version) : undefined
     const attempts = key === undefined ? 0 : (this.attempts.get(key) ?? 0)
     const decision = decideReconciliation({
       machine,
       target,
-      operationActive: this.deps.operationActive(),
+      operationActive: await this.deps.operationActive(),
       attempts,
       ...(this.deps.maxAttempts === undefined ? {} : { maxAttempts: this.deps.maxAttempts }),
     })
@@ -538,7 +562,7 @@ export class UpdateReconciler {
       return 'refused'
     }
 
-    const outcome: MachineApplyOutcome = this.deps.updates.authorizeMachine(
+    const outcome: MachineApplyOutcome = await this.deps.updates.authorizeMachine(
       asMachineId(machineId),
       {
         initiator: { kind: 'reconciliation', event: this.wokenBy },
@@ -562,7 +586,13 @@ export class UpdateReconciler {
     const token = this.grants
     const schedule = this.deps.schedule ?? defaultSchedule
     schedule(
-      () => this.expireGrant(machineId, token),
+      // A timer slot takes no promise, so the rejection is handled here rather
+      // than escaping as an unhandled one with no machine on it.
+      () => {
+        void this.expireGrant(machineId, token).catch((err: unknown) => {
+          log.warn('reconciler failed to expire a grant', { err, machineId })
+        })
+      },
       this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
     )
     this.converged.set(machineId, outcome.version)

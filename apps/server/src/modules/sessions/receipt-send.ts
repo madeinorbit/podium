@@ -212,11 +212,11 @@ export class ReceiptSender {
    * once, and never for a legacy send, so a caller can tell "no receipt is
    * coming" from "the receipt said nothing happened".
    */
-  send(
+  async send(
     via: ReceiptSendVia,
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
-  ): ReceiptSendResult {
+  ): Promise<ReceiptSendResult> {
     // Archive is a deliberate human boundary, not an errored run. Recovery may
     // override the provider failure below, but it must never enqueue, forward,
     // or report success for an archived session.

@@ -29,6 +29,7 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type DaemonHandshakeReply,
+  type HandshakeAcceptor,
   type DaemonPtyInputBatch,
   type DaemonPtyOutputBatch,
   DaemonPtyOutputMetadata,
@@ -46,7 +47,12 @@ import type { PairingGrant } from '../modules/machines/service'
 import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
 import type { DaemonControlTransport } from './daemon-ports'
-import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
+import {
+  createDaemonAcceptor,
+  prepareDaemonFrame,
+  receiveDaemonFrame,
+  recordHelloBuild,
+} from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
@@ -56,6 +62,9 @@ const log = createLogger('server:gateway:daemon')
 const INVENTORY_SETTLE_INTERVAL_MS = 10_000
 /** … for this long, which covers a turnkey enrollment installing all three CLIs. */
 const INVENTORY_SETTLE_WINDOW_MS = 3 * 60_000
+
+/** At most one frame may wait behind the credential frame on an unauthenticated socket. */
+const MAX_QUEUED_PREAUTH_FRAMES = 1
 
 // The DEVICE half of a machine principal is the connection it arrived on (ADR 3
 // Amendment 1 D14.1), so each daemon socket gets a process-local id. It is not
@@ -161,11 +170,14 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   // The shared framing (ADR 5 D3) does the version negotiation, the role
   // resolution, the ORDER enforcement and the strategy selection; this socket
   // supplies the transport facts and does what the step says.
-  const acceptor = createDaemonAcceptor({
+  const preparedAcceptor = createDaemonAcceptor({
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
   })
-  ws.on('message', (raw) => {
+  let acceptor: HandshakeAcceptor | undefined
+  let pendingPreAuthFrames = 0
+  let preAuthSerial = Promise.resolve()
+  const receiveDaemonMessage = async (raw: string | Buffer): Promise<void> => {
     if (failed) return
     if (typeof raw !== 'string') {
       if (principal === undefined) {
@@ -198,7 +210,12 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       return
     }
     if (principal === undefined) {
-      const outcome = receiveDaemonFrame(acceptor, raw)
+      const prepared = acceptor
+        ? { acceptor, outcome: receiveDaemonFrame(acceptor, raw) }
+        : await prepareDaemonFrame(preparedAcceptor, raw)
+      if (failed) return
+      acceptor = prepared.acceptor
+      const outcome = prepared.outcome
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
       if (outcome.kind === 'ignored') return
@@ -311,7 +328,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // handshake carries it and never interprets it (see `directoryContext`).
       if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
         for (const agentKind of ['claude-code', 'codex'] as const) {
-          registry.modules.loginPropagation.trigger({
+          await registry.modules.loginPropagation.trigger({
             targetMachineId: outcome.principal.machine,
             agentKind,
             force: true,
@@ -323,6 +340,11 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     // Post-handshake: the acceptor is asked FIRST, so a hello arriving on a live
     // connection is refused as an ordering violation rather than being parsed as
     // application traffic (a re-handshake would be a principal-swap primitive).
+    if (acceptor === undefined) {
+      failed = true
+      ws.terminate()
+      return
+    }
     const routed = receiveDaemonFrame(acceptor, raw)
     if (routed.kind === 'rejected') {
       reply(routed.reply)
@@ -352,6 +374,31 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // never silently: a silent drop here hides protocol drift / poison frames.
       warnDroppedFrame('daemon', err)
     }
+  }
+  ws.on('message', (raw) => {
+    if (typeof raw !== 'string' || principal !== undefined || failed) {
+      return receiveDaemonMessage(raw)
+    }
+    if (pendingPreAuthFrames > MAX_QUEUED_PREAUTH_FRAMES) {
+      failed = true
+      ws.terminate()
+      return
+    }
+    pendingPreAuthFrames += 1
+    preAuthSerial = preAuthSerial
+      .then(() => receiveDaemonMessage(raw))
+      .catch((error: unknown) => {
+        if (failed) return
+        failed = true
+        log.warn('terminated a daemon connection after credential preparation failed', {
+          err: error,
+        })
+        ws.terminate()
+      })
+      .finally(() => {
+        pendingPreAuthFrames -= 1
+      })
+    return preAuthSerial
   })
   ws.on('close', () => {
     acceptedCaps.clear()

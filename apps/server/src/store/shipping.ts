@@ -60,7 +60,8 @@ import {
   shipTrainManifests,
   shipTrainMembers,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** RETAINED INPUT/MINT BRAND CASTS: shipping compatibility methods accept raw
  * ids, and deterministic step/attempt/hold keys are minted from strings. The
@@ -466,15 +467,15 @@ export interface RootIntegrationReceiptStore {
   rootIntegrationReceipt(
     rootIssueId: RootIntegrationReceiptValue['rootIssueId'],
     approvedHeadSha: string,
-  ): RootIntegrationReceiptValue | null
-  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): RootIntegrationReceiptValue
+  ): Promise<RootIntegrationReceiptValue | null>
+  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): Promise<RootIntegrationReceiptValue>
 }
 
 /** Durable normalized shipping family. It owns persistence invariants only;
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -490,8 +491,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * instance, and ambient routing needs the enclosing transaction resolved per
    * access. B1 changes the body of this getter and nothing else in the file.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -513,8 +514,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * Kept as one aggregate read rather than `max()` over a mapped list, because
    * the zero case is the aggregate's, not the caller's.
    */
-  private highestHoldGeneration(orderId: ShipOrderValue['id']): number {
-    const row = this.db
+  private async highestHoldGeneration(orderId: ShipOrderValue['id']): Promise<number> {
+    const row = await this.db
       .select({ generation: sql<number>`COALESCE(MAX(${shipHolds.generation}), 0)` })
       .from(shipHolds)
       .where(eq(shipHolds.orderId, orderId))
@@ -525,8 +526,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   /** See {@link activeClaimCount}. */
   /** The immutable delivery receipt, inserted identically by the covered and
    *  the verified completion paths. */
-  private insertDeliveryReceipt(receipt: DeliveryReceiptValue): void {
-    this.db
+  private async insertDeliveryReceipt(receipt: DeliveryReceiptValue): Promise<void> {
+    ;await (this.db
       .insert(deliveryReceipts)
       .values({
         id: receipt.id,
@@ -541,14 +542,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         validationResult: receipt.validationResult,
         destination: receipt.destination,
         completedAt: receipt.completedAt,
-      })
+      }))
       .run()
   }
 
-  private bumpLaneRevision(laneKey: string, updatedAt: string): void {
-    this.db
+  private async bumpLaneRevision(laneKey: string, updatedAt: string): Promise<void> {
+    ;await (this.db
       .insert(shipLaneRevisions)
-      .values({ laneKey, revision: 1, updatedAt })
+      .values({ laneKey, revision: 1, updatedAt }))
       .onConflictDoUpdate({
         target: shipLaneRevisions.laneKey,
         set: {
@@ -559,16 +560,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .run()
   }
 
-  shippingEvidence(ref: string): StoredShippingEvidence | null {
-    const row = this.db.select().from(shipEvidence).where(eq(shipEvidence.ref, ref)).get()
+  async shippingEvidence(ref: string): Promise<StoredShippingEvidence | null> {
+    const row = await this.db.select().from(shipEvidence).where(eq(shipEvidence.ref, ref)).get()
     return row ? { ...row } : null
   }
 
-  shippingEvidenceForSource(
+  async shippingEvidenceForSource(
     custodyDigest: string,
     sourceRef: string,
-  ): StoredShippingEvidence | null {
-    const row = this.db
+  ): Promise<StoredShippingEvidence | null> {
+    const row = await this.db
       .select()
       .from(shipEvidence)
       .where(
@@ -579,13 +580,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? { ...row } : null
   }
 
-  recordShippingEvidence(input: StoredShippingEvidence): StoredShippingEvidence {
+  async recordShippingEvidence(input: StoredShippingEvidence): Promise<StoredShippingEvidence> {
     if (createHash('sha256').update(input.content).digest('hex') !== input.contentDigest) {
       throw new Error(`shipwright evidence ${input.ref} content digest mismatch`)
     }
     const existing =
-      this.shippingEvidence(input.ref) ??
-      this.shippingEvidenceForSource(input.custodyDigest, input.sourceRef)
+      await this.shippingEvidence(input.ref) ??
+      await this.shippingEvidenceForSource(input.custodyDigest, input.sourceRef)
     if (existing) {
       if (
         existing.ref !== input.ref ||
@@ -598,7 +599,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       return existing
     }
-    this.db
+    ;await (this.db
       .insert(shipEvidence)
       .values({
         ref: input.ref,
@@ -607,24 +608,24 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         sourceRef: input.sourceRef,
         content: input.content,
         materializedAt: input.materializedAt,
-      })
+      }))
       .run()
     return { ...input }
   }
 
-  repairCandidatesForAttempt(attemptId: ShipAttemptValue['id']): StoredShippingRepairCandidate[] {
-    return this.db
+  async repairCandidatesForAttempt(attemptId: ShipAttemptValue['id']): Promise<StoredShippingRepairCandidate[]> {
+    return (await this.db
       .select()
       .from(shipRepairCandidates)
       .where(eq(shipRepairCandidates.attemptId, attemptId))
       .orderBy(asc(shipRepairCandidates.sequence))
-      .all()
+      .all())
       .map((row) => ({ ...row }))
   }
 
-  private recordRepairCandidate(input: StoredShippingRepairCandidate): void {
-    const attempt = this.getAttempt(input.attemptId)
-    const order = this.getOrder(input.orderId)
+  private async recordRepairCandidate(input: StoredShippingRepairCandidate): Promise<void> {
+    const attempt = await this.getAttempt(input.attemptId)
+    const order = await this.getOrder(input.orderId)
     if (
       !attempt ||
       !order ||
@@ -634,14 +635,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     ) {
       throw new Error(`ship repair ${input.attemptId}:${input.sequence} custody fence failed`)
     }
-    const prior = this.repairCandidatesForAttempt(input.attemptId)
+    const prior = await this.repairCandidatesForAttempt(input.attemptId)
     if (input.sequence !== prior.length + 1 || input.round !== input.sequence) {
       throw new Error(`ship repair ${input.attemptId} causal sequence is not contiguous`)
     }
     if (!/^[a-f0-9]{64}$/.test(input.contextDigest)) {
       throw new Error(`ship repair ${input.attemptId}:${input.sequence} context digest is invalid`)
     }
-    this.db
+    ;await (this.db
       .insert(shipRepairCandidates)
       .values({
         orderId: input.orderId,
@@ -654,7 +655,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         candidateHeadSha: input.candidateHeadSha,
         resultToken: input.resultToken,
         recordedAt: input.recordedAt,
-      })
+      }))
       .run()
   }
 
@@ -663,11 +664,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * the immutable git commit, so callers never ask for an ambiguous "latest"
    * receipt and Shipping can compare it directly with the live approved head.
    */
-  rootIntegrationReceipt(
+  async rootIntegrationReceipt(
     rootIssueId: RootIntegrationReceiptValue['rootIssueId'],
     approvedHeadSha: string,
-  ): RootIntegrationReceiptValue | null {
-    const row = this.db
+  ): Promise<RootIntegrationReceiptValue | null> {
+    const row = await this.db
       .select()
       .from(rootIntegrationReceipts)
       .where(
@@ -685,16 +686,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * stored value; the same root/head with different descendant facts is an
    * immutable-history collision and is refused rather than overwritten.
    */
-  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): RootIntegrationReceiptValue {
+  async recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): Promise<RootIntegrationReceiptValue> {
     const receipt = canonicalIntegrationReceipt(input)
-    const existing = this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
+    const existing = await this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
     if (existing) {
       if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
       throw new Error(
         `root integration receipt ${receipt.rootIssueId}@${receipt.approvedHeadSha} already exists with different descendants`,
       )
     }
-    this.db
+    ;await (this.db
       .insert(rootIntegrationReceipts)
       .values({
         rootIssueId: receipt.rootIssueId,
@@ -702,18 +703,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         // `descendants` is plain `text()`, so the serialisation stays the
         // caller's, exactly as the raw statement had it.
         descendants: JSON.stringify(receipt.descendants),
-      })
+      }))
       .run()
-    const stored = this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
+    const stored = await this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
     if (!stored) throw new Error('root integration receipt insert did not persist')
     return stored
   }
 
-  getOrder(id: string): ShipOrderValue | null {
+  async getOrder(id: string): Promise<ShipOrderValue | null> {
     // The public signature takes a plain `string` and widening it to the brand
     // is a caller change, not a conversion; `asShipOrderId` is the identity cast
     // the model exports for exactly this boundary.
-    const row = this.db
+    const row = await this.db
       .select(orderColumns)
       .from(shipOrders)
       .where(eq(shipOrders.id, asShipOrderId(id)))
@@ -721,8 +722,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapOrder(row) : null
   }
 
-  activeOrderForIssue(issueId: string): ShipOrderValue | null {
-    const row = this.db
+  async activeOrderForIssue(issueId: string): Promise<ShipOrderValue | null> {
+    const row = await this.db
       .select(orderColumns)
       .from(shipOrders)
       .where(
@@ -735,17 +736,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapOrder(row) : null
   }
 
-  listOrders(): ShipOrderValue[] {
-    return this.db
+  async listOrders(): Promise<ShipOrderValue[]> {
+    return (await this.db
       .select(orderColumns)
       .from(shipOrders)
       .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
-      .all()
+      .all())
       .map(mapOrder)
   }
 
-  issueIdForOrder(id: string): string | null {
-    const row = this.db
+  async issueIdForOrder(id: string): Promise<string | null> {
+    const row = await this.db
       .select({ issueId: shipOrders.issueId })
       .from(shipOrders)
       .where(eq(shipOrders.id, asShipOrderId(id)))
@@ -753,7 +754,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row?.issueId ?? null
   }
 
-  issueIdsForOrders(ids: readonly string[]): Map<string, string> {
+  async issueIdsForOrders(ids: readonly string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     const unique = [...new Set(ids)]
     const chunkSize = 500
@@ -762,7 +763,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       // The 500-id chunk stays: it bounds the number of distinct SQL texts the
       // statement cache sees, and drizzle's `inArray` emits one placeholder per
       // id exactly as the hand-built list did.
-      const rows = this.db
+      const rows = await this.db
         .select({ id: shipOrders.id, issueId: shipOrders.issueId })
         .from(shipOrders)
         .where(inArray(shipOrders.id, chunk.map(asShipOrderId)))
@@ -772,18 +773,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return out
   }
 
-  createOrder(input: ShipOrderValue): ShipOrderValue {
+  async createOrder(input: ShipOrderValue): Promise<ShipOrderValue> {
     const order = ShipOrder.parse(input)
     if (order.state !== 'queued') {
       throw new Error(`ship order ${order.id} must be created queued`)
     }
-    return this.createOrJoinTransaction(() => {
-      const existing = this.getOrder(order.id)
+    return await this.createOrJoinTransaction(async () => {
+      const existing = await this.getOrder(order.id)
       if (existing) {
         if (JSON.stringify(existing) === JSON.stringify(order)) return existing
         throw new Error(`ship order id ${order.id} already exists with different content`)
       }
-      const active = this.activeOrderForIssue(order.issueId)
+      const active = await this.activeOrderForIssue(order.issueId)
       if (active) {
         throw new Error(`issue ${order.issueId} already has active ship order ${active.id}`)
       }
@@ -797,7 +798,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${order.id} validation policy digest does not match`)
       }
-      const issue = this.db
+      const issue = await this.db
         .select({ repoPath: issues.repoPath, machineId: issues.machineId })
         .from(issues)
         .where(eq(issues.id, order.issueId))
@@ -813,7 +814,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         machineId: issue.machineId,
       })
       const actor = actorColumns(order.requestedBy.actor)
-      this.db
+      ;await (this.db
         .insert(shipOrders)
         .values({
           id: order.id,
@@ -850,44 +851,44 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           state: order.state,
           stateChangedAt: order.stateChangedAt,
           holdCode: order.holdCode ?? null,
-        })
+        }))
         .run()
-      this.bumpLaneRevision(laneKey, order.requestedAt)
-      this.invalidateActiveLane(laneKey, order.requestedAt, 'lane-enqueue')
-      return this.getOrder(order.id) as ShipOrderValue
+      await this.bumpLaneRevision(laneKey, order.requestedAt)
+      await this.invalidateActiveLane(laneKey, order.requestedAt, 'lane-enqueue')
+      return await this.getOrder(order.id) as ShipOrderValue
     })
   }
 
   /** The admission race closes here, inside the caller's outer transaction.
    * An identical active approval is the same command; a changed approval is a
    * new review and must not replace the frozen order. */
-  createOrReturnActiveOrder(input: ShipOrderValue): {
+  async createOrReturnActiveOrder(input: ShipOrderValue): Promise<{
     order: ShipOrderValue
     created: boolean
-  } {
+  }> {
     const candidate = ShipOrder.parse(input)
-    return this.createOrJoinTransaction(() => {
-      const active = this.activeOrderForIssue(candidate.issueId)
+    return await this.createOrJoinTransaction(async () => {
+      const active = await this.activeOrderForIssue(candidate.issueId)
       if (active) {
         if (sameFrozenShipOrder(active, candidate)) {
           return { order: active, created: false }
         }
         throw new Error(`issue ${candidate.issueId} already has a different active ship order`)
       }
-      return { order: this.createOrder(candidate), created: true }
+      return { order: await this.createOrder(candidate), created: true }
     })
   }
 
   /** Compare-and-swap an operational state. Held and verified-terminal changes
    * have dedicated methods because they must update their normalized child row
    * in the same transaction. */
-  transitionOrder(
+  async transitionOrder(
     id: string,
     expectedState: ShipOrderState,
     nextState: Exclude<ShipOrderState, 'held' | 'shipped'>,
     stateChangedAt: string,
-  ): ShipOrderValue {
-    const current = this.getOrder(id)
+  ): Promise<ShipOrderValue> {
+    const current = await this.getOrder(id)
     if (!current) throw new Error(`unknown ship order ${id}`)
     if (isTerminalShipOrderState(current.state)) {
       throw new Error(`terminal ship order ${id} is immutable (${current.state})`)
@@ -900,15 +901,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (!isLegalShipOrderTransition(expectedState, nextState)) {
       throw new Error(`illegal ship order transition ${expectedState} → ${nextState}`)
     }
-    const attempt = this.latestAttemptForOrder(id)
+    const attempt = await this.latestAttemptForOrder(id)
     if (
       nextState !== 'cancelled' &&
       attempt &&
-      this.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
+      await this.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
     ) {
       throw new Error(`ship order ${id} has durable cancellation intent`)
     }
-    const result = this.db
+    const result = await this.db
       .update(shipOrders)
       .set({ state: nextState, stateChangedAt, holdCode: null })
       .where(
@@ -924,11 +925,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (result.changes !== 1) {
       throw new Error(`ship order ${id} state fence failed: expected ${expectedState}`)
     }
-    return this.getOrder(id) as ShipOrderValue
+    return await this.getOrder(id) as ShipOrderValue
   }
 
-  getAttempt(id: string): ShipAttemptValue | null {
-    const row = this.db
+  async getAttempt(id: string): Promise<ShipAttemptValue | null> {
+    const row = await this.db
       .select()
       .from(shipAttempts)
       .where(eq(shipAttempts.id, asShipAttemptId(id)))
@@ -936,14 +937,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapAttempt(row) : null
   }
 
-  createAttempt(input: ShipAttemptValue): ShipAttemptValue {
+  async createAttempt(input: ShipAttemptValue): Promise<ShipAttemptValue> {
     const attempt = ShipAttempt.parse(input)
-    const existing = this.getAttempt(attempt.id)
+    const existing = await this.getAttempt(attempt.id)
     if (existing) {
       if (JSON.stringify(existing) === JSON.stringify(attempt)) return existing
       throw new Error(`ship attempt id ${attempt.id} already exists with different content`)
     }
-    const order = this.getOrder(attempt.orderId)
+    const order = await this.getOrder(attempt.orderId)
     if (!order) throw new Error(`unknown ship order ${attempt.orderId}`)
     if (isTerminalShipOrderState(order.state)) {
       throw new Error(`terminal ship order ${order.id} cannot start an attempt`)
@@ -965,7 +966,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     ) {
       throw new Error(`ship attempt ${attempt.id} must be created unfinished`)
     }
-    this.db
+    ;await (this.db
       .insert(shipAttempts)
       .values({
         id: attempt.id,
@@ -977,13 +978,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         leaseGeneration: attempt.leaseGeneration,
         startedAt: attempt.startedAt,
         submittedHeadSha: attempt.submittedHeadSha,
-      })
+      }))
       .run()
-    return this.getAttempt(attempt.id) as ShipAttemptValue
+    return await this.getAttempt(attempt.id) as ShipAttemptValue
   }
 
-  latestAttemptForOrder(orderId: string): ShipAttemptValue | null {
-    const row = this.db
+  async latestAttemptForOrder(orderId: string): Promise<ShipAttemptValue | null> {
+    const row = await this.db
       .select()
       .from(shipAttempts)
       .where(eq(shipAttempts.orderId, asShipOrderId(orderId)))
@@ -993,36 +994,36 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapAttempt(row) : null
   }
 
-  listAttempts(): ShipAttemptValue[] {
-    return this.db
+  async listAttempts(): Promise<ShipAttemptValue[]> {
+    return (await this.db
       .select()
       .from(shipAttempts)
       .orderBy(asc(shipAttempts.startedAt), asc(shipAttempts.id))
-      .all()
+      .all())
       .map(mapAttempt)
   }
 
-  claimTrain(input: {
+  async claimTrain(input: {
     leaderOrderId: ShipOrderValue['id']
     startedAt: string
     members: { orderId: ShipOrderValue['id'] }[]
-  }): {
+  }): Promise<{
     manifest: ShipTrainManifestValue
     claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
-  } {
-    return this.createOrJoinTransaction(() => {
+  }> {
+    return await this.createOrJoinTransaction(async () => {
       const requestedIds = [...new Set(input.members.map((member) => member.orderId))]
       if (requestedIds.length === 0 || requestedIds.length !== input.members.length) {
         throw new Error('ship train claim requires unique non-empty order ids')
       }
-      const selected = requestedIds.map((id) => {
-        const order = this.getOrder(id)
+      const selected = await Promise.all(requestedIds.map(async (id) => {
+        const order = await this.getOrder(id)
         if (!order || order.state !== 'queued') {
           throw new Error(`ship train member ${id} is not queued`)
         }
         return order
-      })
-      const leaderOrder = this.getOrder(input.leaderOrderId)
+      }))
+      const leaderOrder = await this.getOrder(input.leaderOrderId)
       if (!leaderOrder || !requestedIds.includes(leaderOrder.id)) {
         throw new Error('ship train leader is absent from its claimed prefix')
       }
@@ -1048,8 +1049,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error('ship train members cross an immutable delivery lane')
       }
       const issueFacts = new Map(
-        selected.map((order) => {
-          const row = this.db
+        await Promise.all(selected.map(async (order) => {
+          const row = await this.db
             .select({
               branch: issues.branch,
               machineId: issues.machineId,
@@ -1068,7 +1069,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             order.id,
             { branch: row.branch, machineId: row.machineId, repoPath: row.repoPath },
           ] as const
-        }),
+        })),
       )
       if (new Set([...issueFacts.values()].map((facts) => facts.machineId)).size !== 1) {
         throw new Error('ship train members cross machine custody')
@@ -1083,7 +1084,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (selected.some((order) => shippingLaneKey(order, issueFacts.get(order.id)!) !== laneKey)) {
         throw new Error('ship train members cross canonical lane authority')
       }
-      const laneRevisionRow = this.db
+      const laneRevisionRow = await this.db
         .select({ revision: shipLaneRevisions.revision })
         .from(shipLaneRevisions)
         .where(eq(shipLaneRevisions.laneKey, laneKey))
@@ -1091,7 +1092,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!laneRevisionRow || laneRevisionRow.revision < 1) {
         throw new Error('ship train lane has no durable revision')
       }
-      const occupiedLane = this.listOrders().find(
+      const occupiedLane = (await this.listOrders()).find(
         (order) =>
           compatible(order) &&
           !isTerminalShipOrderState(order.state) &&
@@ -1103,7 +1104,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           `ship train lane is already occupied by earlier ${occupiedLane.state} order ${occupiedLane.id}`,
         )
       }
-      const stackEdges = this.db
+      const stackEdges = await this.db
         .select({
           upperOrderId: shipOrderStackEdges.upperOrderId,
           lowerOrderId: shipOrderStackEdges.lowerOrderId,
@@ -1118,10 +1119,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       const dependencies = (order: ShipOrderValue): ShipOrderValue['deliveryDependsOn'] =>
         [...new Set([...order.deliveryDependsOn, ...(stackLower.get(order.id) ?? [])])].sort()
-      const laneOrders = this.listOrders().filter(
+      const laneOrders = (await this.listOrders()).filter(
         (order) => order.state === 'queued' && compatible(order),
       )
-      const allOrders = new Map(this.listOrders().map((order) => [order.id, order]))
+      const allOrders = new Map((await this.listOrders()).map((order) => [order.id, order]))
       const remaining = new Map(laneOrders.map((order) => [order.id, order]))
       const topological: ShipOrderValue[] = []
       while (remaining.size > 0) {
@@ -1179,9 +1180,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship train leader ${leaderOrder.id} validation policy drifted`)
       }
       const machineId = issueFacts.get(prefix[0]!.id)!.machineId as ShipAttemptValue['machineId']
-      const claimed = prefix.map((order) => {
-        const previous = this.latestAttemptForOrder(order.id)
-        return this.claimAttempt({
+      const claimed = await Promise.all(prefix.map(async (order) => {
+        const previous = await this.latestAttemptForOrder(order.id)
+        return await this.claimAttempt({
           orderId: order.id,
           expectedState: 'queued',
           expectedAttemptId: previous?.id ?? null,
@@ -1189,7 +1190,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           machineId,
           startedAt: input.startedAt,
         })
-      })
+      }))
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
       const members = prefix.map((order, index) => {
         const item = byOrder.get(order.id)!
@@ -1250,7 +1251,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!leader) throw new Error(`ship train ${manifest.id} has no claimed leader`)
       const canonicalJson = serializeShipTrainManifest(manifest)
       const canonicalDigest = createHash('sha256').update(canonicalJson).digest('hex')
-      this.db
+      ;await (this.db
         .insert(shipTrainManifests)
         .values({
           id: manifest.id,
@@ -1281,10 +1282,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           leaderAttemptId: leader.attempt.id,
           leaderGeneration: leader.attempt.leaseGeneration,
           createdAt: input.startedAt,
-        })
+        }))
         .run()
       for (const [ordinal, member] of manifest.members.entries()) {
-        this.db
+        ;await (this.db
           .insert(shipTrainMembers)
           .values({
             trainId: manifest.id,
@@ -1299,21 +1300,21 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             approvedHeadSha: member.approvedHeadSha,
             // `mode: 'json'`, so the array goes in unserialised. Same bytes.
             deliveryDependsOn: member.deliveryDependsOn,
-          })
+          }))
           .run()
       }
       for (const member of manifest.members) {
-        this.db
+        ;await (this.db
           .insert(shipTrainActiveClaims)
           .values({
             trainId: manifest.id,
             orderId: member.orderId,
             attemptId: member.attemptId,
             generation: member.generation,
-          })
+          }))
           .run()
       }
-      const finalRevision = this.db
+      const finalRevision = await this.db
         .select({ revision: shipLaneRevisions.revision })
         .from(shipLaneRevisions)
         .where(eq(shipLaneRevisions.laneKey, laneKey))
@@ -1322,7 +1323,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error('ship train lane changed during claim')
       }
       const effectKey = `train-membership:${manifest.id}:${canonicalDigest}`
-      this.appendStep({
+      await this.appendStep({
         id: `step:${leader.attempt.id}:${effectKey}:planned` as ShipStepValue['id'],
         orderId: leader.order.id,
         attemptId: leader.attempt.id,
@@ -1343,10 +1344,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
-  trainManifestForAttempt(attemptId: ShipAttemptValue['id']): ShipTrainManifestValue | null {
+  async trainManifestForAttempt(attemptId: ShipAttemptValue['id']): Promise<ShipTrainManifestValue | null> {
     // The projection named 19 of the manifest table's columns and the join adds
     // none, so `select()` over the joined table returns the same fields.
-    const row = this.db
+    const row = await this.db
       .select(trainManifestColumns)
       .from(shipTrainManifests)
       .innerJoin(shipTrainMembers, eq(shipTrainMembers.trainId, shipTrainManifests.id))
@@ -1383,7 +1384,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     ) {
       throw new Error(`ship train manifest ${manifest.id} normalized authority mismatch`)
     }
-    const normalizedMembers = this.db
+    const normalizedMembers = await this.db
       .select(trainMemberColumns)
       .from(shipTrainMembers)
       .where(eq(shipTrainMembers.trainId, manifest.id))
@@ -1410,7 +1411,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     }
     const leader = manifest.members.at(-1)!
     const expectedEffectKey = `train-membership:${manifest.id}:${row.canonicalDigest}`
-    const auditMarker = this.stepsForAttempt(leader.attemptId).find(
+    const auditMarker = (await this.stepsForAttempt(leader.attemptId)).find(
       (step) => step.effectKey === expectedEffectKey,
     )
     if (
@@ -1430,21 +1431,21 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return manifest
   }
 
-  private claimedTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
-    const row = this.db
+  private async claimedTrainForOrder(orderId: ShipOrderValue['id']): Promise<ShipTrainManifestValue | null> {
+    const row = await this.db
       .select({ attemptId: shipTrainActiveClaims.attemptId })
       .from(shipTrainActiveClaims)
       .innerJoin(shipTrainManifests, eq(shipTrainManifests.id, shipTrainActiveClaims.trainId))
       .where(and(eq(shipTrainActiveClaims.orderId, orderId), isNull(shipTrainManifests.releasedAt)))
       .get()
     if (!row) return null
-    return this.trainManifestForAttempt(row.attemptId)
+    return await this.trainManifestForAttempt(row.attemptId)
   }
 
-  activeTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
-    const manifest = this.claimedTrainForOrder(orderId)
+  async activeTrainForOrder(orderId: ShipOrderValue['id']): Promise<ShipTrainManifestValue | null> {
+    const manifest = await this.claimedTrainForOrder(orderId)
     if (!manifest) return null
-    const authority = this.db
+    const authority = await this.db
       .select({
         releasedAt: shipTrainManifests.releasedAt,
         revision: shipLaneRevisions.revision,
@@ -1467,9 +1468,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       return null
     }
     for (const member of manifest.members) {
-      const order = this.getOrder(member.orderId)
-      const attempt = this.getAttempt(member.attemptId)
-      const latest = this.latestAttemptForOrder(member.orderId)
+      const order = await this.getOrder(member.orderId)
+      const attempt = await this.getAttempt(member.attemptId)
+      const latest = await this.latestAttemptForOrder(member.orderId)
       if (
         !order ||
         order.state === 'held' ||
@@ -1489,13 +1490,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   /** Read-only manifest discovery for a lane mutation. Callers use the result
    * to place every affected issue in one outer ledger transaction before the
    * repository releases or resets any member. */
-  activeTrainsForLane(order: ShipOrderValue): ShipTrainManifestValue[] {
+  async activeTrainsForLane(order: ShipOrderValue): Promise<ShipTrainManifestValue[]> {
     if (!order.repoPath || !order.machineId) return []
     const laneKey = shippingLaneKey(order, {
       repoPath: order.repoPath,
       machineId: order.machineId,
     })
-    const rows = this.db
+    const rows = await this.db
       .select({ orderId: shipTrainActiveClaims.orderId })
       .from(shipTrainActiveClaims)
       .innerJoin(shipTrainManifests, eq(shipTrainManifests.id, shipTrainActiveClaims.trainId))
@@ -1508,15 +1509,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .all()
     const manifests = new Map<string, ShipTrainManifestValue>()
     for (const row of rows) {
-      const manifest = this.claimedTrainForOrder(row.orderId)
+      const manifest = await this.claimedTrainForOrder(row.orderId)
       if (manifest) manifests.set(manifest.id, manifest)
     }
     return [...manifests.values()]
   }
 
-  releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): void {
-    this.createOrJoinTransaction(() => {
-      const row = this.db
+  async releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const row = await this.db
         .select({
           releasedAt: shipTrainManifests.releasedAt,
           releaseReason: shipTrainManifests.releaseReason,
@@ -1529,17 +1530,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         if (row.releasedAt === releasedAt && row.releaseReason === reason) return
         throw new Error(`ship train ${trainId} was already released differently`)
       }
-      const changed = this.db
+      const changed = await this.db
         .update(shipTrainManifests)
         .set({ releasedAt, releaseReason: reason })
         .where(and(eq(shipTrainManifests.id, trainId), isNull(shipTrainManifests.releasedAt)))
         .run()
       if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
-      const claims = this.db
+      const claims = await this.db
         .delete(shipTrainActiveClaims)
         .where(eq(shipTrainActiveClaims.trainId, trainId))
         .run()
-      const memberCount = this.db
+      const memberCount = await this.db
         .select({ memberCount: shipTrainManifests.memberCount })
         .from(shipTrainManifests)
         .where(eq(shipTrainManifests.id, trainId))
@@ -1550,7 +1551,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
-  isolateTrainFailure(input: {
+  async isolateTrainFailure(input: {
     trainId: ShipTrainManifestValue['id']
     leaderOrderId: ShipOrderValue['id']
     leaderAttemptId: ShipAttemptValue['id']
@@ -1559,9 +1560,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     failureOrderIds: ShipOrderValue['id'][]
     isolatedAt: string
     detail: string
-  }): void {
-    this.createOrJoinTransaction(() => {
-      const manifest = this.claimedTrainForOrder(input.leaderOrderId)
+  }): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const manifest = await this.claimedTrainForOrder(input.leaderOrderId)
       if (
         !manifest ||
         manifest.id !== input.trainId ||
@@ -1578,20 +1579,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship train ${input.trainId} isolation set is invalid`)
       }
-      this.appendStep(input.terminalStep)
-      this.releaseTrain(manifest.id, input.isolatedAt, 'validation-isolated')
+      await this.appendStep(input.terminalStep)
+      await this.releaseTrain(manifest.id, input.isolatedAt, 'validation-isolated')
       for (const member of manifest.members) {
-        const order = this.getOrder(member.orderId)
-        const attempt = this.getAttempt(member.attemptId)
+        const order = await this.getOrder(member.orderId)
+        const attempt = await this.getAttempt(member.attemptId)
         if (!order || isTerminalShipOrderState(order.state)) continue
         if (attempt && !attempt.finishedAt) {
-          this.finishAttempt(member.attemptId, member.generation, {
+          await this.finishAttempt(member.attemptId, member.generation, {
             finishedAt: input.isolatedAt,
             outcome: 'failed',
           })
         }
         if (!failures.has(member.orderId)) {
-          const changed = this.db
+          const changed = await this.db
             .update(shipOrders)
             .set({ state: 'queued', stateChangedAt: input.isolatedAt, holdCode: null })
             .where(
@@ -1605,8 +1606,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             throw new Error(`ship train ${manifest.id} green member reset failed`)
           continue
         }
-        const generationRow = { generation: this.highestHoldGeneration(member.orderId) }
-        this.raiseHold({
+        const generationRow = { generation: await this.highestHoldGeneration(member.orderId) }
+        await this.raiseHold({
           id: asShipHoldId(`hold:${member.orderId}:isolation:${generationRow.generation + 1}`),
           orderId: member.orderId,
           generation: generationRow.generation + 1,
@@ -1621,15 +1622,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
-  private invalidateActiveLane(laneKey: string, at: string, reason: string): void {
-    const rows = this.db
+  private async invalidateActiveLane(laneKey: string, at: string, reason: string): Promise<void> {
+    const rows = await this.db
       .select({ id: shipTrainManifests.id })
       .from(shipTrainManifests)
       .where(and(eq(shipTrainManifests.laneKey, laneKey), isNull(shipTrainManifests.releasedAt)))
       .orderBy(asc(shipTrainManifests.createdAt), asc(shipTrainManifests.id))
       .all()
     for (const row of rows) {
-      const memberRows = this.db
+      const memberRows = await this.db
         .select({
           orderId: shipTrainMembers.orderId,
           attemptId: shipTrainMembers.attemptId,
@@ -1646,19 +1647,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .where(eq(shipTrainMembers.trainId, row.id))
         .orderBy(asc(shipTrainMembers.ordinal))
         .all()
-      const orders = memberRows.map((member) => this.getOrder(member.orderId))
+      const orders = await Promise.all(memberRows.map(async (member) => await this.getOrder(member.orderId)))
+      const attempts = await Promise.all(memberRows.map(async (member) => await this.getAttempt(member.attemptId)))
       const resettable =
         memberRows.length > 0 &&
         orders.every((order) => order?.state === 'preflight') &&
-        memberRows.every((member) => !this.getAttempt(member.attemptId)?.finishedAt)
-      this.releaseTrain(row.id, at, reason)
+        attempts.every((attempt) => !attempt?.finishedAt)
+      await this.releaseTrain(row.id, at, reason)
       if (resettable) {
         for (const member of memberRows) {
-          this.finishAttempt(member.attemptId, member.generation, {
+          await this.finishAttempt(member.attemptId, member.generation, {
             finishedAt: at,
             outcome: 'failed',
           })
-          const changed = this.db
+          const changed = await this.db
             .update(shipOrders)
             .set({ state: 'queued', stateChangedAt: at, holdCode: null })
             .where(and(eq(shipOrders.id, member.orderId), eq(shipOrders.state, 'preflight')))
@@ -1669,17 +1671,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         continue
       }
       for (const member of memberRows) {
-        const order = this.getOrder(member.orderId)
-        const attempt = this.getAttempt(member.attemptId)
+        const order = await this.getOrder(member.orderId)
+        const attempt = await this.getAttempt(member.attemptId)
         if (!order || isTerminalShipOrderState(order.state)) continue
         if (attempt && !attempt.finishedAt) {
-          this.finishAttempt(member.attemptId, member.generation, {
+          await this.finishAttempt(member.attemptId, member.generation, {
             finishedAt: at,
             outcome: 'failed',
           })
         }
-        const generationRow = { generation: this.highestHoldGeneration(member.orderId) }
-        this.raiseHold({
+        const generationRow = { generation: await this.highestHoldGeneration(member.orderId) }
+        await this.raiseHold({
           id: asShipHoldId(`hold:${member.orderId}:lane:${generationRow.generation + 1}`),
           orderId: member.orderId,
           generation: generationRow.generation + 1,
@@ -1694,14 +1696,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     }
   }
 
-  recordNativeStackEdge(input: {
+  async recordNativeStackEdge(input: {
     upperOrderId: ShipOrderValue['id']
     lowerOrderId: ShipOrderValue['id']
     recordedAt: string
-  }): void {
-    this.createOrJoinTransaction(() => {
-      const upper = this.getOrder(input.upperOrderId)
-      const lower = this.getOrder(input.lowerOrderId)
+  }): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const upper = await this.getOrder(input.upperOrderId)
+      const lower = await this.getOrder(input.lowerOrderId)
       if (!upper || !lower || upper.id === lower.id) throw new Error('invalid native stack edge')
       if (
         upper.repoId !== lower.repoId ||
@@ -1711,8 +1713,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error('native stack edge crosses a delivery lane')
       }
-      const issueRows = [upper, lower].map((order) => {
-        const issue = this.db
+      const issueRows = await Promise.all([upper, lower].map(async (order) => {
+        const issue = await this.db
           .select({ repoPath: issues.repoPath, machineId: issues.machineId })
           .from(issues)
           .where(eq(issues.id, order.issueId))
@@ -1720,12 +1722,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         if (!issue?.repoPath || !issue.machineId)
           throw new Error('native stack edge has no lane custody')
         return { repoPath: issue.repoPath, machineId: issue.machineId }
-      })
+      }))
       const laneKey = shippingLaneKey(upper, issueRows[0]!)
       if (shippingLaneKey(lower, issueRows[1]!) !== laneKey) {
         throw new Error('native stack edge crosses immutable compatibility')
       }
-      const existing = this.db
+      const existing = await this.db
         .select()
         .from(shipOrderStackEdges)
         .where(
@@ -1745,7 +1747,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         }
         throw new Error(`native stack edge ${upper.id} → ${lower.id} is immutable`)
       }
-      this.db
+      ;await (this.db
         .insert(shipOrderStackEdges)
         .values({
           upperOrderId: upper.id,
@@ -1753,19 +1755,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           upperApprovedHeadSha: upper.approvedHeadSha,
           lowerApprovedHeadSha: lower.approvedHeadSha,
           recordedAt: input.recordedAt,
-        })
+        }))
         .run()
-      this.bumpLaneRevision(laneKey, input.recordedAt)
-      this.invalidateActiveLane(laneKey, input.recordedAt, 'native-stack-change')
+      await this.bumpLaneRevision(laneKey, input.recordedAt)
+      await this.invalidateActiveLane(laneKey, input.recordedAt, 'native-stack-change')
     })
   }
 
-  hasNativeStackEdge(
+  async hasNativeStackEdge(
     upperOrderId: ShipOrderValue['id'],
     lowerOrderId: ShipOrderValue['id'],
-  ): boolean {
+  ): Promise<boolean> {
     return Boolean(
-      this.db
+      await this.db
         .select({ present: sql<number>`1` })
         .from(shipOrderStackEdges)
         .where(
@@ -1781,40 +1783,40 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   /** Claim one active order through its durable order/attempt winner. Recovery
    * supersedes an unfinished prior attempt and mints generation + 1 unless the
    * old winner has durable cancellation intent, which must settle in place. */
-  claimAttempt(input: {
+  async claimAttempt(input: {
     orderId: string
     expectedState: Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>
     expectedAttemptId: string | null
     expectedGeneration: number
     machineId: ShipAttemptValue['machineId']
     startedAt: string
-  }): { order: ShipOrderValue; attempt: ShipAttemptValue } {
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(input.orderId)
+  }): Promise<{ order: ShipOrderValue; attempt: ShipAttemptValue }> {
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(input.orderId)
       if (!order) throw new Error(`unknown ship order ${input.orderId}`)
       if (order.state !== input.expectedState) {
         throw new Error(
           `ship order ${order.id} claim fence failed: expected ${input.expectedState}`,
         )
       }
-      const latest = this.latestAttemptForOrder(order.id)
+      const latest = await this.latestAttemptForOrder(order.id)
       if (
         (latest?.id ?? null) !== input.expectedAttemptId ||
         (latest?.leaseGeneration ?? 0) !== input.expectedGeneration
       ) {
         throw new Error(`ship order ${order.id} attempt claim was superseded`)
       }
-      if (latest && this.hasCancellationIntent(latest.id, latest.leaseGeneration)) {
+      if (latest && await this.hasCancellationIntent(latest.id, latest.leaseGeneration)) {
         throw new Error(`ship order ${order.id} has durable cancellation intent`)
       }
       if (latest && !latest.finishedAt) {
-        this.finishAttempt(latest.id, latest.leaseGeneration, {
+        await this.finishAttempt(latest.id, latest.leaseGeneration, {
           finishedAt: input.startedAt,
           outcome: 'failed',
         })
       }
       const generation = input.expectedGeneration + 1
-      const attempt = this.createAttempt({
+      const attempt = await this.createAttempt({
         id: `attempt:${order.id}:${generation}` as ShipAttemptValue['id'],
         orderId: order.id,
         expectedSourceBaseSha: order.approvedBaseSha,
@@ -1827,20 +1829,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       })
       const next =
         order.state === 'queued'
-          ? this.transitionOrder(order.id, 'queued', 'preflight', input.startedAt)
+          ? await this.transitionOrder(order.id, 'queued', 'preflight', input.startedAt)
           : order
       return { order: next, attempt }
     })
   }
 
-  hasAttemptCustody(input: {
+  async hasAttemptCustody(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
     generation: number
-  }): boolean {
-    const order = this.getOrder(input.orderId)
-    const latest = this.latestAttemptForOrder(input.orderId)
+  }): Promise<boolean> {
+    const order = await this.getOrder(input.orderId)
+    const latest = await this.latestAttemptForOrder(input.orderId)
     return (
       order?.state === input.expectedState &&
       latest?.id === input.attemptId &&
@@ -1853,18 +1855,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * This is called immediately before an external mutation. The matching
    * post-effect transaction below prevents a crossed effect from advancing a
    * cancelled, superseded, or otherwise stale order. */
-  assertEffectDispatchCustody(input: {
+  async assertEffectDispatchCustody(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
     generation: number
     effectKey: string
     operation: ShipStepValue['kind']
-  }): void {
-    this.createOrJoinTransaction(() => {
-      const order = this.getOrder(input.orderId)
-      const attempt = this.latestAttemptForOrder(input.orderId)
-      const step = this.latestStepForEffect(input.attemptId, input.effectKey)
+  }): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(input.orderId)
+      const attempt = await this.latestAttemptForOrder(input.orderId)
+      const step = await this.latestStepForEffect(input.attemptId, input.effectKey)
       if (
         !order ||
         order.state !== input.expectedState ||
@@ -1880,7 +1882,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${input.orderId} effect dispatch custody fence failed`)
       }
-      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+      if (await this.hasCancellationIntent(input.attemptId, input.generation)) {
         throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
       }
     })
@@ -1890,7 +1892,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * facts are still current. The journal append and the state change it
    * authorizes share one transaction, so cancellation or a newer generation
    * cannot win between a read fence and a write. */
-  commitEffectResult(input: {
+  async commitEffectResult(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
@@ -1916,10 +1918,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           receipt: DeliveryReceiptValue
           attemptFinishedAt: string
         }
-  }): ShipOrderValue {
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(input.orderId)
-      const latestAttempt = this.latestAttemptForOrder(input.orderId)
+  }): Promise<ShipOrderValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(input.orderId)
+      const latestAttempt = await this.latestAttemptForOrder(input.orderId)
       if (
         !order ||
         order.state !== input.expectedState ||
@@ -1930,7 +1932,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${input.orderId} effect custody fence failed`)
       }
-      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+      if (await this.hasCancellationIntent(input.attemptId, input.generation)) {
         throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
       }
       if (
@@ -1943,7 +1945,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${input.orderId} terminal effect step fence failed`)
       }
-      const latestStep = this.latestStepForEffect(input.attemptId, input.effectKey)
+      const latestStep = await this.latestStepForEffect(input.attemptId, input.effectKey)
       if (
         !latestStep ||
         latestStep.effectKey !== input.effectKey ||
@@ -1953,7 +1955,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${input.orderId} effect step fence failed`)
       }
       if (latestStep.state === 'running') {
-        this.appendStep(input.terminalStep)
+        await this.appendStep(input.terminalStep)
       } else if (
         !isTerminalShipStepState(latestStep.state) ||
         latestStep.state !== input.terminalStep.state ||
@@ -1966,8 +1968,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
 
       if (input.outcome.kind === 'transition') {
-        if (input.repairCandidate) this.recordRepairCandidate(input.repairCandidate)
-        return this.transitionOrder(
+        if (input.repairCandidate) await this.recordRepairCandidate(input.repairCandidate)
+        return await this.transitionOrder(
           input.orderId,
           input.expectedState,
           input.outcome.nextState,
@@ -1976,16 +1978,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       if (input.outcome.kind === 'hold') {
         if (!input.outcome.preserveAttempt) {
-          this.finishAttempt(input.attemptId, input.generation, {
+          await this.finishAttempt(input.attemptId, input.generation, {
             finishedAt: input.outcome.attemptFinishedAt,
             outcome: 'failed',
           })
         }
-        this.raiseHold(input.outcome.hold)
-        return this.getOrder(input.orderId) as ShipOrderValue
+        await this.raiseHold(input.outcome.hold)
+        return await this.getOrder(input.orderId) as ShipOrderValue
       }
       const receipt = input.outcome.receipt
-      this.finishAttempt(input.attemptId, input.generation, {
+      await this.finishAttempt(input.attemptId, input.generation, {
         finishedAt: input.outcome.attemptFinishedAt,
         outcome: 'succeeded',
         testedIntegrationSha: receipt.testedIntegrationSha,
@@ -1994,15 +1996,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         validationProfileId: receipt.validationProfileId,
         validationResult: 'passed',
       })
-      this.completeVerifiedOrder(receipt)
-      return this.getOrder(input.orderId) as ShipOrderValue
+      await this.completeVerifiedOrder(receipt)
+      return await this.getOrder(input.orderId) as ShipOrderValue
     })
   }
 
   /** Atomically close a cancellation intent that cannot be completed and move
    * the order into a human hold. This prevents any crash boundary from leaving
    * a finished attempt paired with a supersedable running cancel journal. */
-  commitCancellationHold(input: {
+  async commitCancellationHold(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
@@ -2011,11 +2013,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     terminalStep: ShipStepValue
     hold: ShipHoldValue
     attemptFinishedAt: string
-  }): ShipOrderValue {
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(input.orderId)
-      const latestAttempt = this.latestAttemptForOrder(input.orderId)
-      const intent = this.latestStepForEffect(input.attemptId, input.intentKey)
+  }): Promise<ShipOrderValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(input.orderId)
+      const latestAttempt = await this.latestAttemptForOrder(input.orderId)
+      const intent = await this.latestStepForEffect(input.attemptId, input.intentKey)
       if (
         !order ||
         order.state !== input.expectedState ||
@@ -2044,30 +2046,30 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (intent.state === 'planned') {
         throw new Error(`ship order ${input.orderId} cancellation intent was not dispatched`)
       }
-      this.appendStep(input.terminalStep)
-      this.finishAttempt(input.attemptId, input.generation, {
+      await this.appendStep(input.terminalStep)
+      await this.finishAttempt(input.attemptId, input.generation, {
         finishedAt: input.attemptFinishedAt,
         outcome: 'failed',
       })
-      this.raiseHold(input.hold)
-      return this.getOrder(input.orderId) as ShipOrderValue
+      await this.raiseHold(input.hold)
+      return await this.getOrder(input.orderId) as ShipOrderValue
     })
   }
 
   /** Raise a pre-effect hold under the same order/attempt custody fence used
    * for daemon results. No journal result exists yet, but generation and
    * cancellation intent must still be checked atomically with the transition. */
-  commitCustodyHold(input: {
+  async commitCustodyHold(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
     generation: number
     hold: ShipHoldValue
     attemptFinishedAt: string
-  }): ShipOrderValue {
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(input.orderId)
-      const latestAttempt = this.latestAttemptForOrder(input.orderId)
+  }): Promise<ShipOrderValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(input.orderId)
+      const latestAttempt = await this.latestAttemptForOrder(input.orderId)
       if (
         !order ||
         order.state !== input.expectedState ||
@@ -2078,19 +2080,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${input.orderId} hold custody fence failed`)
       }
-      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+      if (await this.hasCancellationIntent(input.attemptId, input.generation)) {
         throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
       }
-      this.finishAttempt(input.attemptId, input.generation, {
+      await this.finishAttempt(input.attemptId, input.generation, {
         finishedAt: input.attemptFinishedAt,
         outcome: 'failed',
       })
-      this.raiseHold(input.hold)
-      return this.getOrder(input.orderId) as ShipOrderValue
+      await this.raiseHold(input.hold)
+      return await this.getOrder(input.orderId) as ShipOrderValue
     })
   }
 
-  finishAttempt(
+  async finishAttempt(
     id: string,
     leaseGeneration: number,
     result: {
@@ -2102,8 +2104,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       validationProfileId?: string
       validationResult?: ShipAttemptValue['validationResult']
     },
-  ): ShipAttemptValue {
-    const attempt = this.getAttempt(id)
+  ): Promise<ShipAttemptValue> {
+    const attempt = await this.getAttempt(id)
     if (!attempt) throw new Error(`unknown ship attempt ${id}`)
     if (attempt.leaseGeneration !== leaseGeneration) {
       throw new Error(`ship attempt ${id} generation fence failed: expected ${leaseGeneration}`)
@@ -2124,7 +2126,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (completed.finishedAt === undefined || completed.outcome === undefined) {
       throw new Error(`completed ship attempt ${id} is missing finishedAt/outcome`)
     }
-    const changed = this.db
+    const changed = await this.db
       .update(shipAttempts)
       .set({
         finishedAt: completed.finishedAt,
@@ -2149,10 +2151,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (changed.changes !== 1) {
       throw new Error(`ship attempt ${id} generation fence failed: expected ${leaseGeneration}`)
     }
-    return this.getAttempt(id) as ShipAttemptValue
+    return await this.getAttempt(id) as ShipAttemptValue
   }
 
-  cancelAttemptAndOrder(
+  async cancelAttemptAndOrder(
     orderId: string,
     expectedState: Extract<
       ShipOrderState,
@@ -2164,17 +2166,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       generation: number
       terminalSteps: ShipStepValue[]
     },
-  ): ShipOrderValue {
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(orderId)
+  ): Promise<ShipOrderValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(orderId)
       if (!order || order.state !== expectedState) {
         throw new Error(
           `ship order ${orderId} cancellation fence failed: expected ${expectedState}`,
         )
       }
-      const activeTrain = this.claimedTrainForOrder(order.id)
-      const attempt = this.latestAttemptForOrder(orderId)
-      const custodyAttempt = custody ? this.getAttempt(custody.attemptId) : null
+      const activeTrain = await this.claimedTrainForOrder(order.id)
+      const attempt = await this.latestAttemptForOrder(orderId)
+      const custodyAttempt = custody ? await this.getAttempt(custody.attemptId) : null
       const custodyMember = activeTrain?.members.find(
         (member) => member.attemptId === custody?.attemptId,
       )
@@ -2187,36 +2189,36 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${orderId} cancellation custody fence failed`)
       }
-      for (const step of custody?.terminalSteps ?? []) this.appendStep(step)
+      for (const step of custody?.terminalSteps ?? []) await this.appendStep(step)
       if (attempt && !attempt.finishedAt) {
-        this.finishAttempt(attempt.id, attempt.leaseGeneration, {
+        await this.finishAttempt(attempt.id, attempt.leaseGeneration, {
           finishedAt: cancelledAt,
           outcome: 'cancelled',
         })
       }
-      const cancelled = this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
+      const cancelled = await this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
       if (activeTrain) {
-        this.releaseTrain(activeTrain.id, cancelledAt, 'cancelled')
+        await this.releaseTrain(activeTrain.id, cancelledAt, 'cancelled')
         for (const member of activeTrain.members) {
           if (member.orderId === orderId) continue
-          const sibling = this.getOrder(member.orderId)
-          const siblingAttempt = this.getAttempt(member.attemptId)
+          const sibling = await this.getOrder(member.orderId)
+          const siblingAttempt = await this.getAttempt(member.attemptId)
           if (!sibling || isTerminalShipOrderState(sibling.state)) continue
           if (siblingAttempt && !siblingAttempt.finishedAt) {
-            this.finishAttempt(member.attemptId, member.generation, {
+            await this.finishAttempt(member.attemptId, member.generation, {
               finishedAt: cancelledAt,
               outcome: 'failed',
             })
           }
           if (sibling.state === 'preflight') {
-            this.db
+            await this.db
               .update(shipOrders)
               .set({ state: 'queued', stateChangedAt: cancelledAt, holdCode: null })
               .where(and(eq(shipOrders.id, sibling.id), eq(shipOrders.state, 'preflight')))
               .run()
           } else {
-            const holdGeneration = { generation: this.highestHoldGeneration(sibling.id) }
-            this.raiseHold({
+            const holdGeneration = { generation: await this.highestHoldGeneration(sibling.id) }
+            await this.raiseHold({
               id: asShipHoldId(`hold:${sibling.id}:train:${holdGeneration.generation + 1}`),
               orderId: sibling.id,
               generation: holdGeneration.generation + 1,
@@ -2234,17 +2236,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
-  requestCancellation(input: {
+  async requestCancellation(input: {
     orderId: string
     expectedState: ShipOrderState
     attemptId: string
     generation: number
     planned: ShipStepValue
     running: ShipStepValue
-  }): ShipStepValue {
-    return this.createOrJoinTransaction(() => {
+  }): Promise<ShipStepValue> {
+    return await this.createOrJoinTransaction(async () => {
       if (
-        !this.hasAttemptCustody({
+        !await this.hasAttemptCustody({
           orderId: input.orderId,
           expectedState: input.expectedState,
           attemptId: input.attemptId,
@@ -2253,21 +2255,21 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship order ${input.orderId} cancellation intent fence failed`)
       }
-      const existing = this.latestStepForEffect(input.attemptId, input.planned.effectKey)
+      const existing = await this.latestStepForEffect(input.attemptId, input.planned.effectKey)
       if (existing) return existing
-      this.appendStep(input.planned)
-      return this.appendStep(input.running)
+      await this.appendStep(input.planned)
+      return await this.appendStep(input.running)
     })
   }
 
-  hasCancellationIntent(attemptId: string, generation: number): boolean {
-    const step = this.latestStepForEffect(attemptId, `cancel:${generation}`)
+  async hasCancellationIntent(attemptId: string, generation: number): Promise<boolean> {
+    const step = await this.latestStepForEffect(attemptId, `cancel:${generation}`)
     return step?.state === 'planned' || step?.state === 'running'
   }
 
-  appendStep(input: ShipStepValue): ShipStepValue {
+  async appendStep(input: ShipStepValue): Promise<ShipStepValue> {
     const step = ShipStep.parse(input)
-    const attempt = this.getAttempt(step.attemptId)
+    const attempt = await this.getAttempt(step.attemptId)
     if (!attempt || attempt.orderId !== step.orderId) {
       throw new Error(`ship step ${step.id} does not belong to attempt ${step.attemptId}`)
     }
@@ -2284,7 +2286,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (JSON.stringify(step.inputFence) !== JSON.stringify(expectedFence)) {
       throw new Error(`ship step ${step.id} input fence does not match attempt ${attempt.id}`)
     }
-    const existingRow = this.db
+    const existingRow = await this.db
       .select(stepColumns)
       .from(shipSteps)
       .where(
@@ -2301,7 +2303,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         `ship step idempotency collision for ${step.attemptId}:${step.idempotencyKey}`,
       )
     }
-    const previous = this.latestStepForEffect(step.attemptId, step.effectKey)
+    const previous = await this.latestStepForEffect(step.attemptId, step.effectKey)
     if (!previous && step.state !== 'planned') {
       throw new Error(`ship step effect ${step.effectKey} must begin planned`)
     }
@@ -2314,7 +2316,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (previous && isTerminalShipStepState(previous.state)) {
       throw new Error(`ship step effect ${step.effectKey} is already terminal`)
     }
-    this.db
+    ;await (this.db
       .insert(shipSteps)
       .values({
         id: step.id,
@@ -2335,13 +2337,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         recordedAt: step.recordedAt,
         startedAt: step.startedAt ?? null,
         finishedAt: step.finishedAt ?? null,
-      })
+      }))
       .run()
-    return this.stepById(step.id) as ShipStepValue
+    return await this.stepById(step.id) as ShipStepValue
   }
 
-  stepById(id: string): ShipStepValue | null {
-    const row = this.db
+  async stepById(id: string): Promise<ShipStepValue | null> {
+    const row = await this.db
       .select(stepColumns)
       .from(shipSteps)
       .where(eq(shipSteps.id, asShipStepId(id)))
@@ -2349,20 +2351,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapStep(row) : null
   }
 
-  stepsForAttempt(attemptId: string): ShipStepValue[] {
-    return this.db
+  async stepsForAttempt(attemptId: string): Promise<ShipStepValue[]> {
+    return (await this.db
       .select(stepColumns)
       .from(shipSteps)
       .where(eq(shipSteps.attemptId, asShipAttemptId(attemptId)))
       .orderBy(asc(shipSteps.recordedAt), asc(shipSteps.id))
-      .all()
+      .all())
       .map(mapStep)
   }
 
-  latestStepForEffect(attemptId: string, effectKey: string): ShipStepValue | null {
+  async latestStepForEffect(attemptId: string, effectKey: string): Promise<ShipStepValue | null> {
     // A fixed test clock and fast production transitions can share one timestamp.
     // Lifecycle rank, not the textual step id, identifies the durable successor.
-    const row = this.db
+    const row = await this.db
       .select(stepColumns)
       .from(shipSteps)
       .where(
@@ -2388,8 +2390,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapStep(row) : null
   }
 
-  openHoldForOrder(orderId: string): ShipHoldValue | null {
-    const row = this.db
+  async openHoldForOrder(orderId: string): Promise<ShipHoldValue | null> {
+    const row = await this.db
       .select()
       .from(shipHolds)
       .where(and(eq(shipHolds.orderId, asShipOrderId(orderId)), isNull(shipHolds.resolvedAt)))
@@ -2397,20 +2399,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapHold(row) : null
   }
 
-  listHolds(): ShipHoldValue[] {
-    return this.db
+  async listHolds(): Promise<ShipHoldValue[]> {
+    return (await this.db
       .select()
       .from(shipHolds)
       .orderBy(asc(shipHolds.orderId), asc(shipHolds.generation))
-      .all()
+      .all())
       .map(mapHold)
   }
 
-  raiseHold(input: ShipHoldValue): ShipHoldValue {
+  async raiseHold(input: ShipHoldValue): Promise<ShipHoldValue> {
     const hold = ShipHold.parse(input)
     if (hold.resolvedAt || hold.resolution) throw new Error(`new ship hold ${hold.id} is resolved`)
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(hold.orderId)
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(hold.orderId)
       if (!order) throw new Error(`unknown ship order ${hold.orderId}`)
       if (isTerminalShipOrderState(order.state)) {
         throw new Error(`terminal ship order ${order.id} cannot be held`)
@@ -2418,13 +2420,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!isLegalShipOrderTransition(order.state, 'held')) {
         throw new Error(`illegal ship order transition ${order.state} → held`)
       }
-      const activeTrain = this.claimedTrainForOrder(order.id)
-      const generationRow = { generation: this.highestHoldGeneration(hold.orderId) }
+      const activeTrain = await this.claimedTrainForOrder(order.id)
+      const generationRow = { generation: await this.highestHoldGeneration(hold.orderId) }
       const expected = generationRow.generation + 1
       if (hold.generation !== expected) {
         throw new Error(`ship hold ${hold.id} generation fence failed: expected ${expected}`)
       }
-      this.db
+      ;await (this.db
         .insert(shipHolds)
         .values({
           id: hold.id,
@@ -2439,9 +2441,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           evidenceRefs: JSON.stringify(hold.evidenceRefs),
           actions: JSON.stringify(hold.actions),
           raisedAt: hold.raisedAt,
-        })
+        }))
         .run()
-      const orderChanged = this.db
+      const orderChanged = await this.db
         .update(shipOrders)
         .set({ state: 'held', holdCode: hold.reasonCode, stateChangedAt: hold.raisedAt })
         .where(
@@ -2455,28 +2457,28 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${hold.orderId} hold fence failed`)
       }
       if (activeTrain) {
-        this.releaseTrain(activeTrain.id, hold.raisedAt, `held:${hold.reasonCode}`)
+        await this.releaseTrain(activeTrain.id, hold.raisedAt, `held:${hold.reasonCode}`)
         for (const member of activeTrain.members) {
           if (member.orderId === hold.orderId) continue
-          const sibling = this.getOrder(member.orderId)
-          const attempt = this.getAttempt(member.attemptId)
+          const sibling = await this.getOrder(member.orderId)
+          const attempt = await this.getAttempt(member.attemptId)
           if (!sibling || isTerminalShipOrderState(sibling.state)) continue
           if (attempt && !attempt.finishedAt) {
-            this.finishAttempt(member.attemptId, member.generation, {
+            await this.finishAttempt(member.attemptId, member.generation, {
               finishedAt: hold.raisedAt,
               outcome: 'failed',
             })
           }
           if (sibling.state === 'preflight') {
-            this.db
+            await this.db
               .update(shipOrders)
               .set({ state: 'queued', stateChangedAt: hold.raisedAt, holdCode: null })
               .where(and(eq(shipOrders.id, sibling.id), eq(shipOrders.state, 'preflight')))
               .run()
             continue
           }
-          const siblingGeneration = { generation: this.highestHoldGeneration(sibling.id) }
-          this.raiseHold({
+          const siblingGeneration = { generation: await this.highestHoldGeneration(sibling.id) }
+          await this.raiseHold({
             id: asShipHoldId(`hold:${sibling.id}:train:${siblingGeneration.generation + 1}`),
             orderId: sibling.id,
             generation: siblingGeneration.generation + 1,
@@ -2489,20 +2491,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           })
         }
       }
-      return this.openHoldForOrder(hold.orderId) as ShipHoldValue
+      return await this.openHoldForOrder(hold.orderId) as ShipHoldValue
     })
   }
 
-  resolveHold(
+  async resolveHold(
     orderId: string,
     expectedGeneration: number,
     resolution: ShipHoldAction,
     nextState: Extract<ShipOrderState, 'queued' | 'repairing' | 'cancelled'>,
     resolvedAt: string,
     repairCandidate?: StoredShippingRepairCandidate,
-  ): ShipHoldValue {
-    return this.createOrJoinTransaction(() => {
-      const hold = this.openHoldForOrder(orderId)
+  ): Promise<ShipHoldValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const hold = await this.openHoldForOrder(orderId)
       if (!hold || hold.generation !== expectedGeneration) {
         throw new Error(
           `ship hold ${orderId} generation fence failed: expected ${expectedGeneration}`,
@@ -2516,19 +2518,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`ship hold action ${resolution} cannot transition to ${nextState}`)
       }
-      const attempt = this.latestAttemptForOrder(orderId)
+      const attempt = await this.latestAttemptForOrder(orderId)
       if (nextState === 'repairing') {
         if (!repairCandidate || !attempt || attempt.finishedAt) {
           throw new Error(`ship hold ${hold.id} cannot open repair without a live candidate`)
         }
-        this.recordRepairCandidate(repairCandidate)
+        await this.recordRepairCandidate(repairCandidate)
       } else if (attempt && !attempt.finishedAt) {
-        this.finishAttempt(attempt.id, attempt.leaseGeneration, {
+        await this.finishAttempt(attempt.id, attempt.leaseGeneration, {
           finishedAt: resolvedAt,
           outcome: nextState === 'cancelled' ? 'cancelled' : 'failed',
         })
       }
-      const changed = this.db
+      const changed = await this.db
         .update(shipHolds)
         .set({ resolvedAt, resolution })
         .where(
@@ -2544,13 +2546,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           `ship hold ${orderId} generation fence failed: expected ${expectedGeneration}`,
         )
       }
-      const orderChanged = this.db
+      const orderChanged = await this.db
         .update(shipOrders)
         .set({ state: nextState, holdCode: null, stateChangedAt: resolvedAt })
         .where(and(eq(shipOrders.id, asShipOrderId(orderId)), eq(shipOrders.state, 'held')))
         .run()
       if (orderChanged.changes !== 1) throw new Error(`ship order ${orderId} is not held`)
-      const row = this.db
+      const row = await this.db
         .select()
         .from(shipHolds)
         .where(
@@ -2567,8 +2569,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
-  receiptForOrder(orderId: string): DeliveryReceiptValue | null {
-    const row = this.db
+  async receiptForOrder(orderId: string): Promise<DeliveryReceiptValue | null> {
+    const row = await this.db
       .select()
       .from(deliveryReceipts)
       .where(eq(deliveryReceipts.orderId, asShipOrderId(orderId)))
@@ -2576,16 +2578,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapReceipt(row) : null
   }
 
-  listReceipts(): DeliveryReceiptValue[] {
-    return this.db
+  async listReceipts(): Promise<DeliveryReceiptValue[]> {
+    return (await this.db
       .select()
       .from(deliveryReceipts)
       .orderBy(asc(deliveryReceipts.completedAt), asc(deliveryReceipts.id))
-      .all()
+      .all())
       .map(mapReceipt)
   }
 
-  recordEffectEnvelope(input: { request: unknown; result: unknown; recordedAt: string }): string {
+  async recordEffectEnvelope(input: { request: unknown; result: unknown; recordedAt: string }): Promise<string> {
     const rawRequest = input.request as Record<string, unknown>
     const request = ShippingJobRequestMessage.parse({
       type: 'shippingJobRequest',
@@ -2616,15 +2618,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`shipping effect ${request.jobId} has no exact successful train proof`)
     }
     const manifest = request.train.manifest
-    const stored = this.trainManifestForAttempt(request.attemptId)
+    const stored = await this.trainManifestForAttempt(request.attemptId)
     if (!stored || serializeShipTrainManifest(stored) !== serializeShipTrainManifest(manifest)) {
       throw new Error(`shipping effect ${request.jobId} has no matching durable manifest`)
     }
     const effectKey = `${request.jobId}:${request.requestDigest}`
     const requestJson = JSON.stringify(request)
     const resultJson = JSON.stringify(result)
-    return this.createOrJoinTransaction(() => {
-      const existing = this.db
+    return await this.createOrJoinTransaction(async () => {
+      const existing = await this.db
         .select({
           requestJson: shipEffectEnvelopes.requestJson,
           resultJson: shipEffectEnvelopes.resultJson,
@@ -2643,7 +2645,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         }
         throw new Error(`shipping effect envelope ${effectKey} is immutable`)
       }
-      this.db
+      ;await (this.db
         .insert(shipEffectEnvelopes)
         .values({
           effectKey,
@@ -2653,7 +2655,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           requestJson,
           resultJson,
           recordedAt: input.recordedAt,
-        })
+        }))
         .run()
       return effectKey
     })
@@ -2663,17 +2665,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * destination proof. The covering order must durably depend on this member;
    * this is the only path which may cross queued → shipped without fabricating
    * a per-member executor attempt. */
-  completeCoveredOrder(
+  async completeCoveredOrder(
     input: DeliveryReceiptValue,
     coveringOrderId: ShipOrderValue['id'],
     effectEnvelopeKey: string,
-  ): DeliveryReceiptValue {
+  ): Promise<DeliveryReceiptValue> {
     const receipt = DeliveryReceipt.parse(input)
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(receipt.orderId)
-      const covering = this.getOrder(coveringOrderId)
-      const coveringReceipt = this.receiptForOrder(coveringOrderId)
-      const envelope = this.db
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(receipt.orderId)
+      const covering = await this.getOrder(coveringOrderId)
+      const coveringReceipt = await this.receiptForOrder(coveringOrderId)
+      const envelope = await this.db
         .select({
           requestJson: shipEffectEnvelopes.requestJson,
           resultJson: shipEffectEnvelopes.resultJson,
@@ -2696,7 +2698,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       const manifest = request.train.manifest
       const proof = result.trainProofs?.find((candidate) => candidate.orderId === receipt.orderId)
-      const manifestAuthority = this.db
+      const manifestAuthority = await this.db
         .select({
           releasedAt: shipTrainManifests.releasedAt,
           claimCount: activeClaimCount,
@@ -2707,7 +2709,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!order || !covering || !coveringReceipt || covering.state !== 'shipped') {
         throw new Error(`covered delivery receipt ${receipt.id} has no shipped covering order`)
       }
-      const existing = this.receiptForOrder(order.id)
+      const existing = await this.receiptForOrder(order.id)
       if (order.state === 'shipped' && existing) {
         if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
         throw new Error(`ship order ${order.id} already has different immutable receipt`)
@@ -2716,7 +2718,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`covered ship order ${order.id} is ${order.state}, not preflight`)
       }
       const member = manifest?.members.find((candidate) => candidate.orderId === order.id)
-      const memberAttempt = member ? this.getAttempt(member.attemptId) : null
+      const memberAttempt = member ? await this.getAttempt(member.attemptId) : null
       if (
         !manifest ||
         !proof ||
@@ -2728,9 +2730,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         !memberAttempt ||
         memberAttempt.finishedAt ||
         memberAttempt.leaseGeneration !== member.generation ||
-        this.latestAttemptForOrder(member.orderId)?.id !== member.attemptId ||
-        this.hasCancellationIntent(member.attemptId, member.generation) ||
-        this.openHoldForOrder(member.orderId) !== null ||
+        (await this.latestAttemptForOrder(member.orderId))?.id !== member.attemptId ||
+        await this.hasCancellationIntent(member.attemptId, member.generation) ||
+        await this.openHoldForOrder(member.orderId) !== null ||
         member.approvedBaseSha !== order.approvedBaseSha ||
         member.approvedHeadSha !== order.approvedHeadSha ||
         proof.issueId !== member.issueId ||
@@ -2767,7 +2769,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`covered delivery receipt ${receipt.id} does not match its train proof`)
       }
-      this.finishAttempt(memberAttempt.id, memberAttempt.leaseGeneration, {
+      await this.finishAttempt(memberAttempt.id, memberAttempt.leaseGeneration, {
         finishedAt: receipt.completedAt,
         outcome: 'succeeded',
         testedIntegrationSha: receipt.testedIntegrationSha,
@@ -2776,18 +2778,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         validationProfileId: receipt.validationProfileId,
         validationResult: 'passed',
       })
-      this.insertDeliveryReceipt(receipt)
-      const changed = this.db
+      await this.insertDeliveryReceipt(receipt)
+      const changed = await this.db
         .update(shipOrders)
         .set({ state: 'shipped', stateChangedAt: receipt.completedAt, holdCode: null })
         .where(and(eq(shipOrders.id, receipt.orderId), eq(shipOrders.state, 'preflight')))
         .run()
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} coverage fence failed`)
-      return this.receiptForOrder(order.id) as DeliveryReceiptValue
+      return await this.receiptForOrder(order.id) as DeliveryReceiptValue
     })
   }
 
-  completeVerifiedTrain(input: {
+  async completeVerifiedTrain(input: {
     leader: Parameters<ShippingRepository['commitEffectResult']>[0]
     covered: {
       receipt: DeliveryReceiptValue
@@ -2796,20 +2798,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     }[]
     invalidations?: ShipHoldValue[]
     release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
-  }): ShipOrderValue {
-    return this.createOrJoinTransaction(() => {
-      const leader = this.commitEffectResult(input.leader)
+  }): Promise<ShipOrderValue> {
+    return await this.createOrJoinTransaction(async () => {
+      const leader = await this.commitEffectResult(input.leader)
       for (const covered of input.covered) {
-        this.completeCoveredOrder(
+        await this.completeCoveredOrder(
           covered.receipt,
           covered.coveringOrderId,
           covered.effectEnvelopeKey,
         )
       }
       if (input.release) {
-        this.releaseTrain(input.release.trainId, input.release.releasedAt, input.release.reason)
+        await this.releaseTrain(input.release.trainId, input.release.releasedAt, input.release.reason)
       }
-      for (const hold of input.invalidations ?? []) this.raiseHold(hold)
+      for (const hold of input.invalidations ?? []) await this.raiseHold(hold)
       return leader
     })
   }
@@ -2817,12 +2819,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   /** Insert the order's one immutable receipt and cross the verifying→shipped
    * boundary atomically. Proof must match both the frozen approval and one
    * finished attempt's tested/landed/destination facts. */
-  completeVerifiedOrder(input: DeliveryReceiptValue): DeliveryReceiptValue {
+  async completeVerifiedOrder(input: DeliveryReceiptValue): Promise<DeliveryReceiptValue> {
     const receipt = DeliveryReceipt.parse(input)
-    return this.createOrJoinTransaction(() => {
-      const order = this.getOrder(receipt.orderId)
+    return await this.createOrJoinTransaction(async () => {
+      const order = await this.getOrder(receipt.orderId)
       if (!order) throw new Error(`unknown ship order ${receipt.orderId}`)
-      const existing = this.receiptForOrder(receipt.orderId)
+      const existing = await this.receiptForOrder(receipt.orderId)
       if (order.state === 'shipped' && existing) {
         if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
         throw new Error(`ship order ${order.id} already has different immutable receipt`)
@@ -2831,7 +2833,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${order.id} is ${order.state}, not verifying`)
       }
       if (existing) throw new Error(`ship order ${order.id} already has a receipt`)
-      const trainReceiptProof = this.db
+      const trainReceiptProof = (await this.db
         .select({
           requestJson: shipEffectEnvelopes.requestJson,
           resultJson: shipEffectEnvelopes.resultJson,
@@ -2842,11 +2844,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             shipEffectEnvelopes.attemptId,
             // The empty-string fallback is preserved: it matches no attempt
             // and the raw statement relied on that rather than short-circuiting.
-            this.latestAttemptForOrder(order.id)?.id ?? asShipAttemptId(''),
+            (await this.latestAttemptForOrder(order.id))?.id ?? asShipAttemptId(''),
           ),
         )
         .orderBy(desc(shipEffectEnvelopes.recordedAt))
-        .all()
+        .all())
         .some((envelope) => {
           try {
             const request = ShippingJobRequestMessage.parse(JSON.parse(envelope.requestJson))
@@ -2881,7 +2883,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`delivery receipt ${receipt.id} does not match order ${order.id}`)
       }
-      const proof = this.db
+      const proof = await this.db
         .select({ id: shipAttempts.id })
         .from(shipAttempts)
         .where(
@@ -2902,14 +2904,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!proof) {
         throw new Error(`delivery receipt ${receipt.id} has no matching successful proof`)
       }
-      this.insertDeliveryReceipt(receipt)
-      const changed = this.db
+      await this.insertDeliveryReceipt(receipt)
+      const changed = await this.db
         .update(shipOrders)
         .set({ state: 'shipped', stateChangedAt: receipt.completedAt, holdCode: null })
         .where(and(eq(shipOrders.id, receipt.orderId), eq(shipOrders.state, 'verifying')))
         .run()
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} verification fence failed`)
-      return this.receiptForOrder(receipt.orderId) as DeliveryReceiptValue
+      return await this.receiptForOrder(receipt.orderId) as DeliveryReceiptValue
     })
   }
 }

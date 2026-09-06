@@ -50,7 +50,7 @@ export type {
 }
 
 export interface SessionReadToolkitDeps {
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
@@ -97,8 +97,8 @@ export class SessionReadToolkit {
     return phase ?? (session.busy ? 'working' : 'idle')
   }
 
-  private subagentsOf(target: SessionMeta): SessionStatusSubagent[] {
-    const all = this.deps.listSessions()
+  private async subagentsOf(target: SessionMeta): Promise<SessionStatusSubagent[]> {
+    const all = await this.deps.listSessions()
     const result: SessionStatusSubagent[] = []
     const seen = new Set([target.sessionId])
     const queue = [target.sessionId]
@@ -129,17 +129,17 @@ export class SessionReadToolkit {
   /** Resolve a status ref — a session id/birth ref, or an issue ref
    *  (#N/seq/id) whose best member session (live preferred, else most recent
    *  agent) is picked. */
-  resolveTarget(ref: string): SessionMeta | undefined {
-    const all = this.deps.listSessions()
+  async resolveTarget(ref: string): Promise<SessionMeta | undefined> {
+    const all = await this.deps.listSessions()
     const direct = resolveSessionIdentifier(ref, all)
     if (direct) return direct
     let issueId: string
     try {
-      issueId = this.deps.issues.resolveRef(ref)
+      issueId = await this.deps.issues.resolveRef(ref)
     } catch {
       return undefined
     }
-    const issue = this.deps.issues.getMeta(issueId)
+    const issue = await this.deps.issues.getMeta(issueId)
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
@@ -151,13 +151,13 @@ export class SessionReadToolkit {
   }
 
   async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
-    const target = this.resolveTarget(ref)
+    const target = await this.resolveTarget(ref)
     if (!target) throw new Error(`no session found for ${ref}`)
-    this.logRead('session.status_read', target.sessionId, reader)
+    await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
     const issueId = target.issueId ?? issues.issueForCwd(target.cwd)
     // Full wire is intentional: status surfaces the derived panel todo projection.
-    const issue = issueId ? issues.get(issueId) : null
+    const issue = issueId ? await issues.get(issueId) : null
     const [log, status] = await Promise.all([
       this.deps.repoOp('log', target.cwd, target.machineId).catch(() => ({
         ok: false,
@@ -212,13 +212,13 @@ export class SessionReadToolkit {
       draft: target.draftUpdatedAt !== undefined,
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
       nativeSubagents: target.agentState?.nativeSubagents ?? [],
-      subagents: this.subagentsOf(target),
+      subagents: await this.subagentsOf(target),
       issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),
       // then the touched files, capped so status stays ~200 tokens.
       files: lines(status).slice(0, 21),
-      unackedMessages: this.deps.messages.deliveredUnacked(target.sessionId).length,
+      unackedMessages: (await this.deps.messages.deliveredUnacked(target.sessionId)).length,
     }
   }
 
@@ -226,9 +226,9 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; turns?: number; cursor?: string },
     reader: ReaderRef,
   ): Promise<SessionReadResult> {
-    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
+    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
-    this.logRead('session.transcript_read', target.sessionId, reader)
+    await this.logRead('session.transcript_read', target.sessionId, reader)
     const limit = Math.min(Math.max(1, input.turns ?? 20), READ_TURN_CAP)
     const slice = await this.deps.readTranscript({
       sessionId: target.sessionId,
@@ -281,11 +281,11 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; since?: string },
     reader: ReaderRef,
   ): Promise<SessionRecapResult> {
-    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
+    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
-    this.logRead('session.recap_read', target.sessionId, reader)
+    await this.logRead('session.recap_read', target.sessionId, reader)
     const since =
-      input.since ?? this.deps.watermarks.getRecapWatermark(reader, target.sessionId) ?? undefined
+      input.since ?? await this.deps.watermarks.getRecapWatermark(reader, target.sessionId) ?? undefined
     // Delta read when a watermark exists ('after' the cursor); first contact
     // summarizes the latest window instead of the whole history.
     const slice = since
@@ -323,7 +323,7 @@ export class SessionReadToolkit {
     const last = [...items].reverse().find((i) => i.cursor)
     const watermark = last?.cursor ?? since ?? null
     if (watermark) {
-      this.deps.watermarks.setRecapWatermark(reader, target.sessionId, watermark, this.deps.now())
+      await this.deps.watermarks.setRecapWatermark(reader, target.sessionId, watermark, this.deps.now())
     }
     return {
       sessionId: target.sessionId,
@@ -335,9 +335,9 @@ export class SessionReadToolkit {
   }
 
   /** Event-log every cross-session read [spec:SP-34d7 read-toolkit authz]. */
-  private logRead(kind: string, sessionId: SessionId, reader: ReaderRef): void {
+  private async logRead(kind: string, sessionId: SessionId, reader: ReaderRef): Promise<void> {
     try {
-      this.deps.events.appendEvent({
+      await this.deps.events.appendEvent({
         ts: this.deps.now(),
         kind,
         subject: sessionId,

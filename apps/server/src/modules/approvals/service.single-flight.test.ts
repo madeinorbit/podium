@@ -19,7 +19,7 @@ import { ApprovalService } from './service'
 describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () => {
   function harness() {
     const db = openMigratedTestDatabase()
-    const stage = createBunStoreExecutor({ database: db }).syncQueries
+    const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
     const store = new ApprovalsRepository(stage)
     let listExecutingCalls = 0
@@ -52,13 +52,13 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
       logEvent: () => {},
       notifyIssue: () => {},
     })
-    const executing = () => {
-      const { id } = svc.request({
+    const executing = async () => {
+      const { id } = await svc.request({
         op: { kind: 'update' },
         sessionId: asSessionId('s1'),
         machineId: 'm1',
       })
-      svc.approve(id)
+      await svc.approve(id)
       return id
     }
     return {
@@ -74,9 +74,9 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
     }
   }
 
-  it('skips a sweep that lands on a pass already running', () => {
+  it('skips a sweep that lands on a pass already running', async () => {
     const h = harness()
-    h.executing()
+    await h.executing()
     h.reset()
 
     let reentered = false
@@ -85,19 +85,19 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
       reentered = true
       h.svc.sweepStalledExecutions()
     })
-    h.svc.sweepStalledExecutions()
+    await h.svc.sweepStalledExecutions()
 
     expect(reentered).toBe(true)
     expect(h.calls()).toBe(1)
   })
 
-  it('a later, non-overlapping sweep runs normally', () => {
+  it('a later, non-overlapping sweep runs normally', async () => {
     const h = harness()
-    h.executing()
+    await h.executing()
     h.reset()
 
-    h.svc.sweepStalledExecutions()
-    h.svc.sweepStalledExecutions()
+    await h.svc.sweepStalledExecutions()
+    await h.svc.sweepStalledExecutions()
 
     expect(h.calls()).toBe(2)
   })

@@ -25,11 +25,11 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
-function authorizeWrite(
+async function authorizeWrite(
   ctx: Context,
   name: string,
-): { actor: NonNullable<ReturnType<typeof layoutActor>> } {
-  const deps = layoutAuthzDeps(ctx)
+): Promise<{ actor: NonNullable<ReturnType<typeof layoutActor>> }> {
+  const deps = await layoutAuthzDeps(ctx)
   const refusal = layoutAuthzFailure(name, deps)
   if (refusal) throw refusal
   const actor = layoutActor(deps)
@@ -46,21 +46,21 @@ function authorizeWrite(
 export function layoutFamilyProcedures() {
   return {
     /** Bootstrap snapshot for the calling principal (tRPC read path). */
-    get: t.procedure.query(({ ctx }) => {
-      const { actor } = authorizeWrite(ctx, layoutSetContract.name)
-      return familyState(ctx).modules.layout.getSnapshot(actor)
+    get: t.procedure.query(async ({ ctx }) => {
+      const { actor } = await authorizeWrite(ctx, layoutSetContract.name)
+      return await familyState(ctx).modules.layout.getSnapshot(actor)
     }),
 
-    set: t.procedure.input(layoutSetInput).mutation(({ ctx, input }) => {
-      const { actor } = authorizeWrite(ctx, layoutSetContract.name)
+    set: t.procedure.input(layoutSetInput).mutation(async ({ ctx, input }) => {
+      const { actor } = await authorizeWrite(ctx, layoutSetContract.name)
       const parsed = layoutSetContract.input.parse(input)
-      return familyState(ctx).modules.layout.set(actor, parsed.values, nowIso())
+      return await familyState(ctx).modules.layout.set(actor, parsed.values, nowIso())
     }),
 
-    clear: t.procedure.input(layoutClearInput).mutation(({ ctx, input }) => {
-      const { actor } = authorizeWrite(ctx, layoutClearContract.name)
+    clear: t.procedure.input(layoutClearInput).mutation(async ({ ctx, input }) => {
+      const { actor } = await authorizeWrite(ctx, layoutClearContract.name)
       const parsed = layoutClearContract.input.parse(input)
-      return familyState(ctx).modules.layout.clear(actor, parsed.keys)
+      return await familyState(ctx).modules.layout.clear(actor, parsed.keys)
     }),
   }
 }

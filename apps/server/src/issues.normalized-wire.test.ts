@@ -162,7 +162,7 @@ async function world(opts: { issues?: number; sessions?: number } = {}) {
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++)
     sessionIds.push(await seedSession(store, i))
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   return { store, registry, sessionIds }
 }
@@ -247,11 +247,11 @@ function issueWorkForOneFieldSessionChange(
 }
 
 describe('issueProjection emission is unconditional with transitional legacy residue [POD-797]', () => {
-  const changesOf = (registry: SessionRegistry, entity: string) => {
-    const boot = registry.modules.sessions.syncChangesSince(null)
+  const changesOf = async (registry: SessionRegistry, entity: string) => {
+    const boot = await registry.modules.sessions.syncChangesSince(null)
     // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
     // whole durable change log instead.
-    const all = registry.modules.sessions.syncChangesSince(0)
+    const all = await registry.modules.sessions.syncChangesSince(0)
     return all.kind === 'delta'
       ? all.changes.filter((c) => c.entity === entity)
       : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
@@ -259,11 +259,11 @@ describe('issueProjection emission is unconditional with transitional legacy res
 
   it('issueProjection rows and session-free legacy issue rows are both appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
-    registry.modules.issues.update('iss_1', { title: 'edited' })
+    await registry.modules.issues.update('iss_1', { title: 'edited' })
     registry.modules.sessions.flushBroadcasts()
 
-    const projections = changesOf(registry, 'issueProjection')
-    const legacy = changesOf(registry, 'issue')
+    const projections = await changesOf(registry, 'issueProjection')
+    const legacy = await changesOf(registry, 'issue')
     // ADDITIVE: both kinds carry the edit. An old client reads 'issue' exactly as
     // before; a cap client reads 'issueProjection'.
     expect(projections.some((c) => c.id === 'iss_1')).toBe(true)
@@ -283,10 +283,10 @@ describe('issueProjection emission is unconditional with transitional legacy res
   it('cold snapshot includes all normalized issue collections for reload bootstrap', async () => {
     const { registry, store } = await world({ issues: 2, sessions: 0 })
     await store.repos.addRepo('/repo', store.hostMachineId)
-    registry.modules.issues.publishRepos()
-    registry.modules.issues.addDep('iss_0', 'iss_1')
+    await registry.modules.issues.publishRepos()
+    await registry.modules.issues.addDep('iss_0', 'iss_1')
 
-    const snapshot = registry.modules.sessions.syncChangesSince(null)
+    const snapshot = await registry.modules.sessions.syncChangesSince(null)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
@@ -299,14 +299,14 @@ describe('issueProjection emission is unconditional with transitional legacy res
     await store.issues.upsertIssue(issueRow(0))
     const sessionId = await seedSession(store, 0, null)
 
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.modules.sessions.flushBroadcasts()
 
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
     )
-    const snapshot = registry.modules.sessions.syncChangesSince(null)
+    const snapshot = await registry.modules.sessions.syncChangesSince(null)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
@@ -317,7 +317,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
         .map((session) => session.sessionId),
     ).toEqual([sessionId])
 
-    const all = registry.modules.sessions.syncChangesSince(0)
+    const all = await registry.modules.sessions.syncChangesSince(0)
     expect(all.kind).toBe('delta')
     if (all.kind !== 'delta') throw new Error('expected delta')
     const sessionChanges = all.changes.filter(
@@ -330,10 +330,10 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect(sessionValue?.issueId).toBe('iss_0')
 
     const cursor = Math.max(...all.changes.map((change) => change.seq))
-    const reboot = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reboot = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
-    const after = reboot.modules.sessions.syncChangesSince(cursor)
+    const after = await reboot.modules.sessions.syncChangesSince(cursor)
     expect(after.kind).toBe('delta')
     if (after.kind !== 'delta') throw new Error('expected delta')
     expect(
@@ -343,16 +343,16 @@ describe('issueProjection emission is unconditional with transitional legacy res
 
   it('comment add advances updatedAt on the normalized projection', async () => {
     const { registry } = await world({ issues: 1, sessions: 0 })
-    const before = registry.modules.issues.get('iss_0')?.updatedAt
+    const before = (await registry.modules.issues.get('iss_0'))?.updatedAt
 
-    registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
+    await registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
 
-    const projections = changesOf(registry, 'issueProjection')
+    const projections = await changesOf(registry, 'issueProjection')
     const appended = projections.filter((change) => change.id === 'iss_0').at(-1)
     const value =
       appended?.op === 'upsert' ? (appended.value as Record<string, unknown>) : undefined
     expect(value?.updatedAt).not.toBe(before)
-    expect(value?.updatedAt).toBe(registry.modules.issues.get('iss_0')?.updatedAt)
+    expect(value?.updatedAt).toBe((await registry.modules.issues.get('iss_0'))?.updatedAt)
   })
 })
 
@@ -398,16 +398,16 @@ describe('normalized dep emission [POD-797]', () => {
   }, async () => {
     const { registry } = await world()
     registry.modules.sessions.flushBroadcasts()
-    const before = registry.modules.sessions.syncChangesSince(0)
+    const before = await registry.modules.sessions.syncChangesSince(0)
     const beforeCount =
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
         : 0
     resetIssueWireBuildCount()
-    registry.modules.issues.addDep('iss_1', 'iss_2')
+    await registry.modules.issues.addDep('iss_1', 'iss_2')
     registry.modules.sessions.flushBroadcasts()
     expect(issueMembershipScanCount()).toBe(0)
-    const after = registry.modules.sessions.syncChangesSince(0)
+    const after = await registry.modules.sessions.syncChangesSince(0)
     const edges =
       after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
     expect(edges.length - beforeCount).toBe(1)

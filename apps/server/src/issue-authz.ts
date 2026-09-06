@@ -11,7 +11,6 @@ import {
   asUserId,
   authorize,
   type Capability,
-  type IssueAccessIndex,
   type IssueAction,
   type UserId,
 } from '@podium/model'
@@ -21,7 +20,6 @@ export {
   type AuthDecision,
   authorize,
   type Capability,
-  type IssueAccessIndex,
   type IssueAction,
   type IssueRole,
   type IssueScope,
@@ -43,22 +41,34 @@ export {
  *   - no target / unknown target (e.g. hub-mirrored issues, additive procs) ⇒
  *     role gate only.
  */
-export function checkIssueAccess(
+export interface IssueAccessReader {
+  has(id: string): boolean | Promise<boolean>
+  ancestorIds(id: string): string[] | Promise<string[]>
+  ownedTarget?(
+    id: string,
+    action: IssueAction,
+  ): Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined | Promise<Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined>
+}
+
+/** Server issue-access ports may read durable state and therefore may yield. */
+export type IssueAccessIndex = IssueAccessReader
+
+export async function checkIssueAccess(
   caller: { capability: Capability; overrideScope?: boolean },
-  issues: IssueAccessIndex,
+  issues: IssueAccessReader,
   proc: string,
   action: IssueAction,
   targetId?: string,
-): void {
+): Promise<void> {
   // Role gate (no input needed): authorize with no issue = role decision.
   if (authorize(caller.capability, action) === 'forbidden') {
     throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
   }
   // Scope gate: only for constrained caps writing an existing target issue.
   if (caller.capability.scope.kind === 'all') return
-  if (!targetId || !issues.has(targetId)) return
+  if (!targetId || !await issues.has(targetId)) return
   if (caller.capability.scope.kind === 'owned') {
-    const target = issues.ownedTarget?.(targetId, action)
+    const target = await issues.ownedTarget?.(targetId, action)
     if (!target || authorize(caller.capability, action, target) === 'forbidden') {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + targetId })
     }
@@ -67,7 +77,7 @@ export function checkIssueAccess(
   const decision = authorize(
     caller.capability,
     action,
-    { id: targetId, ancestorIds: issues.ancestorIds(targetId) },
+    { id: targetId, ancestorIds: await issues.ancestorIds(targetId) },
     { override: caller.overrideScope },
   )
   if (decision === 'confirm-required') {

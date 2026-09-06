@@ -52,48 +52,48 @@ export class IssueAttentionModule {
       | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): IssueWire
+      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueWire>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
-  defer(...args: Parameters<IssueCrudModule['defer']>): ReturnType<IssueCrudModule['defer']> {
-    return this.crud().defer(...args)
+  async defer(...args: Parameters<IssueCrudModule['defer']>): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
+    return await this.crud().defer(...args)
   }
 
-  undefer(...args: Parameters<IssueCrudModule['undefer']>): ReturnType<IssueCrudModule['undefer']> {
-    return this.crud().undefer(...args)
+  async undefer(...args: Parameters<IssueCrudModule['undefer']>): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
+    return await this.crud().undefer(...args)
   }
 
-  setNeedsHuman(
+  async setNeedsHuman(
     ...args: Parameters<IssueCrudModule['setNeedsHuman']>
-  ): ReturnType<IssueCrudModule['setNeedsHuman']> {
-    return this.crud().setNeedsHuman(...args)
+  ): Promise<Awaited<ReturnType<IssueCrudModule['setNeedsHuman']>>> {
+    return await this.crud().setNeedsHuman(...args)
   }
 
-  clearNeedsHuman(
+  async clearNeedsHuman(
     ...args: Parameters<IssueCrudModule['clearNeedsHuman']>
-  ): ReturnType<IssueCrudModule['clearNeedsHuman']> {
-    return this.crud().clearNeedsHuman(...args)
+  ): Promise<Awaited<ReturnType<IssueCrudModule['clearNeedsHuman']>>> {
+    return await this.crud().clearNeedsHuman(...args)
   }
 
-  markIssueRead(
+  async markIssueRead(
     ...args: Parameters<IssueCrudModule['markIssueRead']>
-  ): ReturnType<IssueCrudModule['markIssueRead']> {
-    return this.crud().markIssueRead(...args)
+  ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueRead']>>> {
+    return await this.crud().markIssueRead(...args)
   }
 
-  markIssueUnread(
+  async markIssueUnread(
     ...args: Parameters<IssueCrudModule['markIssueUnread']>
-  ): ReturnType<IssueCrudModule['markIssueUnread']> {
-    return this.crud().markIssueUnread(...args)
+  ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueUnread']>>> {
+    return await this.crud().markIssueUnread(...args)
   }
 
-  setIssueTucked(
+  async setIssueTucked(
     ...args: Parameters<IssueCrudModule['setIssueTucked']>
-  ): ReturnType<IssueCrudModule['setIssueTucked']> {
-    return this.crud().setIssueTucked(...args)
+  ): Promise<Awaited<ReturnType<IssueCrudModule['setIssueTucked']>>> {
+    return await this.crud().setIssueTucked(...args)
   }
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
@@ -105,14 +105,14 @@ export class IssueAttentionModule {
    *  - else attach to `targetId` (self-attach is a no-op).
    *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
    *  no children) is deleted. */
-  attachSession(opts: {
+  async attachSession(opts: {
     sessionId: SessionId
     targetId?: string
     newSubissue?: { title: string; origin: 'human' | 'agent' }
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
     principal?: Exclude<CommandPrincipal, { kind: 'system' }>
-  }): IssueWire {
+  }): Promise<IssueWire> {
     const { getSessionIssueId, setSessionIssueId } = this.store.deps
     if (!getSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
@@ -129,7 +129,7 @@ export class IssueAttentionModule {
       // could silently re-home the parent session [spec:SP-bab8].
       if (prev && !prev.draft && !opts.confirmRehome) {
         throw new Error(
-          `attach blocked: this session already belongs to ${this.reports().niceRef(prev)} (a real issue), ` +
+          `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue), ` +
             'so this could re-home that session unexpectedly. A native subagent must not ' +
             'self-attach; its parent must attach it. For a deliberate top-level move, re-run ' +
             'with `--confirm-rehome`.',
@@ -139,9 +139,7 @@ export class IssueAttentionModule {
         // Last session leaving is hopscotch: the origin becomes a signpost and
         // maybeTakeOriginWorktree will take a pending checkout. 878's
         // replacement-coordinator rule applies only when someone stays.
-        const others = this.store
-          .sessionsFor(prev)
-          .filter(
+        const others = (await this.store.sessionsFor(prev)).filter(
             (session) =>
               session.sessionId !== opts.sessionId &&
               !session.archived &&
@@ -149,25 +147,25 @@ export class IssueAttentionModule {
                 session.status === 'starting' ||
                 session.status === 'reconnecting'),
           )
-        if (others.length > 0) this.assertReplacementCoordination(prev, opts.sessionId)
+        if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
       const title = newIssue.title.trim()
       if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
-      const anchorId = prevId ?? (opts.targetId ? this.store.resolveRef(opts.targetId) : null)
+      const anchorId = prevId ?? (opts.targetId ? await this.store.resolveRef(opts.targetId) : null)
       if (!anchorId) {
         throw new Error(
           `no ${opts.newSubissue ? 'parent' : 'origin'} for the new issue: session is unattached and no --id given`,
         )
       }
-      const anchor = this.store.rowOrThrow(anchorId)
+      const anchor = await this.store.rowOrThrow(anchorId)
       // Once an operator has accepted an earlier discovery, repeating the
       // original `attach --spinoff "…"` intent must join that work rather than
       // mint a same-title successor beside it. The provenance edge + exact
       // normalized title make the reuse scoped to this origin; proposals stay
       // inert until accepted and closed/archived work is never resurrected.
-      target = opts.newSpinoff ? this.acceptedSpinoff(anchor, title) : undefined
+      target = opts.newSpinoff ? await this.acceptedSpinoff(anchor, title) : undefined
       if (!target) {
-        const wire = this.crud().create({
+        const wire = await this.crud().create({
           repoPath: anchor.repoPath,
           title,
           startNow: false,
@@ -188,12 +186,14 @@ export class IssueAttentionModule {
               }
             : {}),
         })
-        if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
-        target = this.store.rowOrThrow(wire.id)
+        if (opts.newSpinoff) {
+          await this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+        }
+        target = await this.store.rowOrThrow(wire.id)
       }
     } else {
       if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
-      target = this.store.rowOrThrow(this.store.resolveRef(opts.targetId))
+      target = await this.store.rowOrThrow(await this.store.resolveRef(opts.targetId))
       // Re-homing off a REAL issue is blocked [spec:SP-8744]: it strands the old
       // issue session-less so it drops out of the sidebar. Only the draft→issue
       // flow (naming a fresh vessel) may move between issues; from a real issue
@@ -201,25 +201,25 @@ export class IssueAttentionModule {
       const prev = prevId && prevId !== target.id ? this.store.rows.get(prevId) : undefined
       if (prev && !prev.draft) {
         throw new Error(
-          `attach blocked: this session already belongs to ${this.reports().niceRef(prev)} (a real issue). ` +
+          `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue). ` +
             'Reassigning a session to a different issue is disabled; for new work use ' +
             '`podium issue attach --subissue "<title>" --confirm-rehome` or file the issue ' +
             'for another agent.',
         )
       }
     }
-    if (prevId === target.id) return this.store.toWire(target) // self-attach: no-op
+    if (prevId === target.id) return await this.store.toWire(target) // self-attach: no-op
     setSessionIssueId(opts.sessionId, target.id)
-    this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
-    this.store.emitEvent('issue.session_attached', target.id, {
+    await this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
+    await this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,
       ...(prevId ? { from: prevId } : {}),
       ...(opts.principal ? { attribution: attributionOf(opts.principal) } : {}),
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
-    if (prevId) this.deleteIfEmptyDraft(prevId)
-    this.store.broadcastList()
+    if (prevId) await this.deleteIfEmptyDraft(prevId)
+    await this.store.broadcastList()
     if (prevId && (opts.newSpinoff || opts.newSubissue)) {
       // AN EXTERNAL EFFECT, and the only asynchronous one in this method
       // [POD-3260, spec §3.3 mechanism 3]. `IssueAttachOrchestrator` wraps this
@@ -231,13 +231,13 @@ export class IssueAttentionModule {
       // span open it starts exactly where it does today.
       const from = prevId
       const to = target.id
-      afterCommit(() => {
+      afterCommit(async () => {
         void this.maybeTakeOriginWorktree(from, to).catch((err: unknown) => {
           log.warn('hopscotch worktree take-over failed', { err, from, to })
         })
       }, 'hopscotch-worktree-take-over')
     }
-    return this.store.toWire(this.store.rowOrThrow(target.id))
+    return await this.store.toWire(await this.store.rowOrThrow(target.id))
   }
 
   /**
@@ -248,14 +248,12 @@ export class IssueAttentionModule {
    * while running in its own checkout, but that does not keep the parent's
    * integration checkout operated or testable.
    */
-  private assertReplacementCoordination(row: IssueRow, movingSessionId: SessionId): void {
+  private async assertReplacementCoordination(row: IssueRow, movingSessionId: SessionId): Promise<void> {
     if (row.draft || row.archived || this.store.isClosed(row)) return
     const coordinatorId = row.coordinatorSessionId
     const replacement =
       coordinatorId && coordinatorId !== movingSessionId
-        ? this.store
-            .sessionsFor(row)
-            .find(
+        ? (await this.store.sessionsFor(row)).find(
               (session) =>
                 session.sessionId === coordinatorId &&
                 !session.archived &&
@@ -268,7 +266,7 @@ export class IssueAttentionModule {
         : undefined
     if (replacement) return
 
-    const ref = this.reports().niceRef(row)
+    const ref = await this.reports().niceRef(row)
     const worktree = row.worktreePath
       ? `its integration worktree (${row.worktreePath})`
       : 'a dedicated issue worktree'
@@ -279,23 +277,28 @@ export class IssueAttentionModule {
     )
   }
 
-  private acceptedSpinoff(anchor: IssueRow, title: string): IssueRow | undefined {
+  private async acceptedSpinoff(anchor: IssueRow, title: string): Promise<IssueRow | undefined> {
     const normalized = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase()
     const wanted = normalized(title)
+    const eligible = (row: IssueRow): boolean =>
+      row.id !== anchor.id &&
+      row.repoId === anchor.repoId &&
+      row.parentId == null &&
+      !row.deletedAt &&
+      !row.archived &&
+      row.stage !== 'proposed' &&
+      !this.store.isClosed(row) &&
+      normalized(row.title) === wanted
+    const candidates = [...this.store.rows.values()].filter(eligible)
+    // Provenance can be removed, so retaining a positive across attaches would
+    // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
+    const dependencies = new Map(await Promise.all(candidates.map(async (row) =>
+      [row.id, await this.store.deps.store.issues.listIssueDeps(row.id)] as const,
+    )))
     return [...this.store.rows.values()]
-      .filter(
-        (row) =>
-          row.id !== anchor.id &&
-          row.repoId === anchor.repoId &&
-          row.parentId == null &&
-          !row.deletedAt &&
-          !row.archived &&
-          row.stage !== 'proposed' &&
-          !this.store.isClosed(row) &&
-          normalized(row.title) === wanted &&
-          this.store.deps.store.issues
-            .listIssueDeps(row.id)
-            .some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from'),
+      .filter((row) =>
+        eligible(row) &&
+        dependencies.get(row.id)?.some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from') === true,
       )
       .sort((a, b) => a.seq - b.seq)[0]
   }
@@ -310,17 +313,17 @@ export class IssueAttentionModule {
   private async maybeTakeOriginWorktree(originId: string, targetId: string): Promise<void> {
     // `let`, because neither draft survives the pending probe below — see the
     // re-draft after it (POD-3375).
-    let origin = this.store.draft(originId)
-    let target = this.store.draft(targetId)
+    let origin = await this.store.draft(originId)
+    let target = await this.store.draft(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
-    const remaining = this.store
-      .sessionsFor(origin)
-      .filter((session) => !session.archived && session.status !== 'exited')
+    const remaining = (await this.store.sessionsFor(origin)).filter(
+      (session) => !session.archived && session.status !== 'exited',
+    )
     if (remaining.length > 0) return
-    const worktreeMachineId = this.store.resolveWorktreeMachine(
+    const worktreeMachineId = (await this.store.resolveWorktreeMachine(
       origin.machineId,
       origin.worktreePath,
-    )
+    ))
     const pending = await this.originWorktreeIsPending(origin, worktreeMachineId)
     if (!pending) return
     /**
@@ -342,8 +345,8 @@ export class IssueAttentionModule {
      * one, and copying a now-null path onto the target would strand it. The guard is
      * the same one, evaluated against what is committed now.
      */
-    origin = this.store.draft(originId)
-    target = this.store.draft(targetId)
+    origin = await this.store.draft(originId)
+    target = await this.store.draft(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
     target.worktreePath = origin.worktreePath
     target.branch = origin.branch
@@ -353,9 +356,9 @@ export class IssueAttentionModule {
     target.machineId = worktreeMachineId
     origin.worktreePath = null
     origin.branch = null
-    this.store.persistRow(origin)
-    this.store.persistRow(target)
-    this.store.broadcastList()
+    await this.store.persistRow(origin)
+    await this.store.persistRow(target)
+    await this.store.broadcastList()
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
   }
@@ -387,7 +390,7 @@ export class IssueAttentionModule {
       'isMergedInto',
       origin.repoPath,
       { branch: origin.branch, parentBranch: origin.parentBranch },
-      this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath),
+      (await this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath)),
     )
     return !merged.ok
   }
@@ -396,37 +399,37 @@ export class IssueAttentionModule {
    *  draft with no visible attached sessions, worktree, or children. Process
    *  liveness is deliberately irrelevant: exited sessions remain resumable, and
    *  their draft is the sidebar route back to that recovery UI. */
-  private deleteIfEmptyDraft(id: string): void {
+  private async deleteIfEmptyDraft(id: string): Promise<void> {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return
     if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
-    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return
-    this.crud().purgeEmptyDraft(id)
+    if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return
+    await this.crud().purgeEmptyDraft(id)
   }
 
   /** Compensate a failed low-friction launch, and nothing else. The caller may
    *  invoke this only for the draft it just created after createSession throws;
    *  the zero-session check prevents a late spawn failure from deleting a draft
    *  once the session has been registered and made recoverable. */
-  discardUnlaunchedDraft(id: IssueId): boolean {
+  async discardUnlaunchedDraft(id: IssueId): Promise<boolean> {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
-    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return false
-    this.crud().purgeEmptyDraft(id)
+    if ((await this.store.sessionsFor(row)).some((session) => session.issueId === id)) return false
+    await this.crud().purgeEmptyDraft(id)
     return true
   }
 
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
-  createDraftFor(
+  async createDraftFor(
     repoPath: string,
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
-  ): IssueWire {
-    return this.crud().create({
+  ): Promise<IssueWire> {
+    return await this.crud().create({
       repoPath,
       title: DRAFT_ISSUE_TITLE,
       startNow: false,
@@ -445,7 +448,7 @@ export class IssueAttentionModule {
    *  it enabled. `sourceRef` for an issue/session source is stored as given — an
    *  issue ref is resolved to its internal id so relationship/subject matching is
    *  stable across #seq churn. */
-  subscriptionAdd(input: {
+  async subscriptionAdd(input: {
     subscriberKind: Subscription['subscriberKind']
     subscriberId: string
     event: string
@@ -454,7 +457,7 @@ export class IssueAttentionModule {
     deliverNudge?: boolean
     deliverNotify?: boolean
     origin?: Subscription['origin']
-  }): Subscription {
+  }): Promise<Subscription> {
     const sub: Subscription = {
       id: `sub_${randomUUID()}`,
       subscriberKind: input.subscriberKind,
@@ -462,42 +465,42 @@ export class IssueAttentionModule {
       event: input.event,
       sourceKind: input.sourceKind,
       sourceRef:
-        input.sourceKind === 'issue' ? this.store.resolveRef(input.sourceRef) : input.sourceRef,
+        input.sourceKind === 'issue' ? await this.store.resolveRef(input.sourceRef) : input.sourceRef,
       deliverNudge: input.deliverNudge ?? true,
       deliverNotify: input.deliverNotify ?? false,
       origin: input.origin ?? 'custom',
       enabled: true,
       createdAt: this.store.now(),
     }
-    this.store.deps.funnel.run({ write: () => this.store.deps.store.events.addSubscription(sub) })
+    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.addSubscription(sub) })
     return sub
   }
 
-  subscriptionRemove(id: string): { removed: boolean } {
-    const existed = this.store.deps.store.events.listSubscriptions().some((s) => s.id === id)
-    this.store.deps.funnel.run({ write: () => this.store.deps.store.events.removeSubscription(id) })
+  async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
+    const existed = (await this.store.deps.store.events.listSubscriptions()).some((s) => s.id === id)
+    await this.store.deps.funnel.run({ write: async () => await this.store.deps.store.events.removeSubscription(id) })
     return { removed: existed }
   }
 
-  subscriptionList(filter?: { subscriberId?: string }): Subscription[] {
-    return this.store.deps.store.events.listSubscriptions(filter)
+  async subscriptionList(filter?: { subscriberId?: string }): Promise<Subscription[]> {
+    return await this.store.deps.store.events.listSubscriptions(filter)
   }
 
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
-  subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
-    return this.store.deps.funnel.run({
-      write: () => ({ updated: this.store.deps.store.events.setSubscriptionEnabled(id, enabled) }),
+  async subscriptionSetEnabled(id: string, enabled: boolean): Promise<{ updated: boolean }> {
+    return await this.store.deps.funnel.run({
+      write: async () => ({ updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled) }),
     })
   }
 
-  subscriptionGet(id: string): Subscription | undefined {
-    return this.store.deps.store.events.getSubscription(id)
+  async subscriptionGet(id: string): Promise<Subscription | undefined> {
+    return await this.store.deps.store.events.getSubscription(id)
   }
 
-  archive(id: string): IssueWire {
-    return this.crud().update(id, { archived: true })
+  async archive(id: string): Promise<IssueWire> {
+    return await this.crud().update(id, { archived: true })
   }
 
   /**
@@ -518,10 +521,10 @@ export class IssueAttentionModule {
    *
    * Returns the wires it archived (empty when nothing qualified).
    */
-  sweepAutoArchive(
+  async sweepAutoArchive(
     nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
-  ): IssueWire[] {
+  ): Promise<IssueWire[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueWire[] = []
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
@@ -538,10 +541,10 @@ export class IssueAttentionModule {
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
-      sessionList ??= this.store.deps.listSessions()
+      sessionList ??= await this.store.deps.listSessions()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
       if (this.store.computeUnread(row, sessions)) continue
-      out.push(this.autoArchive(row, principal))
+      out.push(await this.autoArchive(row, principal))
     }
     return out
   }
@@ -551,7 +554,7 @@ export class IssueAttentionModule {
    * Revalidates every durable + live precondition at apply time; the janitor
    * observation is only a proposal.
    */
-  tryAutoArchiveObserved(
+  async tryAutoArchiveObserved(
     observed: {
       issueId: IssueId
       stage: string
@@ -562,7 +565,7 @@ export class IssueAttentionModule {
     },
     nowMs: number = Date.parse(this.store.now()),
     principal?: SystemCommandPrincipal,
-  ): 'applied' | 'precondition' | 'not-due' {
+  ): Promise<'applied' | 'precondition' | 'not-due'> {
     const row = this.store.rows.get(observed.issueId)
     if (!row) return 'precondition'
     if (row.archived || row.deletedAt) return 'precondition'
@@ -591,9 +594,9 @@ export class IssueAttentionModule {
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    const sessions = this.store.sessionsFor(row)
+    const sessions = (await this.store.sessionsFor(row))
     if (this.store.computeUnread(row, sessions)) return 'precondition'
-    this.autoArchive(row, principal)
+    await this.autoArchive(row, principal)
     return 'applied'
   }
 
@@ -602,21 +605,21 @@ export class IssueAttentionModule {
    *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
-  private autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): IssueWire {
+  private async autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): Promise<IssueWire> {
     // Drafted HERE rather than by the two callers: both reach this with a row
     // they read for a precondition check, and the sweep walks the map while it
     // archives, so the row it hands over is the map's own object [POD-3259].
     const draft = this.store.draftOf(row)
     draft.archived = true
-    const wire = this.store.persist(draft)
-    this.store.emitEvent('issue.auto_archived', draft.id, {
+    const wire = await this.store.persist(draft)
+    await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
       readAt: this.store.issueOverlay(draft.id).readAt,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    this.onIssueArchived(draft)
+    await this.onIssueArchived(draft)
     return wire
   }
 
@@ -644,8 +647,8 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public onIssueArchived(row: IssueRow): void {
-    this.cascadeArchiveSessions(row)
+  public async onIssueArchived(row: IssueRow): Promise<void> {
+    await this.cascadeArchiveSessions(row)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
     // `MaintenanceService`'s span (its `write()` wraps every pure job in
@@ -660,7 +663,7 @@ export class IssueAttentionModule {
     // session writes plus in-process live-session state, which is POD-3259's
     // category (mutable process-owned objects), not this one's.
     const issueId = row.id
-    afterCommit(() => {
+    afterCommit(async () => {
       void this.gitWorkflow()
         .releaseWorktreeIfIdle(issueId, systemPrincipal('archive'))
         .catch((err: unknown) => {
@@ -677,10 +680,10 @@ export class IssueAttentionModule {
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
    *  broadcast. */
-  public cascadeArchiveSessions(row: IssueRow): void {
+  public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
-    for (const s of this.store.sessionsFor(row)) {
+    for (const s of (await this.store.sessionsFor(row))) {
       if (s.archived) continue
       setArchived(s.sessionId, true)
     }
@@ -693,10 +696,10 @@ export class IssueAttentionModule {
    *  the explicit "work is finished" flip — clear standing offers so finished
    *  work cannot keep demanding attention. No-ops when the clear hook is absent
    *  (test deps) or a session has no offer. */
-  public retireIssueOffers(row: IssueRow): void {
+  public async retireIssueOffers(row: IssueRow): Promise<void> {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
-    for (const s of this.store.sessionsFor(row)) {
+    for (const s of (await this.store.sessionsFor(row))) {
       if (!s.offer) continue
       clearOffer(s.sessionId)
     }

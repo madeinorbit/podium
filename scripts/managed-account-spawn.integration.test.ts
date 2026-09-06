@@ -62,7 +62,7 @@ function openAccountsDatabase() {
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 function managedAccountEnv(): Record<string, string> | undefined {
   const db = openAccountsDatabase()
-  const queries = createBunStoreExecutor({ database: db }).syncQueries
+  const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
   const accounts = new AccountsRepository(queries)
   accounts.upsert({
@@ -292,7 +292,7 @@ describe('managed account -> real spawned process env (#216)', () => {
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
     const db = openAccountsDatabase()
-    const queries = createBunStoreExecutor({ database: db }).syncQueries
+    const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
     const accounts = new AccountsRepository(queries)
     accounts.upsert({

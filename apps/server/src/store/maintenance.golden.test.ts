@@ -64,15 +64,15 @@ const applied = (runKey: string, deleted = 0): MaintenanceCommandReply => ({
 it('reads a lease back exactly as written and reports a missing one as undefined, not null', async () => {
   const store = await openTestStore(':memory:')
   try {
-    expect(store.maintenance.getLease('maintenance')).toBeUndefined()
+    expect(await store.maintenance.getLease('maintenance')).toBeUndefined()
 
     const row = lease()
-    store.maintenance.putLease(row)
-    expect(store.maintenance.getLease('maintenance')).toEqual(row)
+    await store.maintenance.putLease(row)
+    expect(await store.maintenance.getLease('maintenance')).toEqual(row)
     // Numeric columns come back as numbers, not strings: a conversion that lost
     // the column type would compare a fencing token against a string forever.
-    expect(typeof store.maintenance.getLease('maintenance')?.fencingToken).toBe('number')
-    expect(typeof store.maintenance.getLease('maintenance')?.protocolVersion).toBe('number')
+    expect(typeof (await store.maintenance.getLease('maintenance'))?.fencingToken).toBe('number')
+    expect(typeof (await store.maintenance.getLease('maintenance'))?.protocolVersion).toBe('number')
   } finally {
     store.close()
   }
@@ -81,8 +81,8 @@ it('reads a lease back exactly as written and reports a missing one as undefined
 it('replaces every column of an existing lease and keeps other leases separate', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.maintenance.putLease(lease())
-    store.maintenance.putLease(lease({ name: 'other', generationId: 'gen-other' }))
+    await store.maintenance.putLease(lease())
+    await store.maintenance.putLease(lease({ name: 'other', generationId: 'gen-other' }))
 
     const renewed = lease({
       generationId: 'gen-2',
@@ -92,10 +92,10 @@ it('replaces every column of an existing lease and keeps other leases separate',
       schemaVersion: 'v43',
       updatedAt: '2026-09-01T00:10:00.000Z',
     })
-    store.maintenance.putLease(renewed)
+    await store.maintenance.putLease(renewed)
 
-    expect(store.maintenance.getLease('maintenance')).toEqual(renewed)
-    expect(store.maintenance.getLease('other')?.generationId).toBe('gen-other')
+    expect(await store.maintenance.getLease('maintenance')).toEqual(renewed)
+    expect((await store.maintenance.getLease('other'))?.generationId).toBe('gen-other')
   } finally {
     store.close()
   }
@@ -104,15 +104,15 @@ it('replaces every column of an existing lease and keeps other leases separate',
 it('recalls a recorded command by its job and run key, and nothing for either half alone', async () => {
   const store = await openTestStore(':memory:')
   try {
-    expect(store.maintenance.getCommand('message-expiry', 'run-1')).toBeUndefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeUndefined()
 
     const reply = applied('run-1', 12)
-    store.maintenance.recordCommand(reply, 7, '2026-09-01T00:00:00.000Z')
-    expect(store.maintenance.getCommand('message-expiry', 'run-1')).toEqual(reply)
+    await store.maintenance.recordCommand(reply, 7, '2026-09-01T00:00:00.000Z')
+    expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toEqual(reply)
 
     // The key is the PAIR. Neither half on its own reaches the row.
-    expect(store.maintenance.getCommand('message-expiry', 'run-2')).toBeUndefined()
-    expect(store.maintenance.getCommand('event-log-prune', 'run-1')).toBeUndefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-2')).toBeUndefined()
+    expect(await store.maintenance.getCommand('event-log-prune', 'run-1')).toBeUndefined()
   } finally {
     store.close()
   }
@@ -123,26 +123,26 @@ it('prunes strictly before the cutoff, at most a batch at a time, oldest first',
   try {
     const at = (minute: number) => `2026-09-01T00:${String(minute).padStart(2, '0')}:00.000Z`
     for (let i = 0; i < 6; i++) {
-      store.maintenance.recordCommand(applied(`run-${i}`), 7, at(i))
+      await store.maintenance.recordCommand(applied(`run-${i}`), 7, at(i))
     }
     const cutoff = at(4)
 
     // BOTH EDGES of `<`: the row AT the cutoff survives, the one before it goes.
     // A conversion to `lte` would delete one row more than the caller asked for.
-    expect(store.maintenance.pruneCommandsBatch(cutoff, 2)).toBe(2)
-    expect(store.maintenance.getCommand('message-expiry', 'run-0')).toBeUndefined()
-    expect(store.maintenance.getCommand('message-expiry', 'run-1')).toBeUndefined()
+    expect(await store.maintenance.pruneCommandsBatch(cutoff, 2)).toBe(2)
+    expect(await store.maintenance.getCommand('message-expiry', 'run-0')).toBeUndefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeUndefined()
     // Oldest first: run-2 and run-3 are still here, so the batch took the head.
-    expect(store.maintenance.getCommand('message-expiry', 'run-2')).toBeDefined()
-    expect(store.maintenance.getCommand('message-expiry', 'run-3')).toBeDefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-2')).toBeDefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-3')).toBeDefined()
 
-    expect(store.maintenance.pruneCommandsBatch(cutoff, 10)).toBe(2)
-    expect(store.maintenance.getCommand('message-expiry', 'run-2')).toBeUndefined()
-    expect(store.maintenance.getCommand('message-expiry', 'run-3')).toBeUndefined()
+    expect(await store.maintenance.pruneCommandsBatch(cutoff, 10)).toBe(2)
+    expect(await store.maintenance.getCommand('message-expiry', 'run-2')).toBeUndefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-3')).toBeUndefined()
     // At the cutoff and after it: untouched, and a further prune finds nothing.
-    expect(store.maintenance.getCommand('message-expiry', 'run-4')).toBeDefined()
-    expect(store.maintenance.getCommand('message-expiry', 'run-5')).toBeDefined()
-    expect(store.maintenance.pruneCommandsBatch(cutoff, 10)).toBe(0)
+    expect(await store.maintenance.getCommand('message-expiry', 'run-4')).toBeDefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-5')).toBeDefined()
+    expect(await store.maintenance.pruneCommandsBatch(cutoff, 10)).toBe(0)
   } finally {
     store.close()
   }
@@ -151,14 +151,14 @@ it('prunes strictly before the cutoff, at most a batch at a time, oldest first',
 it('refuses a batch size that is not a positive integer, before touching the database', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
+    await store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      expect(() => store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad)).toThrow(
+      await expect(store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad)).rejects.toThrow(
         RangeError,
       )
     }
     // The guard is a refusal, not a no-op that deleted first.
-    expect(store.maintenance.getCommand('message-expiry', 'run-1')).toBeDefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeDefined()
   } finally {
     store.close()
   }
@@ -167,7 +167,7 @@ it('refuses a batch size that is not a positive integer, before touching the dat
 it('throws rather than quarantining when a stored command reply is not a valid reply', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
+    await store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
     // The same raw seam `store/json-column-corruption-oracle.test.ts` uses to
     // plant a corrupt value: there is no typed way to write an invalid reply,
     // which is the point — only a hand-edited database or an older writer can
@@ -175,7 +175,7 @@ it('throws rather than quarantining when a stored command reply is not a valid r
     rawDb(store)
       .prepare('UPDATE maintenance_commands SET result_json = ? WHERE job_kind = ? AND run_key = ?')
       .run('{"status":"nonsense"}', 'message-expiry', 'run-1')
-    expect(() => store.maintenance.getCommand('message-expiry', 'run-1')).toThrow()
+    await expect(store.maintenance.getCommand('message-expiry', 'run-1')).rejects.toThrow()
   } finally {
     store.close()
   }

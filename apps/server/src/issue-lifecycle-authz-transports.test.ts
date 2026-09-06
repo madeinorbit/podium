@@ -27,26 +27,26 @@ interface LifecycleFixture {
   archived: { id: string }
 }
 
-function fixture(registry: SessionRegistry): LifecycleFixture {
-  const create = (title: string, parentId?: IssueId) =>
-    registry.issues.create({
+async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
+  const create = async (title: string, parentId?: IssueId) =>
+    await registry.issues.create({
       repoPath: '/repo',
       title,
       startNow: false,
       ...(parentId ? { parentId } : {}),
     })
-  const root = create('root')
-  const oldParent = create('old parent', root.id)
-  const newParent = create('new parent', root.id)
-  const moving = create('moving', oldParent.id)
-  const superseded = create('superseded', root.id)
-  const replacement = create('replacement', root.id)
-  const duplicate = create('duplicate', root.id)
-  const canonical = create('canonical', root.id)
-  const depFrom = create('dep from', root.id)
-  const depTo = create('dep to', root.id)
-  const archived = create('archived', root.id)
-  registry.issues.addDep(depFrom.id, depTo.id, 'blocks')
+  const root = await create('root')
+  const oldParent = await create('old parent', root.id)
+  const newParent = await create('new parent', root.id)
+  const moving = await create('moving', oldParent.id)
+  const superseded = await create('superseded', root.id)
+  const replacement = await create('replacement', root.id)
+  const duplicate = await create('duplicate', root.id)
+  const canonical = await create('canonical', root.id)
+  const depFrom = await create('dep from', root.id)
+  const depTo = await create('dep to', root.id)
+  const archived = await create('archived', root.id)
+  await registry.issues.addDep(depFrom.id, depTo.id, 'blocks')
   return {
     root,
     moving,
@@ -71,21 +71,21 @@ function lifecycleInputs(f: LifecycleFixture): Array<[LifecycleName, Record<stri
   ]
 }
 
-function verify(registry: SessionRegistry, f: LifecycleFixture): void {
-  expect(registry.issues.get(f.moving.id)?.parentId).toBe(f.newParent.id)
-  expect(registry.issues.get(f.superseded.id)).toMatchObject({
+async function verify(registry: SessionRegistry, f: LifecycleFixture): Promise<void> {
+  expect((await registry.issues.get(f.moving.id))?.parentId).toBe(f.newParent.id)
+  expect(await registry.issues.get(f.superseded.id)).toMatchObject({
     closedReason: 'superseded',
     supersededBy: f.replacement.id,
   })
-  expect(registry.issues.get(f.duplicate.id)).toMatchObject({
+  expect(await registry.issues.get(f.duplicate.id)).toMatchObject({
     closedReason: 'duplicate',
     duplicateOf: f.canonical.id,
   })
-  expect(registry.issues.get(f.depFrom.id)?.deps).not.toContainEqual({
+  expect((await registry.issues.get(f.depFrom.id))?.deps).not.toContainEqual({
     id: f.depTo.id,
     type: 'blocks',
   })
-  expect(registry.issues.get(f.archived.id)?.archived).toBe(true)
+  expect((await registry.issues.get(f.archived.id))?.archived).toBe(true)
 }
 
 async function runIssueClient(client: IssueTrpc, f: LifecycleFixture): Promise<void> {
@@ -96,9 +96,9 @@ async function runIssueClient(client: IssueTrpc, f: LifecycleFixture): Promise<v
 
 describe('lifecycle primitives across all four command transports (#413)', () => {
   it('tRPC operator executes all five registry-derived commands', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const f = fixture(registry)
+      const f = await fixture(registry)
       const caller = appRouter.createCaller({
         registry,
         repos: {} as never,
@@ -111,16 +111,16 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await caller.issues.duplicate({ id: f.duplicate.id, canonicalId: f.canonical.id })
       await caller.issues.depRemove({ fromId: f.depFrom.id, toId: f.depTo.id, type: 'blocks' })
       await caller.issues.archive({ id: f.archived.id })
-      verify(registry, f)
+      await verify(registry, f)
     } finally {
       registry.dispose()
     }
   })
 
   it('scoped in-process dispatcher executes all five inside the agent subtree', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const f = fixture(registry)
+      const f = await fixture(registry)
       const client = registry.issueCommands.asIssueTrpc({
         role: 'worker',
         scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
@@ -128,16 +128,16 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         onBehalfOf: FIRST_ADMIN_USER_ID,
       })
       await runIssueClient(client, f)
-      verify(registry, f)
+      await verify(registry, f)
     } finally {
       registry.dispose()
     }
   })
 
   it('scoped MCP tools execute all five inside the agent subtree', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const f = fixture(registry)
+      const f = await fixture(registry)
       const provider = new IssueToolProvider()
       provider.setClient(
         registry.issueCommands.asIssueTrpc({
@@ -151,22 +151,22 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         const tool = `issue_${name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}`
         await provider.callMcpTool(tool, input)
       }
-      verify(registry, f)
+      await verify(registry, f)
     } finally {
       registry.dispose()
     }
   })
 
   it('scoped CLI relay executes all five inside the agent subtree', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let relayServer: Awaited<ReturnType<typeof startAgentRelayServer>> | undefined
     try {
-      const f = fixture(registry)
-      registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
-      const sessionId = registry.modules.sessions.createSession({
+      const f = await fixture(registry)
+      await registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
+      const sessionId = (await registry.modules.sessions.createSession({
         cwd: '/wt/lifecycle-root',
         agentKind: 'shell',
-      }).sessionId
+      })).sessionId
       const machineId = 'lifecycle-machine'
       const hub = createAgentRelayHub((msg: DaemonMessage) =>
         registry.gateway.routeDaemonFrame(machineId, msg),
@@ -182,7 +182,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await runIssueCli(['duplicate', f.duplicate.id, f.canonical.id], client)
       await runIssueCli(['dep-remove', f.depFrom.id, f.depTo.id, '--type', 'blocks'], client)
       await runIssueCli(['archive', f.archived.id], client)
-      verify(registry, f)
+      await verify(registry, f)
     } finally {
       await relayServer?.close()
       registry.dispose()

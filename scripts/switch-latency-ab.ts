@@ -185,8 +185,8 @@ async function until(check: () => boolean, timeoutMs = 15_000): Promise<void> {
 async function runArm(label: string): Promise<ArmReport> {
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { SessionStore } = await import('../apps/server/src/store')
-  const store = new SessionStore(':memory:')
-  store.transact(() => {
+  const store = await SessionStore.open(':memory:')
+  await store.transact(() => {
     for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
   })
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })

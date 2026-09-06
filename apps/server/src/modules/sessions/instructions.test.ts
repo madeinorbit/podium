@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionInstructionRegistry } from './instructions'
 
 describe('SessionInstructionRegistry', () => {
-  it('collects attributed contributions and commits provider side effects once', () => {
+  it('collects attributed contributions and commits provider side effects once', async () => {
     const registry = new SessionInstructionRegistry()
     const firstCommit = vi.fn()
     const secondCommit = vi.fn()
@@ -23,7 +23,7 @@ describe('SessionInstructionRegistry', () => {
       prepare: () => ({ content: '  follow the workflow  ', afterSpawn: secondCommit }),
     })
 
-    const prepared = registry.prepare({
+    const prepared = await registry.prepare({
       sessionId: asSessionId('ses-1'),
       cwd: '/worktree',
       agentKind: 'codex',
@@ -36,8 +36,8 @@ describe('SessionInstructionRegistry', () => {
     expect(firstCommit).not.toHaveBeenCalled()
     expect(secondCommit).not.toHaveBeenCalled()
 
-    prepared.commit()
-    prepared.commit()
+    await prepared.commit()
+    await prepared.commit()
     expect(firstCommit).toHaveBeenCalledTimes(1)
     expect(secondCommit).toHaveBeenCalledTimes(1)
   })

@@ -34,8 +34,11 @@
  * derives intent from the emitted SQL and fails where the two disagree.
  */
 
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { QueryClient, SqlRunResult, StatementMethod } from './driver'
 
 /** drizzle's own name for bun:sqlite's `Database`, taken off its signature rather
  *  than imported from `bun:sqlite`, which does not resolve without @types/bun. */
@@ -138,19 +141,116 @@ export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle {
  * THE ASYNC PAIR SATISFIES THIS SAME SHAPE, so the flip swaps what fills it and
  * leaves every construction site alone.
  */
-export type TransactionRunner = <T>(fn: () => T) => T
+export type TransactionRunner = <T>(fn: () => Promise<T>) => Promise<T>
+
+type FullStoreDrizzle = ReturnType<typeof proxyDrizzle>
+
+const transactionScope = new AsyncLocalStorage<FullStoreDrizzle>()
+
+export function currentTransaction(): StoreDrizzle | undefined {
+  return transactionScope.getStore() as StoreDrizzle | undefined
+}
+
+function proxyRowValues(row: unknown): unknown[] {
+  if (Array.isArray(row)) return row
+  if (row !== null && typeof row === 'object') return Object.values(row)
+  return [row]
+}
+
+function buildStoreDrizzle(client: QueryClient) {
+  return proxyDrizzle(
+    async (sql, params, method) => {
+      const statementMethod = method as StatementMethod
+      if (statementMethod === 'run') {
+        const result = await client.run(sql, ...params)
+        return { rows: [], ...result }
+      }
+      if (statementMethod === 'get') {
+        const row = await client.writeGet(sql, ...params)
+        return {
+          rows: row === undefined ? (undefined as unknown as unknown[]) : proxyRowValues(row),
+        }
+      }
+      return { rows: (await client.writeAll(sql, ...params)).map(proxyRowValues) }
+    },
+    async (batch) => {
+      const results = await client.batch(
+        batch.map(({ sql, params, method }) => ({
+          sql,
+          params,
+          method: method as StatementMethod,
+          intent: 'write' as const,
+        })),
+      )
+      return results.map((result, index) => {
+        if (batch[index]?.method === 'get') {
+          return {
+            rows:
+              result.rows.length === 0
+                ? (undefined as unknown as unknown[])
+                : proxyRowValues(result.rows[0]),
+            ...result.run,
+          }
+        }
+        return { rows: result.rows.map(proxyRowValues), ...result.run }
+      })
+    },
+  )
+}
+
+export type StoreDrizzle = Omit<
+  import('drizzle-orm/sqlite-core').SQLiteAsyncDatabase<
+    'async',
+    SqlRunResult & { readonly rows?: readonly unknown[] },
+    import('drizzle-orm').EmptyRelations
+  >,
+  'transaction'
+>
 
 export interface StoreQueries {
-  /** The root synchronous drizzle instance a repository queries through. */
-  readonly rootDb: SyncDrizzle
+  /** The ambient async drizzle instance a repository queries through. */
+  readonly rootDb: StoreDrizzle
   /** Creates a root transaction or joins the enclosing transaction when nested. */
   readonly createOrJoinTransaction: TransactionRunner
 }
 
+export type ExecutorTransaction = <T>(fn: (client: QueryClient) => Promise<T>) => Promise<T>
+
+export function storeQueriesOver(
+  client: QueryClient,
+  transact: ExecutorTransaction,
+): StoreQueries {
+  const rootDb = buildStoreDrizzle(client)
+  return {
+    get rootDb() {
+      return (transactionScope.getStore() ?? rootDb) as unknown as StoreDrizzle
+    },
+    createOrJoinTransaction: async (fn) => {
+      const tx = transactionScope.getStore()
+      if (tx) {
+        return await tx.transaction(async (inner) =>
+          await transactionScope.run(inner as unknown as FullStoreDrizzle, fn),
+        )
+      }
+      return transact(async (txClient) => transactionScope.run(buildStoreDrizzle(txClient), fn))
+    },
+  }
+}
+
 /** The synchronous query capability over `database`, or undefined when it is not bun-backed. */
 export function syncQueriesOver(database: SqlDatabase): StoreQueries {
-  return {
-    rootDb: syncDrizzleOver(database),
-    createOrJoinTransaction: (fn) => transaction(database, fn),
+  const executor = import('./bun-driver').then(({ createBunStoreExecutor }) =>
+    createBunStoreExecutor({ database }),
+  )
+  const client: QueryClient = {
+    run: async (sql, ...params) => await (await executor).drizzle.run(sql, ...params),
+    get: async (sql, ...params) => await (await executor).drizzle.get(sql, ...params),
+    all: async (sql, ...params) => await (await executor).drizzle.all(sql, ...params),
+    writeGet: async (sql, ...params) => await (await executor).drizzle.writeGet(sql, ...params),
+    writeAll: async (sql, ...params) => await (await executor).drizzle.writeAll(sql, ...params),
+    batch: async (statements) => await (await executor).drizzle.batch(statements),
   }
+  return storeQueriesOver(client, async (fn) =>
+    await (await executor).transact(async (tx) => fn(tx.drizzle)),
+  )
 }

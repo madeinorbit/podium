@@ -38,7 +38,7 @@ describe('oracle: who created this session', () => {
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
-    expect(o.meta(sessionId).spawnedBy).toBe('user')
+    expect((await o.meta(sessionId)).spawnedBy).toBe('user')
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)).toMatchObject({
       spawnedBy: 'user',
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -55,14 +55,14 @@ describe('oracle: who created this session', () => {
       conversationId: 'n1',
     })
 
-    expect(o.meta(sessionId).spawnedBy).toBe('user')
+    expect((await o.meta(sessionId)).spawnedBy).toBe('user')
   })
 
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const parent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const parent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -79,16 +79,16 @@ describe('oracle: who created this session', () => {
     const childId = (spawned.result as { sessionId: SessionId }).sessionId
     // Actor = the calling session, resolved from the relay capability. There is
     // no second field recording WHICH HUMAN that agent is acting for.
-    expect(o.meta(childId).spawnedBy).toBe(`session:${parent.sessionId}`)
+    expect((await o.meta(childId)).spawnedBy).toBe(`session:${parent.sessionId}`)
   })
 })
 
 describe('oracle: who named this session', () => {
   it(`${NO_PERSON}: nameSource records the CLASS of writer ('user' | 'agent'), never which user or which agent`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -103,8 +103,8 @@ describe('oracle: who named this session', () => {
     })
     await o.call.sessions.rename({ sessionId: human.sessionId, name: 'named by the operator' })
 
-    expect(o.meta(agent.sessionId).nameSource).toBe('agent')
-    expect(o.meta(human.sessionId).nameSource).toBe('user')
+    expect((await o.meta(agent.sessionId)).nameSource).toBe('agent')
+    expect((await o.meta(human.sessionId)).nameSource).toBe('user')
     // Two different agents would both stamp the identical 'agent' — the actor
     // half of the pair is NOT recorded on the row.
     const rows = await o.store.sessions.loadSessions()
@@ -193,9 +193,9 @@ describe('oracle: who typed into this session', () => {
 describe('oracle: who asked the human a question', () => {
   it(`${NO_PERSON}: humanQuestionAskedBy is stamped from the transport principal, and an agent cannot attribute a question to another session`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -212,7 +212,7 @@ describe('oracle: who asked the human a question', () => {
 
     // Stamped from the capability's actorSessionId — a bare session id, and the
     // only attribution the answer-routing path has to work with.
-    expect(o.reg.issues.getMeta(issue.id)?.humanQuestionAskedBy).toBe(agent.sessionId)
+    expect((await o.reg.issues.getMeta(issue.id))?.humanQuestionAskedBy).toBe(agent.sessionId)
 
     // Payload identity is inert (ADR 3 D7): claiming to be someone else is refused.
     const spoofed = await o.relay({

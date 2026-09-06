@@ -105,11 +105,11 @@ export interface HandoffPlacement {
  * Resolve the move, or throw the refusal that applies. Synchronous by
  * construction — see the header.
  */
-export function resolveHandoffPlacement(
+export async function resolveHandoffPlacement(
   ports: HandoffPlacementPorts,
   input: HandoffInput,
   caller: HandoffCaller,
-): HandoffPlacement {
+): Promise<HandoffPlacement> {
   // Eligibility and both `use` checks already passed in admission — obligation
   // 1 is satisfied there so that a JOINING caller is authorized too.
   const session = ports.getSession(input.sessionId)
@@ -129,8 +129,8 @@ export function resolveHandoffPlacement(
 
   if (session.machineId === input.machineId) throw new Error('session is already on that machine')
 
-  const repos = ports.listRepos()
-  const issue = session.issueId ? ports.issueMeta(session.issueId) : undefined
+  const repos = await ports.listRepos()
+  const issue = session.issueId ? await ports.issueMeta(session.issueId) : undefined
   // A resumed old daemon can report a transcript's pre-handoff cwd after rollback.
   // The issue's machine-local worktree is the durable workspace anchor; consult it
   // before the session's momentary cwd when resolving the source repository.
@@ -161,7 +161,7 @@ export function resolveHandoffPlacement(
       : undefined
   if (session.cwd === sourceRepo.path && !issueWorktree)
     throw new Error('only worktree sessions can be handed off')
-  const targetMachine = ports.listMachines().find((machine) => machine.id === input.machineId)
+  const targetMachine = (await ports.listMachines()).find((machine) => machine.id === input.machineId)
   // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the
   // time execution reaches here the principal may `use` this machine, so
   // saying it is offline reveals nothing it could not already see.

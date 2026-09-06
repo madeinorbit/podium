@@ -76,10 +76,10 @@ const CORPUS = () => [
 ]
 
 describe('SessionView.listForIssue [POD-1639]', () => {
-  it('returns exactly what filtering the full list returns', () => {
+  it('returns exactly what filtering the full list returns', async () => {
     const { view } = viewOver(CORPUS())
-    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), asIssueId(ISSUE))
-    const narrow = view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
+    const oracle = sessionsForIssue(WORKTREE, await view.list(PRINCIPAL), asIssueId(ISSUE))
+    const narrow = await view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
     expect(narrow.map((s) => s.sessionId)).toEqual(oracle.map((s) => s.sessionId))
     expect(narrow).toEqual(oracle)
     // Named, so a predicate that silently widened is visible in the diff.
@@ -90,25 +90,25 @@ describe('SessionView.listForIssue [POD-1639]', () => {
     ])
   })
 
-  it('still applies the visibility rule to the members it keeps', () => {
+  it('still applies the visibility rule to the members it keeps', async () => {
     const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
-    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), asIssueId(ISSUE))
-    expect(view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)).toEqual(oracle)
+    const oracle = sessionsForIssue(WORKTREE, await view.list(PRINCIPAL), asIssueId(ISSUE))
+    expect(await view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)).toEqual(oracle)
     expect(oracle.map((s) => s.sessionId)).toEqual(['mine-explicit', 'mine-is-the-root'])
   })
 
-  it('visibility-checks the members only — that saving IS the fix', () => {
+  it('visibility-checks the members only — that saving IS the fix', async () => {
     const { view, canReadCalls } = viewOver(CORPUS())
-    view.list(PRINCIPAL)
+    await view.list(PRINCIPAL)
     expect(canReadCalls.length).toBe(6)
     canReadCalls.length = 0
-    view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
+    await view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
     expect(canReadCalls).toEqual(['mine-explicit', 'mine-by-cwd', 'mine-is-the-root'])
   })
 
-  it('an issue with no worktree and no attached session costs nothing', () => {
+  it('an issue with no worktree and no attached session costs nothing', async () => {
     const { view, canReadCalls } = viewOver(CORPUS())
-    expect(view.listForIssue(null, asIssueId('iss_none') as IssueId, PRINCIPAL)).toEqual([])
+    expect(await view.listForIssue(null, asIssueId('iss_none') as IssueId, PRINCIPAL)).toEqual([])
     expect(canReadCalls).toEqual([])
   })
 })
@@ -123,37 +123,37 @@ describe('SessionView.listForIssue [POD-1639]', () => {
  * absent id must not throw.
  */
 describe('SessionView.byId [POD-1646]', () => {
-  const oracleById = (view: SessionView, id: string) =>
-    view.list(PRINCIPAL).find((s) => s.sessionId === id)
+  const oracleById = async (view: SessionView, id: string) =>
+    (await view.list(PRINCIPAL)).find((s) => s.sessionId === id)
 
-  it('returns exactly what finding in the full list returns', () => {
+  it('returns exactly what finding in the full list returns', async () => {
     const { view } = viewOver(CORPUS())
     for (const id of CORPUS().map((s) => s.sessionId)) {
-      expect(view.byId(asSessionId(id), PRINCIPAL)).toEqual(oracleById(view, id))
+      expect(await view.byId(asSessionId(id), PRINCIPAL)).toEqual(await oracleById(view, id))
     }
-    expect(view.byId(asSessionId('mine-by-cwd'), PRINCIPAL)?.sessionId).toBe('mine-by-cwd')
+    expect((await view.byId(asSessionId('mine-by-cwd'), PRINCIPAL))?.sessionId).toBe('mine-by-cwd')
   })
 
-  it('still applies the visibility rule to the one session', () => {
+  it('still applies the visibility rule to the one session', async () => {
     const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
-    expect(oracleById(view, 'mine-by-cwd')).toBeUndefined()
-    expect(view.byId(asSessionId('mine-by-cwd'), PRINCIPAL)).toBeUndefined()
+    expect(await oracleById(view, 'mine-by-cwd')).toBeUndefined()
+    expect(await view.byId(asSessionId('mine-by-cwd'), PRINCIPAL)).toBeUndefined()
     // The neighbours are unaffected — the check narrowed, the rule did not.
-    expect(view.byId(asSessionId('unrelated'), PRINCIPAL)?.sessionId).toBe('unrelated')
+    expect((await view.byId(asSessionId('unrelated'), PRINCIPAL))?.sessionId).toBe('unrelated')
   })
 
-  it('an id that names nothing is undefined, not a throw', () => {
+  it('an id that names nothing is undefined, not a throw', async () => {
     const { view, canReadCalls } = viewOver(CORPUS())
-    expect(view.byId(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
+    expect(await view.byId(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
     expect(canReadCalls).toEqual([])
   })
 
-  it('visibility-checks ONE session — that count IS the fix', () => {
+  it('visibility-checks ONE session — that count IS the fix', async () => {
     const { view, canReadCalls } = viewOver(CORPUS())
-    view.list(PRINCIPAL)
+    await view.list(PRINCIPAL)
     expect(canReadCalls.length).toBe(6)
     canReadCalls.length = 0
-    view.byId(asSessionId('unrelated'), PRINCIPAL)
+    await view.byId(asSessionId('unrelated'), PRINCIPAL)
     expect(canReadCalls).toEqual(['unrelated'])
   })
 })
@@ -164,25 +164,25 @@ describe('SessionView.spawnedByOf [POD-1646]', () => {
     session('child', '/w', undefined, 'session:parent'),
   ]
 
-  it('returns what the wired lookup put on `spawnedBy`', () => {
+  it('returns what the wired lookup put on `spawnedBy`', async () => {
     const { view } = viewOver(CHILD())
     for (const id of ['parent', 'child']) {
-      const wired = view.list(PRINCIPAL).find((s) => s.sessionId === id)?.spawnedBy
-      expect(view.spawnedByOf(asSessionId(id), PRINCIPAL)).toBe(wired)
+      const wired = (await view.list(PRINCIPAL)).find((s) => s.sessionId === id)?.spawnedBy
+      expect(await view.spawnedByOf(asSessionId(id), PRINCIPAL)).toBe(wired)
     }
-    expect(view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBe('session:parent')
-    expect(view.spawnedByOf(asSessionId('parent'), PRINCIPAL)).toBeUndefined()
+    expect(await view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBe('session:parent')
+    expect(await view.spawnedByOf(asSessionId('parent'), PRINCIPAL)).toBeUndefined()
   })
 
-  it('refuses an invisible session and an absent one alike', () => {
+  it('refuses an invisible session and an absent one alike', async () => {
     const { view } = viewOver(CHILD(), new Set(['child']))
-    expect(view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBeUndefined()
-    expect(view.spawnedByOf(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
+    expect(await view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBeUndefined()
+    expect(await view.spawnedByOf(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
   })
 })
 
 describe('SessionView.byIds [POD-2322]', () => {
-  it('equals full-list filtering in source order and deduplicates ids', () => {
+  it('equals full-list filtering in source order and deduplicates ids', async () => {
     const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
     const ids = [
       asSessionId('unrelated'),
@@ -192,16 +192,16 @@ describe('SessionView.byIds [POD-2322]', () => {
       asSessionId('mine-by-cwd'),
     ]
     const wanted = new Set(ids)
-    const expected = view.list(PRINCIPAL).filter((row) => wanted.has(row.sessionId))
-    expect(view.byIds(ids, PRINCIPAL)).toEqual(expected)
+    const expected = (await view.list(PRINCIPAL)).filter((row) => wanted.has(row.sessionId))
+    expect(await view.byIds(ids, PRINCIPAL)).toEqual(expected)
     expect(expected.map((row) => row.sessionId)).toEqual(['mine-explicit', 'unrelated'])
   })
 
-  it('does no projection work for an empty set and only visits resident requested ids', () => {
+  it('does no projection work for an empty set and only visits resident requested ids', async () => {
     const { view, canReadCalls } = viewOver(CORPUS())
-    expect(view.byIds([], PRINCIPAL)).toEqual([])
+    expect(await view.byIds([], PRINCIPAL)).toEqual([])
     expect(canReadCalls).toEqual([])
-    view.byIds(
+    await view.byIds(
       [asSessionId('unrelated'), asSessionId('ghost'), asSessionId('unrelated')],
       PRINCIPAL,
     )

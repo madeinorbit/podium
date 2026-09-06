@@ -105,7 +105,7 @@ import type {
   BaselineFoldPort,
   AuthorityPort,
   ChangeSubscriber,
-  PostCommitEffectPort,
+  PostCommitFollowUpPort,
   TransactPort,
 } from './ports'
 import {
@@ -153,7 +153,7 @@ export interface AuthorityDeps {
    * outermost commit while a pending layer keeps the in-span readers — `stage`'s
    * dedup and `reconcile`'s full-list diff — seeing exactly what they see today.
    */
-  postCommit?: PostCommitEffectPort
+  postCommit?: PostCommitFollowUpPort
   /**
    * Where the BASELINE FOLD waits for the outermost commit [POD-3328,
    * spec §3.3 mechanism 1].
@@ -198,14 +198,6 @@ interface StagedRow {
   payload: string | null
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value != null &&
-    (typeof value === 'object' || typeof value === 'function') &&
-    typeof (value as { then?: unknown }).then === 'function'
-  )
-}
-
 /** One subscription: who it is for, and where its deliveries go. */
 interface ScopedSubscription {
   readonly principal: Principal
@@ -214,6 +206,7 @@ interface ScopedSubscription {
 
 export class Authority implements AuthorityPort {
   private readonly baseline: ChangeBaseline
+  private readonly ready: Promise<void>
   private readonly subscribers = new Set<ScopedSubscription>()
 
   constructor(private readonly deps: AuthorityDeps) {
@@ -221,16 +214,18 @@ export class Authority implements AuthorityPort {
     // ONE decision, made where the staging happens, instead of being asked here
     // and answered there.
     this.baseline = new ChangeBaseline(deps.applyCommit)
-    this.baseline.seed(deps.store)
+    this.ready = this.baseline.seed(deps.store)
   }
 
   /** Current durable values for one entity kind, used only for full snapshot assembly. */
-  snapshot(entity: MetadataEntityKind): readonly unknown[] {
+  async snapshot(entity: MetadataEntityKind): Promise<readonly unknown[]> {
+    await this.ready
     this.baseline.freshen()
     return this.baseline.values(entity)
   }
 
-  commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T> {
+  async commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>> {
+    await this.ready
     // 0. Before the span opens, while "is a span open?" still answers about the
     //    CALLER's span rather than this commit's own. The check is on the way IN
     //    and there is deliberately no abort hook: nothing has to REMEMBER to
@@ -239,7 +234,7 @@ export class Authority implements AuthorityPort {
     //    never kept [POD-3328].
     this.baseline.freshen()
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
-    op.authorize?.()
+    await op.authorize?.()
 
     // 2. ARBITRATE + 3. WRITE + APPEND, one span. The current-state hook runs
     //    INSIDE this transaction, immediately before the write, so arbitration
@@ -249,13 +244,13 @@ export class Authority implements AuthorityPort {
     //    its own clock the only one a field-LWW row may arbitrate on, and the
     //    port has nowhere for a caller to supply a different one.
     const eventTime = this.deps.now()
-    const committed = this.deps.transact(() => {
+    const committed = await this.deps.transact(async () => {
       if (op.arbitrate !== undefined) {
         const { current, ...request } = op.arbitrate
         const verdict = arbitrate({
           ...request,
           attempt: { ...request.attempt, eventTime },
-          ...(current === undefined ? {} : { current: current() }),
+          ...(current === undefined ? {} : { current: await current() }),
         })
         if (verdict.kind === 'reject') {
           return verdict.detail === undefined
@@ -264,19 +259,11 @@ export class Authority implements AuthorityPort {
         }
       }
 
-      const result = op.write()
-      // An async write() smuggles a Promise past transact()'s own thenable check:
-      // it is wrapped in this object, not returned directly, so the change row
-      // would commit now while the entity write ran later outside the transaction.
-      if (isThenable(result)) {
-        throw new TypeError(
-          'Authority.commit: write() returned a thenable — the entity write must be synchronous ' +
-            'so it commits atomically with the change append (ADR 2 D10).',
-        )
-      }
-      const rows = this.stage(op.changes(result))
-      const seqs = rows.length > 0 ? this.append(rows, eventTime) : []
-      return { outcome: 'committed', result, rows, seqs } as const
+      const result = await op.write()
+      const rows = this.stage(await op.changes(result))
+      const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
+      const changes = await this.finalize(rows, seqs)
+      return { outcome: 'committed', result, changes } as const
     })
 
     if (committed.outcome === 'rejected') return committed
@@ -286,22 +273,24 @@ export class Authority implements AuthorityPort {
     return {
       outcome: 'committed',
       result: committed.result,
-      changes: this.finalize(committed.rows, committed.seqs),
+      changes: committed.changes,
     }
   }
 
-  capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[] {
+  async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
+    await this.ready
     this.baseline.freshen()
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
-    return this.finalize(staged, seqs)
+    const seqs = staged.length > 0 ? await this.append(staged, eventTime) : []
+    return await this.finalize(staged, seqs)
   }
 
-  reconcile(
+  async reconcile(
     entity: MetadataEntityKind,
     rows: readonly { readonly id: string; readonly value: unknown }[],
-  ): readonly SequencedChange[] {
+  ): Promise<readonly SequencedChange[]> {
+    await this.ready
     this.baseline.freshen()
     const specs: StagedChangeSpec[] = rows.map((r) => ({
       entity,
@@ -319,8 +308,8 @@ export class Authority implements AuthorityPort {
     }
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
-    return this.finalize(staged, seqs)
+    const seqs = staged.length > 0 ? await this.append(staged, eventTime) : []
+    return await this.finalize(staged, seqs)
   }
 
   /**
@@ -334,14 +323,16 @@ export class Authority implements AuthorityPort {
    * reachable here rather than only on the live path because a heal is how a
    * replica recovers from every rung of the ladder.
    */
-  changesSince(cursor: number | null, principal: Principal): ScopedDelivery | null {
-    const rows = readChangesSince(this.deps.store, cursor)
+  async changesSince(cursor: number | null, principal: Principal): Promise<ScopedDelivery | null> {
+    await this.ready
+    const rows = await readChangesSince(this.deps.store, cursor)
     if (rows === null) return null
-    return this.scope(principal, rows.map(fromWire), this.cursor())
+    return await this.scope(principal, rows.map(fromWire), await this.cursor())
   }
 
-  cursor(): number {
-    return this.deps.store.maxChangeSeq()
+  async cursor(): Promise<number> {
+    await this.ready
+    return await this.deps.store.maxChangeSeq()
   }
 
   /**
@@ -375,9 +366,10 @@ export class Authority implements AuthorityPort {
    * it stands, which is what the v1 snapshot could never offer because its
    * message carried no position at all.
    */
-  bootstrap(principal: Principal): ScopedBootstrap {
+  async bootstrap(principal: Principal): Promise<ScopedBootstrap> {
+    await this.ready
     const state: SequencedChange[] = []
-    for (const row of this.deps.store.latestChangeStates()) {
+    for (const row of await this.deps.store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload === null) continue
       try {
         state.push({
@@ -394,7 +386,7 @@ export class Authority implements AuthorityPort {
         // into every replica.
       }
     }
-    return scopeBootstrap({ policy: this.deps.visibility }, principal, state, this.cursor())
+    return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, await this.cursor())
   }
 
   /**
@@ -412,8 +404,8 @@ export class Authority implements AuthorityPort {
    * forward falls below `minAvailableSeq` and re-bootstraps for lack of news. The
    * CADENCE is POD-337's measured threshold; this is the operation it calls.
    */
-  watermark(principal: Principal): ScopedDelivery {
-    return this.scope(principal, [], this.cursor())
+  async watermark(principal: Principal): Promise<ScopedDelivery> {
+    return await this.scope(principal, [], await this.cursor())
   }
 
   subscribe(principal: Principal, subscriber: ChangeSubscriber): () => void {
@@ -439,13 +431,13 @@ export class Authority implements AuthorityPort {
    * the live path and the heal path agree by DIFFING their output over the same
    * range rather than by asserting each against a literal.
    */
-  private scope(
+  private async scope(
     principal: Principal,
     changes: readonly SequencedChange[],
     throughSeq: number,
     prepared?: PreparedBatch,
-  ): ScopedDelivery {
-    return scopeBatch(
+  ): Promise<ScopedDelivery> {
+    return await scopeBatch(
       this.scopingDeps(),
       principal,
       changes,
@@ -509,8 +501,8 @@ export class Authority implements AuthorityPort {
     return rows
   }
 
-  private append(rows: readonly StagedRow[], eventTime: number): number[] {
-    return this.deps.store.appendChanges(
+  private async append(rows: readonly StagedRow[], eventTime: number): Promise<number[]> {
+    return await this.deps.store.appendChanges(
       rows.map((r) => ({
         entity: r.spec.entity,
         entityId: r.spec.entityId,
@@ -531,10 +523,10 @@ export class Authority implements AuthorityPort {
    * throwing must not make a committed write look failed to its caller, and must
    * not stop the subscribers after it in the set from being told.
    */
-  private finalize(
+  private async finalize(
     rows: readonly StagedRow[],
     seqs: readonly number[],
-  ): readonly SequencedChange[] {
+  ): Promise<readonly SequencedChange[]> {
     if (rows.length === 0) return []
     const folds: BaselineFold[] = rows.map((row) =>
       row.spec.op === 'upsert'
@@ -561,11 +553,11 @@ export class Authority implements AuthorityPort {
     // and waits for the outermost commit when the adapter can tell us when that
     // is. See {@link AuthorityDeps.postCommit} for why the two separate.
     if (this.deps.postCommit) {
-      this.deps.postCommit(() => {
-        this.broadcast(changes)
+      this.deps.postCommit(async () => {
+        await this.broadcast(changes)
       }, 'authority-broadcast')
     } else {
-      this.broadcast(changes)
+      await this.broadcast(changes)
     }
     return changes
   }
@@ -574,8 +566,7 @@ export class Authority implements AuthorityPort {
   // THE ORDERED PIPE (#247, #256) — one queue, append order, always
   // -------------------------------------------------------------------------
 
-  private readonly pendingBatches: (readonly SequencedChange[])[] = []
-  private draining = false
+  private broadcastTail: Promise<void> = Promise.resolve()
 
   /**
    * Deliver a batch to every subscriber, in APPEND ORDER, even under reentrancy.
@@ -593,58 +584,38 @@ export class Authority implements AuthorityPort {
    * same order forever. `funnel.ts` fixed it once by enqueueing before emitting;
    * the fix moves here with the pipe rather than being rediscovered.
    *
-   * The queue makes arrival order equal append order NO MATTER what a subscriber
-   * does: a reentrant commit pushes its batch and returns immediately, and the
-   * outer drain picks it up only after batch N has reached everyone.
+   * The promise tail makes arrival order equal append order NO MATTER what a
+   * subscriber does: a reentrant commit joins the tail, which reaches it only
+   * after batch N has reached everyone.
    *
    * Per-subscriber try/catch, because the changes are ALREADY DURABLE: a throw
    * must not make a committed write look failed to its caller, and must not stop
    * the subscribers after it in the set from being told. A reconnecting client
    * heals through `changesSince`; a silently skipped subscriber does not.
+   * Preparation itself remains outside that isolation: unresolved rights fail
+   * the whole pass closed instead of leaking a row to any subscriber.
    */
-  private broadcast(changes: readonly SequencedChange[]): void {
-    this.pendingBatches.push(changes)
-    if (this.draining) return
-    this.draining = true
-    try {
-      while (this.pendingBatches.length > 0) {
-        const batch = this.pendingBatches.shift() as readonly SequencedChange[]
-        // The head of THIS batch, captured before any subscriber can commit
-        // again. Reading `this.cursor()` inside the loop would certify a range
-        // including seqs from a reentrant commit whose own batch has not been
-        // delivered yet — a cursor advanced past data that is still queued, which
-        // is the invisible permanent gap arriving through the ordering door
-        // rather than the visibility one.
-        const throughSeq = batch[batch.length - 1]?.seq ?? 0
-        // THE PRINCIPAL-INDEPENDENT HALF, ONCE PER BATCH [POD-3261]. Every
-        // subscriber's slice reads the same rows through the same policy, so
-        // without this the store answers the same questions N times — N round
-        // trips on a remote database, per subscriber, per batch.
-        //
-        // IT IS ALSO A STATEMENT ABOUT WHEN. The edge lookups and the prefetched
-        // rows are now read at ONE moment, before the loop, rather than
-        // re-read between principals. That is the same claim this loop already
-        // makes one line up: `throughSeq` is captured before any subscriber can
-        // commit again, precisely so the batch is certified at one position.
-        // Evaluating its visibility at a position the certified range does not
-        // match is the inconsistency, not the fix for it. Spec §3.5 rules on it
-        // directly — phase 3 reads rights under the writer's lease at the
-        // committed head — which is why this is not spec rule 18's forbidden
-        // batch.
-        const prepared = prepareBatch(this.scopingDeps(), batch)
-        for (const subscription of this.subscribers) {
-          try {
-            // Evaluated PER SUBSCRIBER, inside the one ordered drain: N
-            // principals see N slices of one batch, and never two orders of it.
-            subscription.deliver(this.scope(subscription.principal, batch, throughSeq, prepared))
-          } catch (err) {
-            log.error('change subscriber threw', { throughSeq, err })
-          }
+  private async broadcast(changes: readonly SequencedChange[]): Promise<void> {
+    const delivery = this.broadcastTail.then(async () => {
+      // The head and visibility snapshot belong to THIS pass. Preparation is an
+      // awaited producer step under the writer lease; only its resolved policy
+      // and edges enter the synchronous per-subscriber loop.
+      const throughSeq = changes[changes.length - 1]?.seq ?? 0
+      const prepared = await prepareBatch(this.scopingDeps(), changes)
+      for (const subscription of this.subscribers) {
+        try {
+          subscription.deliver(
+            await this.scope(subscription.principal, changes, throughSeq, prepared),
+          )
+        } catch (err) {
+          log.error('change subscriber threw', { throughSeq, err })
         }
       }
-    } finally {
-      this.draining = false
-    }
+    })
+    // A failed preparation denies this pass, but it must not poison every later
+    // batch. The caller still awaits `delivery` and observes the original error.
+    this.broadcastTail = delivery.catch(() => undefined)
+    await delivery
   }
 }
 

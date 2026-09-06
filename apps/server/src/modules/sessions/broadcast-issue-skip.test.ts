@@ -18,14 +18,14 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
       geometry: G,
     }) as const
 
-  function setup() {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  async function setup() {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
-    const s1 = reg.modules.sessions.createSession({
+    await reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
+    const s1 = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/w',
-    }).sessionId
+    })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
@@ -42,8 +42,8 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     return { reg, s1, clientId, inbox }
   }
 
-  it('attach/detach emits sessionsChanged but not issuesChanged', () => {
-    const { reg, s1, clientId, inbox } = setup()
+  it('attach/detach emits sessionsChanged but not issuesChanged', async () => {
+    const { reg, s1, clientId, inbox } = await setup()
 
     // A full session switch: attach the new session, detach the old — only
     // clientCount/controllerId move, so no issue payload can change.
@@ -74,7 +74,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     reg.dispose()
   })
 
-  it('a workState change publishes the SESSION row; the issue row is deduped, as it always was for a delta client', () => {
+  it('a workState change publishes the SESSION row; the issue row is deduped, as it always was for a delta client', async () => {
     // WHAT POD-1203 CHANGED, AND WHO IT CHANGES IT FOR — worth stating exactly,
     // because it looks like a regression and is not one for any shipped client.
     //
@@ -91,7 +91,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // always seen exactly what this test now asserts — the embedded copy
     // refreshes when a stable issue field moves or on the next bootstrap, and the
     // live state a user sees comes from the `session` entity, which DID update.
-    const { reg, s1, inbox } = setup()
+    const { reg, s1, inbox } = await setup()
 
     reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
     reg.modules.sessions.flushBroadcasts()
@@ -107,9 +107,9 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // pipeline that publishes nothing at all: a STABLE issue field still fans out
     // through the same sink, on the same connection.
     inbox.length = 0
-    const issue = reg.issues.list('/repo')[0]
+    const issue = (await reg.issues.list('/repo'))[0]
     expect(issue).toBeDefined()
-    reg.issues.update(issue!.id, { title: 'renamed' })
+    await reg.issues.update(issue!.id, { title: 'renamed' })
     reg.modules.sessions.flushBroadcasts()
     expect(
       inbox.some(

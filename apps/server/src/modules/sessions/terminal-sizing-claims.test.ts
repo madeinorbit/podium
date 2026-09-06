@@ -108,8 +108,8 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function registryFor(): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function registryFor(): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -511,33 +511,33 @@ describe('C13 (REWRITTEN for POD-3239 B6): a request at the size W already is, i
 // ---------------------------------------------------------------------------
 
 describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, wake uses the stored one', () => {
-  it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the published row both carry', () => {
+  it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the published row both carry', async () => {
     expect(DEFAULT_GEOMETRY).toEqual({ cols: 80, rows: 24 })
-    const { reg, daemon } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { reg, daemon } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
-  it('create() has no geometry parameter: an extra key is not read, and the spawn is still 80x24', () => {
-    const { reg, daemon } = registryFor()
+  it('create() has no geometry parameter: an extra key is not read, and the spawn is still 80x24', async () => {
+    const { reg, daemon } = await registryFor()
     const input = { agentKind: 'shell' as const, cwd: '/w' }
     // @ts-expect-error — the claim: SessionStart.create accepts NO geometry. If a
     // geometry input is ever added this line stops erroring and typecheck fails,
     // which is the point.
     input.geometry = { cols: 200, rows: 60 }
-    const { sessionId } = reg.modules.sessions.createSession(input)
+    const { sessionId } = await reg.modules.sessions.createSession(input)
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
   it('wake carries the STORED geometry, not the default', async () => {
-    const { reg, daemon } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -567,7 +567,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     session?.terminal.handleResize(client.id, 132, 43)
     expect(session?.terminal.geometry).toEqual({ cols: 132, rows: 43 })
 
-    reg.modules.sessions.hibernateSession({ sessionId })
+    await reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
     expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
       ok: true,
@@ -584,10 +584,10 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
 // ---------------------------------------------------------------------------
 
 describe('C10: SessionMeta.geometry is a required field carrying the server value to the client row', () => {
-  it('the schema REFUSES a session row without geometry', () => {
-    const { reg } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+  it('the schema REFUSES a session row without geometry', async () => {
+    const { reg } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(row).toBeDefined()
     expect(SessionMeta.safeParse(row).success).toBe(true)
 
@@ -597,9 +597,9 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     expect(refused.error?.issues.some((i) => i.path.join('.') === 'geometry')).toBe(true)
   })
 
-  it('the published row tracks the terminal geometry, so the value the panel could read is the server W', () => {
-    const { reg } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('the published row tracks the terminal geometry, so the value the panel could read is the server W', async () => {
+    const { reg } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -618,7 +618,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     session?.terminal.attachClient(client)
     session?.terminal.handleResize(client.id, 132, 43)
 
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
   })
 })
@@ -642,15 +642,15 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
  */
 describe('POD-3279: a bind without geometry keeps W, marks it unknown, and announces nothing', () => {
   /** A live session on the host daemon, bound once at 132x43 and watched. */
-  function boundSession(): {
+  async function boundSession(): Promise<{
     reg: SessionRegistry
     daemon: ControlMessage[]
     sessionId: SessionId
     session: Session
     watcher: Sent
-  } {
-    const { reg, daemon } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({
+  }> {
+    const { reg, daemon } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -682,8 +682,8 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     agentKind: 'claude-code',
   })
 
-  it('after markReconnecting, a bare bind leaves W unknown — same grid, frozen revision, no frame', () => {
-    const { reg, sessionId, session, watcher } = boundSession()
+  it('after markReconnecting, a bare bind leaves W unknown — same grid, frozen revision, no frame', async () => {
+    const { reg, sessionId, session, watcher } = await boundSession()
     expect(session.geometryState()).toBe('current')
 
     // The daemon holding the bridge went away. W goes back to last-known-only.
@@ -706,8 +706,8 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     expect(geometryFrames(watcher)).toEqual([])
   })
 
-  it('ARMED: the same bind WITH a geometry reports, so the silence above is the absence', () => {
-    const { reg, sessionId, session, watcher } = boundSession()
+  it('ARMED: the same bind WITH a geometry reports, so the silence above is the absence', async () => {
+    const { reg, sessionId, session, watcher } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(session.geometryState()).toBe('unknown')
     const revision = session.terminal.geometryRevision
@@ -735,13 +735,13 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     ])
   })
 
-  it('the published row says `unknown` after a bare bind — the claim the panel reads', () => {
-    const { reg, sessionId, session } = boundSession()
+  it('the published row says `unknown` after a bare bind — the claim the panel reads', async () => {
+    const { reg, sessionId, session } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(SessionMeta.safeParse(row).success).toBe(true)
     // The grid still RENDERS at last-known (rule 6) — the row carries it — but it
     // is labelled for what it is.
@@ -750,12 +750,12 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     expect(session.geometryState()).toBe('unknown')
   })
 
-  it('a rehydrated session stays unknown through a bare bind, and the first ask ends it', () => {
+  it('a rehydrated session stays unknown through a bare bind, and the first ask ends it', async () => {
     // SERVER RESTART, not daemon restart: the row was read back from the store,
     // so `geometryKnown` starts false and a rollback-restore does not invent a
     // confirmation. This is the whole round trip that ends the `unknown`.
-    const { reg, daemon } = registryFor()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await registryFor()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })

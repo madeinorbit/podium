@@ -80,14 +80,14 @@ export class IssueEpicIntegrationModule {
     id: string,
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.store.rowOrThrow(id)
+    const row = await this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
     if (this.integratingEpics.has(row.id)) {
       return {
         ok: false,
         output: `integration already running for #${row.seq}`,
-        issue: this.store.toWire(row),
+        issue: await this.store.toWire(row),
       }
     }
     this.integratingEpics.add(row.id)
@@ -102,25 +102,25 @@ export class IssueEpicIntegrationModule {
     row: IssueRow,
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
+    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> => ({
       ok: false,
       output,
-      issue: this.store.toWire(row),
+      issue: await this.store.toWire(row),
     })
     // Preconditions: the target must have children, ≥1 of them closed with a branch.
     const children = [...this.store.rows.values()].filter((r) => r.parentId === row.id)
     if (children.length === 0) {
-      return refuse(`refusing integrate: #${row.seq} has no children`)
+      return await refuse(`refusing integrate: #${row.seq} has no children`)
     }
     const closed = children.filter(
       (c): c is IssueRow & { branch: string } => this.store.isClosed(c) && !!c.branch,
     )
     if (closed.length === 0) {
-      return refuse(
+      return await refuse(
         `refusing integrate: no closed child of #${row.seq} has a recorded branch (close ≥1 started child first)`,
       )
     }
-    const ordered = this.topoOrderChildren(closed)
+    const ordered = await this.topoOrderChildren(closed)
     // Branch/worktree names share the `<seq>-<slug>` stem with issue branches.
     const stem = this.store.slug(row.seq, row.title).replace(/^issue\//, '')
     const intBranch = `integrate/${stem}`
@@ -141,7 +141,7 @@ export class IssueEpicIntegrationModule {
         ref: child.branch,
       })
       if (!tip.ok) {
-        return refuse(
+        return await refuse(
           `integrate: cannot resolve descendant #${child.seq} head: ${this.gitSummary(tip.output)}`,
         )
       }
@@ -152,7 +152,7 @@ export class IssueEpicIntegrationModule {
         const nestedTips: DescendantTip[] = []
         for (const descendant of nested) {
           if (!this.store.isClosed(descendant) || !descendant.branch) {
-            return refuse(
+            return await refuse(
               `integrate: cannot mint receipt: nested descendant #${descendant.seq} is not a closed branch-backed integration input`,
             )
           }
@@ -160,13 +160,13 @@ export class IssueEpicIntegrationModule {
             ref: descendant.branch,
           })
           if (!nestedTip.ok) {
-            return refuse(
+            return await refuse(
               `integrate: cannot resolve nested descendant #${descendant.seq} head: ${this.gitSummary(nestedTip.output)}`,
             )
           }
           nestedTips.push({ issueId: descendant.id, approvedHeadSha: nestedTip.output.trim() })
         }
-        const childReceipt = this.integrationReceipts.rootIntegrationReceipt(
+        const childReceipt = await this.integrationReceipts.rootIntegrationReceipt(
           child.id,
           approvedHeadSha,
         )
@@ -178,7 +178,7 @@ export class IssueEpicIntegrationModule {
             descendantManifest: nestedTips,
           })
         ) {
-          return refuse(
+          return await refuse(
             `integrate: cannot mint receipt: child #${child.seq} has no current integration receipt for its exact nested descendant tips`,
           )
         }
@@ -196,9 +196,9 @@ export class IssueEpicIntegrationModule {
         branch: intBranch,
         startPoint: row.parentBranch,
       })
-      if (!add.ok) return refuse(`integrate: worktree add failed: ${add.output}`)
+      if (!add.ok) return await refuse(`integrate: worktree add failed: ${add.output}`)
     } else if (!st.ok) {
-      return refuse(`integrate: cannot inspect integration worktree: ${st.output}`)
+      return await refuse(`integrate: cannot inspect integration worktree: ${st.output}`)
     } else {
       // Self-healing: if a previous run's conflict recovery itself failed (its
       // rebaseAbort errored), the worktree is stuck mid-rebase and checkoutReset
@@ -209,7 +209,7 @@ export class IssueEpicIntegrationModule {
         branch: intBranch,
         startPoint: row.parentBranch,
       })
-      if (!reset.ok) return refuse(`integrate: branch reset failed: ${reset.output}`)
+      if (!reset.ok) return await refuse(`integrate: branch reset failed: ${reset.output}`)
     }
 
     // Replay children in order; stop at the first conflict/failure.
@@ -270,7 +270,7 @@ export class IssueEpicIntegrationModule {
     if (blockedAt == null) {
       const rootHead = await this.store.d.repoOp('revParseVerify', worktree, { ref: intBranch })
       if (!rootHead.ok) {
-        return refuse(
+        return await refuse(
           `integrate: cannot resolve rebuilt root head: ${this.gitSummary(rootHead.output)}`,
         )
       }
@@ -279,34 +279,34 @@ export class IssueEpicIntegrationModule {
         ...input.provenDescendants,
       ])
       try {
-        this.integrationReceipts.recordRootIntegrationReceipt({
+        await this.integrationReceipts.recordRootIntegrationReceipt({
           rootIssueId: row.id,
           approvedHeadSha: rootHead.output.trim(),
           descendants: descendantTips,
         })
       } catch (error) {
-        return refuse(
+        return await refuse(
           `integrate: receipt persistence failed: ${this.gitSummary(error instanceof Error ? error.message : String(error))}`,
         )
       }
     }
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
-    const prior = this.store.d.store.issues
-      .listIssueComments(row.id)
+    const prior = (await this.store.d.store.issues
+      .listIssueComments(row.id))
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
-      this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
+      await this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
     if (blockedAt != null) {
-      this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
+      await this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
     }
-    this.store.emitEvent('issue.integration', row.id, {
+    await this.store.emitEvent('issue.integration', row.id, {
       epicSeq: row.seq,
       integrated,
       ...(blockedAt != null ? { blockedAt } : {}),
     })
-    return { ok: blockedAt == null, output: summary, issue: this.store.toWire(row) }
+    return { ok: blockedAt == null, output: summary, issue: await this.store.toWire(row) }
   }
 
   /** Current non-deleted descendant closure. Tips from this traversal are never
@@ -331,12 +331,12 @@ export class IssueEpicIntegrationModule {
    *  outside the set is ignored), ties broken by seq. `X blocks-dep→ Y` means X is
    *  blocked by Y, so Y integrates first. Kahn's algorithm; any leftover (cycle —
    *  addDep prevents them, defensive only) appends in seq order. */
-  private topoOrderChildren<T extends IssueRow>(children: T[]): T[] {
+  private async topoOrderChildren<T extends IssueRow>(children: T[]): Promise<T[]> {
     const inSet = new Map(children.map((c) => [c.id, c]))
     const indeg = new Map(children.map((c) => [c.id, 0]))
     const dependents = new Map<IssueId, IssueId[]>() // blocker id -> ids it unblocks
     for (const c of children) {
-      for (const d of this.store.d.store.issues.listIssueDeps(c.id)) {
+      for (const d of await this.store.d.store.issues.listIssueDeps(c.id)) {
         if (d.type !== 'blocks' || !inSet.has(d.toId)) continue
         indeg.set(c.id, (indeg.get(c.id) ?? 0) + 1)
         dependents.set(d.toId, [...(dependents.get(d.toId) ?? []), c.id])

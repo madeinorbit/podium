@@ -327,32 +327,32 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'snoozes.set': {
     target: ownPerUserSessionRow,
-    handler: (input, principal, deps) => {
+    handler: async (input, principal, deps) => {
       deps.state.setSnooze(
         principal,
         sessionIdOf(input.sessionId),
         typeof input.until === 'string' ? input.until : null,
       )
-      return deps.state.listSnoozes(principal)
+      return await deps.state.listSnoozes(principal)
     },
   },
   'snoozes.clear': {
     target: ownPerUserSessionRow,
-    handler: (input, principal, deps) => {
+    handler: async (input, principal, deps) => {
       deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
-      return deps.state.listSnoozes(principal)
+      return await deps.state.listSnoozes(principal)
     },
   },
   'pins.set': {
     target: ownPerUserRow,
-    handler: (input, principal, deps) => {
-      return deps.state.setPin(principal, input.kind as never, str(input.id), input.pinned === true)
+    handler: async (input, principal, deps) => {
+      return await deps.state.setPin(principal, input.kind as never, str(input.id), input.pinned === true)
     },
   },
   'tabs.setOrder': {
     target: ownPerUserTabOrder,
-    handler: (input, principal, deps) => {
-      return deps.state.setTabOrder(
+    handler: async (input, principal, deps) => {
+      return await deps.state.setTabOrder(
         principal,
         str(input.worktree),
         (input.sessionIds ?? []) as string[],
@@ -361,7 +361,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.setDraft': {
     target: ownedSession,
-    handler: (input, principal, deps) => {
+    handler: async (input, principal, deps) => {
       const edit = input.edit as { kind: 'replace'; text: string }
       // The op-stream RESERVATION's one enforced rule (see the contract): a stale
       // baseRevision is REJECTED rather than applied, so a second writer's text is
@@ -375,7 +375,7 @@ const REGISTRATIONS: Record<string, Registration> = {
         }
       }
       // `clientId` is what suppresses the echo to the author (see SessionStatePrincipal).
-      deps.state.setDraft(
+      await deps.state.setDraft(
         { sessionId: sessionIdOf(input.sessionId), text: edit.text },
         principal.clientId,
       )
@@ -401,12 +401,12 @@ export class SessionStateRegistry {
    * refusal: see the §3.1.5 note in the file header — a denial and a not-found are
    * the same silent no-op, so a caller cannot tell them apart.
    */
-  execute(
+  async execute(
     name: string,
     rawInput: unknown,
     principal: SessionStatePrincipal,
     transport: SessionStateTransport = 'trpc',
-  ): SessionStateResult {
+  ): Promise<SessionStateResult> {
     const contract = sessionStateCommand(name)
     const registration = REGISTRATIONS[name]
     // Own-prototype lookup only: `REGISTRATIONS['toString']` must not resolve.
@@ -434,7 +434,7 @@ export class SessionStateRegistry {
     //    seam to omit it from.
     const mutationId =
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
-    const applied = this.deps.mutations.apply(mutationId, name, () =>
+    const applied = await this.deps.mutations.apply(mutationId, name, () =>
       registration.handler(input, principal, this.deps),
     )
     return { outcome: applied.outcome, value: applied.value }

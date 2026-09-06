@@ -24,72 +24,72 @@ let superagent: SuperagentRepository
 
 const OWNER = FIRST_ADMIN_USER_ID
 
-beforeEach(() => {
+beforeEach(async () => {
   superagent = new SuperagentRepository(syncQueriesOver(openMigratedTestDatabase()))
-  superagent.upsertSuperagentThread({
+  await superagent.upsertSuperagentThread({
     id: 'thread-1',
     ownerUserId: OWNER,
     kind: 'btw',
     originSessionId: asSessionId('session-1'),
     title: 'first',
   })
-  superagent.upsertSuperagentThread({ id: 'thread-2', ownerUserId: OWNER, kind: 'global' })
+  await superagent.upsertSuperagentThread({ id: 'thread-2', ownerUserId: OWNER, kind: 'global' })
 })
 
 describe('SuperagentRepository.archiveSuperagentThread', () => {
-  it('takes the thread out of the owner list', () => {
-    expect(superagent.listSuperagentThreads(OWNER).map((t) => t.id)).toEqual(
+  it('takes the thread out of the owner list', async () => {
+    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(
       expect.arrayContaining(['thread-1', 'thread-2']),
     )
 
-    superagent.archiveSuperagentThread('thread-1')
+    await superagent.archiveSuperagentThread('thread-1')
 
-    expect(superagent.listSuperagentThreads(OWNER).map((t) => t.id)).toEqual(['thread-2'])
+    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
   })
 
-  it('leaves the thread readable by id', () => {
-    superagent.archiveSuperagentThread('thread-1')
+  it('leaves the thread readable by id', async () => {
+    await superagent.archiveSuperagentThread('thread-1')
 
     // Archived is not deleted: a direct read still answers, which is what makes
     // the list's filter the only thing hiding it.
-    expect(superagent.getSuperagentThread('thread-1')?.title).toBe('first')
+    expect((await superagent.getSuperagentThread('thread-1'))?.title).toBe('first')
   })
 
-  it('reports the archived flag on the row itself, as a boolean', () => {
+  it('reports the archived flag on the row itself, as a boolean', async () => {
     // THE MAPPED FIELD, not the list's SQL filter, and the distinction is the
     // whole of spec rule 28. Every assertion above this one is satisfied by the
     // `archived = 0` predicate in listSuperagentThreads, so a mapper that read
     // the column wrong — `r.archived === 1` against a declared boolean, which is
     // `false` forever — passed all of them. Measured, not supposed: that exact
     // mutation left this suite green until this test existed.
-    expect(superagent.getSuperagentThread('thread-2')?.archived).toBe(false)
+    expect((await superagent.getSuperagentThread('thread-2'))?.archived).toBe(false)
 
-    superagent.archiveSuperagentThread('thread-2')
+    await superagent.archiveSuperagentThread('thread-2')
 
-    const archived = superagent.getSuperagentThread('thread-2')
+    const archived = await superagent.getSuperagentThread('thread-2')
     expect(typeof archived?.archived).toBe('boolean')
     expect(archived?.archived).toBe(true)
   })
 
-  it('archives only the named thread', () => {
-    superagent.archiveSuperagentThread('thread-1')
+  it('archives only the named thread', async () => {
+    await superagent.archiveSuperagentThread('thread-1')
 
-    expect(superagent.listSuperagentThreads(OWNER).map((t) => t.id)).toEqual(['thread-2'])
+    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
   })
 
-  it('does nothing for a thread that is not there', () => {
-    superagent.archiveSuperagentThread('thread-missing')
+  it('does nothing for a thread that is not there', async () => {
+    await superagent.archiveSuperagentThread('thread-missing')
 
-    expect(superagent.listSuperagentThreads(OWNER)).toHaveLength(2)
+    expect(await superagent.listSuperagentThreads(OWNER)).toHaveLength(2)
   })
 
-  it('is undone by a later upsert of the same thread', () => {
-    superagent.archiveSuperagentThread('thread-1')
-    expect(superagent.listSuperagentThreads(OWNER).map((t) => t.id)).toEqual(['thread-2'])
+  it('is undone by a later upsert of the same thread', async () => {
+    await superagent.archiveSuperagentThread('thread-1')
+    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(['thread-2'])
 
-    superagent.upsertSuperagentThread({ id: 'thread-1', ownerUserId: OWNER, kind: 'btw' })
+    await superagent.upsertSuperagentThread({ id: 'thread-1', ownerUserId: OWNER, kind: 'btw' })
 
-    expect(superagent.listSuperagentThreads(OWNER).map((t) => t.id)).toEqual(
+    expect((await superagent.listSuperagentThreads(OWNER)).map((t) => t.id)).toEqual(
       expect.arrayContaining(['thread-1', 'thread-2']),
     )
   })
@@ -126,11 +126,11 @@ describe('superagent pending turns: the first_turn boolean', () => {
     firstTurn,
   })
 
-  it('round-trips a first turn as true and a later turn as false', () => {
-    superagent.putPendingTurn(turn('turn-first', 'thread-1', true))
-    superagent.putPendingTurn(turn('turn-later', 'thread-2', false))
+  it('round-trips a first turn as true and a later turn as false', async () => {
+    await superagent.putPendingTurn(turn('turn-first', 'thread-1', true))
+    await superagent.putPendingTurn(turn('turn-later', 'thread-2', false))
 
-    const byId = new Map(superagent.listPendingTurns().map((t) => [t.turnId, t.firstTurn]))
+    const byId = new Map((await superagent.listPendingTurns()).map((t) => [t.turnId, t.firstTurn]))
 
     // Both arms, in one assertion, so neither a mapper stuck on `true` nor one
     // stuck on `false` can pass.
@@ -138,10 +138,10 @@ describe('superagent pending turns: the first_turn boolean', () => {
     expect(byId.get('turn-later')).toBe(false)
   })
 
-  it('reads first_turn as a boolean and not as a number', () => {
-    superagent.putPendingTurn(turn('turn-first', 'thread-1', true))
+  it('reads first_turn as a boolean and not as a number', async () => {
+    await superagent.putPendingTurn(turn('turn-first', 'thread-1', true))
 
-    const [stored] = superagent.listPendingTurns()
+    const [stored] = await superagent.listPendingTurns()
 
     // `toBe(true)` alone would pass for `1` under a loose comparison somewhere
     // upstream; the type assertion is what pins rule 28's actual claim.

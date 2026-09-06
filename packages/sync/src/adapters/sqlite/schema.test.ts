@@ -137,36 +137,36 @@ describe('the change log keeps AUTOINCREMENT', () => {
  * database is.
  */
 describe('feed identity persists, and there is exactly one of it', () => {
-  it('round-trips, and reads null before anything was written', () => {
+  it('round-trips, and reads null before anything was written', async () => {
     const repo = createTestSyncRepository()
     // The paired half: without it, a `readFeedIdentity` that returned a constant
     // would satisfy the round trip and nothing would notice.
-    expect(repo.readFeedIdentity()).toBeNull()
+    expect(await repo.readFeedIdentity()).toBeNull()
 
-    repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1_700_000)
-    expect(repo.readFeedIdentity()).toEqual({
+    await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1_700_000)
+    expect(await repo.readFeedIdentity()).toEqual({
       feedId: 'feed-a',
       epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ',
     })
   })
 
-  it('a bump REPLACES the row rather than appending a second generation', () => {
+  it('a bump REPLACES the row rather than appending a second generation', async () => {
     // Two rows here would mean two answers to "which epoch is this feed on?", and
     // whichever one a query returned first is the one clients would trust. The
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
     const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
-    repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
-    repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
+    await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
+    await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 
-    expect(repo.readFeedIdentity()?.epoch).toBe('01JQ0P9Q1C2D3E4F5G6H7J8K9M')
+    expect((await repo.readFeedIdentity())?.epoch).toBe('01JQ0P9Q1C2D3E4F5G6H7J8K9M')
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM feed_identity').get() as { n: number }
     expect(n).toBe(1)
     db.close()
   })
 
-  it('drives the SHIPPED registry end to end, so the port and the table agree', () => {
+  it('drives the SHIPPED registry end to end, so the port and the table agree', async () => {
     // The seam itself, and the case that would catch a column-name mismatch that
     // both halves' own tests miss. `FeedIdentityRegistry` is the kernel's; the
     // store is this adapter's; neither file alone proves they compose.
@@ -175,15 +175,19 @@ describe('feed identity persists, and there is exactly one of it', () => {
     const mint = () =>
       ['feed-x', '01JQ0PB5X7Y8Z9A0B1C2D3E4F5', '01JQ0PC6Y8Z9A0B1C2D3E4F5G6'][index++] as string
     const store = {
-      readIdentity: () => repo.readFeedIdentity(),
-      writeIdentity: (identity: { feedId: string; epoch: string }) =>
-        repo.writeFeedIdentity(identity, 1_700_000),
+      readIdentity: async () => await repo.readFeedIdentity(),
+      writeIdentity: async (identity: { feedId: string; epoch: string }) =>
+        await repo.writeFeedIdentity(identity, 1_700_000),
     }
 
-    const minted = new FeedIdentityRegistry(store, mint).current()
+    const registry = new FeedIdentityRegistry(store, mint)
+    await registry.resolve()
+    const minted = registry.current()
     // THE RESTART: a fresh registry, over the same durable store, with a mint that
     // would produce a different value if it were consulted.
-    const afterRestart = new FeedIdentityRegistry(store, mint).current()
+    const restarted = new FeedIdentityRegistry(store, mint)
+    await restarted.resolve()
+    const afterRestart = restarted.current()
     expect(afterRestart).toEqual(minted)
     expect(afterRestart.feedId).toBe('feed-x')
   })

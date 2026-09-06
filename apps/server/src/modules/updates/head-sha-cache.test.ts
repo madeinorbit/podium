@@ -220,7 +220,7 @@ describe('the cache', () => {
       },
       stamp: async () => 'stamp-1',
     })
-    const all = Promise.all([cache.read(), cache.read(), cache.read()])
+    const all = Promise.all([await cache.read(), await cache.read(), await cache.read()])
     release()
     expect(await all).toEqual(['aaaaaaa', 'aaaaaaa', 'aaaaaaa'])
     expect(reads).toBe(1)
@@ -276,14 +276,14 @@ describe('against a real repository', () => {
     return root
   }
 
-  const headOf = (root: string) => () => git(root, 'rev-parse', '--short=7', 'HEAD')
+  const headOf = (root: string) => async () => await git(root, 'rev-parse', '--short=7', 'HEAD')
 
   it('serves the sha without git, and notices a commit when one lands', async () => {
     const root = await repo()
     let reads = 0
     const cache = createGitHeadShaCache(root, async () => {
       reads++
-      return headOf(root)()
+      return await headOf(root)()
     })
 
     const first = await cache.read()
@@ -324,7 +324,7 @@ describe('against a real repository', () => {
     let reads = 0
     const cache = createGitHeadShaCache(tree, async () => {
       reads++
-      return git(tree, 'rev-parse', '--short=7', 'HEAD')
+      return await git(tree, 'rev-parse', '--short=7', 'HEAD')
     })
 
     const first = await cache.read()

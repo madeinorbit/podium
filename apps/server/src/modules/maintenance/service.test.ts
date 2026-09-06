@@ -67,9 +67,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   let service: MaintenanceService
   let funnelWrites: number
 
-  beforeEach(() => {
+  beforeEach(async () => {
     nowMs = Date.parse('2026-07-18T00:00:00.000Z')
-    store = openTestStore(':memory:')
+    store = await openTestStore(':memory:')
     funnelWrites = 0
     service = new MaintenanceService(
       store,
@@ -83,32 +83,32 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     )
   })
 
-  const handshake = (generationId: string) =>
-    service.handshake({
+  const handshake = async (generationId: string) =>
+    await service.handshake({
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
       schemaVersion: MAINTENANCE_SCHEMA_VERSION,
       generationId,
     })
 
   it('renews one generation without changing its fence and advances after lease expiry', async () => {
-    const first = handshake('gen_a')
+    const first = await handshake('gen_a')
     expect(first).toMatchObject({ status: 'ready', fencingToken: 1 })
     nowMs += 10_000
-    expect(handshake('gen_a')).toMatchObject({ status: 'ready', fencingToken: 1 })
-    expect(handshake('gen_b')).toMatchObject({ status: 'busy' })
+    expect(await handshake('gen_a')).toMatchObject({ status: 'ready', fencingToken: 1 })
+    expect(await handshake('gen_b')).toMatchObject({ status: 'busy' })
     nowMs += 91_000
-    expect(handshake('gen_b')).toMatchObject({ status: 'ready', fencingToken: 2 })
+    expect(await handshake('gen_b')).toMatchObject({ status: 'ready', fencingToken: 2 })
   })
 
   it('does not issue or renew a lease across protocol/schema incompatibility', async () => {
     expect(
-      service.handshake({
+      await service.handshake({
         protocolVersion: MAINTENANCE_PROTOCOL_VERSION + 1,
         schemaVersion: MAINTENANCE_SCHEMA_VERSION,
         generationId: 'gen_old',
       }),
     ).toMatchObject({ status: 'incompatible' })
-    expect(handshake('gen_current')).toMatchObject({ status: 'ready', fencingToken: 1 })
+    expect(await handshake('gen_current')).toMatchObject({ status: 'ready', fencingToken: 1 })
   })
 
   it('expires through one atomic idempotent command and emits one durable transition', async () => {
@@ -117,8 +117,8 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       hop: 2,
       clampedFrom: 'interrupt',
     })
-    store.messages.addMessage(message)
-    const lease = handshake('gen_a')
+    await store.messages.addMessage(message)
+    const lease = await handshake('gen_a')
     expect(lease.status).toBe('ready')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
@@ -138,10 +138,10 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     }
 
     expect(await service.apply(command)).toMatchObject({ status: 'applied' })
-    expect(store.messages.getMessage(message.id)?.status).toBe('expired')
+    expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    const events = store.events
-      .listEventsSince(0)
+    const events = (await store.events
+      .listEventsSince(0))
       .filter((event) => event.kind === 'message.expired')
     expect(events).toHaveLength(1)
     expect(events[0]?.payload).toMatchObject({
@@ -154,8 +154,8 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
 
   it('returns stale for a superseded fence, changed facts, and not-yet-due work', async () => {
     const explicit = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
-    store.messages.addMessage(explicit)
-    const lease = handshake('gen_a')
+    await store.messages.addMessage(explicit)
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       messageId: explicit.id,
@@ -183,7 +183,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
 
     nowMs = Date.parse('2026-07-19T00:00:00.001Z')
     nowMs += 91_000
-    const next = handshake('gen_b')
+    const next = await handshake('gen_b')
     if (next.status !== 'ready') throw new Error('expected successor lease')
     expect(await service.apply(command)).toMatchObject({ status: 'stale', reason: 'fenced' })
     expect(await service.apply({ ...command, fencingToken: next.fencingToken })).toMatchObject({
@@ -193,15 +193,15 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
 
   it('[POD-925] event-log prune applies one bounded batch idempotently', async () => {
     for (let i = 0; i < 3; i++) {
-      store.events.appendEvent({
+      await store.events.appendEvent({
         ts: '2026-06-01T00:00:00.000Z',
         kind: 'test.old',
         subject: `s${i}`,
       })
     }
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
-    const plan = store.events.planEventPrune({
+    const plan = await store.events.planEventPrune({
       maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
       maxRows: EVENT_RETENTION_MAX_ROWS,
     })
@@ -223,20 +223,20 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     }
     expect(await service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    expect(store.events.listEventsSince(0)).toHaveLength(0)
+    expect(await store.events.listEventsSince(0)).toHaveLength(0)
   })
 
   it('[POD-925] change-log prune applies one bounded batch under the plan', async () => {
     const now = nowMs
     for (let i = 0; i < 5; i++) {
-      store.sync.appendChanges(
+      await store.sync.appendChanges(
         [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
         now - CHANGE_MAX_AGE_MS - 1_000,
       )
     }
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
-    const plan = store.sync.planChangePrune({
+    const plan = await store.sync.planChangePrune({
       keepRows: CHANGE_KEEP_ROWS,
       maxAgeMs: CHANGE_MAX_AGE_MS,
       now: nowMs,
@@ -264,7 +264,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
-    const tryAutoArchiveObserved = vi.fn((): 'applied' | 'precondition' | 'not-due' => 'applied')
+    const tryAutoArchiveObserved = vi.fn(async (): Promise<'applied' | 'precondition' | 'not-due'> => 'applied')
     service = new MaintenanceService(
       store,
       {
@@ -282,7 +282,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         },
       },
     )
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       issueId: asIssueId('iss_1'),
@@ -307,7 +307,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       expect.objectContaining({ kind: 'system', job: 'expiry' }),
     )
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    tryAutoArchiveObserved.mockReturnValueOnce('not-due')
+    tryAutoArchiveObserved.mockResolvedValueOnce('not-due')
     const second = {
       ...observed,
       issueId: asIssueId('iss_2'),
@@ -330,7 +330,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       { run: <T>({ write }: { write: () => T }): T => write() },
       { now: () => nowMs, sessions: { tryAutoArchiveStoppedObserved } },
     )
-    const lease = handshake('gen_session_archive')
+    const lease = await handshake('gen_session_archive')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       sessionId: asSessionId('ses_done'),
@@ -352,12 +352,12 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] maintenance_commands prune deletes aged rows in batches', async () => {
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     // Seed applied commands with old applied_at via direct SQL.
-    store.transact(() => {
+    await store.transact(async () => {
       for (let i = 0; i < 3; i++) {
-        store.maintenance.recordCommand(
+        await store.maintenance.recordCommand(
           {
             status: 'applied',
             jobKind: 'message-expiry',
@@ -386,10 +386,10 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925 review] rejects maintenance-commands prune with a future/aggressive cutoff', async () => {
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
-    store.transact(() => {
-      store.maintenance.recordCommand(
+    await store.transact(async () => {
+      await store.maintenance.recordCommand(
         { status: 'applied', jobKind: 'message-expiry', runKey: 'recent/1' },
         lease.fencingToken,
         new Date(nowMs - 24 * 60 * 60 * 1000).toISOString(), // 1 day old — within 14d policy
@@ -410,7 +410,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       observed,
     })
     expect(reply).toMatchObject({ status: 'stale', reason: 'precondition' })
-    expect(store.maintenance.getCommand('message-expiry', 'recent/1')).toBeDefined()
+    expect(await store.maintenance.getCommand('message-expiry', 'recent/1')).toBeDefined()
   })
 
   it('[POD-925 B2] steward-poll rechecks fence after side effects before recording', async () => {
@@ -436,7 +436,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         },
       },
     )
-    const lease1 = handshake('gen_a')
+    const lease1 = await handshake('gen_a')
     if (lease1.status !== 'ready') throw new Error('expected lease')
     const observed = { fromCursor: 0, toEventId: 1 }
     const command = {
@@ -447,16 +447,16 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease1.fencingToken,
       observed,
     }
-    const flight = service.apply(command)
+    const flight = await service.apply(command)
     // Expire gen_a and hand the fence to gen_b while the tick is mid-flight.
     nowMs += 91_000
-    const lease2 = handshake('gen_b')
+    const lease2 = await handshake('gen_b')
     if (lease2.status !== 'ready') throw new Error('expected successor')
     release()
     const reply = await flight
     expect(reply).toMatchObject({ status: 'stale', reason: 'fenced' })
     expect(stewardCalls).toBe(1)
-    expect(store.maintenance.getCommand('steward-poll', command.runKey)).toBeUndefined()
+    expect(await store.maintenance.getCommand('steward-poll', command.runKey)).toBeUndefined()
   })
 
   it('[POD-925 B2] connect-scan applies when lastSeenAt matches even if older than 5m', async () => {
@@ -467,7 +467,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     vi.useFakeTimers()
     vi.setSystemTime(oldSeenMs)
     try {
-      store.machines.upsertMachine({
+      await store.machines.upsertMachine({
         id: 'remote',
         name: 'remote',
         hostname: 'remote',
@@ -477,7 +477,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     } finally {
       vi.useRealTimers()
     }
-    expect(store.machines.getMachine('remote')?.lastSeenAt).toBe(oldSeen)
+    expect((await store.machines.getMachine('remote'))?.lastSeenAt).toBe(oldSeen)
     service = new MaintenanceService(
       store,
       {
@@ -494,7 +494,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         localMachineId: asMachineId('local'),
       },
     )
-    const lease = handshake('gen_a')
+    const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       machineId: asMachineId('remote'),
@@ -532,9 +532,9 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
     afterDays: 14,
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     nowMs = Date.parse('2026-07-18T00:00:00.000Z')
-    store = openTestStore(':memory:')
+    store = await openTestStore(':memory:')
     policy = { mode: 'propose', afterDays: 14 }
     tryWorktreeGcObserved = vi.fn(async () => ({ outcome: 'proposed' as const }))
     service = new MaintenanceService(
@@ -548,7 +548,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
         now: () => nowMs,
         leaseTtlMs: 90_000,
         issues: {
-          tryAutoArchiveObserved: vi.fn(() => 'applied' as const),
+          tryAutoArchiveObserved: vi.fn(async () => 'applied' as const),
           tryWorktreeGcObserved: tryWorktreeGcObserved as never,
         },
         worktreeGcPolicy: () => policy,
@@ -556,8 +556,8 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
     )
   })
 
-  const lease = () => {
-    const reply = service.handshake({
+  const lease = async () => {
+    const reply = await service.handshake({
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
       schemaVersion: MAINTENANCE_SCHEMA_VERSION,
       generationId: 'gen_gc',
@@ -566,32 +566,32 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
     return reply
   }
 
-  const command = (over: Partial<typeof observed> = {}) => {
+  const command = async (over: Partial<typeof observed> = {}) => {
     const o = { ...observed, ...over }
     return {
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
       schemaVersion: MAINTENANCE_SCHEMA_VERSION,
       jobKind: 'worktree-gc' as const,
       runKey: worktreeGcRunKey(o),
-      fencingToken: lease().fencingToken,
+      fencingToken: (await lease()).fencingToken,
       observed: o,
     }
   }
 
-  it('hands the policy out with the lease, so a settings flip reaches the next handshake', () => {
-    expect(lease()).toMatchObject({ worktreeGcMode: 'propose', worktreeGcAfterDays: 14 })
+  it('hands the policy out with the lease, so a settings flip reaches the next handshake', async () => {
+    expect(await lease()).toMatchObject({ worktreeGcMode: 'propose', worktreeGcAfterDays: 14 })
     policy = { mode: 'auto', afterDays: 30 }
     nowMs += 10_000
-    expect(lease()).toMatchObject({ worktreeGcMode: 'auto', worktreeGcAfterDays: 30 })
+    expect(await lease()).toMatchObject({ worktreeGcMode: 'auto', worktreeGcAfterDays: 30 })
   })
 
-  it('reads `off` as a policy the janitor is told, not one this service silently applies', () => {
+  it('reads `off` as a policy the janitor is told, not one this service silently applies', async () => {
     policy = { mode: 'off', afterDays: 14 }
-    expect(lease()).toMatchObject({ worktreeGcMode: 'off' })
+    expect(await lease()).toMatchObject({ worktreeGcMode: 'off' })
   })
 
   it('revalidates through the issues seam and records the occurrence once', async () => {
-    const cmd = command()
+    const cmd = await command()
     expect(await service.apply(cmd)).toMatchObject({ status: 'applied' })
     expect(tryWorktreeGcObserved).toHaveBeenCalledWith(
       cmd.observed,
@@ -603,7 +603,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   it('a worktree freed between propose and apply is `precondition`, not an error', async () => {
     tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'precondition' })
-    expect(await service.apply(command({ worktreePath: '/r/.worktrees/gone' }))).toMatchObject({
+    expect(await service.apply(await command({ worktreePath: '/r/.worktrees/gone' }))).toMatchObject({
       status: 'stale',
       reason: 'precondition',
     })
@@ -611,7 +611,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   it('says not-due when the close is younger than the window', async () => {
     tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'not-due' })
-    expect(await service.apply(command({ closedAt: '2026-07-17T00:00:00.000Z' }))).toMatchObject({
+    expect(await service.apply(await command({ closedAt: '2026-07-17T00:00:00.000Z' }))).toMatchObject({
       status: 'stale',
       reason: 'not-due',
     })
@@ -626,14 +626,14 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
       outcome: 'refused',
       reason: 'worktree has unsaved changes',
     })
-    const cmd = command()
+    const cmd = await command()
     expect(await service.apply(cmd)).toMatchObject({ status: 'applied' })
     expect(await service.apply(cmd)).toMatchObject({ status: 'already-applied' })
   })
 
   it('refuses a run key that does not describe its own observation', async () => {
     expect(
-      await service.apply({ ...command(), runKey: 'worktree-gc/somebody-elses-key' }),
+      await service.apply({ ...await command(), runKey: 'worktree-gc/somebody-elses-key' }),
     ).toMatchObject({ status: 'stale', reason: 'invalid-run-key' })
     expect(tryWorktreeGcObserved).not.toHaveBeenCalled()
   })
@@ -648,7 +648,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
       },
       { now: () => nowMs, leaseTtlMs: 90_000, worktreeGcPolicy: () => policy },
     )
-    expect(await service.apply(command())).toMatchObject({
+    expect(await service.apply(await command())).toMatchObject({
       status: 'stale',
       reason: 'precondition',
     })

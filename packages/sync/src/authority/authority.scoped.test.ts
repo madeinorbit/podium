@@ -62,7 +62,7 @@ function memoryStore(): ChangeLogStore {
   const rows: ChangeLogReadRow[] = []
   let nextSeq = 1
   return {
-    appendChanges(batch) {
+    async appendChanges(batch) {
       const seqs: number[] = []
       for (const r of batch) {
         rows.push({ seq: nextSeq, ...r })
@@ -71,18 +71,18 @@ function memoryStore(): ChangeLogStore {
       }
       return seqs
     },
-    maxChangeSeq: () => nextSeq - 1,
-    minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
-    planChangePrune: () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: () => 0,
+    maxChangeSeq: async () => nextSeq - 1,
+    minChangeSeq: async () => rows[0]?.seq ?? null,
+    changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    planChangePrune: async () => ({ thresholdSeq: 0 }),
+    pruneChangeBatch: async () => 0,
     // LATEST PER (entity, id), which is what the port says and what the sqlite
     // adapter's GROUP BY does. This fake returned the whole table, which was
     // invisible while the only consumer was the dedup baseline (a later row just
     // overwrites an earlier one in the fold) and became wrong the moment
     // `bootstrap` read it as a world: every historical write reappeared as its
     // own row, and a deleted entity came back alive under its stale upsert.
-    latestChangeStates: () => {
+    latestChangeStates: async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
@@ -123,8 +123,8 @@ function state() {
     classOf: (entity) => classes.get(entity) ?? null,
     mayRead: (user, ref) => grants.get(user)?.has(key(ref)) === true,
     keyedUserOf: (ref) => keyedUsers.get(key(ref)) ?? null,
-    visibilityEdge: (ref) => edges.get(key(ref)) ?? null,
-    currentValueOf: (ref) => values.get(key(ref)),
+    visibilityEdge: async (ref) => edges.get(key(ref)) ?? null,
+    currentValueOf: async (ref) => values.get(key(ref)),
     // DEFAULT-CLOSED for a delegation nobody minted: an empty key set. `all`
     // here would make every A2 case pass without the scope doing any work.
     scopeOf: (delegation) => scopes.get(delegation) ?? { kind: 'entities', keys: new Set() },
@@ -208,7 +208,7 @@ function collect(authority: Authority, principal: Principal) {
 }
 
 describe('three subscribers, three principals, three slices', () => {
-  it('each receives only what it may see', () => {
+  it('each receives only what it may see', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('ada-private'))
     tables.grant('grace', ref('grace-private'))
@@ -217,8 +217,8 @@ describe('three subscribers, three principals, three slices', () => {
     const grace = collect(authority, GRACE)
     const anonymous = collect(authority, ANON)
 
-    authority.capture([upsert('ada-private', { owner: 'ada' })])
-    authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.capture([upsert('ada-private', { owner: 'ada' })])
+    await authority.capture([upsert('grace-private', { owner: 'grace' })])
 
     expect(ada.flatMap((d) => d.ids)).toEqual(['ada-private'])
     expect(grace.flatMap((d) => d.ids)).toEqual(['grace-private'])
@@ -228,7 +228,7 @@ describe('three subscribers, three principals, three slices', () => {
     expect(anonymous.flatMap((d) => d.ids)).toEqual([])
   })
 
-  it('a principal who sees NOTHING is still told how far the log was evaluated', () => {
+  it('a principal who sees NOTHING is still told how far the log was evaluated', async () => {
     // THE watermark property, on the live path. Suppression without this is the
     // permanent invisible gap: the replica's `fromSeq === cursor` fails, it heals,
     // the heal returns the same filtered rows, forever.
@@ -236,8 +236,8 @@ describe('three subscribers, three principals, three slices', () => {
     tables.grant('ada', ref('ada-private'))
     const anonymous = collect(authority, ANON)
 
-    authority.capture([upsert('ada-private', { owner: 'ada' })])
-    authority.capture([upsert('another', { owner: 'ada' })])
+    await authority.capture([upsert('ada-private', { owner: 'ada' })])
+    await authority.capture([upsert('another', { owner: 'ada' })])
 
     expect(anonymous.map((d) => [d.ids.length, d.throughSeq])).toEqual([
       [0, 1],
@@ -245,25 +245,25 @@ describe('three subscribers, three principals, three slices', () => {
     ])
   })
 
-  it('changesSince serves ONE principal its slice, certified to the log head', () => {
+  it('changesSince serves ONE principal its slice, certified to the log head', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('ada-private'))
-    authority.capture([upsert('ada-private', { owner: 'ada' })])
-    authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.capture([upsert('ada-private', { owner: 'ada' })])
+    await authority.capture([upsert('grace-private', { owner: 'grace' })])
 
-    const mine = authority.changesSince(0, ADA)
+    const mine = await authority.changesSince(0, ADA)
     expect(mine?.kind === 'batch' && mine.changes.map((c) => c.entityId)).toEqual(['ada-private'])
     // Certified to the HEAD and not to the last visible row: seq 2 was evaluated
     // and suppressed, and a reply stopping at 1 would leave it uncertified — the
     // same gap, arriving on the heal path where a replica is least able to notice.
     expect(mine?.kind === 'batch' && mine.throughSeq).toBe(2)
 
-    const theirs = authority.changesSince(0, ANON)
+    const theirs = await authority.changesSince(0, ANON)
     expect(theirs?.kind === 'batch' && theirs.changes).toEqual([])
     expect(theirs?.kind === 'batch' && theirs.throughSeq).toBe(2)
   })
 
-  it('the live path and the heal path agree over the same range', () => {
+  it('the live path and the heal path agree over the same range', async () => {
     // Not asserted against a literal on each side: a restatement of the scoping
     // rule in one path would be byte-identical in the common case and invisible to
     // a golden fixture. Diffing the two is what catches a second filtering site.
@@ -271,10 +271,10 @@ describe('three subscribers, three principals, three slices', () => {
     tables.grant('ada', ref('mine'))
     const live = collect(authority, ADA)
 
-    authority.capture([upsert('mine', { n: 1 })])
-    authority.capture([upsert('theirs', { n: 2 })])
+    await authority.capture([upsert('mine', { n: 1 })])
+    await authority.capture([upsert('theirs', { n: 2 })])
 
-    const healed = authority.changesSince(0, ADA)
+    const healed = await authority.changesSince(0, ADA)
     expect(healed?.kind === 'batch' && healed.changes.map((c) => c.entityId)).toEqual(
       live.flatMap((d) => d.ids),
     )
@@ -287,7 +287,7 @@ describe('three subscribers, three principals, three slices', () => {
 })
 
 describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
-  it('an UNCLASSIFIED entity kind is invisible — and says so, not "personal"', () => {
+  it('an UNCLASSIFIED entity kind is invisible — and says so, not "personal"', async () => {
     // Tonight's defect elsewhere in this run: a default-closed backstop that
     // returns the same answer for "deliberately personal" and "never classified"
     // cannot tell a decision from an omission. Here they are different reasons.
@@ -307,7 +307,7 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
       visible: true,
       reason: 'granted',
     })
-    expect(authority.changesSince(0, ADA)?.kind).toBe('batch')
+    expect((await authority.changesSince(0, ADA))?.kind).toBe('batch')
   })
 
   it('a SECRET never replicates, grant or no grant (ADR 1 D6)', () => {
@@ -377,17 +377,17 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
 })
 
 describe('a visibility change is DERIVED, and it is never a remove (D14)', () => {
-  it('a revoke anchors an EVICT at the seq of the change that caused it', () => {
+  it('a revoke anchors an EVICT at the seq of the change that caused it', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    authority.capture([upsert('shared', { n: 1 })])
+    await authority.capture([upsert('shared', { n: 1 })])
     const ada = collect(authority, ADA)
 
     // The grant row: a durable change that MOVES visibility. The policy is
     // updated first — the authority reads the world as it is after the write.
     tables.revoke('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
 
     const [delivery] = ada
     expect(delivery?.ops).toEqual(['evict'])
@@ -399,89 +399,89 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
     expect(delivery?.throughSeq).toBe(2)
   })
 
-  it('a grant anchors a RE-ADMITTING UPSERT carrying the current value', () => {
+  it('a grant anchors a RE-ADMITTING UPSERT carrying the current value', async () => {
     const { authority, tables } = build()
-    authority.capture([upsert('shared', { n: 1 })])
+    await authority.capture([upsert('shared', { n: 1 })])
     tables.value(ref('shared'), { n: 1 })
     const ada = collect(authority, ADA)
 
     tables.grant('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    authority.capture([upsert('grant-row', { granted: 'shared' })])
+    await authority.capture([upsert('grant-row', { granted: 'shared' })])
 
     expect(ada[0]?.ops).toEqual(['upsert'])
     expect(ada[0]?.ids).toEqual(['shared'])
   })
 
-  it('THE OP FOLLOWS THE POLICY: the same input yields evict or upsert', () => {
+  it('THE OP FOLLOWS THE POLICY: the same input yields evict or upsert', async () => {
     // The steer this issue was given, as a test rather than as a property of the
     // current code. The two runs below differ in ONE thing — whether the grant
     // table admits the subject — and the op flips. No input names it, and there is
     // no parameter by which one could.
-    const run = (granted: boolean) => {
+    const run = async (granted: boolean) => {
       const { authority, tables } = build()
-      authority.capture([upsert('subject', { n: 1 })])
+      await authority.capture([upsert('subject', { n: 1 })])
       tables.value(ref('subject'), { n: 1 })
       if (granted) tables.grant('ada', ref('subject'))
       const ada = collect(authority, ADA)
       tables.edge(ref('grant-row'), ['ada'], [ref('subject')])
-      authority.capture([upsert('grant-row', { touched: 'subject' })])
+      await authority.capture([upsert('grant-row', { touched: 'subject' })])
       return ada[0]?.ops ?? []
     }
 
-    expect(run(true)).toEqual(['upsert'])
-    expect(run(false)).toEqual(['evict'])
+    expect(await run(true)).toEqual(['upsert'])
+    expect(await run(false)).toEqual(['evict'])
   })
 
-  it('a principal NOT in the audience sees the grant seq as a watermark, not an evict', () => {
+  it('a principal NOT in the audience sees the grant seq as a watermark, not an evict', async () => {
     // Existence leak (`docs/multi-user-readiness.md` §3.1.2): telling Grace that
     // `shared` was evicted would tell her it exists. She gets the range and
     // nothing in it.
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    authority.capture([upsert('shared', { n: 1 })])
+    await authority.capture([upsert('shared', { n: 1 })])
     const grace = collect(authority, GRACE)
 
     tables.revoke('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
 
     expect(grace).toEqual([{ kind: 'batch', throughSeq: 2, ids: [], ops: [] }])
   })
 
-  it('a re-grant re-admits the same entity — eviction is REVERSIBLE (D14.2)', () => {
+  it('a re-grant re-admits the same entity — eviction is REVERSIBLE (D14.2)', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    authority.capture([upsert('shared', { n: 1 })])
+    await authority.capture([upsert('shared', { n: 1 })])
     tables.value(ref('shared'), { n: 1 })
     const ada = collect(authority, ADA)
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
 
     tables.revoke('ada', ref('shared'))
-    authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
     tables.grant('ada', ref('shared'))
-    authority.capture([upsert('grant-row', { granted: 'shared' })])
+    await authority.capture([upsert('grant-row', { granted: 'shared' })])
 
     expect(ada.map((d) => d.ops)).toEqual([['evict'], ['upsert']])
   })
 })
 
 describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
-  it('a visibility change over the threshold takes the terminal path', () => {
+  it('a visibility change over the threshold takes the terminal path', async () => {
     const { authority, tables } = build(2)
     const subjects = ['a', 'b', 'c', 'd'].map(ref)
     for (const s of subjects) tables.grant('ada', s)
     const ada = collect(authority, ADA)
 
     tables.edge(ref('role-change'), ['ada'], subjects)
-    authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.capture([upsert('role-change', { role: 'member' })])
 
     expect(ada[0]?.kind).toBe('rescope')
     // Still carries the range, so the rescope cannot be mistaken for silence.
     expect(ada[0]?.throughSeq).toBe(1)
   })
 
-  it('the SAME shape under the threshold enumerates instead — the paired half', () => {
+  it('the SAME shape under the threshold enumerates instead — the paired half', async () => {
     // Without this, "it rescopes" is equally consistent with an implementation
     // that rescopes on every visibility change, which would make the cheap
     // incremental path (D14.1/D14.2) dead code.
@@ -494,7 +494,7 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
     const ada = collect(authority, ADA)
 
     tables.edge(ref('role-change'), ['ada'], subjects)
-    authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.capture([upsert('role-change', { role: 'member' })])
 
     expect(ada[0]?.kind).toBe('batch')
     expect(ada[0]?.ids).toEqual(['a', 'b', 'c', 'd'])
@@ -516,61 +516,61 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
  * against in the first place.
  */
 describe('bootstrap — the installed world for ONE principal', () => {
-  it('serves the current value of every row the principal may see', () => {
+  it('serves the current value of every row the principal may see', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
-    authority.capture([upsert('a', { v: 1 })])
-    authority.capture([upsert('a', { v: 2 })])
+    await authority.capture([upsert('a', { v: 1 })])
+    await authority.capture([upsert('a', { v: 2 })])
 
-    const world = authority.bootstrap(ADA)
+    const world = await authority.bootstrap(ADA)
     // ONE row per entity, carrying the LATEST value — not a replay of both writes.
     expect(world.changes.map((c) => [c.entityId, c.op])).toEqual([['a', 'upsert']])
     expect(world.changes[0]?.op === 'upsert' && world.changes[0].value).toEqual({ v: 2 })
   })
 
-  it('is read at the head, so the delta stream resumes with no gap', () => {
+  it('is read at the head, so the delta stream resumes with no gap', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
-    authority.capture([upsert('a', { v: 1 })])
-    authority.capture([upsert('grace-only', { v: 1 })])
+    await authority.capture([upsert('a', { v: 1 })])
+    await authority.capture([upsert('grace-only', { v: 1 })])
 
     // The head, NOT the last visible row's seq. A bootstrap certified at seq 1
     // would leave seq 2 uncertified for Ada forever: she was evaluated for it and
     // suppressed, and a feed attached at 1 would re-ask and be suppressed again.
-    expect(authority.bootstrap(ADA).throughSeq).toBe(2)
+    expect((await authority.bootstrap(ADA)).throughSeq).toBe(2)
   })
 
-  it('suppresses a row the principal may not see', () => {
+  it('suppresses a row the principal may not see', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('ada-private'))
-    authority.capture([upsert('ada-private', { owner: 'ada' })])
-    authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.capture([upsert('ada-private', { owner: 'ada' })])
+    await authority.capture([upsert('grace-private', { owner: 'grace' })])
 
-    expect(authority.bootstrap(ADA).changes.map((c) => c.entityId)).toEqual(['ada-private'])
+    expect((await authority.bootstrap(ADA)).changes.map((c) => c.entityId)).toEqual(['ada-private'])
     // The paired half. Without it, "Ada sees hers" passes against an
     // implementation that hands everyone everything.
-    expect(authority.bootstrap(ANON).changes).toEqual([])
+    expect((await authority.bootstrap(ANON)).changes).toEqual([])
     // ...and it still says how far the world was read, so an empty world is
     // positionable rather than indistinguishable from "not read yet".
-    expect(authority.bootstrap(ANON).throughSeq).toBe(2)
+    expect((await authority.bootstrap(ANON)).throughSeq).toBe(2)
   })
 
-  it('installs POSITIVE STATE ONLY — a removed entity is absent, not a tombstone', () => {
+  it('installs POSITIVE STATE ONLY — a removed entity is absent, not a tombstone', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
     tables.grant('ada', ref('b'))
-    authority.capture([upsert('a', { v: 1 })])
-    authority.capture([upsert('b', { v: 1 })])
-    authority.capture([{ entity: 'session', entityId: 'a', op: 'remove' }])
+    await authority.capture([upsert('a', { v: 1 })])
+    await authority.capture([upsert('b', { v: 1 })])
+    await authority.capture([{ entity: 'session', entityId: 'a', op: 'remove' }])
 
-    const world = authority.bootstrap(ADA)
+    const world = await authority.bootstrap(ADA)
     expect(world.changes.map((c) => c.entityId)).toEqual(['b'])
     // A `remove` in a bootstrap would have the replica write a tombstone for an
     // entity it was never told about (ADR 2 D15 — positive state only).
     expect(world.changes.every((c) => c.op === 'upsert')).toBe(true)
   })
 
-  it('does not derive evicts or take the rescope path — a bootstrap has no "before"', () => {
+  it('does not derive evicts or take the rescope path — a bootstrap has no "before"', async () => {
     // The anchor half of `scopeBatch` is deliberately absent here. Run over a
     // whole world it would trip the threshold on any instance with grant edges,
     // and a `rescope` mid-bootstrap tells a replica to re-bootstrap while it is
@@ -581,13 +581,13 @@ describe('bootstrap — the installed world for ONE principal', () => {
     const subjects = ['a', 'b', 'c', 'd'].map(ref)
     for (const s of subjects) {
       tables.grant('ada', s)
-      authority.capture([upsert(s.entityId, { id: s.entityId })])
+      await authority.capture([upsert(s.entityId, { id: s.entityId })])
     }
     tables.edge(ref('role-change'), ['ada'], subjects)
     tables.grant('ada', ref('role-change'))
-    authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.capture([upsert('role-change', { role: 'member' })])
 
-    const world = authority.bootstrap(ADA)
+    const world = await authority.bootstrap(ADA)
     expect(world.changes.map((c) => c.entityId)).toEqual(['a', 'b', 'c', 'd', 'role-change'])
     expect(world.changes.some((c) => c.op === 'evict')).toBe(false)
   })

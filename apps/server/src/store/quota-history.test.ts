@@ -45,12 +45,12 @@ describe('recording samples', () => {
     // The row's bucket is assigned once at insert and must never be recomputed,
     // or the jitter mints a duplicate row for a window already being tracked.
     const drift = ['01:00:00.039', '00:59:59.325', '00:59:59.714', '01:00:00.097']
-    drift.forEach((t, i) => {
-      store.quotaHistory.record(
+    for (const [i, t] of drift.entries()) {
+      await store.quotaHistory.record(
         sample({ resetsAtMs: Date.parse(`2026-08-25T${t}Z`), atMs: 1_000 + i * 60_000 }),
         SAMPLING,
       )
-    })
+    }
     expect(await store.quotaHistory.countAll()).toBe(1)
   })
 

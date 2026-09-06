@@ -171,7 +171,7 @@ export interface InteractionServiceDeps {
    * materialized twice. Absent means "no causal stream", which is the honest
    * default for a build that has not wired one.
    */
-  causalFailuresOwned?(sessionId: SessionId): boolean
+  causalFailuresOwned?(sessionId: SessionId): boolean | Promise<boolean>
   /**
    * THE DECLARATION-RESOLVED DRIVER FAMILY for this session. The relay reads
    * the session's existing `driverFamily` projection, which comes from the
@@ -181,7 +181,9 @@ export interface InteractionServiceDeps {
    * safe compatibility behavior. Only a proven server family owns its asks
    * through the protocol path and must skip the terminal classifier shadow.
    */
-  driverFamilyForSession?(sessionId: SessionId): SessionMeta['driverFamily']
+  driverFamilyForSession?(
+    sessionId: SessionId,
+  ): SessionMeta['driverFamily'] | Promise<SessionMeta['driverFamily']>
   /** The transcript tail, for reading a live menu's options at synthesis time. */
   readTranscript(input: {
     sessionId: SessionId
@@ -228,7 +230,7 @@ export interface InteractionServiceDeps {
     questions: readonly QuestionPrompt[]
     selections: readonly QuestionSelection[]
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string }
+  }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
 }
 
 /** Everything a caller needs to answer, without knowing the payload union. */
@@ -300,8 +302,8 @@ export class InteractionService {
    * state path remains the only evidence there is — which is exactly the case
    * this issue exists to serve.
    */
-  private causalStreamOwnsFailures(sessionId: SessionId): boolean {
-    return this.deps.causalFailuresOwned?.(sessionId) ?? false
+  private async causalStreamOwnsFailures(sessionId: SessionId): Promise<boolean> {
+    return (await this.deps.causalFailuresOwned?.(sessionId)) ?? false
   }
 
   /** Every in-flight policy delivery on a session is overtaken at once — the
@@ -338,17 +340,17 @@ export class InteractionService {
     return toWire(row)
   }
 
-  listOpen(sessionId?: SessionId): PendingInteractionWire[] {
-    return this.deps.store.listOpen(sessionId).map(toWire)
+  async listOpen(sessionId?: SessionId): Promise<PendingInteractionWire[]> {
+    return (await this.deps.store.listOpen(sessionId)).map(toWire)
   }
 
-  get(id: string): PendingInteractionWire | null {
-    const row = this.deps.store.get(id)
+  async get(id: string): Promise<PendingInteractionWire | null> {
+    const row = await this.deps.store.get(id)
     return row ? toWire(row) : null
   }
 
-  listForSession(sessionId: SessionId, limit?: number): PendingInteractionWire[] {
-    return this.deps.store.listForSession(sessionId, limit).map(toWire)
+  async listForSession(sessionId: SessionId, limit?: number): Promise<PendingInteractionWire[]> {
+    return (await this.deps.store.listForSession(sessionId, limit)).map(toWire)
   }
 
   // -- synthesis ------------------------------------------------------------
@@ -407,7 +409,7 @@ export class InteractionService {
         // discriminator, and falling back to the ask instant covers a mint.
         hasReliableIdentity(a.source) ? (a.id ?? this.deps.now()) : undefined,
       )
-    const { row, inserted } = this.deps.store.insert({
+    const { row, inserted } = await this.deps.store.insert({
       id: a.id ?? `ixn_${randomUUID()}`,
       sessionId: a.sessionId,
       kind: a.kind,
@@ -423,7 +425,7 @@ export class InteractionService {
       this.deps.publish(row)
       await this.applyDefaultAnswer(row, spec)
     }
-    const settled = this.deps.store.get(row.id) ?? row
+    const settled = await this.deps.store.get(row.id) ?? row
     return { row: toWire(settled), inserted }
   }
 
@@ -468,7 +470,7 @@ export class InteractionService {
    * Keyed per session, so a slow read on one session cannot delay another's,
    * and the chain is dropped once it drains.
    */
-  private chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
+  private async chain(sessionId: SessionId, work: () => Promise<void> | void): Promise<void> {
     const prior = this.sessionChain.get(sessionId) ?? Promise.resolve()
     const next = prior.catch(() => undefined).then(() => work())
     this.sessionChain.set(sessionId, next)
@@ -477,15 +479,15 @@ export class InteractionService {
       // chain that still has work queued behind it.
       if (this.sessionChain.get(sessionId) === next) this.sessionChain.delete(sessionId)
     })
-    return next
+    await next
   }
 
-  onStateChanged(input: {
+  async onStateChanged(input: {
     sessionId: SessionId
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
   }): Promise<void> {
-    return this.chain(input.sessionId, () => this.applyStateChanged(input))
+    return await this.chain(input.sessionId, async () => await this.applyStateChanged(input))
   }
 
   private async applyStateChanged(input: {
@@ -496,8 +498,8 @@ export class InteractionService {
     try {
       // The protocol driver already owns server-family asks; don't synthesize
       // a terminal classifier shadow. Unknown families keep legacy behavior.
-      if (this.deps.driverFamilyForSession?.(input.sessionId) === 'server') {
-        this.closeOpen(
+      if ((await this.deps.driverFamilyForSession?.(input.sessionId)) === 'server') {
+        await this.closeOpen(
           input.sessionId,
           'superseded',
           'server-family interactions are owned by the protocol driver',
@@ -516,7 +518,7 @@ export class InteractionService {
       if (
         ask?.spec.kind === 'recovery' &&
         input.next.phase === 'errored' &&
-        this.causalStreamOwnsFailures(input.sessionId)
+        await this.causalStreamOwnsFailures(input.sessionId)
       ) {
         return
       }
@@ -526,7 +528,7 @@ export class InteractionService {
         // reported those as expirations would read as a pile of failures.
         //
         // Scoped to what this path synthesized — see {@link STATE_DERIVED_SOURCES}.
-        this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state', (row) =>
+        await this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state', (row) =>
           STATE_DERIVED_SOURCES.has(row.source),
         )
         return
@@ -535,9 +537,9 @@ export class InteractionService {
       // that reports a DIFFERENT one closes the stale row first, because two
       // open asks on one terminal session would both claim the same menu. Same
       // scoping: a driver's own ask is not this path's to supersede.
-      for (const open of this.deps.store.listOpen(input.sessionId)) {
+      for (const open of await this.deps.store.listOpen(input.sessionId)) {
         if (!STATE_DERIVED_SOURCES.has(open.source)) continue
-        if (open.fingerprint !== ask.fingerprint) this.supersede(open.id)
+        if (open.fingerprint !== ask.fingerprint) await this.supersede(open.id)
       }
       // ONE INTERNAL CALLER of the public ingress: the bus path has no more
       // authority than a driver does, and routing it through `ask()` is what
@@ -585,7 +587,7 @@ export class InteractionService {
    * between commit and projection re-delivers the event. Insert-on-conflict and
    * a close that no-ops on an already-closed row are what make that harmless.
    */
-  onTurnEvent(input: {
+  async onTurnEvent(input: {
     sessionId: SessionId
     ev: TurnEvent
     at: string
@@ -593,7 +595,7 @@ export class InteractionService {
      *  knows it. */
     provider?: string
   }): Promise<void> {
-    return this.chain(input.sessionId, () => this.applyTurnEvent(input))
+    return await this.chain(input.sessionId, async () => await this.applyTurnEvent(input))
   }
 
   private async applyTurnEvent(input: {
@@ -604,7 +606,7 @@ export class InteractionService {
   }): Promise<void> {
     try {
       if (input.ev.ev !== 'failed') {
-        this.closeOpen(
+        await this.closeOpen(
           input.sessionId,
           'superseded',
           'a turn boundary passed, so the session is no longer blocked on it',
@@ -665,54 +667,54 @@ export class InteractionService {
    * an answer delivered through `deliverStructured` comes straight back as an
    * `answered` event from the driver that applied it.
    */
-  onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
-    if (input.ev.ev === 'asked') return Promise.resolve()
+  async onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
+    if (input.ev.ev === 'asked') return await Promise.resolve()
     // EAGER, DELIBERATELY AHEAD OF THE CHAIN. The driver settled it, so an
     // in-flight policy answer for the same row has been overtaken and must not
     // reopen behind it — and a reopen races the chain rather than joining it,
     // so deferring this behind a slow transcript read would let exactly the
     // resurrection {@link overtakePolicyDeliveries} exists to stop through.
     this.policyDeliveryInFlight.delete(input.ev.id)
-    return this.chain(input.sessionId, () => this.applyInteractionResolved(input))
+    return await this.chain(input.sessionId, async () => await this.applyInteractionResolved(input))
   }
 
-  private applyInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): void {
+  private async applyInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
     if (input.ev.ev === 'asked') return
-    const row = this.deps.store.get(input.ev.id)
+    const row = await this.deps.store.get(input.ev.id)
     // A resolution for a row this server never saw is not an error: the ask may
     // predate the aggregate's knowledge of the session, or belong to a replica.
     if (!row || row.sessionId !== input.sessionId) return
     if (
-      !this.deps.store.close(
+      !await this.deps.store.close(
         row.id,
         input.ev.ev === 'expired' ? 'expired' : 'superseded',
         this.deps.now(),
       )
     )
       return
-    const settled = this.deps.store.get(row.id)
+    const settled = await this.deps.store.get(row.id)
     if (settled) this.deps.publish(settled)
   }
 
   /** A session ended: every ask it left behind stops being answerable. EXPIRED
    *  rather than superseded — the menu went away with the process, and nobody
    *  answered it. */
-  onSessionExited(sessionId: SessionId): Promise<void> {
-    return this.chain(sessionId, () => {
-      this.closeOpen(sessionId, 'expired', 'the session ended')
+  async onSessionExited(sessionId: SessionId): Promise<void> {
+    return await this.chain(sessionId, async () => {
+      await this.closeOpen(sessionId, 'expired', 'the session ended')
     })
   }
 
-  private closeOpen(
+  private async closeOpen(
     sessionId: SessionId,
     status: 'expired' | 'superseded',
     why: string,
     only?: (row: InteractionRow) => boolean,
-  ): void {
+  ): Promise<void> {
     this.overtakePolicyDeliveries(sessionId, only)
     if (!only) {
-      for (const id of this.deps.store.closeSession(sessionId, status, this.deps.now())) {
-        const row = this.deps.store.get(id)
+      for (const id of await this.deps.store.closeSession(sessionId, status, this.deps.now())) {
+        const row = await this.deps.store.get(id)
         if (row) this.deps.publish(row)
         log.debug('interaction closed', { id, status, why })
       }
@@ -722,18 +724,18 @@ export class InteractionService {
     // set is at most a handful — an open ask means a session is blocked — and a
     // predicate the caller owns cannot be pushed into SQL without this module
     // deciding for every future caller which columns a filter may name.
-    for (const row of this.deps.store.listOpen(sessionId)) {
+    for (const row of await this.deps.store.listOpen(sessionId)) {
       if (!only(row)) continue
-      if (!this.deps.store.close(row.id, status, this.deps.now())) continue
-      const settled = this.deps.store.get(row.id)
+      if (!await this.deps.store.close(row.id, status, this.deps.now())) continue
+      const settled = await this.deps.store.get(row.id)
       if (settled) this.deps.publish(settled)
       log.debug('interaction closed', { id: row.id, status, why })
     }
   }
 
-  private supersede(id: string): void {
-    if (!this.deps.store.close(id, 'superseded', this.deps.now())) return
-    const row = this.deps.store.get(id)
+  private async supersede(id: string): Promise<void> {
+    if (!await this.deps.store.close(id, 'superseded', this.deps.now())) return
+    const row = await this.deps.store.get(id)
     if (row) this.deps.publish(row)
   }
 
@@ -820,7 +822,7 @@ export class InteractionService {
     // that never claimed it (or that reopened it) leaves it open, which IS the
     // escalation and needs nothing; a claimed row with an unproven delivery is
     // the one to hand back.
-    const settled = this.deps.store.get(row.id)
+    const settled = await this.deps.store.get(row.id)
     if (settled?.status !== 'answered' || settled.deliveredVia !== 'unverified') {
       // Every terminal path drops the marker, including the successful one —
       // it is the lifetime of ONE delivery, and a marker left behind for a
@@ -838,9 +840,9 @@ export class InteractionService {
     // re-observation can have opened another row for the same fingerprint, and
     // the partial unique index would refuse a second open one — correctly, since
     // the session is visibly blocked either way.
-    if (this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
-    if (!this.deps.store.reopen(row.id, 'policy')) return
-    const reopened = this.deps.store.get(row.id)
+    if (await this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
+    if (!await this.deps.store.reopen(row.id, 'policy')) return
+    const reopened = await this.deps.store.get(row.id)
     if (reopened) this.deps.publish(reopened)
     log.info('default answer could not be delivered; escalating to a human', {
       id: row.id,
@@ -865,7 +867,7 @@ export class InteractionService {
    * the same reason.
    */
   async answer(input: AnswerInput): Promise<InteractionAnswerOutcome & { detail?: string }> {
-    const row = this.deps.store.get(input.id)
+    const row = await this.deps.store.get(input.id)
     if (!row) return { ok: false, reason: 'unknown-interaction' }
     if (row.status === 'answered') return { ok: false, reason: 'already-answered' }
     if (row.status === 'expired') return { ok: false, reason: 'expired' }
@@ -908,7 +910,7 @@ export class InteractionService {
       answer = resolved.answer
     }
 
-    const claimed = this.deps.store.answer({
+    const claimed = await this.deps.store.answer({
       id: row.id,
       answer,
       answeredBy: input.answeredBy,
@@ -934,8 +936,8 @@ export class InteractionService {
      */
     if (!delivery.ok && delivery.refusal) {
       if (REFUSAL_KEEPS_ASK_OPEN.has(delivery.refusal)) {
-        if (this.deps.store.reopen(row.id, input.answeredBy)) {
-          const reopened = this.deps.store.get(row.id)
+        if (await this.deps.store.reopen(row.id, input.answeredBy)) {
+          const reopened = await this.deps.store.get(row.id)
           if (reopened) this.deps.publish(reopened)
         }
         // The refusal is reported as itself, not flattened to one word: a
@@ -947,14 +949,14 @@ export class InteractionService {
         // The request is gone. `expired` is the session ending under the ask;
         // `already-answered` is somebody reaching it first — which is a
         // supersession, not an expiry, and the row says so.
-        const closed = this.deps.store.retireClaimed(
+        const closed = await this.deps.store.retireClaimed(
           row.id,
           delivery.refusal === 'expired' ? 'expired' : 'superseded',
           this.deps.now(),
           input.answeredBy,
         )
         if (closed) {
-          const retired = this.deps.store.get(row.id)
+          const retired = await this.deps.store.get(row.id)
           if (retired) this.deps.publish(retired)
         }
         return { ok: false, reason: delivery.refusal, detail: delivery.detail }
@@ -963,16 +965,16 @@ export class InteractionService {
       // is still a refusal, and reporting `ok: true` for it would tell an
       // operator their answer landed on a request the driver just said it does
       // not have. Record the (unverified) delivery, then say what happened.
-      this.deps.store.recordDelivery(row.id, delivery.via)
-      const unresolved = this.deps.store.get(row.id)
+      await this.deps.store.recordDelivery(row.id, delivery.via)
+      const unresolved = await this.deps.store.get(row.id)
       if (unresolved) this.deps.publish(unresolved)
       return { ok: false, reason: delivery.refusal, detail: delivery.detail }
     }
     // `recordDelivery`, not a second `answer`: that one guards on
     // `status = 'asked'` — the guard IS the claim above — so it would update
     // nothing here and leave every delivered answer recorded as unverified.
-    this.deps.store.recordDelivery(row.id, delivery.via)
-    const settled = this.deps.store.get(row.id)
+    await this.deps.store.recordDelivery(row.id, delivery.via)
+    const settled = await this.deps.store.get(row.id)
     if (settled) this.deps.publish(settled)
     if (delivery.ok) return { ok: true }
     /**
@@ -1091,7 +1093,7 @@ export class InteractionService {
       !hasTranscriptCard(row) &&
       this.deps.deliverNativeMenu
     ) {
-      const typed = this.deps.deliverNativeMenu({
+      const typed = await this.deps.deliverNativeMenu({
         sessionId: row.sessionId,
         questions: readOptions,
         selections: answer.selections,

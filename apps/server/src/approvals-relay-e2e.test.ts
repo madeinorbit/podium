@@ -19,13 +19,13 @@ describe('approval broker relay e2e (#410)', () => {
   let sA: string
   let daemonInbox: ControlMessage[]
 
-  beforeEach(() => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  beforeEach(async () => {
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    const A = registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-    registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
-    const wtA = registry.issues.get(A.id)?.worktreePath as string
-    sA = registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
+    const A = await registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
+    await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    const wtA = (await registry.issues.get(A.id))?.worktreePath as string
+    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
     daemonInbox = []
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
   })
@@ -63,9 +63,9 @@ describe('approval broker relay e2e (#410)', () => {
     const r = await relay('request', { op: { kind: 'update' } })
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
-    expect(registry.modules.approvals.listPending()).toHaveLength(1)
+    expect(await registry.modules.approvals.listPending()).toHaveLength(1)
 
-    registry.modules.approvals.approve(id)
+    await registry.modules.approvals.approve(id)
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
@@ -79,7 +79,7 @@ describe('approval broker relay e2e (#410)', () => {
     const status = await relay('get', { id })
     expect(status.ok).toBe(true)
     expect(status.result).toMatchObject({ status: 'succeeded' })
-    expect(registry.modules.approvals.listPending()).toHaveLength(0)
+    expect(await registry.modules.approvals.listPending()).toHaveLength(0)
   })
 
   it('approved current-session schedule creates an armed server-owned one-off', async () => {
@@ -96,10 +96,10 @@ describe('approval broker relay e2e (#410)', () => {
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
 
-    const approved = registry.modules.approvals.approve(id)
+    const approved = await registry.modules.approvals.approve(id)
     expect(approved).toMatchObject({ status: 'succeeded' })
     expect(daemonInbox.some((message) => message.type === 'approvalExecRequest')).toBe(false)
-    expect(registry.modules.automations.list()).toEqual([
+    expect(await registry.modules.automations.list()).toEqual([
       expect.objectContaining({
         name: 'Overnight continuation',
         scheduleKind: 'once',
@@ -113,12 +113,12 @@ describe('approval broker relay e2e (#410)', () => {
   })
 
   it('[POD-1107] a fresh schedule with no agent gets the configured default, not codex', async () => {
-    registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
-      ...registry.modules.settings.getSettings(),
+    await registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+      ...await registry.modules.settings.getSettings(),
       roles: {
-        ...registry.modules.settings.getSettings().roles,
+        ...(await registry.modules.settings.getSettings()).roles,
         coding: {
-          ...registry.modules.settings.getSettings().roles.coding,
+          ...(await registry.modules.settings.getSettings()).roles.coding,
           accountId: nativeAccountId('grok'),
           model: 'grok-4',
           effort: 'high',
@@ -137,8 +137,8 @@ describe('approval broker relay e2e (#410)', () => {
     })
     expect(r.ok).toBe(true)
 
-    registry.modules.approvals.approve((r.result as { id: string }).id)
-    expect(registry.modules.automations.list()).toEqual([
+    await registry.modules.approvals.approve((r.result as { id: string }).id)
+    expect(await registry.modules.automations.list()).toEqual([
       expect.objectContaining({
         name: 'Overnight sweep',
         repoPath: '/r',
@@ -164,7 +164,7 @@ describe('approval broker relay e2e (#410)', () => {
       machineId: 'evil',
     })
     expect(r.ok).toBe(true)
-    const pending = registry.modules.approvals.listPending()
+    const pending = await registry.modules.approvals.listPending()
     expect(pending[0]).toMatchObject({ sessionId: sA, machineId })
   })
 })

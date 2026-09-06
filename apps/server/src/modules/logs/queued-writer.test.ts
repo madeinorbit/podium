@@ -66,7 +66,7 @@ const linesIn = (file: string): Record<string, unknown>[] =>
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 
 describe('queued ingestion writer', () => {
-  it('writes nothing in the accepting call — the records are only queued', () => {
+  it('writes nothing in the accepting call — the records are only queued', async () => {
     const sink = countingSink()
     const w = writer({ createSink: sink.make })
 
@@ -74,7 +74,7 @@ describe('queued ingestion writer', () => {
 
     expect(sink.writes).toEqual([])
     expect(w.pendingWrites()).toBe(200)
-    void w.close()
+    void await w.close()
   })
 
   /**
@@ -129,7 +129,7 @@ describe('queued ingestion writer', () => {
 
   /** A bounded queue is the only honest answer to a server that cannot keep up;
    *  an unbounded one just moves the failure somewhere less legible. */
-  it('drops oldest past its bound and counts what it dropped', () => {
+  it('drops oldest past its bound and counts what it dropped', async () => {
     const sink = countingSink()
     const w = writer({ createSink: sink.make, maxPending: 100 })
 
@@ -137,7 +137,7 @@ describe('queued ingestion writer', () => {
 
     expect(w.pendingWrites()).toBe(100)
     expect(w.droppedFor('web-m1')).toBe(150)
-    void w.close()
+    void await w.close()
   })
 
   /**
@@ -146,7 +146,7 @@ describe('queued ingestion writer', () => {
    * makes a quiet one's file look complete while its records are the ones being
    * discarded — the counter would then point at the wrong investigation.
    */
-  it('charges a drop to whoever’s record was dropped', () => {
+  it('charges a drop to whoever’s record was dropped', async () => {
     const sink = countingSink()
     const w = writer({ createSink: sink.make, maxPending: 10 })
 
@@ -155,7 +155,7 @@ describe('queued ingestion writer', () => {
 
     expect(w.droppedFor('quiet')).toBe(10)
     expect(w.droppedFor('chatty')).toBe(0)
-    void w.close()
+    void await w.close()
   })
 
   /** At shutdown there is no request left to protect, and the tail of a log is
@@ -182,7 +182,7 @@ describe('queued ingestion writer', () => {
 
   /** The file a sender is told it landed in must not depend on how far the
    *  drain has got — the answer is given while its request is still running. */
-  it('assigns a key its file at accept time, before anything is opened', () => {
+  it('assigns a key its file at accept time, before anything is opened', async () => {
     const w = writer({ maxFiles: 2 })
 
     expect(w.assign('one')).toBe('one')
@@ -191,7 +191,7 @@ describe('queued ingestion writer', () => {
     // Stable: asking again never moves a key that already has an answer.
     expect(w.assign('one')).toBe('one')
     expect(w.assign('three')).toBe('other')
-    void w.close()
+    void await w.close()
   })
 
   /** The sink is opened by the DRAIN, on the turn it is first needed — which is

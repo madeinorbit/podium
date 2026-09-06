@@ -1,7 +1,8 @@
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
 import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { maintenanceCommands, maintenanceLeases } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export interface MaintenanceLeaseRow {
   name: string
@@ -15,7 +16,7 @@ export interface MaintenanceLeaseRow {
 
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 export class MaintenanceRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -32,20 +33,20 @@ export class MaintenanceRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
-  getLease(name: string): MaintenanceLeaseRow | undefined {
+  async getLease(name: string): Promise<MaintenanceLeaseRow | undefined> {
     // `.get()` returns undefined for no row, which is the contract this method
     // already had — and deliberately NOT the `null` LocksRepository returns from
     // the same shape one file over.
-    return this.db.select().from(maintenanceLeases).where(eq(maintenanceLeases.name, name)).get()
+    return await this.db.select().from(maintenanceLeases).where(eq(maintenanceLeases.name, name)).get()
   }
 
-  putLease(lease: MaintenanceLeaseRow): void {
-    this.db
+  async putLease(lease: MaintenanceLeaseRow): Promise<void> {
+    ;await (this.db
       .insert(maintenanceLeases)
-      .values(lease)
+      .values(lease))
       .onConflictDoUpdate({
         target: maintenanceLeases.name,
         set: {
@@ -60,8 +61,8 @@ export class MaintenanceRepository {
       .run()
   }
 
-  getCommand(jobKind: string, runKey: string): Reply | undefined {
-    const row = this.db
+  async getCommand(jobKind: string, runKey: string): Promise<Reply | undefined> {
+    const row = await this.db
       .select({ resultJson: maintenanceCommands.resultJson })
       .from(maintenanceCommands)
       .where(and(eq(maintenanceCommands.jobKind, jobKind), eq(maintenanceCommands.runKey, runKey)))
@@ -73,8 +74,8 @@ export class MaintenanceRepository {
     return MaintenanceCommandReply.parse(JSON.parse(row.resultJson))
   }
 
-  recordCommand(reply: Reply, fencingToken: number, appliedAt: string): void {
-    this.db
+  async recordCommand(reply: Reply, fencingToken: number, appliedAt: string): Promise<void> {
+    ;await (this.db
       .insert(maintenanceCommands)
       .values({
         jobKind: reply.jobKind,
@@ -82,7 +83,7 @@ export class MaintenanceRepository {
         fencingToken,
         resultJson: JSON.stringify(reply),
         appliedAt,
-      })
+      }))
       .run()
   }
 
@@ -95,11 +96,11 @@ export class MaintenanceRepository {
    * second would be two statements with a window between them, and after the flip
    * that window contains awaits.
    */
-  pruneCommandsBatch(cutoffAppliedAt: string, batchSize: number): number {
+  async pruneCommandsBatch(cutoffAppliedAt: string, batchSize: number): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    const oldest = this.db
+    const oldest = await this.db
       .select({ rowid: sql<number>`rowid` })
       .from(maintenanceCommands)
       .where(lt(maintenanceCommands.appliedAt, cutoffAppliedAt))
@@ -109,7 +110,7 @@ export class MaintenanceRepository {
         asc(maintenanceCommands.runKey),
       )
       .limit(batchSize)
-    const result = this.db.delete(maintenanceCommands).where(inArray(sql`rowid`, oldest)).run()
+    const result = await this.db.delete(maintenanceCommands).where(inArray(sql`rowid`, oldest)).run()
     return Number(result.changes)
   }
 }

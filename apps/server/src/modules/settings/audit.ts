@@ -64,7 +64,7 @@ export interface SettingsAuditPort {
  * and nowhere else, so a caller cannot accidentally hand a pre-redacted payload
  * to the redactor twice (harmless) or an un-redacted one to the store (not).
  */
-export function recordSettingsCommand(
+export async function recordSettingsCommand(
   port: SettingsAuditPort,
   args: {
     command: string
@@ -74,7 +74,7 @@ export function recordSettingsCommand(
     /** Present on a refusal. Recorded under `error`, after the substring check. */
     error?: string
   },
-): void {
+): Promise<void> {
   const contract = (SETTINGS_CONTRACTS as Record<string, AnyCommandContract | undefined>)[
     args.command
   ]
@@ -84,7 +84,7 @@ export function recordSettingsCommand(
   // name is resolved, and "no contract found" must never be spelled the same way
   // as "the contract declared nothing sensitive".
   if (!contract) {
-    port.repo.append(
+    await port.repo.append(
       settingsAuditRow({
         command: args.command,
         outcome: args.outcome,
@@ -105,7 +105,7 @@ export function recordSettingsCommand(
       : args.error
   }
 
-  port.repo.append(
+  await port.repo.append(
     settingsAuditRow({
       command: args.command,
       outcome: args.outcome,

@@ -77,8 +77,8 @@ function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
   }) as LedgerWithIdentity
   const registry = new FeedIdentityRegistry(
     {
-      readIdentity: () => repo.readFeedIdentity(),
-      writeIdentity: (identity) => repo.writeFeedIdentity(identity, Date.now()),
+      readIdentity: async () => await repo.readFeedIdentity(),
+      writeIdentity: async (identity) => await repo.writeFeedIdentity(identity, Date.now()),
     },
     () => randomUUID(),
   )
@@ -87,14 +87,14 @@ function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
 }
 
 /** Append `n` distinct issue upserts, returning the ledger's cursor after them. */
-function write(ledger: Ledger, ids: string[]): number {
+async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
-    ledger.commit({
-      write: () => undefined,
+    await ledger.commit({
+      write: async () => undefined,
       changes: () => [{ entity: 'issue', id, op: 'upsert', value: { id, title: id } }],
     })
   }
-  return ledger.cursor()
+  return await ledger.cursor()
 }
 
 /** True when `name` is a table in this database. */
@@ -185,10 +185,10 @@ describe('the migration creates the feed-identity table', () => {
 })
 
 describe('restore re-mints the epoch (ADR 2 D1)', () => {
-  it('closes the hole: a restored authority that writes PAST a stale cursor would otherwise answer "up to date" forever', () => {
+  it('closes the hole: a restored authority that writes PAST a stale cursor would otherwise answer "up to date" forever', async () => {
     // ---- Act 1: a healthy authority, and a client that keeps up. --------------
     const { db, dbPath, ledger } = authority()
-    const beforeBackup = write(ledger, ['iss_1', 'iss_2'])
+    const beforeBackup = await write(ledger, ['iss_1', 'iss_2'])
     expect(beforeBackup).toBe(2)
 
     // The sanctioned rollback point ([spec:SP-4428]: drizzle has no down
@@ -197,24 +197,24 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     if (!backupPath) throw new Error('backup did not run')
 
     // The authority writes on. The client reads all of it and parks its cursor.
-    const clientCursor = write(ledger, ['iss_3', 'iss_4'])
+    const clientCursor = await write(ledger, ['iss_3', 'iss_4'])
     const clientFeedId = ledger.feedIdentity().feedId
     const clientEpoch = ledger.feedIdentity().epoch
     expect(clientCursor).toBe(4)
     db.close()
 
     // ---- Act 2: the rollback. -----------------------------------------------
-    const restored = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const restored = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
     const ledger2 = ledgerOver(db2)
     // The log really did rewind: the client's cursor is now in the future.
-    expect(ledger2.cursor()).toBe(2)
+    expect(await ledger2.cursor()).toBe(2)
 
     // ---- Act 3: the authority keeps working, and max catches back up. --------
     // This is the step that makes the hole permanent rather than transient. Ask
     // during the window and `cursor > max` would have healed by luck; wait until
     // the seqs are reused and the heuristic goes quiet.
-    const rewritten = write(ledger2, ['iss_5', 'iss_6'])
+    const rewritten = await write(ledger2, ['iss_5', 'iss_6'])
     expect(rewritten).toBe(clientCursor) // 4 again — a DIFFERENT 4
 
     // ---- The hole, demonstrated. --------------------------------------------
@@ -222,7 +222,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // it holds iss_3/iss_4 from a timeline that no longer exists, and it never
     // saw iss_5/iss_6 of the one that does. Nothing about this answer is
     // detectable by a replica holding a bare integer.
-    expect(ledger2.changesSince(clientCursor)).toEqual([])
+    expect(await ledger2.changesSince(clientCursor)).toEqual([])
 
     // ---- The close. ---------------------------------------------------------
     // The epoch is the entire difference: one equality check on the next
@@ -237,21 +237,21 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     db2.close()
   })
 
-  it('restoring the SAME backup twice yields two DIFFERENT epochs', () => {
+  it('restoring the SAME backup twice yields two DIFFERENT epochs', async () => {
     // The anti-counter property, end to end. A counter re-derives the epoch from
     // the restored (old) value and maps it to the same successor every time — so
     // a second rollback attempt, a re-run runbook, or a botched first restore
     // hands a different timeline an epoch clients already accepted. Silently, in
     // exactly the situation the epoch exists to catch.
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     const backupEpoch = ledger.feedIdentity().epoch
     db.close()
 
-    const first = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
-    const second = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const first = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const second = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
 
     expect(first.previousEpoch).toBe(backupEpoch)
     // The second restore re-presents the SAME stored epoch to the bump...
@@ -267,12 +267,12 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
   it('the re-mint is durable in the file that lands in place, not just in the report', async () => {
     // The report is not evidence: what matters is the epoch a NEXT boot reads.
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
 
-    const r = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const r = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
     expect(await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity()).toEqual({
       feedId: r.feedId,
@@ -283,13 +283,13 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
   it('the backup file itself is left untouched — it stays restorable', async () => {
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     const backupEpoch = ledger.feedIdentity().epoch
     db.close()
 
-    restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
 
     // The re-mint happens on the COPY. A backup mutated in place would be
     // single-use, and the second rollback attempt would find a lie.
@@ -300,27 +300,27 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     backupDb.close()
   })
 
-  it('keeps a safety backup of the database it replaced — a rollback is itself rollback-able', () => {
+  it('keeps a safety backup of the database it replaced — a rollback is itself rollback-able', async () => {
     const { db, dbPath, dir, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
-    write(ledger, ['iss_2', 'iss_3'])
+    await write(ledger, ['iss_2', 'iss_3'])
     db.close()
 
-    const r = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const r = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     expect(r.replacedBackupPath).toBeTruthy()
     expect(readdirSync(dir)).toContain(r.replacedBackupPath?.split('/').pop())
 
     // The replaced database still holds what the restore discarded.
     const saved = openDatabase(r.replacedBackupPath as string)
-    expect(ledgerOver(saved).cursor()).toBe(3)
+    expect(await ledgerOver(saved).cursor()).toBe(3)
     saved.close()
   })
 
   it('leaves the target untouched when the copy cannot proceed', async () => {
     const { db, dbPath, ledger } = authority()
-    const cursorBefore = write(ledger, ['iss_1', 'iss_2'])
+    const cursorBefore = await write(ledger, ['iss_1', 'iss_2'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     const epochBefore = ledger.feedIdentity().epoch
@@ -334,7 +334,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     )
 
     const db2 = openDatabase(dbPath)
-    expect(ledgerOver(db2).cursor()).toBe(cursorBefore)
+    expect(await ledgerOver(db2).cursor()).toBe(cursorBefore)
     expect((await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
     db2.close()
   })
@@ -349,7 +349,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     )
   })
 
-  it('never consumes the backup pool: the backup being restored, and the pre-migration backups, all survive', () => {
+  it('never consumes the backup pool: the backup being restored, and the pre-migration backups, all survive', async () => {
     // Regression, found by the two-restores test above. The safety copy used to
     // go through backupDatabase, whose pruneBackups keeps only the 3 newest
     // `<db>.backup-v*` files — matching the PREFIX, so every label shares two
@@ -357,7 +357,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // and would have evicted the pre-migration backups that ARE the sanctioned
     // rollback path: the restore command eating its own inputs.
     const { db, dbPath, dir, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     // Three pre-migration backups — the full pool, exactly as a migrated server has.
     const migrationBackups = [
       backupDatabase(db, dbPath, 'drizzle-1', PLENTY),
@@ -369,7 +369,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     db.close()
 
     // Restore the OLDEST backup, three times over.
-    for (let i = 0; i < 3; i++) restoreDatabase({ backupPath: target, dbPath, freeBytes: PLENTY })
+    for (let i = 0; i < 3; i++) await restoreDatabase({ backupPath: target, dbPath, freeBytes: PLENTY })
 
     const present = readdirSync(dir)
     for (const b of migrationBackups) {
@@ -379,33 +379,33 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     expect(present.filter((n) => n.includes('.replaced-'))).toHaveLength(3)
   })
 
-  it('leaves no temp files behind', () => {
+  it('leaves no temp files behind', async () => {
     const { db, dbPath, dir, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
-    restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     expect(readdirSync(dir).filter((n) => n.includes('restore-tmp'))).toEqual([])
   })
 })
 
 describe('restoreCliMain (the command-shaped entry)', () => {
-  const run = (argv: string[]): { code: number; out: string } => {
+  const run = async (argv: string[]): Promise<{ code: number; out: string }> => {
     const lines: string[] = []
-    const code = restoreCliMain(argv, (s) => lines.push(s))
+    const code = await restoreCliMain(argv, (s) => lines.push(s))
     return { code, out: lines.join('\n') }
   }
 
   it('restores, re-mints, and reports both epochs to the operator', async () => {
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     const before = ledger.feedIdentity().epoch
     db.close()
 
-    const { code, out } = run([backupPath, '--db', dbPath])
+    const { code, out } = await run([backupPath, '--db', dbPath])
     expect(code).toBe(0)
     // The operator must be able to SEE that the generation moved — this output is
     // the only feedback that the guarantee actually fired.
@@ -418,11 +418,11 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     expect(out).toContain('re-bootstrap')
   })
 
-  it('prints usage and exits non-zero when the database is not given', () => {
+  it('prints usage and exits non-zero when the database is not given', async () => {
     const prev = process.env.PODIUM_DB_PATH
     delete process.env.PODIUM_DB_PATH
     try {
-      const { code, out } = run(['/some/backup'])
+      const { code, out } = await run(['/some/backup'])
       expect(code).toBe(2)
       expect(out).toContain('usage:')
     } finally {
@@ -430,12 +430,12 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     }
   })
 
-  it('accepts --db on either side of the backup, and tolerates --force', () => {
+  it('accepts --db on either side of the backup, and tolerates --force', async () => {
     // Regression: parsing that located the positional by excluding
     // `indexOf('--db') + 1` excluded index 0 whenever --db was ABSENT (-1 + 1),
     // rejecting a valid `restore <backup>` with a usage error.
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
@@ -444,20 +444,20 @@ describe('restoreCliMain (the command-shaped entry)', () => {
       ['--db', dbPath, backupPath],
       ['--force', backupPath, '--db', dbPath],
     ]) {
-      expect(run(argv).code).toBe(0)
+      expect((await run(argv)).code).toBe(0)
     }
   })
 
-  it('takes the database from PODIUM_DB_PATH when --db is omitted', () => {
+  it('takes the database from PODIUM_DB_PATH when --db is omitted', async () => {
     const { db, dbPath, ledger } = authority()
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
     const prev = process.env.PODIUM_DB_PATH
     process.env.PODIUM_DB_PATH = dbPath
     try {
-      expect(run([backupPath]).code).toBe(0)
+      expect((await run([backupPath])).code).toBe(0)
     } finally {
       if (prev === undefined) delete process.env.PODIUM_DB_PATH
       else process.env.PODIUM_DB_PATH = prev
@@ -505,19 +505,19 @@ describe('restoring a backup from before feed identity existed', () => {
     reopened.close()
   })
 
-  it('restores instead of dying, and reports honestly that there was nothing to re-mint', () => {
+  it('restores instead of dying, and reports honestly that there was nothing to re-mint', async () => {
     const { db, dbPath } = preFeedIdentityAuthority()
     const backupPath = backupDatabase(db, dbPath, 'pre-feed', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
 
-    const r = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    const r = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     // All three identity fields are null TOGETHER — a database that never issued
     // an epoch has none to re-mint, and inventing one here would be a lie.
     expect(r).toMatchObject({ feedId: null, previousEpoch: null, epoch: null })
   })
 
-  it('the restored file still BOOTS, and the boot mints a fresh identity', () => {
+  it('the restored file still BOOTS, and the boot mints a fresh identity', async () => {
     // The regression that matters. The obvious fix for the test above — have
     // restore CREATE TABLE IF NOT EXISTS sync_feed — passes it and breaks THIS:
     // the restored database has not applied 20260717092407, so drizzle runs it at
@@ -530,7 +530,7 @@ describe('restoring a backup from before feed identity existed', () => {
     if (!backupPath) throw new Error('backup did not run')
     db.close()
 
-    restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
 
     const booted = openDatabase(dbPath)
     // The pending migration applies cleanly...
@@ -542,14 +542,14 @@ describe('restoring a backup from before feed identity existed', () => {
     booted.close()
   })
 
-  it('the identity the boot mints is FRESH, so every stale client still re-bootstraps', () => {
+  it('the identity the boot mints is FRESH, so every stale client still re-bootstraps', async () => {
     // The guarantee, via the other door. No re-mint happened at restore time, so
     // this is what actually protects a client holding a cursor from the timeline
     // that was rolled back.
     const { db, dbPath, ledger } = authority()
     const staleFeedId = ledger.feedIdentity().feedId
     const staleEpoch = ledger.feedIdentity().epoch
-    write(ledger, ['iss_1'])
+    await write(ledger, ['iss_1'])
     db.close()
 
     // A backup of the pre-migration world, restored over that live database.
@@ -558,7 +558,7 @@ describe('restoring a backup from before feed identity existed', () => {
     if (!backupPath) throw new Error('backup did not run')
     old.close()
 
-    restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
+    await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const booted = openDatabase(dbPath)
     applyBaselineSchema(booted)
     const fresh = ledgerOver(booted).feedIdentity()
@@ -569,13 +569,13 @@ describe('restoring a backup from before feed identity existed', () => {
     booted.close()
   })
 
-  it('restoreCliMain says so rather than printing nulls at the operator', () => {
+  it('restoreCliMain says so rather than printing nulls at the operator', async () => {
     const { db, dbPath } = preFeedIdentityAuthority()
     const backupPath = backupDatabase(db, dbPath, 'pre-feed', PLENTY)
     if (!backupPath) throw new Error('backup did not run')
     db.close()
     const lines: string[] = []
-    const code = restoreCliMain([backupPath, '--db', dbPath], (s) => lines.push(s))
+    const code = await restoreCliMain([backupPath, '--db', dbPath], (s) => lines.push(s))
     const out = lines.join('\n')
     expect(code).toBe(0)
     expect(out).toContain('predates feed identity')
@@ -584,29 +584,29 @@ describe('restoring a backup from before feed identity existed', () => {
 })
 
 describe('restoreCliMain refuses argv it does not understand', () => {
-  const run = (argv: string[]): { code: number; out: string } => {
+  const run = async (argv: string[]): Promise<{ code: number; out: string }> => {
     const lines: string[] = []
-    const code = restoreCliMain(argv, (s) => lines.push(s))
+    const code = await restoreCliMain(argv, (s) => lines.push(s))
     return { code, out: lines.join('\n') }
   }
 
-  it('rejects an unknown flag rather than mis-parsing its value as the backup', () => {
+  it('rejects an unknown flag rather than mis-parsing its value as the backup', async () => {
     // Skipping unknown flags silently made `--label foo backup.db` restore "foo".
     // This command overwrites a database; guessing at an argv it does not
     // understand is the one thing it must never do.
-    const { code, out } = run(['--label', 'foo', '/b.db', '--db', '/db.sqlite'])
+    const { code, out } = await run(['--label', 'foo', '/b.db', '--db', '/db.sqlite'])
     expect(code).toBe(2)
     expect(out).toContain('unknown flag --label')
   })
 
-  it('rejects a second positional', () => {
-    const { code, out } = run(['/a.db', '/b.db', '--db', '/db.sqlite'])
+  it('rejects a second positional', async () => {
+    const { code, out } = await run(['/a.db', '/b.db', '--db', '/db.sqlite'])
     expect(code).toBe(2)
     expect(out).toContain('unexpected extra argument /b.db')
   })
 
-  it('rejects --db with no value instead of swallowing the next flag', () => {
-    const { code, out } = run(['/a.db', '--db', '--force'])
+  it('rejects --db with no value instead of swallowing the next flag', async () => {
+    const { code, out } = await run(['/a.db', '--db', '--force'])
     expect(code).toBe(2)
     expect(out).toContain('--db needs a path')
   })

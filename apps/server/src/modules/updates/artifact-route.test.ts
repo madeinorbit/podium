@@ -135,15 +135,15 @@ describe('development artifact route', () => {
     expect(url.pathname).toBe('/updates/feed/dev/artifact/dev%2Babc%2F123/darwin-aarch64')
     expect(url.searchParams.get('token')).toBe('random token/?')
   })
-  it('keeps a source publisher enabled for same-host fallback', () => {
+  it('keeps a source publisher enabled for same-host fallback', async () => {
     const base: Parameters<typeof wireDevBundlePublisher>[0] = {
       sourceRoot: '/repo/podium',
       artifactOrigin: 'https://podium.example.test',
       localArtifactOrigin: () => 'http://127.0.0.1:18787',
-      hasRemoteUpdateConsumers: () => false,
+      hasRemoteUpdateConsumers: async () => false,
       artifactToken: 'random-token',
       signingKey: 'unused-until-build',
-      setTarget: () => {},
+      setTarget: async () => {},
       locks: {
         acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
         cancel: () => {},
@@ -151,14 +151,14 @@ describe('development artifact route', () => {
         release: () => {},
       },
     }
-    expect(wireDevBundlePublisher(base).enabled).toBe(true)
+    expect((await wireDevBundlePublisher(base)).enabled).toBe(true)
     expect(
-      wireDevBundlePublisher({
+      (await wireDevBundlePublisher({
         ...base,
         artifactOrigin: undefined,
-      }).enabled,
+      })).enabled,
     ).toBe(true)
-    expect(wireDevBundlePublisher({ ...base, sourceRoot: undefined }).enabled).toBe(false)
+    expect((await wireDevBundlePublisher({ ...base, sourceRoot: undefined })).enabled).toBe(false)
   })
 
   it('shares ONE cached HEAD reader across everything it wires', async () => {
@@ -173,14 +173,14 @@ describe('development artifact route', () => {
       writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
 
       let reads = 0
-      const wiring = wireDevBundlePublisher({
+      const wiring = await wireDevBundlePublisher({
         sourceRoot: root,
         artifactOrigin: 'https://podium.example.test',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteUpdateConsumers: () => false,
+        hasRemoteUpdateConsumers: async () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -280,14 +280,14 @@ describe('development artifact route', () => {
       mkdirSync(join(root, '.git', 'refs', 'heads'), { recursive: true })
       writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
       writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
-      const wiring = wireDevBundlePublisher({
+      const wiring = await wireDevBundlePublisher({
         sourceRoot: root,
         artifactOrigin: undefined,
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteUpdateConsumers: () => true,
+        hasRemoteUpdateConsumers: async () => true,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -328,15 +328,15 @@ describe('development artifact route', () => {
    * These are the arms that hold the same line at its new home.
    */
   describe('the dev feed descriptor this server hands its own resolver', () => {
-    const wiringFor = (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) =>
+    const wiringFor = async (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) =>
       wireDevBundlePublisher({
         sourceRoot: '/repo/podium',
         artifactOrigin: 'https://podium.example.test',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
-        hasRemoteUpdateConsumers: () => false,
+        hasRemoteUpdateConsumers: async () => false,
         artifactToken: 'random-token',
         signingKey: 'unused-until-build',
-        setTarget: () => {},
+        setTarget: async () => {},
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -347,8 +347,8 @@ describe('development artifact route', () => {
         ...over,
       })
 
-    it('names its own feed, fenced to it, on the instance trust root', () => {
-      expect(wiringFor().channelFeed()).toEqual({
+    it('names its own feed, fenced to it, on the instance trust root', async () => {
+      expect((await wiringFor()).channelFeed()).toEqual({
         manifestUrl: 'https://podium.example.test/updates/feed/dev/podium-update.json',
         artifactBase: 'https://podium.example.test/updates/feed/dev/',
         trust: 'instance',
@@ -356,30 +356,30 @@ describe('development artifact route', () => {
       })
     })
 
-    it('fences artifacts to the feed it just named', () => {
-      const feed = wiringFor().channelFeed()
+    it('fences artifacts to the feed it just named', async () => {
+      const feed = (await wiringFor()).channelFeed()
       expect(
         developmentArtifactUrl('https://podium.example.test', 'v1', 'random-token', 'linux-x86_64'),
       ).toMatch(new RegExp(`^${feed?.artifactBase}`))
     })
 
-    it('falls back to loopback only for a same-host fleet', () => {
-      expect(wiringFor({ artifactOrigin: undefined }).channelFeed()?.manifestUrl).toBe(
+    it('falls back to loopback only for a same-host fleet', async () => {
+      expect((await wiringFor({ artifactOrigin: undefined })).channelFeed()?.manifestUrl).toBe(
         'http://127.0.0.1:18787/updates/feed/dev/podium-update.json',
       )
     })
 
-    it('names NO feed rather than a loopback one once a remote machine is registered', () => {
+    it('names NO feed rather than a loopback one once a remote machine is registered', async () => {
       expect(
-        wiringFor({
+        (await wiringFor({
           artifactOrigin: undefined,
-          hasRemoteUpdateConsumers: () => true,
-        }).channelFeed(),
+          hasRemoteUpdateConsumers: async () => true,
+        })).channelFeed(),
       ).toBeUndefined()
     })
 
-    it('names no feed at all on an installed server', () => {
-      expect(wiringFor({ sourceRoot: undefined }).channelFeed()).toBeUndefined()
+    it('names no feed at all on an installed server', async () => {
+      expect((await wiringFor({ sourceRoot: undefined })).channelFeed()).toBeUndefined()
     })
   })
 
@@ -413,21 +413,23 @@ describe('development artifact route', () => {
       unavailable: () => undefined,
     })
 
-    const wiringFor = (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) => {
+    const wiringFor = async (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) => {
       publications = 0
       const unavailable: string[] = []
-      const wiring = wireDevBundlePublisher({
+      const wiring = await wireDevBundlePublisher({
         sourceRoot: '/repo/podium',
         artifactOrigin: 'http://source:18787',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
         // A remote consumer IS registered throughout this describe, and none of
         // these tests says whether it is online: after POD-3040 that fact is
         // not an input to publication at all.
-        hasRemoteUpdateConsumers: () => true,
+        hasRemoteUpdateConsumers: async () => true,
         artifactToken: 'random-token',
         signingKey: 'test-key',
-        setTarget: () => {},
-        setTargetUnavailable: (reason) => unavailable.push(reason),
+        setTarget: async () => {},
+        setTargetUnavailable: async (reason) => {
+          unavailable.push(reason)
+        },
         locks: {
           acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
           cancel: () => {},
@@ -454,7 +456,7 @@ describe('development artifact route', () => {
           now: () => ++tick,
           log: () => {},
         }
-        const { wiring } = wiringFor({
+        const { wiring } = await wiringFor({
           publisherStateDir: stateDirectory,
           releaseTiming,
           createPublisher: (input) =>
@@ -543,7 +545,7 @@ describe('development artifact route', () => {
           now: () => ++tick,
           log: () => {},
         }
-        const { wiring } = wiringFor({
+        const { wiring } = await wiringFor({
           publisherStateDir: stateDirectory,
           releaseTiming,
           createPublisher: (input) =>
@@ -612,7 +614,7 @@ describe('development artifact route', () => {
      * the updater's job, machine by machine.
      */
     it('publishes while every registered remote consumer is offline', async () => {
-      const { wiring, publications, unavailable } = wiringFor()
+      const { wiring, publications, unavailable } = await wiringFor()
 
       await expect(wiring.requestBuild()).resolves.toEqual(built)
       expect(publications()).toBe(1)
@@ -622,7 +624,7 @@ describe('development artifact route', () => {
     it('publishes for a mixed fleet without asking the online machines anything', async () => {
       // The mixed case is the one the old gate got most wrong: the online
       // machines were reachable, and the release was still withheld from them.
-      const { wiring, publications, unavailable } = wiringFor()
+      const { wiring, publications, unavailable } = await wiringFor()
 
       await expect(wiring.requestBuild()).resolves.toEqual(built)
       await expect(wiring.requestBuild()).resolves.toEqual(built)
@@ -633,9 +635,9 @@ describe('development artifact route', () => {
     it('publishes on a server-only fleet from its loopback origin', async () => {
       // No remote consumer is registered, so no external address is required
       // and same-host testing publishes exactly as it always did.
-      const { wiring, publications, unavailable } = wiringFor({
+      const { wiring, publications, unavailable } = await wiringFor({
         artifactOrigin: undefined,
-        hasRemoteUpdateConsumers: () => false,
+        hasRemoteUpdateConsumers: async () => false,
       })
 
       await expect(wiring.requestBuild()).resolves.toEqual(built)
@@ -649,7 +651,7 @@ describe('development artifact route', () => {
      * was never what made a loopback URL wrong for a remote machine.
      */
     it('still refuses a loopback origin while a remote consumer is registered and offline', async () => {
-      const { wiring, publications, unavailable } = wiringFor({
+      const { wiring, publications, unavailable } = await wiringFor({
         artifactOrigin: undefined,
       })
 
@@ -670,7 +672,7 @@ describe('development artifact route', () => {
      * local, needs no machine, and cannot time out.
      */
     it('refuses before publication when a built artifact is no longer on disk', async () => {
-      const { wiring, publications, unavailable } = wiringFor({
+      const { wiring, publications, unavailable } = await wiringFor({
         // Retention swept the Mac tarball out from under this publish.
         artifactSize: async (path: string) => (path === darwinArtifact ? undefined : bytes.length),
       })
@@ -681,7 +683,7 @@ describe('development artifact route', () => {
     })
 
     it('refuses before publication when an artifact is not the size publication signed', async () => {
-      const { wiring, publications, unavailable } = wiringFor({
+      const { wiring, publications, unavailable } = await wiringFor({
         artifactSize: async () => 1,
       })
 
@@ -697,7 +699,7 @@ describe('development artifact route', () => {
      */
     it('re-proves a re-packed bundle rather than reusing the address it published under', async () => {
       const checked: string[] = []
-      const { wiring, publications } = wiringFor({
+      const { wiring, publications } = await wiringFor({
         artifactSize: async (path: string) => {
           checked.push(path)
           return path === artifact ? bytes.length : darwinBytes.length

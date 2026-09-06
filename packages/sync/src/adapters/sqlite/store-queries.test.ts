@@ -20,11 +20,11 @@ import { SyncRepository } from './sync-repository'
 import { createTestSyncDatabase, createTestSyncQueries, testSyncServerTables } from './test-support'
 
 describe('the sync adapter query port', () => {
-  it('runs the adapter statements on the connection the port carries', () => {
+  it('runs the adapter statements on the connection the port carries', async () => {
     const db = createTestSyncDatabase()
     const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
 
-    repo.writeFeedIdentity({ feedId: 'feed-1', epoch: 'epoch-1' }, 1)
+    await repo.writeFeedIdentity({ feedId: 'feed-1', epoch: 'epoch-1' }, 1)
 
     // Read back through the SAME connection the port was built over, not through
     // the repository — so the assertion is that the port carried the caller's
@@ -46,9 +46,9 @@ describe('the sync adapter query port', () => {
     const repo = new SyncRepository(queries, testSyncServerTables)
 
     expect(() =>
-      queries.createOrJoinTransaction(() => {
-        repo.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1)
-        expect(repo.maxChangeSeq()).toBe(1)
+      queries.createOrJoinTransaction(async () => {
+        await repo.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1)
+        expect(await repo.maxChangeSeq()).toBe(1)
         throw new Error("roll the caller's span back")
       }),
     ).toThrow("roll the caller's span back")

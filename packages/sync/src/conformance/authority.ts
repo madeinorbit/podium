@@ -396,10 +396,10 @@ export class ConformanceAuthority {
    */
   private readonly identityStore: FeedIdentityStore & { held: FeedIdentity | null } = {
     held: null,
-    readIdentity() {
+    async readIdentity() {
       return this.held
     },
-    writeIdentity(identity) {
+    async writeIdentity(identity) {
       this.held = identity
     },
   }
@@ -415,6 +415,10 @@ export class ConformanceAuthority {
     this.mintIndex += 1
     return epoch
   })
+
+  async resolveIdentity(): Promise<void> {
+    await this.identity.resolve()
+  }
 
   get feedId(): string {
     return this.identity.current().feedId
@@ -525,8 +529,8 @@ export class ConformanceAuthority {
    * asserts that its own literal came back. Now the suite must ask what was
    * minted, which is a question only a working mint can answer.
    */
-  bumpEpoch(cause: EpochBumpCause): string {
-    return this.identity.bump(cause).epoch
+  async bumpEpoch(cause: EpochBumpCause): Promise<string> {
+    return (await this.identity.bump(cause)).epoch
   }
 
   /**

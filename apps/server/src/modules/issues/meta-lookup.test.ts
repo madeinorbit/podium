@@ -26,16 +26,16 @@ async function harness() {
     setSessionArchived: vi.fn(),
     now: () => '2026-07-17T00:00:00.000Z',
   }
-  return { listSessions, svc: IssueService.create(deps) }
+  return { listSessions, svc: await IssueService.create(deps) }
 }
 
 describe('POD-826 lightweight issue lookups', () => {
   it('returns raw metadata and checks existence without enumerating sessions', async () => {
     const { listSessions, svc } = await harness()
-    const created = svc.create({ repoPath: '/repo', title: 'metadata', startNow: false })
+    const created = await svc.create({ repoPath: '/repo', title: 'metadata', startNow: false })
     listSessions.mockClear()
 
-    expect(svc.getMeta(String(created.seq))).toMatchObject({
+    expect(await svc.getMeta(String(created.seq))).toMatchObject({
       id: created.id,
       repoPath: '/repo',
       seq: created.seq,
@@ -43,19 +43,19 @@ describe('POD-826 lightweight issue lookups', () => {
       worktreePath: null,
       parentId: null,
     })
-    expect(svc.getMeta(created.id)).not.toHaveProperty('sessions')
-    expect(svc.has(`#${created.seq}`)).toBe(true)
-    expect(svc.has('missing')).toBe(false)
+    expect(await svc.getMeta(created.id)).not.toHaveProperty('sessions')
+    expect(await svc.has(`#${created.seq}`)).toBe(true)
+    expect(await svc.has('missing')).toBe(false)
     expect(listSessions).not.toHaveBeenCalled()
   })
 
   it('keeps get as a session-free wire lookup', async () => {
     const { listSessions, svc } = await harness()
-    const created = svc.create({ repoPath: '/repo', title: 'wire', startNow: false })
+    const created = await svc.create({ repoPath: '/repo', title: 'wire', startNow: false })
     listSessions.mockClear()
 
-    expect(svc.get(created.id)).toMatchObject({ id: created.id })
-    expect(svc.get(created.id)).not.toHaveProperty('sessions')
+    expect(await svc.get(created.id)).toMatchObject({ id: created.id })
+    expect(await svc.get(created.id)).not.toHaveProperty('sessions')
     expect(listSessions).not.toHaveBeenCalled()
   })
 })

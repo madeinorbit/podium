@@ -201,9 +201,9 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
    * `IssueStore`'s `rows` getter used to hydrate on first touch, and a getter
    * cannot await. The body is synchronous today and gains an await at the flip.
    */
-  static create(deps: IssueDeps): IssueServiceRoot {
+  static async create(deps: IssueDeps): Promise<IssueServiceRoot> {
     const service = IssueServiceRoot.compose(deps)
-    service.store.init()
+    await service.store.init()
     return service
   }
 
@@ -301,15 +301,15 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   // required principal is now the only signature `IssueService` exposes.
 
   /** Boot hydration, membership totalization and ledger reconcile. */
-  boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): this {
+  async boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): Promise<this> {
     const store = this.store
-    store.init()
+    await store.init()
     const setSessionIssueId = store.deps.setSessionIssueId
     if (setSessionIssueId) {
       let totalized = 0
-      for (const session of store.deps.listSessions()) {
+      for (const session of await store.deps.listSessions()) {
         if (session.issueId != null) continue
-        const issueId = this.reports.soleOwnerForCwd(session.cwd)
+        const issueId = await this.reports.soleOwnerForCwd(session.cwd)
         if (!issueId) continue
         setSessionIssueId(session.sessionId, issueId)
         totalized += 1
@@ -325,8 +325,8 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       // returns. Say so when it is slow rather than looking hung — the operator's
       // only other signal is a port that has not opened yet.
       const reconcileStart = performance.now()
-      const wire = store.allWire()
-      store.deps.ledger.reconcile(
+      const wire = await store.allWire()
+      await store.deps.ledger.reconcile(
         'issue',
         wire.map((i) => ({ id: i.id, value: i })),
       )
@@ -337,12 +337,12 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
           durationMs: reconcileMs,
         })
       }
-      const projections = store.allProjections()
-      if (projections) store.deps.ledger.reconcile('issueProjection', projections)
-      const depProjections = store.allDepProjections()
-      if (depProjections) store.deps.ledger.reconcile('issueDep', depProjections)
-      store.publishRepos()
-      store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
+      const projections = await store.allProjections()
+      if (projections) await store.deps.ledger.reconcile('issueProjection', projections)
+      const depProjections = await store.allDepProjections()
+      if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)
+      await store.publishRepos()
+      await store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
     } catch (err) {
       log.warn('boot reconciliation record failed', { err })
     }

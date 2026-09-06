@@ -72,8 +72,8 @@ export const SETTINGS_COMMANDS_TRPC = {
     // THE OWNING USER DECIDES WHERE THE VALUE LANDS (POD-1213). The contract's
     // role floor already re-checks this user at drain; passing the actor is what
     // makes the row it writes theirs rather than the instance's.
-    handler: ((svc, input, actor) =>
-      svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
+    handler: (async (svc, input, actor) =>
+      await svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.updatePersonal']['input']>,
       unknown
     >,
@@ -83,22 +83,22 @@ export const SETTINGS_COMMANDS_TRPC = {
     // Same method, and the actor is carried rather than dropped: the store routes
     // BY CLASSIFICATION, so an instance patch reaches the shared blob no matter
     // who sends it. One routing answer, not one per command.
-    handler: ((svc, input, actor) =>
-      svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
+    handler: (async (svc, input, actor) =>
+      await svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.updateInstance']['input']>,
       unknown
     >,
   },
   'settings.setSecret': {
     contract: SETTINGS_CONTRACTS['settings.setSecret'],
-    handler: ((svc, input) => svc.setSecret(input.key, input.value)) satisfies SettingsHandler<
+    handler: (async (svc, input) => await svc.setSecret(input.key, input.value)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.setSecret']['input']>,
       unknown
     >,
   },
   'settings.clearSecret': {
     contract: SETTINGS_CONTRACTS['settings.clearSecret'],
-    handler: ((svc, input) => svc.clearSecret(input.key)) satisfies SettingsHandler<
+    handler: (async (svc, input) => await svc.clearSecret(input.key)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.clearSecret']['input']>,
       unknown
     >,
@@ -115,21 +115,21 @@ export const SETTINGS_COMMANDS_TRPC = {
   // of behind nothing.
   'settings.secretPresence': {
     contract: SETTINGS_CONTRACTS['settings.secretPresence'],
-    handler: ((svc) => svc.secretPresenceList()) satisfies SettingsHandler<
+    handler: (async (svc) => await svc.secretPresenceList()) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.secretPresence']['input']>,
       unknown
     >,
   },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
-    handler: ((svc, _input, actor) => svc.startTelegramSetup(actor)) satisfies SettingsHandler<
+    handler: (async (svc, _input, actor) => await svc.startTelegramSetup(actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupStart']['input']>,
       unknown
     >,
   },
   'settings.telegramSetupPoll': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupPoll'],
-    handler: ((svc, input) => svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
+    handler: (async (svc, input) => await svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupPoll']['input']>,
       unknown
     >,

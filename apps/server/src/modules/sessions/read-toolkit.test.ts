@@ -50,7 +50,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         deliveredUnacked: () => [{ id: 'm1' }, { id: 'm2' }],
       }) as unknown as MessageDeliveryService,
     events: {
-      appendEvent: (e) => {
+      appendEvent: async (e) => {
         events.push({ kind: e.kind, subject: e.subject, payload: e.payload })
         return 1
       },
@@ -62,8 +62,8 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         : { ok: true, output: '## branch\n M a.ts\n?? b.ts' }
     },
     watermarks: {
-      getRecapWatermark: (reader, sessionId) => watermarks.get(`${reader}|${sessionId}`) ?? null,
-      setRecapWatermark: (reader, sessionId, watermark) => {
+      getRecapWatermark: async (reader, sessionId) => watermarks.get(`${reader}|${sessionId}`) ?? null,
+      setRecapWatermark: async (reader, sessionId, watermark) => {
         watermarks.set(`${reader}|${sessionId}`, watermark)
       },
     },

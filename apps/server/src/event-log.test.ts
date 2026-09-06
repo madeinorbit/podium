@@ -33,7 +33,7 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-02T00:00:00.000Z',
   }
-  return { store, deps, svc: IssueService.create({ ...deps, ...extra }) }
+  return { store, deps, svc: await IssueService.create({ ...deps, ...extra }) }
 }
 
 describe('SessionStore event log', () => {
@@ -225,9 +225,10 @@ describe('SessionStore event log retention', () => {
 
   it('row cap deletes the oldest rows beyond maxRows even when young', async () => {
     const store = await openTestStore(':memory:')
-    const ids = [1, 2, 3, 4, 5].map(() =>
-      store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
-    )
+    const ids: number[] = []
+    for (let i = 0; i < 5; i++) {
+      ids.push(await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }))
+    }
     expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 2 })).toBe(3)
     expect((await store.events.listEventsSince(0)).map((e) => e.id)).toEqual(ids.slice(3))
   })
@@ -282,7 +283,7 @@ describe('SessionStore event log retention', () => {
 describe('IssueService event emission', () => {
   it('create emits issue.created with seq/title and the repo path', async () => {
     const { svc, store } = await harness()
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.created'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: w.id, repoPath: '/r', payload: { seq: 1, title: 'A' } })
@@ -294,13 +295,13 @@ describe('IssueService event emission', () => {
     // when an issue comes into existence.
     const seen: unknown[] = []
     const { svc } = await harness([], { onIssueCreated: (event) => seen.push(event) })
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     // 'user:sole' is what create() defaults the owner to (crud.ts), and the
     // callback reports the ROW's owner rather than the wire's, because the wire
     // does not carry one.
     expect(seen).toEqual([{ issueId: w.id, title: 'A', ownerUserId: 'user:sole' }])
 
-    svc.update(w.id, { title: 'renamed' })
+    await svc.update(w.id, { title: 'renamed' })
     expect(seen).toHaveLength(1)
   })
 
@@ -315,10 +316,10 @@ describe('IssueService event emission', () => {
 
   it('close emits issue.closed AND issue.ready for a dependent whose only blocker closed', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.addDep(b.id, a.id, 'blocks')
-    svc.close(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.addDep(b.id, a.id, 'blocks')
+    await svc.close(a.id)
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
@@ -329,21 +330,21 @@ describe('IssueService event emission', () => {
 
   it('close does NOT emit issue.ready for a dependent that is still blocked by another open issue', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.addDep(c.id, a.id, 'blocks')
-    svc.addDep(c.id, b.id, 'blocks')
-    svc.close(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.addDep(c.id, a.id, 'blocks')
+    await svc.addDep(c.id, b.id, 'blocks')
+    await svc.close(a.id)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
   it('stage change emits issue.stage_changed; close does not double-emit it', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.update(a.id, { stage: 'in_progress' })
-    svc.update(a.id, { stage: 'in_progress' }) // same value — no event
-    svc.close(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.update(a.id, { stage: 'in_progress' })
+    await svc.update(a.id, { stage: 'in_progress' }) // same value — no event
+    await svc.close(a.id)
     const staged = await store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })
     expect(staged.length).toBe(1)
     expect(staged[0]).toMatchObject({
@@ -355,9 +356,9 @@ describe('IssueService event emission', () => {
 
   it('needs-human set/clear emit their events', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.setNeedsHuman(a.id, 'which key?')
-    svc.clearNeedsHuman(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.setNeedsHuman(a.id, 'which key?')
+    await svc.clearNeedsHuman(a.id)
     const flagged = await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
     expect(flagged[0]).toMatchObject({
@@ -369,8 +370,8 @@ describe('IssueService event emission', () => {
 
   it('issue.needs_human carries options + askedBy when given (issue #53)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.setNeedsHuman(a.id, 'merge?', {
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.setNeedsHuman(a.id, 'merge?', {
       options: ['Yes', 'No'],
       askedBy: asSessionId('sess_asker'),
     })
@@ -385,8 +386,8 @@ describe('IssueService event emission', () => {
   // Attention-state transitions S3 renders (issue #124).
   it('markIssueRead emits issue.read', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.markIssueRead(a.id)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.markIssueRead(a.id)
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.read'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -394,10 +395,10 @@ describe('IssueService event emission', () => {
 
   it('pin change emits issue.pinned with the new value (both directions)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.update(a.id, { pinned: true })
-    svc.update(a.id, { pinned: true }) // no change — no duplicate event
-    svc.update(a.id, { pinned: false })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.update(a.id, { pinned: true })
+    await svc.update(a.id, { pinned: true }) // no change — no duplicate event
+    await svc.update(a.id, { pinned: false })
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
     expect(evs.length).toBe(2)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })
@@ -406,9 +407,9 @@ describe('IssueService event emission', () => {
 
   it('defer/undefer emit issue.snoozed / issue.unsnoozed', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.defer(a.id, '2999-01-01')
-    svc.defer(a.id, null)
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.defer(a.id, '2999-01-01')
+    await svc.defer(a.id, null)
     const snoozed = await store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
     expect(snoozed.length).toBe(1)
     expect(snoozed[0]).toMatchObject({
@@ -422,9 +423,9 @@ describe('IssueService event emission', () => {
 
   it('archive emits issue.archived once (on the false->true flip)', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.archive(a.id)
-    svc.archive(a.id) // already archived — no duplicate event
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.archive(a.id)
+    await svc.archive(a.id) // already archived — no duplicate event
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.archived'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -432,7 +433,7 @@ describe('IssueService event emission', () => {
 
   it('start emits issue.started with branch + worktreePath', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const a = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     await svc.start(a.id)
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.started'] })
     expect(evs.length).toBe(1)
@@ -451,16 +452,16 @@ describe('IssueService event emission', () => {
     vi.spyOn(store.events, 'appendEvent').mockImplementation(() => {
       throw new Error('disk full')
     })
-    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect(svc.close(w.id).stage).toBe('done')
+    const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect((await svc.close(w.id)).stage).toBe('done')
   })
 
   it('update --stage done (board drag / CLI path) emits issue.closed + the ready fanout', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.addDep(b.id, a.id, 'blocks')
-    svc.update(a.id, { stage: 'done' })
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.addDep(b.id, a.id, 'blocks')
+    await svc.update(a.id, { stage: 'done' })
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
@@ -472,11 +473,11 @@ describe('IssueService event emission', () => {
 
   it('supersede and duplicate emit issue.closed with their reasons', async () => {
     const { svc, store } = await harness()
-    const old = svc.create({ repoPath: '/r', title: 'Old', startNow: false })
-    const canon = svc.create({ repoPath: '/r', title: 'New', startNow: false })
-    const dup = svc.create({ repoPath: '/r', title: 'Dup', startNow: false })
-    svc.supersede(old.id, canon.id)
-    svc.duplicate(dup.id, canon.id)
+    const old = await svc.create({ repoPath: '/r', title: 'Old', startNow: false })
+    const canon = await svc.create({ repoPath: '/r', title: 'New', startNow: false })
+    const dup = await svc.create({ repoPath: '/r', title: 'Dup', startNow: false })
+    await svc.supersede(old.id, canon.id)
+    await svc.duplicate(dup.id, canon.id)
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.map((e) => [e.subject, (e.payload as { reason: string }).reason])).toEqual([
       [old.id, 'superseded'],
@@ -486,18 +487,18 @@ describe('IssueService event emission', () => {
 
   it('double-close emits exactly one issue.closed', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.close(a.id)
-    svc.close(a.id, 'wontfix')
-    svc.update(a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.close(a.id)
+    await svc.close(a.id, 'wontfix')
+    await svc.update(a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
   it('a ready-fanout read failure leaves the close durably persisted', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    svc.addDep(b.id, a.id, 'blocks')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.addDep(b.id, a.id, 'blocks')
 
     // Arm the fault only after issue.closed lands, so this test distinguishes
     // a committed close from the post-commit ready fanout that follows it.
@@ -505,21 +506,21 @@ describe('IssueService event emission', () => {
     const origAllDeps = store.issues.listAllIssueDeps.bind(store.issues)
     let closedEventAppended = false
     let fanoutReadFailed = false
-    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
-      const id = origAppend(event, options)
+    vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
+      const id = await origAppend(event, options)
       if (event.kind === 'issue.closed') closedEventAppended = true
       return id
     })
-    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(() => {
+    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(async () => {
       if (closedEventAppended) {
         fanoutReadFailed = true
         throw new Error('fanout read failed')
       }
-      return origAllDeps()
+      return await origAllDeps()
     })
 
     try {
-      svc.close(a.id)
+      await svc.close(a.id)
     } catch {
       // Error surfacing is pinned independently below; this oracle owns the
       // durable state that remains after that post-commit failure.
@@ -535,11 +536,11 @@ describe('IssueService event emission', () => {
     const origin = 'https://example.test/shared.git'
     await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin)
     await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin)
-    const a = svc.create({ repoPath: '/clone/one', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/clone/one', title: 'B', startNow: false })
-    const c = svc.create({ repoPath: '/clone/two', title: 'C', startNow: false })
-    svc.addDep(b.id, a.id, 'blocks')
-    svc.addDep(c.id, a.id, 'blocks')
+    const a = await svc.create({ repoPath: '/clone/one', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/clone/one', title: 'B', startNow: false })
+    const c = await svc.create({ repoPath: '/clone/two', title: 'C', startNow: false })
+    await svc.addDep(b.id, a.id, 'blocks')
+    await svc.addDep(c.id, a.id, 'blocks')
 
     // Both dependents share a repo identity but use different paths, so toWire's
     // batch needs two prefix lookups. Fail the second: before this regression
@@ -548,19 +549,19 @@ describe('IssueService event emission', () => {
     const origPrefix = store.repos.prefixForPath.bind(store.repos)
     let armed = false
     let fanoutPrefixReads = 0
-    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
-      const id = origAppend(event, options)
+    vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
+      const id = await origAppend(event, options)
       if (event.kind === 'issue.closed') armed = true
       return id
     })
-    vi.spyOn(store.repos, 'prefixForPath').mockImplementation((repoPath) => {
+    vi.spyOn(store.repos, 'prefixForPath').mockImplementation(async (repoPath) => {
       if (armed && ++fanoutPrefixReads === 2) throw new Error('second prefix read failed')
-      return origPrefix(repoPath)
+      return await origPrefix(repoPath)
     })
 
     let caught: unknown
     try {
-      svc.close(a.id)
+      await svc.close(a.id)
     } catch (error) {
       caught = error
     }
@@ -577,24 +578,24 @@ describe('IssueService event emission', () => {
 
   it('a second ready append failure rolls the whole durable fanout back', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.addDep(b.id, a.id, 'blocks')
-    svc.addDep(c.id, a.id, 'blocks')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = await svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.addDep(b.id, a.id, 'blocks')
+    await svc.addDep(c.id, a.id, 'blocks')
 
     const origAppend = store.events.appendEvent.bind(store.events)
     let readyAppends = 0
-    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
+    vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
       if (event.kind === 'issue.ready' && ++readyAppends === 2) {
         throw new Error('second ready append failed')
       }
-      return origAppend(event, options)
+      return await origAppend(event, options)
     })
 
     let caught: unknown
     try {
-      svc.close(a.id)
+      await svc.close(a.id)
     } catch (error) {
       caught = error
     }
@@ -609,13 +610,13 @@ describe('IssueService event emission', () => {
 
   it('re-flagging needs-human emits once; re-clearing likewise', async () => {
     const { svc, store } = await harness()
-    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.clearNeedsHuman(a.id) // never flagged — nothing to log
-    svc.setNeedsHuman(a.id, 'q1')
-    svc.setNeedsHuman(a.id, 'q2')
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.clearNeedsHuman(a.id) // never flagged — nothing to log
+    await svc.setNeedsHuman(a.id, 'q1')
+    await svc.setNeedsHuman(a.id, 'q2')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })).length).toBe(1)
-    svc.clearNeedsHuman(a.id)
-    svc.clearNeedsHuman(a.id)
+    await svc.clearNeedsHuman(a.id)
+    await svc.clearNeedsHuman(a.id)
     expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length).toBe(1)
   })
 })
@@ -626,9 +627,9 @@ describe('SessionRegistry session.phase events', () => {
 
   it('skips the prev-undefined seed and logs only real phase transitions', async () => {
     const store = await openTestStore(':memory:')
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
     })

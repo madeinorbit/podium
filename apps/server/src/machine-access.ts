@@ -147,6 +147,18 @@ export interface MachineRowSource extends MachineGrantSource {
   ownershipRows(): { id: MachineId; name?: string; ownerUserId: UserId | null }[]
 }
 
+/** Async repository-backed form, resolved before a synchronous policy pass begins. */
+export interface AsyncMachineRowSource {
+  ownershipRows():
+    | { id: MachineId; name?: string; ownerUserId: UserId | null }[]
+    | Promise<{ id: MachineId; name?: string; ownerUserId: UserId | null }[]>
+  grantsForMachine?(
+    machineId: MachineId,
+  ):
+    | { grantee: string; verb: string }[]
+    | Promise<{ grantee: string; verb: string }[]>
+}
+
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
  *  verb this build does not know (`read`/`write` belong to other classes, and a
  *  newer build may write a fifth) is DROPPED rather than admitted. */
@@ -180,6 +192,25 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
       }
     },
   }
+}
+
+/** Resolve repository-backed ownership once before a non-yielding policy pass. */
+export async function ownershipSnapshotFromMachines(
+  machines: AsyncMachineRowSource,
+): Promise<MachineOwnershipIndex> {
+  const rows = await machines.ownershipRows()
+  const resolved = await Promise.all(
+    rows.map(async (row): Promise<MachineOwnershipRow> => ({
+      machine: row.id,
+      owner: row.ownerUserId,
+      grants: ((await machines.grantsForMachine?.(row.id)) ?? [])
+        .filter((edge) => MACHINE_VERBS.includes(edge.verb))
+        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb })),
+      ...(row.name === undefined ? {} : { name: row.name }),
+    })),
+  )
+  const byId = new Map(resolved.map((row) => [row.machine, row]))
+  return { rowFor: (machineId) => byId.get(machineId) }
 }
 
 const ownershipByPassSlot = readScopeSlot(

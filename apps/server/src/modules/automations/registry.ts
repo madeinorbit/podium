@@ -58,23 +58,23 @@ export interface AutomationCommand {
 export const AUTOMATION_COMMANDS = {
   create: {
     contract: AUTOMATION_CONTRACTS.create,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.create.input>, principal) =>
-      service.create(input, principal),
+    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.create.input>, principal) =>
+      await service.create(input, principal),
   },
   update: {
     contract: AUTOMATION_CONTRACTS.update,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.update.input>, principal) =>
-      service.update(input.id, input.patch, principal),
+    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.update.input>, principal) =>
+      await service.update(input.id, input.patch, principal),
   },
   setEnabled: {
     contract: AUTOMATION_CONTRACTS.setEnabled,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.setEnabled.input>, principal) =>
-      service.setEnabled(input.id, input.enabled, principal),
+    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.setEnabled.input>, principal) =>
+      await service.setEnabled(input.id, input.enabled, principal),
   },
   remove: {
     contract: AUTOMATION_CONTRACTS.remove,
-    handler: (service, input: z.infer<typeof AUTOMATION_CONTRACTS.remove.input>, principal) =>
-      service.remove(input.id, principal),
+    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.remove.input>, principal) =>
+      await service.remove(input.id, principal),
   },
 } as const satisfies Record<AutomationContractName, AutomationCommand>
 

@@ -63,7 +63,7 @@ export class LoginPropagationService {
   }
 
   /** Fire-and-forget trigger used by spawn, harness failure, and enrollment. */
-  trigger(input: LoginPropagationTrigger): void {
+  async trigger(input: LoginPropagationTrigger): Promise<void> {
     void this.propagate(input).catch((error: unknown) => {
       log.warn('login propagation failed', {
         err: error,
@@ -80,7 +80,7 @@ export class LoginPropagationService {
       : undefined
     if (!harness) return { status: 'skipped', reason: 'harness does not support propagation' }
 
-    const target = this.deps.store.machines.getMachine(input.targetMachineId)
+    const target = await this.deps.store.machines.getMachine(input.targetMachineId)
     const ownerUserId = target?.ownerUserId ?? undefined
     if (!target || !ownerUserId) return { status: 'skipped', reason: 'target has no owner' }
     if (input.principalUserId && input.principalUserId !== ownerUserId) {
@@ -152,7 +152,7 @@ export class LoginPropagationService {
       return {
         status: 'skipped',
         reason:
-          this.deps.machines.capabilityRejection(input.input.targetMachineId, HOST_REPOS) ===
+          await this.deps.machines.capabilityRejection(input.input.targetMachineId, HOST_REPOS) ===
           'no-daemon'
             ? 'target runs no Podium daemon'
             : 'target is offline',
@@ -169,7 +169,7 @@ export class LoginPropagationService {
     // and `.find` (POD-3257). Same rows, one read: `getMachine` selects the same
     // columns through the same mapper with no filter, so an owner read from this
     // map is the row `getMachine` would have returned.
-    const machines = this.deps.store.machines.listMachines()
+    const machines = await this.deps.store.machines.listMachines()
     const ownerByMachineId = new Map(machines.map((m) => [m.id, m.ownerUserId]))
     const catalog = buildLoginCatalog(machines)
     const isDonor = (machine: { harness: string; machineId: MachineId }): boolean =>
@@ -192,13 +192,13 @@ export class LoginPropagationService {
     const bundle = exported.bundles.find((candidate) => candidate.kind === kind)
     if (!bundle) return { status: 'failed', reason: 'donor credential unavailable' }
 
-    const transferId = this.deps.store.secrets.putNativeLoginTransfer(
+    const transferId = await this.deps.store.secrets.putNativeLoginTransfer(
       input.ownerUserId,
       bundle,
       new Date(this.now()).toISOString(),
     )
     try {
-      const serverBundle = this.deps.store.secrets.getNativeLoginTransfer(
+      const serverBundle = await this.deps.store.secrets.getNativeLoginTransfer(
         input.ownerUserId,
         transferId,
       )
@@ -213,7 +213,7 @@ export class LoginPropagationService {
       }
       return { status: 'propagated', donorMachineId: donor.machineId }
     } finally {
-      this.deps.store.secrets.clearNativeLoginTransfer(input.ownerUserId, transferId)
+      await this.deps.store.secrets.clearNativeLoginTransfer(input.ownerUserId, transferId)
     }
   }
 }

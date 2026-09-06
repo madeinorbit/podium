@@ -27,23 +27,23 @@ export interface ChangePrunePlan {
  */
 export interface ChangeLogStore {
   /** Append pre-diffed rows atomically; returns their contiguous seqs. */
-  appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): number[]
+  appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]>
   /** Highest seq ever assigned (survives head-pruning). 0 = none. */
-  maxChangeSeq(): number
+  maxChangeSeq(): Promise<number>
   /** Lowest RETAINED seq, or null when the log is empty. */
-  minChangeSeq(): number | null
+  minChangeSeq(): Promise<number | null>
   /** Plain range read: rows with seq > cursor, in seq order. */
-  changesSince(cursor: number): readonly ChangeLogReadRow[]
+  changesSince(cursor: number): Promise<readonly ChangeLogReadRow[]>
   /** Snapshot the head-only retention threshold once per job. */
-  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
+  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): Promise<ChangePrunePlan>
   /** Delete one bounded, indexed head batch from a fixed plan. */
-  pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
+  pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): Promise<number>
   /** THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
    *  for the baseline, and the bootstrap read (see
    *  `ChangeStorePort.latestChangeStates`). Independent of retention (POD-678):
    *  the row budget bounds what `changesSince` can serve, never what exists. Only
    *  `upsert` rows come back — a removed entity is not in the world. */
-  latestChangeStates(): readonly ChangeLogReadRow[]
+  latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
 }
 
 /** Retention: keep the newest 20k rows, and nothing older than 3 days —
@@ -80,16 +80,16 @@ export async function pruneChangeLog(
   let deleted = 0
   let plan: ChangePrunePlan | undefined
   const metrics = await runTimeBudgetedJob(
-    () => {
+    async () => {
       if (!plan) {
-        plan = store.planChangePrune({
+        plan = await store.planChangePrune({
           keepRows: opts.keepRows,
           maxAgeMs: opts.maxAgeMs,
           now: opts.now,
         })
         return plan.thresholdSeq > 0 ? 'continue' : 'done'
       }
-      const batchDeleted = store.pruneChangeBatch(plan, CHANGE_PRUNE_BATCH_ROWS)
+      const batchDeleted = await store.pruneChangeBatch(plan, CHANGE_PRUNE_BATCH_ROWS)
       deleted += batchDeleted
       return batchDeleted < CHANGE_PRUNE_BATCH_ROWS ? 'done' : 'continue'
     },
@@ -283,8 +283,8 @@ export class ChangeBaseline {
    *  first record after a restart emits deltas for anything that changed while
    *  the server was down. A corrupt payload seeds no baseline for its id —
    *  the first sighting then re-upserts it. */
-  seed(store: Pick<ChangeLogStore, 'latestChangeStates'>): void {
-    for (const row of store.latestChangeStates()) {
+  async seed(store: Pick<ChangeLogStore, 'latestChangeStates'>): Promise<void> {
+    for (const row of await store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload == null) continue
       try {
         const entity = row.entity as MetadataEntityKind
@@ -411,10 +411,10 @@ export class ChangeBaseline {
  * Both are SAFE (the authority's answer is authoritative either way; a needless
  * bootstrap is always legal), but the exact form is free.
  */
-export function minAvailableSeq(
+export async function minAvailableSeq(
   store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq'>,
-): number {
-  return store.minChangeSeq() ?? store.maxChangeSeq() + 1
+): Promise<number> {
+  return (await store.minChangeSeq()) ?? (await store.maxChangeSeq()) + 1
 }
 
 /**
@@ -423,14 +423,14 @@ export function minAvailableSeq(
  * range (compaction), a cursor from the future (server DB was reset), or a
  * corrupt upsert row in the range (snapshot instead of a hole).
  */
-export function readChangesSince(
+export async function readChangesSince(
   store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq' | 'changesSince'>,
   cursor: number | null,
-): MetadataChange[] | null {
-  const max = store.maxChangeSeq()
+): Promise<MetadataChange[] | null> {
+  const max = await store.maxChangeSeq()
   if (cursor == null || cursor > max) return null
   if (cursor === max) return []
-  const min = store.minChangeSeq()
+  const min = await store.minChangeSeq()
   // Continuity: everything in (cursor, max] must still be retained. The oldest
   // retained row must be no newer than cursor + 1, else rows were pruned away.
   if (min == null || min > cursor + 1) return null
@@ -442,7 +442,7 @@ export function readChangesSince(
   // terminates.
   let from = cursor
   while (from < max) {
-    const rows = store.changesSince(from)
+    const rows = await store.changesSince(from)
     if (rows.length === 0) break
     for (const r of rows) {
       const base = { seq: r.seq, id: r.entityId, op: r.op }

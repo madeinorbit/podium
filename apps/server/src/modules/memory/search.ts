@@ -57,7 +57,7 @@ export class MemorySearchService {
     private readonly visibility: MemoryVisibilityPolicy,
   ) {}
 
-  searchConversations(
+  async searchConversations(
     reader: MemoryReader,
     opts: { query?: string; projectPath?: string; limit?: number },
     visibility?: MemoryVisibilityPolicy,
@@ -65,45 +65,45 @@ export class MemorySearchService {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const scopedVisibility =
       visibility ??
-      this.visibility.forRequest(this.store.sessions.loadSessions(), {
+      await this.visibility.forRequest(await this.store.sessions.loadSessions(), {
         // The native conversation-list RPC can return one row per distinct
         // issue. Prime those owner and grant rows as one request-local batch;
         // the omni search caller passes its own visibility context and keeps
         // its existing memoized path unchanged.
         batchIssueOwners: true,
       })
-    return this.store.conversations.index
-      .searchCandidates(opts)
-      .filter(
-        (row) =>
-          // POD-318: every stored row carries its reporting machine, and there is
-          // no placeholder left to substitute — a machine-less row is unreadable
-          // rather than readable-as-local.
-          row.machineId !== undefined &&
-          scopedVisibility.mayRead(reader, {
-            class: 'conversation',
-            machineId: row.machineId,
-            nativeId: row.id,
-          }),
-      )
-      .slice(0, limit)
+    const rows = await this.store.conversations.index.searchCandidates(opts)
+    // Revocation makes a stale allow unsafe: this batch belongs only to this
+    // request, and only an explicit true survives the synchronous filter.
+    const readable = await Promise.all(rows.map(async (row) =>
+      row.machineId !== undefined && await scopedVisibility.mayRead(reader, {
+        class: 'conversation', machineId: row.machineId, nativeId: row.id,
+      }),
+    ))
+    return rows.filter((_, index) => readable[index] === true).slice(0, limit)
   }
 
-  search(
+  async search(
     reader: MemoryReader,
     opts: { text: string; limit?: number; now?: () => number },
-  ): SearchResultWire[] {
+  ): Promise<SearchResultWire[]> {
     const text = opts.text.trim()
     if (!text) return []
     const limit = Math.min(100, Math.max(1, opts.limit ?? 30))
     const now = (opts.now ?? Date.now)()
     const lower = text.toLowerCase()
     const out: SearchResultWire[] = []
-    const sessions = this.store.sessions.loadSessions()
-    const visibility = this.visibility.forRequest(sessions)
+    const sessions = await this.store.sessions.loadSessions()
+    const visibility = await this.visibility.forRequest(sessions)
 
-    for (const row of sessions) {
-      if (!visibility.mayRead(reader, { class: 'session', id: row.id })) continue
+    // Session grants can be revoked. Resolve once per search, never across
+    // requests; missing decisions deny both hits and transcript session links.
+    const sessionReadable = await Promise.all(sessions.map((row) =>
+      visibility.mayRead(reader, { class: 'session', id: row.id }),
+    ))
+    const visibleSessions = sessions.filter((_, index) => sessionReadable[index] === true)
+
+    for (const row of visibleSessions) {
       const nameHit = (row.name ?? '').toLowerCase().includes(lower)
       const titleHit = row.title.toLowerCase().includes(lower)
       const cwdHit = row.cwd.toLowerCase().includes(lower)
@@ -120,13 +120,13 @@ export class MemorySearchService {
       })
     }
 
+    const issues = await this.store.issues.listIssueRows()
+    // As with session visibility, no authorization result outlives this request.
+    const issueReadable = await Promise.all(issues.map(async (row) =>
+      !row.deletedAt && await visibility.mayRead(reader, { class: 'issue', id: row.id }),
+    ))
     const visibleIssues = new Map(
-      this.store.issues
-        .listIssueRows()
-        .filter(
-          (row) => !row.deletedAt && visibility.mayRead(reader, { class: 'issue', id: row.id }),
-        )
-        .map((row) => [row.id, row]),
+      issues.filter((_, index) => issueReadable[index] === true).map((row) => [row.id, row]),
     )
     const issueHits = new Set<string>()
     for (const row of visibleIssues.values()) {
@@ -144,7 +144,7 @@ export class MemorySearchService {
       })
       issueHits.add(row.id)
     }
-    for (const comment of this.store.issues.searchIssueComments(text, null)) {
+    for (const comment of await this.store.issues.searchIssueComments(text, null)) {
       const issue = visibleIssues.get(asIssueId(comment.issueId))
       if (!issue || issueHits.has(issue.id)) continue
       out.push({
@@ -159,7 +159,7 @@ export class MemorySearchService {
       issueHits.add(issue.id)
     }
 
-    for (const row of this.searchConversations(reader, { query: text, limit: 200 }, visibility)) {
+    for (const row of await this.searchConversations(reader, { query: text, limit: 200 }, visibility)) {
       out.push({
         kind: 'conversation',
         id: row.id,
@@ -178,16 +178,16 @@ export class MemorySearchService {
     // Superagent threads are conversations too, but owner-filtered before message reads.
     if (reader.kind !== 'system') {
       const owner = reader.kind === 'user' ? reader.id : reader.onBehalfOf
-      for (const thread of this.store.superagent.listSuperagentThreads(owner)) {
+      for (const thread of await this.store.superagent.listSuperagentThreads(owner)) {
         if (
-          !visibility.mayRead(reader, {
+          !await visibility.mayRead(reader, {
             class: 'superagent-thread',
             id: thread.id,
             ownerUserId: thread.ownerUserId,
           })
         )
           continue
-        const messages = this.store.superagent.loadSuperagentMessages(thread.id)
+        const messages = await this.store.superagent.loadSuperagentMessages(thread.id)
         const matching = messages.find((message) => message.content.toLowerCase().includes(lower))
         const titleHit = (thread.title ?? '').toLowerCase().includes(lower)
         if (!titleHit && !matching) continue
@@ -203,15 +203,17 @@ export class MemorySearchService {
       }
     }
 
-    const visibleTranscriptRows = this.store.conversations.transcriptIndex
-      .searchCandidates(text)
-      .filter((row) =>
-        visibility.mayRead(reader, {
+    const transcriptRows = await this.store.conversations.transcriptIndex.searchCandidates(text)
+    const transcriptVisibility = await Promise.all(
+      transcriptRows.map(async (row) =>
+        await visibility.mayRead(reader, {
           class: 'transcript',
           machineId: row.machineId,
           nativeId: row.nativeId,
         }),
-      )
+      ),
+    )
+    const visibleTranscriptRows = transcriptRows.filter((_, index) => transcriptVisibility[index])
     const bestRank = visibleTranscriptRows[0]?.rank
     const seen = new Set<string>()
     for (const row of visibleTranscriptRows) {
@@ -219,11 +221,10 @@ export class MemorySearchService {
       if (seen.has(key)) continue
       seen.add(key)
       const normalized = bestRank !== undefined && bestRank < 0 ? row.rank / bestRank : 1
-      const session = sessions.find(
+      const session = visibleSessions.find(
         (candidate) =>
           candidate.machineId === row.machineId &&
-          candidate.resumeValue === row.nativeId &&
-          visibility.mayRead(reader, { class: 'session', id: candidate.id }),
+          candidate.resumeValue === row.nativeId,
       )
       out.push({
         kind: 'transcript',
@@ -240,7 +241,7 @@ export class MemorySearchService {
     }
 
     for (const [key, label] of SETTINGS) {
-      if (!visibility.mayRead(reader, { class: 'setting', id: key })) continue
+      if (!await visibility.mayRead(reader, { class: 'setting', id: key })) continue
       if (!label.toLowerCase().includes(lower) && !key.includes(lower)) continue
       out.push({
         kind: 'setting',

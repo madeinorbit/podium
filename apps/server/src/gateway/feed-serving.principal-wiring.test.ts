@@ -105,10 +105,10 @@ interface Socket {
  * The gateway as the server assembles it, with per-connection sockets so a frame
  * that reached the WRONG person is observable rather than merely absent.
  */
-function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = new Map()) {
+async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = new Map()) {
   const registry = new ClientRegistry()
   let authorizationRevision = 0
-  const plumbing = feedTestPlumbing({
+  const plumbing = await feedTestPlumbing({
     visibility: issueOwnershipPolicy(owners, grants),
     authorizationRevision: () => authorizationRevision,
   })
@@ -173,13 +173,13 @@ const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA]): Cli
 })
 
 const commitIssue = (
-  plumbing: ReturnType<typeof feedTestPlumbing>,
+  plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>,
   id: string,
   value: unknown,
   op: 'upsert' | 'remove' = 'upsert',
 ) =>
   plumbing.ledger.commit({
-    write: () => {},
+    write: async () => {},
     changes: () => [{ entity: 'issue', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })
 
@@ -234,13 +234,13 @@ const coveredButUnnamed = (socket: Socket, seq: number, entityId: string): boole
 describe("a connection's feed is scoped to the user its TRANSPORT authenticated", () => {
   it("Alice's issue reaches Alice as an upsert and Bob as a covered silence, not a removal", async () => {
     const owners = new Map([['issue-alice', ALICE]])
-    const g = gateway(owners)
+    const g = await gateway(owners)
     const alice = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
-    const seq = g.plumbing.authority.cursor()
+    const seq = await g.plumbing.authority.cursor()
 
     // PRESENT — the positive control. Without it every assertion below is
     // satisfied by a server that publishes nothing to anyone.
@@ -263,12 +263,12 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
   it("a genuine removal still reaches its owner as op:'remove' — the shape is reachable", async () => {
     const owners = new Map([['issue-bob', BOB]])
-    const g = gateway(owners)
+    const g = await gateway(owners)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-bob', { id: 'issue-bob', title: 'mine' })
+    await commitIssue(g.plumbing, 'issue-bob', { id: 'issue-bob', title: 'mine' })
     await settle()
-    commitIssue(g.plumbing, 'issue-bob', undefined, 'remove')
+    await commitIssue(g.plumbing, 'issue-bob', undefined, 'remove')
     await settle()
 
     // The instrument CAN say "removed". So the previous case's "no remove reached
@@ -279,11 +279,11 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
   it('a grant admits the second user — the filter is a filter, not a blanket refusal', async () => {
     const owners = new Map([['issue-shared', ALICE]])
     const grants = new Map([['issue-shared', [BOB]]])
-    const g = gateway(owners, grants)
+    const g = await gateway(owners, grants)
     const alice = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
     await settle()
 
     // Both, this time. A suite whose every scoped assertion is negative passes
@@ -300,12 +300,12 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     ).toEqual(['upsert'])
   })
 
-  it('invalidates a cached world when grant visibility changes without moving the feed head', () => {
+  it('invalidates a cached world when grant visibility changes without moving the feed head', async () => {
     const owners = new Map([['issue-shared', ALICE]])
     const grants = new Map([['issue-shared', [BOB]]])
-    const g = gateway(owners, grants)
-    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
-    const head = g.plumbing.authority.cursor()
+    const g = await gateway(owners, grants)
+    await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    const head = await g.plumbing.authority.cursor()
     const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
 
     const first = g.signIn(BOB)
@@ -317,7 +317,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     // persistWith shape: the issue upsert can deduplicate while the grant delete
     // still changes who may see the row.
     g.changeVisibility(() => grants.set('issue-shared', []))
-    expect(g.plumbing.authority.cursor()).toBe(head)
+    expect(await g.plumbing.authority.cursor()).toBe(head)
 
     const afterRevoke = g.signIn(BOB)
     expect(bootstrap).toHaveBeenCalledTimes(2)
@@ -326,7 +326,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const principal = g.mux.principalOf(afterRevoke.id)
     expect(principal).toBeDefined()
     if (principal === undefined) throw new Error('Bob connection lost its authenticated principal')
-    const uncached = g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
+    const uncached = await g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
     const served = afterRevoke.received.find(
       (message): message is Extract<ServerMessage, { type: 'feedBootstrap' }> =>
         message.type === 'feedBootstrap',
@@ -337,7 +337,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
     g.mux.detachClient(afterRevoke.id)
     g.changeVisibility(() => grants.set('issue-shared', [BOB]))
-    expect(g.plumbing.authority.cursor()).toBe(head)
+    expect(await g.plumbing.authority.cursor()).toBe(head)
     const afterGrant = g.signIn(BOB)
     expect(bootstrap).toHaveBeenCalledTimes(4) // includes the direct uncached comparison
     expect(leakedTo(afterGrant, 'issue-shared')).toBe(true)
@@ -348,7 +348,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
       ['issue-alice', ALICE],
       ['issue-alice2', ALICE],
     ])
-    const g = gateway(owners)
+    const g = await gateway(owners)
     const alice = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
@@ -357,7 +357,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     // RE-SERVES THE WORLD, so a scope taken from the payload hands over everything
     // already committed, in the bootstrap, before any delta is published. A test
     // that only commits afterwards can never observe that theft.
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
 
     // THE FORGERY. `hello.clientId` is a real payload field and it names Alice's
@@ -368,7 +368,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
     // ...and again afterwards, so the delta path is covered as well as the
     // bootstrap one.
-    commitIssue(g.plumbing, 'issue-alice2', { id: 'issue-alice2', title: 'also private' })
+    await commitIssue(g.plumbing, 'issue-alice2', { id: 'issue-alice2', title: 'also private' })
     await settle()
 
     // THE DATA QUESTION FIRST. Ordered deliberately: the identity assertion below
@@ -402,12 +402,12 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
   it('two devices of ONE person share the slice; a second person never joins it', async () => {
     const owners = new Map([['issue-alice', ALICE]])
-    const g = gateway(owners)
+    const g = await gateway(owners)
     const laptop = g.signIn(ALICE)
     const phone = g.signIn(ALICE)
     const bob = g.signIn(BOB)
 
-    commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
+    await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
     await settle()
 
     // One authority subscription, two connections — `feedPrincipalOf` keys on the
@@ -434,10 +434,10 @@ describe('the single-user deployment is not tightened into an empty screen', () 
     // a tightening that reads an unevaluated permission as a denial blanks the
     // whole screen for the person who owns everything on it.
     const owners = new Map([['issue-only', FIRST_ADMIN_USER_ID]])
-    const g = gateway(owners)
+    const g = await gateway(owners)
     const solo = g.signIn(FIRST_ADMIN_USER_ID)
 
-    commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
+    await commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
     await settle()
 
     expect(

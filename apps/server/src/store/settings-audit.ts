@@ -47,7 +47,8 @@ import type { RedactionReport } from '@podium/commands'
 import { asc } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import { settingsAuditEvents } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -119,7 +120,7 @@ export function settingsAuditRow(input: {
 }
 
 export class SettingsAuditRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -130,7 +131,7 @@ export class SettingsAuditRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -138,8 +139,8 @@ export class SettingsAuditRepository {
    * audit trail that can be edited answers a different question than the one it
    * is kept for.
    */
-  append(row: SettingsAuditRow): void {
-    this.db
+  async append(row: SettingsAuditRow): Promise<void> {
+    ;await (this.db
       .insert(settingsAuditEvents)
       .values({
         command: row.command,
@@ -150,7 +151,7 @@ export class SettingsAuditRepository {
         detailJson: JSON.stringify(row.detail ?? {}),
         redactedPaths: JSON.stringify(row.redactedPaths),
         createdAt: row.createdAt,
-      })
+      }))
       .run()
   }
 
@@ -168,8 +169,8 @@ export class SettingsAuditRepository {
    * re-redacted before it ships. Said here so the next person adding one meets
    * the constraint rather than discovering it.
    */
-  list(limit = 100): SettingsAuditRow[] {
-    const rows = this.db
+  async list(limit = 100): Promise<SettingsAuditRow[]> {
+    const rows = await this.db
       .select()
       .from(settingsAuditEvents)
       .orderBy(asc(settingsAuditEvents.id))

@@ -1,7 +1,8 @@
 import type { MachineId } from '@podium/model'
 import { and, desc, eq, isNotNull, isNull, max, ne, or, type SQL } from 'drizzle-orm'
 import { conversationSegmentIncarnations, conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import { currentTransaction } from '../executor/sync-drizzle'
 
 export interface MirrorIncarnation {
   sequence: number
@@ -13,7 +14,7 @@ export interface MirrorIncarnation {
 
 /** Durable transcript-lake evidence and copy cursors. */
 export class TranscriptMirrorRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -28,20 +29,20 @@ export class TranscriptMirrorRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
-  segmentsToMirror(
+  async segmentsToMirror(
     machineId: MachineId,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
-    return this.rows(eq(conversationSegments.machineId, machineId))
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]> {
+    return await this.rows(eq(conversationSegments.machineId, machineId))
   }
 
-  segmentsToMirrorDirty(
+  async segmentsToMirrorDirty(
     machineId: MachineId,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
-    return this.rows(
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]> {
+    return await this.rows(
       and(
         eq(conversationSegments.machineId, machineId),
         or(
@@ -57,12 +58,12 @@ export class TranscriptMirrorRepository {
    * the two statements this replaces did: a segment with no path has no lake
    * file to mirror, and the returned `path` is typed as present because of it.
    */
-  private rows(where: SQL | undefined): {
+  private async rows(where: SQL | undefined): Promise<{
     nativeId: string
     path: string
     mirroredBytes: number
-  }[] {
-    const rows = this.db
+  }[]> {
+    const rows = await this.db
       .select({
         nativeId: conversationSegments.nativeId,
         path: conversationSegments.path,
@@ -80,16 +81,16 @@ export class TranscriptMirrorRepository {
     }))
   }
 
-  setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void {
-    this.db
+  async setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): Promise<void> {
+    await this.db
       .update(conversationSegments)
       .set({ reportedBytes: bytes })
       .where(this.segment(machineId, nativeId))
       .run()
   }
 
-  reportedBytes(machineId: MachineId, nativeId: string): number | undefined {
-    const row = this.db
+  async reportedBytes(machineId: MachineId, nativeId: string): Promise<number | undefined> {
+    const row = await this.db
       .select({ reportedBytes: conversationSegments.reportedBytes })
       .from(conversationSegments)
       .where(this.segment(machineId, nativeId))
@@ -97,8 +98,8 @@ export class TranscriptMirrorRepository {
     return row?.reportedBytes ?? undefined
   }
 
-  mirrorCursor(machineId: MachineId, nativeId: string): number {
-    const row = this.db
+  async mirrorCursor(machineId: MachineId, nativeId: string): Promise<number> {
+    const row = await this.db
       .select({ mirroredBytes: conversationSegments.mirroredBytes })
       .from(conversationSegments)
       .where(this.segment(machineId, nativeId))
@@ -106,19 +107,19 @@ export class TranscriptMirrorRepository {
     return row?.mirroredBytes ?? 0
   }
 
-  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void {
-    this.db
+  async setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): Promise<void> {
+    await this.db
       .update(conversationSegments)
       .set({ mirroredBytes: bytes, mirroredAt: at })
       .where(this.segment(machineId, nativeId))
       .run()
   }
 
-  activeIncarnation(
+  async activeIncarnation(
     machineId: MachineId,
     nativeId: string,
-  ): Omit<MirrorIncarnation, 'mirroredBytes' | 'active'> | undefined {
-    return this.db
+  ): Promise<Omit<MirrorIncarnation, 'mirroredBytes' | 'active'> | undefined> {
+    return await this.db
       .select({
         sequence: conversationSegmentIncarnations.sequence,
         device: conversationSegmentIncarnations.device,
@@ -137,19 +138,19 @@ export class TranscriptMirrorRepository {
   }
 
   /** Record identity for a legacy/current lake file without disturbing its cursor. */
-  startIncarnation(
+  async startIncarnation(
     machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     at: string,
-  ): void {
-    if (this.activeIncarnation(machineId, nativeId)) return
-    const row = this.db
+  ): Promise<void> {
+    if (await this.activeIncarnation(machineId, nativeId)) return
+    const row = await this.db
       .select({ sequence: max(conversationSegmentIncarnations.sequence) })
       .from(conversationSegmentIncarnations)
       .where(this.incarnation(machineId, nativeId))
       .get()
-    this.db
+    ;await (this.db
       .insert(conversationSegmentIncarnations)
       .values({
         machineId,
@@ -160,26 +161,26 @@ export class TranscriptMirrorRepository {
         mirroredBytes: 0,
         createdAt: at,
         retiredAt: null,
-      })
+      }))
       .run()
   }
 
   /** Retire the current file identity after its lake bytes have been archived,
    *  then start a clean cursor for the replacement file. */
-  rotateIncarnation(
+  async rotateIncarnation(
     machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     archivedBytes: number,
     at: string,
-  ): void {
-    this.createOrJoinTransaction(() => {
-      const active = this.activeIncarnation(machineId, nativeId)
+  ): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const active = await this.activeIncarnation(machineId, nativeId)
       if (!active) {
-        this.startIncarnation(machineId, nativeId, identity, at)
+        await this.startIncarnation(machineId, nativeId, identity, at)
         return
       }
-      this.db
+      await this.db
         .update(conversationSegmentIncarnations)
         .set({ mirroredBytes: archivedBytes, retiredAt: at })
         .where(
@@ -189,7 +190,7 @@ export class TranscriptMirrorRepository {
           ),
         )
         .run()
-      this.db
+      ;await (this.db
         .insert(conversationSegmentIncarnations)
         .values({
           machineId,
@@ -200,9 +201,9 @@ export class TranscriptMirrorRepository {
           mirroredBytes: 0,
           createdAt: at,
           retiredAt: null,
-        })
+        }))
         .run()
-      this.db
+      await this.db
         .update(conversationSegments)
         .set({ mirroredBytes: 0, mirroredAt: at, indexedBytes: 0 })
         .where(this.segment(machineId, nativeId))
@@ -210,9 +211,9 @@ export class TranscriptMirrorRepository {
     })
   }
 
-  incarnations(machineId: MachineId, nativeId: string): MirrorIncarnation[] {
-    const currentBytes = this.mirrorCursor(machineId, nativeId)
-    const rows = this.db
+  async incarnations(machineId: MachineId, nativeId: string): Promise<MirrorIncarnation[]> {
+    const currentBytes = await this.mirrorCursor(machineId, nativeId)
+    const rows = await this.db
       .select({
         sequence: conversationSegmentIncarnations.sequence,
         device: conversationSegmentIncarnations.device,

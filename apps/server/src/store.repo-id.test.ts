@@ -183,7 +183,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
         .run()
       first.close()
 
-      expect(() => openTestStore(file)).toThrow(/legacy repo identity is unfilled.*repos: 1/s)
+      await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*repos: 1/s)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -203,7 +203,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
         .run()
       first.close()
 
-      expect(() => openTestStore(file)).toThrow(/legacy repo identity is unfilled.*issues: 1/s)
+      await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*issues: 1/s)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

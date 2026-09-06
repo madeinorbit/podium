@@ -48,30 +48,30 @@ const row = (over: Record<string, unknown> = {}) => ({
 describe('idle re-discovery writes', () => {
   it('re-upserting an identical conversation row does not rewrite it', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert([row()])
     const writes = writeProbe(store, 'conversations')
     expect(writes()).toBe(0)
 
-    store.conversations.index.upsert([row()])
-    store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert([row()])
     expect(writes()).toBe(0)
 
     // A real change still lands — the guard elides no-ops, not updates.
-    store.conversations.index.upsert([row({ title: 'Renamed' })])
+    await store.conversations.index.upsert([row({ title: 'Renamed' })])
     expect(writes()).toBe(1)
-    const found = store.conversations.index.searchCandidates({})
+    const found = await store.conversations.index.searchCandidates({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('Renamed')
   })
 
   it('an omitted field is not a change — COALESCE keeps the stored value', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert([row()])
     const writes = writeProbe(store, 'conversations')
 
     const { title: _title, projectPath: _projectPath, ...withoutOptionals } = row()
-    store.conversations.index.upsert([withoutOptionals])
+    await store.conversations.index.upsert([withoutOptionals])
     expect(writes()).toBe(0)
-    const found = store.conversations.index.searchCandidates({})
+    const found = await store.conversations.index.searchCandidates({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('A conversation')
   })
 
@@ -84,16 +84,16 @@ describe('idle re-discovery writes', () => {
       path: '/transcripts/native-a.jsonl',
       sizeBytes: 4096,
     }
-    const podiumId = store.conversations.registry.ensure(opts)
+    const podiumId = await store.conversations.registry.ensure(opts)
     const writes = writeProbe(store, 'conversation_segments')
 
-    expect(store.conversations.registry.ensure(opts)).toBe(podiumId)
-    expect(store.conversations.registry.ensure(opts)).toBe(podiumId)
+    expect(await store.conversations.registry.ensure(opts)).toBe(podiumId)
+    expect(await store.conversations.registry.ensure(opts)).toBe(podiumId)
     expect(writes()).toBe(0)
 
     // A grown transcript is a real change and still lands.
-    expect(store.conversations.registry.ensure({ ...opts, sizeBytes: 8192 })).toBe(podiumId)
+    expect(await store.conversations.registry.ensure({ ...opts, sizeBytes: 8192 })).toBe(podiumId)
     expect(writes()).toBe(1)
-    expect(store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(opts.path)
+    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(opts.path)
   })
 })

@@ -140,8 +140,44 @@ export const SINGLE_USER_MACHINE_ACCESS: WorkflowMachineAccess = {
  *  single-user present; never a disabled check. */
 export interface WorkflowPolicyPorts {
   ownership?: WorkflowOwnershipPort
+  /**
+   * THE OWNERSHIP FACTS FOR ONE PASS, RESOLVED BEFORE THE DECISION RUNS
+   * (POD-3263, POD-3221 rule 51 case 2).
+   *
+   * `ownerOf` and `hasGrant` are durable reads now, and the obvious conversion —
+   * widening {@link WorkflowOwnershipPort} — is the one shape that must not
+   * happen here. `workflowDecision` asks both in BOOLEAN positions, and a
+   * promise fails them in OPPOSITE directions: `ownerOf(entity) === human` is
+   * false for a promise so the owner arm silently stops allowing, while
+   * `hasGrant(...)` is truthy for a promise so the grant arm allows EVERYONE.
+   * A synchronous decision function cannot make that mistake, so the decision
+   * stays synchronous and the IO moves in front of it.
+   *
+   * Resolved PER PASS at an async entry point and threaded as an argument —
+   * never stored on this class, which is long-lived and shared by every
+   * concurrent caller, so a remembered snapshot would be one caller's
+   * authorization answering another's request.
+   *
+   * DRIFT DIRECTION (rule 49): a stale owner or a stale grant PERMITS MORE — it
+   * authorizes a principal whose ownership moved or whose grant was revoked. So
+   * the view is built once per command and never cached across them, and an
+   * entity absent from it resolves to `null`/`false`, which is the fail-closed
+   * answer ADR 9 D4 already gives an unowned row: nobody's, not everyone's.
+   */
+  resolveOwnership?: (
+    entities: readonly WorkflowEntityRef[],
+  ) => WorkflowOwnershipPort | Promise<WorkflowOwnershipPort>
   machines?: WorkflowMachineAccess
-  machinesFor?: (principal: WorkflowPrincipal) => WorkflowMachineAccess
+  /**
+   * Same shape as {@link WorkflowPolicyPorts.resolveOwnership} and for the same
+   * reason: resolving a principal's machine access reads the machine ownership
+   * rows and their grant edges, all pure reads, and the result is a pair of
+   * SYNCHRONOUS predicates that `placementDecision` consumes. So the IO happens
+   * here, once per pass, and the decision stays synchronous.
+   */
+  machinesFor?: (
+    principal: WorkflowPrincipal,
+  ) => WorkflowMachineAccess | Promise<WorkflowMachineAccess>
 }
 
 // ---------------------------------------------------------------------------
@@ -209,16 +245,40 @@ export interface WorkflowHandlerContext {
 // ---------------------------------------------------------------------------
 
 export class WorkflowAccess {
-  private readonly machinesFor: (principal: WorkflowPrincipal) => WorkflowMachineAccess
-  private readonly ownership: WorkflowOwnershipPort
+  private readonly machinesFor: (
+    principal: WorkflowPrincipal,
+  ) => WorkflowMachineAccess | Promise<WorkflowMachineAccess>
+  /**
+   * A UNION HERE IS DELIBERATE AND SAFE — do not "fix" it to `Promise<T>`
+   * (spec rule 52b bans union PORTS, and this is not one).
+   *
+   * It is PRIVATE, exactly one line consumes it, and that line awaits it; the
+   * public {@link WorkflowAccess.ownershipFor} returns `Promise<T>`. So no
+   * caller can obtain the union — which is the actual test, rather than how it
+   * is spelled. It exists so a composition root may supply either a synchronous
+   * port or an async resolver; collapsing it would force every fixture to wrap.
+   */
+  private readonly resolveOwnership: (
+    entities: readonly WorkflowEntityRef[],
+  ) => WorkflowOwnershipPort | Promise<WorkflowOwnershipPort>
 
   constructor(
     private readonly deps: WorkflowServiceDeps,
     ports?: WorkflowPolicyPorts,
   ) {
-    this.ownership = ports?.ownership ?? SINGLE_USER_WORKFLOW_OWNERSHIP
+    const standing = ports?.ownership ?? SINGLE_USER_WORKFLOW_OWNERSHIP
+    this.resolveOwnership = ports?.resolveOwnership ?? (() => standing)
     const machines = ports?.machines ?? SINGLE_USER_MACHINE_ACCESS
     this.machinesFor = ports?.machinesFor ?? (() => machines)
+  }
+
+  /**
+   * THE ONE PLACE OWNERSHIP IO HAPPENS. Every async entry point calls this with
+   * the entities it is about to decide on, and hands the result to the
+   * synchronous deciders below. Nothing here is remembered between calls.
+   */
+  async ownershipFor(entities: readonly WorkflowEntityRef[]): Promise<WorkflowOwnershipPort> {
+    return await this.resolveOwnership(entities)
   }
 
   principal(caller: WorkflowCaller): WorkflowPrincipal {
@@ -265,8 +325,9 @@ export class WorkflowAccess {
     caller: WorkflowCaller,
     entity: WorkflowEntityRef,
     verb: WorkflowVerb,
+    ownership: WorkflowOwnershipPort,
   ): 'allowed' | 'denied' {
-    return workflowDecision(this.principal(caller), entity, verb, this.ownership)
+    return workflowDecision(this.principal(caller), entity, verb, ownership)
   }
 
   /**
@@ -365,8 +426,12 @@ export class WorkflowAccess {
     return repoId !== null && workflow.scopeRef === repoId
   }
 
-  canReadWorkflow(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
-    if (!canReadWorkflowEntity(this.principal(caller), this.entityFor(workflow), this.ownership)) {
+  canReadWorkflow(
+    caller: WorkflowCaller,
+    workflow: WorkflowWire,
+    ownership: WorkflowOwnershipPort,
+  ): boolean {
+    if (!canReadWorkflowEntity(this.principal(caller), this.entityFor(workflow), ownership)) {
       return false
     }
     return this.inScope(caller, workflow)
@@ -378,20 +443,21 @@ export class WorkflowAccess {
    * One `throw`, one message, for both outcomes — which is what makes D20.2 a
    * property of the code shape rather than of two strings agreeing.
    */
-  assertWorkflowRead(caller: WorkflowCaller, workflowId: string): WorkflowWire {
-    const workflow = this.deps.store.getWorkflow(workflowId)
-    if (!workflow || !this.canReadWorkflow(caller, workflow)) {
+  async assertWorkflowRead(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
+    const workflow = await this.deps.store.getWorkflow(workflowId)
+    const ownership = await this.ownershipFor(workflow ? [this.entityFor(workflow)] : [])
+    if (!workflow || !this.canReadWorkflow(caller, workflow, ownership)) {
       throw new Error(unknownWorkflow(workflowId))
     }
     return workflow
   }
 
   /** The write decision, converged onto the same message for the same reason. */
-  assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): WorkflowWire {
-    const workflow = this.deps.store.getWorkflow(workflowId)
+  async assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
+    const workflow = await this.deps.store.getWorkflow(workflowId)
     if (!workflow) throw new Error(unknownWorkflow(workflowId))
     const entity = this.entityFor(workflow)
-    if (this.decide(caller, entity, 'write') === 'denied') {
+    if (this.decide(caller, entity, 'write', await this.ownershipFor([entity])) === 'denied') {
       // A global library entry is the one case whose refusal is about GRADE and
       // not about visibility, and the caller can already see the row — so it
       // says so, rather than pretending the row does not exist. That is not a
@@ -445,12 +511,16 @@ export class WorkflowAccess {
    * is A2 again: being your human's agent does not make every one of their runs
    * your business.
    */
-  canSeeRun(caller: WorkflowCaller, run: WorkflowRunWire): boolean {
+  canSeeRun(
+    caller: WorkflowCaller,
+    run: WorkflowRunWire,
+    ownership: WorkflowOwnershipPort,
+  ): boolean {
     if (
       !canReadWorkflowEntity(
         this.principal(caller),
         { kind: 'workflow-run', id: run.id },
-        this.ownership,
+        ownership,
       )
     ) {
       return false
@@ -494,7 +564,11 @@ export class WorkflowAccess {
    * everyone, plus the ownership decision per row. An admin still sees the lot,
    * but through the decision rather than around it.
    */
-  visibleBindings(caller: WorkflowCaller, all: readonly WorkflowBindingWire[]) {
+  visibleBindings(
+    caller: WorkflowCaller,
+    all: readonly WorkflowBindingWire[],
+    ownership: WorkflowOwnershipPort,
+  ) {
     const principal = this.principal(caller)
     const session = this.sessionFor(caller)
     const repoId = session ? this.deps.repoIdForPath(session.cwd) : null
@@ -504,7 +578,7 @@ export class WorkflowAccess {
         !canReadWorkflowEntity(
           principal,
           { kind: 'workflow-binding', id: `${binding.targetKind}:${binding.targetId}` },
-          this.ownership,
+          ownership,
         )
       ) {
         return false
@@ -528,21 +602,25 @@ export class WorkflowAccess {
 
   /** `profiles()` — the branch that had NO gate at all and listed every
    *  profile, with its `accountId`, to any caller. */
-  visibleProfiles<T extends { id: string }>(caller: WorkflowCaller, all: readonly T[]): T[] {
+  visibleProfiles<T extends { id: string }>(
+    caller: WorkflowCaller,
+    all: readonly T[],
+    ownership: WorkflowOwnershipPort,
+  ): T[] {
     const principal = this.principal(caller)
     return all.filter((profile) =>
-      canReadWorkflowEntity(
-        principal,
-        { kind: 'execution-profile', id: profile.id },
-        this.ownership,
-      ),
+      canReadWorkflowEntity(principal, { kind: 'execution-profile', id: profile.id }, ownership),
     )
   }
 
   /** `profileSave` — the inverse-shaped guard, now the same decision as every
    *  other write, taken against the account grade ADR 1 D6 requires for
    *  anything that manages managed credentials. */
-  assertProfileWrite(caller: WorkflowCaller, profileId: string | undefined): void {
+  assertProfileWrite(
+    caller: WorkflowCaller,
+    profileId: string | undefined,
+    ownership: WorkflowOwnershipPort,
+  ): void {
     const principal = this.principal(caller)
     if (principal.role !== 'admin') {
       throw new Error('only an administrator may change execution profiles')
@@ -553,7 +631,7 @@ export class WorkflowAccess {
         principal,
         { kind: 'execution-profile', id: profileId },
         'write',
-        this.ownership,
+        ownership,
       ) === 'denied'
     ) {
       throw new Error('only an administrator may change execution profiles')
@@ -563,8 +641,38 @@ export class WorkflowAccess {
   /** `runs()` — the second read-shaped branch, which returned every run in the
    *  instance for an operator. Filtering is by the SAME decision `runFor` uses,
    *  so a run you cannot open is a run you cannot list. */
-  visibleRuns(caller: WorkflowCaller, runs: readonly WorkflowRunWire[]): WorkflowRunWire[] {
-    return runs.filter((run) => this.canSeeRun(caller, run))
+  visibleRuns(
+    caller: WorkflowCaller,
+    runs: readonly WorkflowRunWire[],
+    ownership: WorkflowOwnershipPort,
+  ): WorkflowRunWire[] {
+    // The predicate stays SYNCHRONOUS. `ownership` is already resolved, so this
+    // is a plain filter and cannot become the always-truthy async callback the
+    // flip has produced seven times.
+    return runs.filter((run) => this.canSeeRun(caller, run, ownership))
+  }
+
+  /** Entity refs for a batch of runs, so one pass resolves all of them. */
+  runEntities(runs: readonly WorkflowRunWire[]): WorkflowEntityRef[] {
+    return runs.map((run) => ({ kind: 'workflow-run', id: run.id }))
+  }
+
+  /** Entity refs for a batch of workflows. */
+  workflowEntities(workflows: readonly WorkflowWire[]): WorkflowEntityRef[] {
+    return workflows.map((workflow) => this.entityFor(workflow))
+  }
+
+  /** Entity refs for a batch of bindings. */
+  bindingEntities(all: readonly WorkflowBindingWire[]): WorkflowEntityRef[] {
+    return all.map((binding) => ({
+      kind: 'workflow-binding' as const,
+      id: `${binding.targetKind}:${binding.targetId}`,
+    }))
+  }
+
+  /** Entity refs for a batch of execution profiles. */
+  profileEntities(all: readonly { id: string }[]): WorkflowEntityRef[] {
+    return all.map((profile) => ({ kind: 'execution-profile' as const, id: profile.id }))
   }
 
   /**
@@ -575,12 +683,16 @@ export class WorkflowAccess {
    * between the two and a run is long-lived. Never silently retargeted: placing
    * a caller's code on a machine they did not choose is worse than refusing.
    */
-  assertMayPlaceOn(caller: WorkflowCaller, machineId: MachineId | null | undefined): void {
+  async assertMayPlaceOn(
+    caller: WorkflowCaller,
+    machineId: MachineId | null | undefined,
+  ): Promise<void> {
     if (!machineId) return
-    const decision: PlacementDecision = placementDecision(
-      machineId,
-      this.machinesFor(this.principal(caller)),
-    )
+    // Resolved, THEN decided. `placementDecision` takes the two predicates
+    // synchronously; handing it a promise would make `mayUse` truthy and
+    // authorize placement on any machine.
+    const access = await this.machinesFor(this.principal(caller))
+    const decision: PlacementDecision = placementDecision(machineId, access)
     if (decision === 'unauthorized') throw new Error(machineUnauthorized(machineId))
     if (decision === 'unreachable') throw new Error(machineUnreachable(machineId))
   }

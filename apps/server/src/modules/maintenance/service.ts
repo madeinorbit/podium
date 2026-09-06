@@ -59,8 +59,10 @@ export interface MaintenanceServiceOptions {
   /** The worktree-GC policy as settings have it — read fresh on every handshake
    *  and again inside every apply, never cached on this service. Absent means
    *  the sweep is not wired here, which reads to the janitor as `off`. */
-  worktreeGcPolicy?: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
-  liveSessionIds?: () => Set<string>
+  worktreeGcPolicy?: () =>
+    | Promise<{ mode: 'off' | 'propose' | 'auto'; afterDays: number }>
+    | { mode: 'off' | 'propose' | 'auto'; afterDays: number }
+  liveSessionIds?: () => Promise<Set<string>> | Set<string>
   /** Steward poll: deliveries durable before cursor advance. */
   stewardTick?: () => void | Promise<void>
   /** Automatic shallow connect-scan; server rechecks connectivity. */
@@ -79,8 +81,8 @@ export class MaintenanceService {
   private readonly issues: MaintenanceServiceOptions['issues']
   private readonly sessions: MaintenanceServiceOptions['sessions']
   private readonly automations: MaintenanceServiceOptions['automations']
-  private readonly worktreeGcPolicy: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
-  private readonly liveSessionIds: () => Set<string>
+  private readonly worktreeGcPolicy: NonNullable<MaintenanceServiceOptions['worktreeGcPolicy']>
+  private readonly liveSessionIds: NonNullable<MaintenanceServiceOptions['liveSessionIds']>
   private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
   private readonly connectScan: MaintenanceServiceOptions['connectScan']
   private readonly localMachineId: string | undefined
@@ -102,7 +104,7 @@ export class MaintenanceService {
     this.localMachineId = options.localMachineId
   }
 
-  handshake(request: MaintenanceHandshake): MaintenanceHandshakeReply {
+  async handshake(request: MaintenanceHandshake): Promise<MaintenanceHandshakeReply> {
     if (
       request.protocolVersion !== MAINTENANCE_PROTOCOL_VERSION ||
       request.schemaVersion !== MAINTENANCE_SCHEMA_VERSION
@@ -114,11 +116,11 @@ export class MaintenanceService {
       }
     }
 
-    const policy = this.worktreeGcPolicy()
-    return this.write(() => {
+    const policy = await this.worktreeGcPolicy()
+    return await this.write(async () => {
       const nowMs = this.now()
       const now = new Date(nowMs).toISOString()
-      const existing = this.store.maintenance.getLease(LEASE_NAME)
+      const existing = await this.store.maintenance.getLease(LEASE_NAME)
       const active = existing !== undefined && Date.parse(existing.expiresAt) > nowMs
       if (active && existing.generationId !== request.generationId) {
         return { status: 'busy' as const, retryAt: existing.expiresAt }
@@ -128,7 +130,7 @@ export class MaintenanceService {
           ? existing.fencingToken
           : (existing?.fencingToken ?? 0) + 1
       const expiresAt = new Date(nowMs + this.leaseTtlMs).toISOString()
-      this.store.maintenance.putLease({
+      await this.store.maintenance.putLease({
         name: LEASE_NAME,
         generationId: request.generationId,
         fencingToken,
@@ -172,11 +174,11 @@ export class MaintenanceService {
       command.jobKind === 'connect-scan' ||
       command.jobKind === 'worktree-gc'
     ) {
-      const gate = this.write(() => this.gateCommand(command))
+      const gate = await this.write(async () => await this.gateCommand(command))
       if (gate) return gate
       const nowMs = this.now()
       if (command.jobKind === 'automation-fire') {
-        return this.applyAutomationFire(command, nowMs)
+        return await this.applyAutomationFire(command, nowMs)
       }
       if (command.jobKind === 'steward-poll') {
         return await this.applyStewardPoll(command)
@@ -184,34 +186,34 @@ export class MaintenanceService {
       if (command.jobKind === 'worktree-gc') {
         return await this.applyWorktreeGc(command, nowMs)
       }
-      return this.applyConnectScan(command, nowMs)
+      return await this.applyConnectScan(command, nowMs)
     }
 
-    return this.write(() => {
+    return await this.write(async () => {
       const nowMs = this.now()
-      const gate = this.gateCommand(command)
+      const gate = await this.gateCommand(command)
       if (gate) return gate
       switch (command.jobKind) {
         case 'message-expiry':
-          return this.applyMessageExpiry(command, nowMs)
+          return await this.applyMessageExpiry(command, nowMs)
         case 'event-log-prune':
-          return this.applyEventLogPrune(command)
+          return await this.applyEventLogPrune(command)
         case 'change-log-prune':
-          return this.applyChangeLogPrune(command, nowMs)
+          return await this.applyChangeLogPrune(command, nowMs)
         case 'maintenance-commands-prune':
-          return this.applyMaintenanceCommandsPrune(command)
+          return await this.applyMaintenanceCommandsPrune(command)
         case 'issue-auto-archive':
-          return this.applyIssueAutoArchive(command, nowMs)
+          return await this.applyIssueAutoArchive(command, nowMs)
         case 'session-auto-archive':
-          return this.applySessionAutoArchive(command, nowMs)
+          return await this.applySessionAutoArchive(command, nowMs)
       }
     })
   }
 
   /** Shared fence + already-applied check. Caller must be inside write() for pure jobs. */
-  private gateCommand(command: MaintenanceCommand): MaintenanceCommandReply | undefined {
+  private async gateCommand(command: MaintenanceCommand): Promise<MaintenanceCommandReply | undefined> {
     const nowMs = this.now()
-    const lease = this.store.maintenance.getLease(LEASE_NAME)
+    const lease = await this.store.maintenance.getLease(LEASE_NAME)
     if (!lease || lease.fencingToken !== command.fencingToken) {
       return this.stale(command, 'fenced')
     }
@@ -224,7 +226,7 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'incompatible')
     }
-    const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
+    const prior = await this.store.maintenance.getCommand(command.jobKind, command.runKey)
     if (prior) {
       return {
         status: 'already-applied',
@@ -238,14 +240,14 @@ export class MaintenanceService {
     return undefined
   }
 
-  private applyMessageExpiry(
+  private async applyMessageExpiry(
     command: Extract<MaintenanceCommand, { jobKind: 'message-expiry' }>,
     nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     if (messageExpiryRunKey(command.observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
     }
-    const current = this.store.messages.getMessage(command.observed.messageId)
+    const current = await this.store.messages.getMessage(command.observed.messageId)
     if (!current || !this.matchesObservation(current, command.observed)) {
       return this.stale(command, 'precondition')
     }
@@ -253,7 +255,7 @@ export class MaintenanceService {
       return this.stale(command, 'not-due')
     }
     if (
-      !this.store.messages.expireObserved({
+      !await this.store.messages.expireObserved({
         id: current.id,
         createdAt: current.createdAt,
         lifecycle: current.lifecycle,
@@ -268,14 +270,14 @@ export class MaintenanceService {
       runKey: command.runKey,
     }
     const appliedAt = new Date(nowMs).toISOString()
-    this.appendExpiredEvent(current, appliedAt, systemPrincipal('expiry'))
-    this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
+    await this.appendExpiredEvent(current, appliedAt, systemPrincipal('expiry'))
+    await this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
     return applied
   }
 
-  private applyEventLogPrune(
+  private async applyEventLogPrune(
     command: Extract<MaintenanceCommand, { jobKind: 'event-log-prune' }>,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (eventLogPruneRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -287,7 +289,7 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const plan = this.store.events.planEventPrune({
+    const plan = await this.store.events.planEventPrune({
       maxAgeDays: observed.maxAgeDays,
       maxRows: observed.maxRows,
     })
@@ -296,17 +298,17 @@ export class MaintenanceService {
     if (plan.cutoff < observed.cutoff || plan.capThroughId < observed.capThroughId) {
       return this.stale(command, 'precondition')
     }
-    const deleted = this.store.events.pruneEventBatch(
+    const deleted = await this.store.events.pruneEventBatch(
       { cutoff: observed.cutoff, capThroughId: observed.capThroughId },
       observed.batchSize,
     )
-    return this.recordPrune(command, deleted)
+    return await this.recordPrune(command, deleted)
   }
 
-  private applyChangeLogPrune(
+  private async applyChangeLogPrune(
     command: Extract<MaintenanceCommand, { jobKind: 'change-log-prune' }>,
     nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (changeLogPruneRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -318,7 +320,7 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const plan = this.store.sync.planChangePrune({
+    const plan = await this.store.sync.planChangePrune({
       keepRows: observed.keepRows,
       maxAgeMs: observed.maxAgeMs,
       now: nowMs,
@@ -326,16 +328,16 @@ export class MaintenanceService {
     if (plan.thresholdSeq < observed.thresholdSeq) {
       return this.stale(command, 'precondition')
     }
-    const deleted = this.store.sync.pruneChangeBatch(
+    const deleted = await this.store.sync.pruneChangeBatch(
       { thresholdSeq: observed.thresholdSeq },
       observed.batchSize,
     )
-    return this.recordPrune(command, deleted)
+    return await this.recordPrune(command, deleted)
   }
 
-  private applyMaintenanceCommandsPrune(
+  private async applyMaintenanceCommandsPrune(
     command: Extract<MaintenanceCommand, { jobKind: 'maintenance-commands-prune' }>,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (maintenanceCommandsPruneRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -353,14 +355,14 @@ export class MaintenanceService {
       return this.stale(command, 'precondition')
     }
     // Authoritative delete uses the server-derived cutoff (never the client's future).
-    const deleted = this.store.maintenance.pruneCommandsBatch(serverCutoff, observed.batchSize)
-    return this.recordPrune(command, deleted)
+    const deleted = await this.store.maintenance.pruneCommandsBatch(serverCutoff, observed.batchSize)
+    return await this.recordPrune(command, deleted)
   }
 
-  private applyIssueAutoArchive(
+  private async applyIssueAutoArchive(
     command: Extract<MaintenanceCommand, { jobKind: 'issue-auto-archive' }>,
     nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (issueAutoArchiveRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -368,7 +370,7 @@ export class MaintenanceService {
     if (!this.issues) {
       return this.stale(command, 'precondition')
     }
-    const result = this.issues.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
+    const result = await this.issues.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
     const applied: MaintenanceCommandReply = {
@@ -376,7 +378,7 @@ export class MaintenanceService {
       jobKind: command.jobKind,
       runKey: command.runKey,
     }
-    this.store.maintenance.recordCommand(
+    await this.store.maintenance.recordCommand(
       applied,
       command.fencingToken,
       new Date(nowMs).toISOString(),
@@ -384,10 +386,10 @@ export class MaintenanceService {
     return applied
   }
 
-  private applySessionAutoArchive(
+  private async applySessionAutoArchive(
     command: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>,
     nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (sessionAutoArchiveRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -401,7 +403,7 @@ export class MaintenanceService {
       jobKind: command.jobKind,
       runKey: command.runKey,
     }
-    this.store.maintenance.recordCommand(
+    await this.store.maintenance.recordCommand(
       applied,
       command.fencingToken,
       new Date(nowMs).toISOString(),
@@ -442,7 +444,7 @@ export class MaintenanceService {
     )
     if (result.outcome === 'not-due') return this.stale(command, 'not-due')
     if (result.outcome === 'precondition') return this.stale(command, 'precondition')
-    return this.recordIfStillFenced(command, {
+    return await this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
@@ -454,20 +456,20 @@ export class MaintenanceService {
    * A generation that lost the lease mid-flight must not stamp already-applied
    * for a successor generation [POD-925 Batch 2 review].
    */
-  private recordIfStillFenced(
+  private async recordIfStillFenced(
     command: MaintenanceCommand,
     result: Extract<MaintenanceCommandReply, { status: 'applied' | 'already-applied' }>,
-  ): MaintenanceCommandReply {
-    return this.write(() => {
+  ): Promise<MaintenanceCommandReply> {
+    return await this.write(async () => {
       const nowMs = this.now()
-      const lease = this.store.maintenance.getLease(LEASE_NAME)
+      const lease = await this.store.maintenance.getLease(LEASE_NAME)
       if (!lease || lease.fencingToken !== command.fencingToken) {
         return this.stale(command, 'fenced')
       }
       if (Date.parse(lease.expiresAt) <= nowMs) {
         return this.stale(command, 'lease-expired')
       }
-      const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
+      const prior = await this.store.maintenance.getCommand(command.jobKind, command.runKey)
       if (prior) {
         return {
           status: 'already-applied',
@@ -475,7 +477,7 @@ export class MaintenanceService {
           runKey: command.runKey,
         }
       }
-      this.store.maintenance.recordCommand(
+      await this.store.maintenance.recordCommand(
         { status: 'applied', jobKind: command.jobKind, runKey: command.runKey },
         command.fencingToken,
         new Date(nowMs).toISOString(),
@@ -486,25 +488,25 @@ export class MaintenanceService {
     })
   }
 
-  private applyAutomationFire(
+  private async applyAutomationFire(
     command: Extract<MaintenanceCommand, { jobKind: 'automation-fire' }>,
     nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (automationFireRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
     }
     if (!this.automations) return this.stale(command, 'precondition')
-    const result = this.automations.applyObservedOccurrence({
+    const result = await this.automations.applyObservedOccurrence({
       automationId: observed.automationId,
       nextRunAt: observed.nextRunAt,
       enabled: true,
-      liveSessionIds: this.liveSessionIds(),
+      liveSessionIds: await this.liveSessionIds(),
       now: new Date(nowMs),
     })
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
-    return this.recordIfStillFenced(command, {
+    return await this.recordIfStillFenced(command, {
       status: result === 'already' ? 'already-applied' : 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
@@ -526,17 +528,17 @@ export class MaintenanceService {
     await this.stewardTick()
     // Re-check fence AFTER side effects — expired/superseded generations must
     // not record applied for work they no longer own.
-    return this.recordIfStillFenced(command, {
+    return await this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
     })
   }
 
-  private applyConnectScan(
+  private async applyConnectScan(
     command: Extract<MaintenanceCommand, { jobKind: 'connect-scan' }>,
     _nowMs: number,
-  ): MaintenanceCommandReply {
+  ): Promise<MaintenanceCommandReply> {
     const observed = command.observed
     if (connectScanRunKey(observed) !== command.runKey) {
       return this.stale(command, 'invalid-run-key')
@@ -545,7 +547,7 @@ export class MaintenanceService {
     if (this.localMachineId && observed.machineId === this.localMachineId) {
       return this.stale(command, 'precondition')
     }
-    const machine = this.store.machines.getMachine(observed.machineId)
+    const machine = await this.store.machines.getMachine(observed.machineId)
     if (!machine) return this.stale(command, 'precondition')
     // Revalidate durable observation: lastSeenAt must still match (daemon
     // re-handshake would change it → new occurrence). Do NOT require wall-clock
@@ -559,21 +561,21 @@ export class MaintenanceService {
     void Promise.resolve(this.connectScan(observed.machineId)).catch((err) => {
       log.warn('connect-scan failed', { err, machineId: observed.machineId })
     })
-    return this.recordIfStillFenced(command, {
+    return await this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
     })
   }
 
-  private recordPrune(command: MaintenanceCommand, deleted: number): MaintenanceCommandReply {
+  private async recordPrune(command: MaintenanceCommand, deleted: number): Promise<MaintenanceCommandReply> {
     const applied: MaintenanceCommandReply = {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
       deleted,
     }
-    this.store.maintenance.recordCommand(
+    await this.store.maintenance.recordCommand(
       applied,
       command.fencingToken,
       new Date(this.now()).toISOString(),
@@ -588,9 +590,9 @@ export class MaintenanceService {
     return { status: 'stale', jobKind: command.jobKind, runKey: command.runKey, reason }
   }
 
-  private write<T>(operation: () => T): T {
-    return this.funnel.run({
-      write: () => this.store.transact(operation),
+  private async write<T>(operation: () => T): Promise<T> {
+    return await this.funnel.run({
+      write: async () => await this.store.transact(operation),
     })
   }
 
@@ -614,12 +616,12 @@ export class MaintenanceService {
   }
 
   /** Message transition ledger append, committed with the row + run outcome. */
-  private appendExpiredEvent(
+  private async appendExpiredEvent(
     message: MessageRow,
     appliedAt: string,
     principal: SystemCommandPrincipal,
-  ): void {
-    this.store.events.appendEvent({
+  ): Promise<void> {
+    await this.store.events.appendEvent({
       ts: appliedAt,
       kind: 'message.expired',
       subject: message.id,

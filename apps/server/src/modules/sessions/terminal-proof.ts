@@ -85,10 +85,10 @@ export class SessionTerminalProof {
    * Allocate and durably store the observer lease before its control message is
    * sent. Shells and non-causal adapters intentionally have no lease.
    */
-  fence(session: Session): ObservationLeaseRecord | undefined {
+  async fence(session: Session): Promise<ObservationLeaseRecord | undefined> {
     const provider = harnessObservationProvider(session.agentKind)
     if (!provider) return undefined
-    const lease = this.ports.checkpoints.advanceGeneration(
+    const lease = await this.ports.checkpoints.advanceGeneration(
       session.sessionId,
       provider,
       session.resume?.value ?? null,
@@ -212,8 +212,8 @@ export class SessionTerminalProof {
     return null
   }
 
-  hasValidProof(sessionId: SessionId): boolean {
-    return this.proofStatus(sessionId).reason === 'ok'
+  async hasValidProof(sessionId: SessionId): Promise<boolean> {
+    return (await this.proofStatus(sessionId)).reason === 'ok'
   }
 
   /**
@@ -222,18 +222,18 @@ export class SessionTerminalProof {
    * diagnostics use the reason, because "no proof" and "proof spent by a
    * previous hibernation" are different failures with different remedies.
    */
-  proofStatus(sessionId: SessionId): TerminalProofStatus {
+  async proofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
     const session = this.ports.session(sessionId)
     if (!session) return { reason: 'unknown_session' }
     if (session.status !== 'live' && session.status !== 'reconnecting')
       return { reason: 'not_running' }
-    const lease = this.ports.checkpoints.get(sessionId)
+    const lease = await this.ports.checkpoints.get(sessionId)
     if (!lease) return { reason: 'no_lease' }
     const fence = lease.checkpoint?.terminalFence
     if (!fence || fence.closing) return { reason: 'no_terminal_fence' }
     const facts = this.facts(session, lease)
     if (!facts) return { reason: 'not_terminal' }
-    const proof = this.ports.checkpoints.getTerminalCandidate(sessionId)
+    const proof = await this.ports.checkpoints.getTerminalCandidate(sessionId)
     if (!proof) return { reason: 'proof_missing' }
     if (proof.consumedAt) return { reason: 'proof_consumed' }
     if (JSON.stringify(proof.facts) !== JSON.stringify(facts)) {
@@ -252,11 +252,11 @@ export class SessionTerminalProof {
     return blocker ? { reason: 'active_work', blocker } : { reason: 'ok' }
   }
 
-  proofMissing(sessionId: SessionId): boolean {
-    const lease = this.ports.checkpoints.get(sessionId)
+  async proofMissing(sessionId: SessionId): Promise<boolean> {
+    const lease = await this.ports.checkpoints.get(sessionId)
     return (
       lease?.checkpoint?.terminalFence == null ||
-      this.ports.checkpoints.getTerminalCandidate(sessionId) == null
+      await this.ports.checkpoints.getTerminalCandidate(sessionId) == null
     )
   }
 }

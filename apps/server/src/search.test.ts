@@ -36,12 +36,12 @@ describe('MemoryService omni-search', () => {
   /** A store + registry seeded with one hit per source for the word "capacitor". */
   async function seed() {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
 
     // Session named after the phrase.
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -53,19 +53,19 @@ describe('MemoryService omni-search', () => {
     })
 
     // Issue with the phrase in the title; a second issue matching only via comment.
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'replace the flux capacitor',
       description: 'it drifts',
       startNow: false,
     })
-    const commentIssue = registry.issues.create({
+    const commentIssue = await registry.issues.create({
       repoPath: '/repo',
       title: 'unrelated title',
       description: 'nothing relevant',
       startNow: false,
     })
-    registry.issues.addComment(
+    await registry.issues.addComment(
       commentIssue.id,
       'operator',
       'the capacitor comment trail',
@@ -73,7 +73,7 @@ describe('MemoryService omni-search', () => {
     )
 
     // Conversation row in the durable index.
-    const { sessionId: conversationSessionId } = registry.modules.sessions.createSession({
+    const { sessionId: conversationSessionId } = await registry.modules.sessions.createSession({
       ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/conversation',
@@ -83,7 +83,7 @@ describe('MemoryService omni-search', () => {
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -95,13 +95,13 @@ describe('MemoryService omni-search', () => {
     ])
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
-    store.conversations.registry.ensure({
+    await store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'native-tx',
       providerId: 'claude-code-jsonl',
       path: '/home/u/.claude/projects/-w/native-tx.jsonl',
     })
-    store.conversations.transcriptIndex.append(
+    await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
       'native-tx',
       [
@@ -119,7 +119,7 @@ describe('MemoryService omni-search', () => {
 
   it('returns typed hits from every matching source in one call', async () => {
     const { store, registry, sessionId, issue, commentIssue } = await seed()
-    const results = registry.modules.memory.search(READER, { text: 'capacitor' })
+    const results = await registry.modules.memory.search(READER, { text: 'capacitor' })
 
     const kinds = new Map(results.map((r) => [r.kind, r]))
     expect(kinds.get('session')?.sessionId).toBe(sessionId)
@@ -143,7 +143,7 @@ describe('MemoryService omni-search', () => {
 
   it('ranks sanely: title-matching session/issue above the transcript hit', async () => {
     const { store, registry } = await seed()
-    const results = registry.modules.memory.search(READER, { text: 'capacitor' })
+    const results = await registry.modules.memory.search(READER, { text: 'capacitor' })
     const rank = (kind: string) => results.findIndex((r) => r.kind === kind)
     expect(rank('session')).toBeGreaterThanOrEqual(0)
     expect(rank('transcript')).toBeGreaterThanOrEqual(0)
@@ -154,8 +154,8 @@ describe('MemoryService omni-search', () => {
 
   it('transcript hits carry an FTS snippet with match markers and registry refs', async () => {
     const { store, registry } = await seed()
-    const hit = registry.modules.memory
-      .search(READER, { text: 'capacitor' })
+    const hit = (await registry.modules.memory
+      .search(READER, { text: 'capacitor' }))
       .find((r) => r.kind === 'transcript')
     expect(hit?.snippet).toContain('**capacitor**')
     expect(hit?.machineId).toBe('m1')
@@ -164,15 +164,15 @@ describe('MemoryService omni-search', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', async () => {
     const { registry, sessionId } = await seed()
-    const hit = registry.modules.memory
-      .search(READER, { text: 'engine.ts' })
+    const hit = (await registry.modules.memory
+      .search(READER, { text: 'engine.ts' }))
       .find((r) => r.kind === 'transcript')
     expect(hit?.sessionId).toBe(sessionId)
   })
 
   it('matches the settings catalog by label', async () => {
     const { store, registry } = await seed()
-    const results = registry.modules.memory.search(READER, { text: 'notifications' })
+    const results = await registry.modules.memory.search(READER, { text: 'notifications' })
     const setting = results.find((r) => r.kind === 'setting')
     expect(setting?.settingKey).toBe('notifications')
     expect(setting?.title).toBe('Settings › Notifications')
@@ -180,7 +180,7 @@ describe('MemoryService omni-search', () => {
 
   it('respects the limit across the fused list', async () => {
     const { store, registry } = await seed()
-    const results = registry.modules.memory.search(READER, { text: 'capacitor', limit: 2 })
+    const results = await registry.modules.memory.search(READER, { text: 'capacitor', limit: 2 })
     expect(results.length).toBe(2)
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
@@ -205,29 +205,29 @@ describe('MemoryService omni-search', () => {
     const loadSessions = store.sessions.loadSessions.bind(store.sessions)
     let loadCalls = 0
     let materializedRows = 0
-    store.sessions.loadSessions = () => {
+    store.sessions.loadSessions = async () => {
       loadCalls += 1
-      const rows = loadSessions()
+      const rows = await loadSessions()
       materializedRows += rows.length
       return rows
     }
 
     const getIssue = store.issues.getIssue.bind(store.issues)
     let issueLookups = 0
-    store.issues.getIssue = (id) => {
+    store.issues.getIssue = async (id) => {
       issueLookups += 1
-      return getIssue(id)
+      return await getIssue(id)
     }
 
     const listForResource = store.grants.listForResource.bind(store.grants)
     let grantLookups = 0
-    store.grants.listForResource = (resourceKind: string, resourceId: string) => {
+    store.grants.listForResource = async (resourceKind: string, resourceId: string) => {
       grantLookups += 1
-      return listForResource(resourceKind, resourceId)
+      return await listForResource(resourceKind, resourceId)
     }
 
     try {
-      registry.modules.memory.search(READER, { text: 'capacitor' })
+      await registry.modules.memory.search(READER, { text: 'capacitor' })
     } finally {
       store.sessions.loadSessions = loadSessions
       store.issues.getIssue = getIssue
@@ -245,7 +245,7 @@ describe('MemoryService omni-search', () => {
 
   it('batches issue ownership and grant reads for the native conversation list', async () => {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
 
@@ -253,7 +253,7 @@ describe('MemoryService omni-search', () => {
     const conversationIds: string[] = []
     const issueOwner = asUserId('usr_issue_owner')
     for (let i = 0; i < 4; i++) {
-      const issue = registry.issues.create({
+      const issue = await registry.issues.create({
         repoPath: '/repo',
         title: `conversation issue ${i}`,
         startNow: false,
@@ -272,7 +272,7 @@ describe('MemoryService omni-search', () => {
         actorId: READER.id,
         onBehalfOf: READER.id,
       })
-      const { sessionId } = registry.modules.sessions.createSession({
+      const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: `/repo/session-${i}`,
         issueId: issue.id,
@@ -284,7 +284,7 @@ describe('MemoryService omni-search', () => {
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
-      store.conversations.index.upsert([
+      await store.conversations.index.upsert([
         {
           id: nativeId,
           agentKind: 'claude-code',
@@ -303,26 +303,26 @@ describe('MemoryService omni-search', () => {
     const batchReads: string[][] = []
     let singleGrantReads = 0
     const batchGrantReads: string[][] = []
-    store.issues.getIssue = (id) => {
+    store.issues.getIssue = async (id) => {
       singleReads++
-      return getIssue(id)
+      return await getIssue(id)
     }
-    store.issues.getIssues = (ids) => {
+    store.issues.getIssues = async (ids) => {
       batchReads.push([...ids])
-      return getIssues(ids)
+      return await getIssues(ids)
     }
-    store.grants.listForResource = (kind, id) => {
+    store.grants.listForResource = async (kind, id) => {
       if (kind === 'issue') singleGrantReads++
-      return listForResource(kind, id)
+      return await listForResource(kind, id)
     }
-    store.grants.listForResources = (kind, ids) => {
+    store.grants.listForResources = async (kind, ids) => {
       if (kind === 'issue') batchGrantReads.push([...ids])
-      return listForResources(kind, ids)
+      return await listForResources(kind, ids)
     }
 
-    let visible: ReturnType<typeof registry.modules.memory.searchConversations>
+    let visible: Awaited<ReturnType<typeof registry.modules.memory.searchConversations>>
     try {
-      visible = registry.modules.memory.searchConversations(READER, { projectPath: '/repo' })
+      visible = await registry.modules.memory.searchConversations(READER, { projectPath: '/repo' })
     } finally {
       store.issues.getIssue = getIssue
       store.issues.getIssues = getIssues
@@ -343,7 +343,7 @@ describe('MemoryService omni-search', () => {
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {
     const { store, registry } = await seed()
-    expect(registry.modules.memory.search(READER, { text: '   ' })).toEqual([])
+    expect(await registry.modules.memory.search(READER, { text: '   ' })).toEqual([])
   })
 })
 
@@ -355,11 +355,11 @@ describe('search.query tRPC', () => {
 
   it('excludes every private memory source owned by another user', async () => {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
     const bob = asUserId('usr_bob')
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       ownerUserId: bob,
       agentKind: 'claude-code',
       cwd: '/classifiedneedle',
@@ -370,7 +370,7 @@ describe('search.query tRPC', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       {
         id: 'classified-native',
         agentKind: 'claude-code',
@@ -379,7 +379,7 @@ describe('search.query tRPC', () => {
         title: 'classifiedneedle conversation',
       },
     ])
-    store.conversations.transcriptIndex.append(
+    await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
       'classified-native',
       [
@@ -390,7 +390,7 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/private',
       title: 'fixture template',
       description: 'private issue body',
@@ -416,8 +416,8 @@ describe('search.query tRPC', () => {
       content: 'classifiedneedle private thread body',
     })
 
-    expect(registry.modules.memory.search(READER, { text: 'classifiedneedle' })).toEqual([])
-    const bobHits = registry.modules.memory.search(
+    expect(await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).toEqual([])
+    const bobHits = await registry.modules.memory.search(
       { kind: 'user', id: bob },
       { text: 'classifiedneedle' },
     )
@@ -429,12 +429,12 @@ describe('search.query tRPC', () => {
 
   it('filters hidden transcript ranks before normalizing visible results', async () => {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
     const bob = asUserId('usr_bob')
-    const bind = (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
-      const { sessionId } = registry.modules.sessions.createSession({
+    const bind = async (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
+      const { sessionId } = await registry.modules.sessions.createSession({
         ownerUserId,
         agentKind: 'claude-code',
         cwd,
@@ -445,8 +445,8 @@ describe('search.query tRPC', () => {
         resume: { kind: 'claude-session', value: nativeId },
       })
     }
-    bind(FIRST_ADMIN_USER_ID, 'visible-rank', '/visible')
-    store.conversations.transcriptIndex.append(
+    await bind(FIRST_ADMIN_USER_ID, 'visible-rank', '/visible')
+    await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
       'visible-rank',
       [
@@ -457,11 +457,11 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const before = registry.modules.memory
-      .search(READER, { text: 'rankneedle' })
+    const before = (await registry.modules.memory
+      .search(READER, { text: 'rankneedle' }))
       .find((hit) => hit.kind === 'transcript')
-    bind(bob, 'hidden-rank', '/hidden')
-    store.conversations.transcriptIndex.append(
+    await bind(bob, 'hidden-rank', '/hidden')
+    await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
       'hidden-rank',
       [
@@ -472,8 +472,8 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const after = registry.modules.memory
-      .search(READER, { text: 'rankneedle' })
+    const after = (await registry.modules.memory
+      .search(READER, { text: 'rankneedle' }))
       .find((hit) => hit.kind === 'transcript')
     expect(after?.id).toBe(before?.id)
     expect(after?.score).toBe(before?.score)
@@ -481,17 +481,17 @@ describe('search.query tRPC', () => {
 
   it('defaults unknown memory classes closed and counts to the visible slice', async () => {
     const store = await openTestStore(':memory:')
-    expect(new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
+    expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
     store.close()
   })
 
-  function caller() {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  async function caller() {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {
       registry,
       trpc: appRouter.createCaller({
@@ -505,13 +505,13 @@ describe('search.query tRPC', () => {
   }
 
   it('rejects empty text at the schema', async () => {
-    const { trpc } = caller()
+    const { trpc } = await caller()
     await expect(trpc.search.query({ text: '' })).rejects.toThrow()
   })
 
   it('serves ranked results over the wire shape', async () => {
-    const { registry, trpc } = caller()
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { registry, trpc } = await caller()
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })

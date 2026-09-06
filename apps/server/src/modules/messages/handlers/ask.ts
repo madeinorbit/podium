@@ -20,7 +20,7 @@
  */
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
@@ -29,9 +29,9 @@ export async function askHandler(
   input: ContractInput<typeof mailAskContract>,
 ): Promise<unknown> {
   const { caller, deps, access } = ctx
-  access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
+  await access.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
   const svc = deps.messages
-  const r = svc.send(senderFromPrincipal(caller.principal), {
+  const r = await svc.send(senderFromPrincipal(caller.principal), {
     to: { kind: 'session', id: input.sessionId },
     body: input.question,
     kind: 'question',
@@ -44,7 +44,7 @@ export async function askHandler(
     ...(deps.awaitPollMs !== undefined ? { pollMs: deps.awaitPollMs } : {}),
     ...(sleep ? { sleep } : {}),
   })
-  const target = findSessionById(deps, input.sessionId)
+  const target = await findSessionByIdAsync(deps, input.sessionId)
   const snapshot = target
     ? {
         sessionId: target.sessionId,

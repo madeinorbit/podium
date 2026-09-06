@@ -36,70 +36,70 @@ beforeEach(() => {
 })
 
 describe('MessagingTopicsRepository', () => {
-  it('round-trips every column of a stored binding', () => {
+  it('round-trips every column of a stored binding', async () => {
     const stored = row()
-    topics.upsert(stored)
+    await topics.upsert(stored)
 
-    expect(topics.getByIssue(stored.chatId, stored.issueId)).toEqual(stored)
+    expect(await topics.getByIssue(stored.chatId, stored.issueId)).toEqual(stored)
   })
 
-  it('scopes every read to one chat', () => {
+  it('scopes every read to one chat', async () => {
     const inChat = row({ chatId: 'chat-a', threadRef: 'thread-a' })
     const otherChat = row({ chatId: 'chat-b', threadRef: 'thread-b' })
-    topics.upsert(inChat)
-    topics.upsert(otherChat)
+    await topics.upsert(inChat)
+    await topics.upsert(otherChat)
 
     // Three separate scopings, because a conversion can drop the chat predicate
     // from one read and keep it on the others.
-    expect(topics.listForChat('chat-a')).toEqual([inChat])
-    expect(topics.getByIssue('chat-b', inChat.issueId)).toEqual(otherChat)
-    expect(topics.getByThreadRef('chat-a', 'thread-b')).toBeUndefined()
+    expect(await topics.listForChat('chat-a')).toEqual([inChat])
+    expect(await topics.getByIssue('chat-b', inChat.issueId)).toEqual(otherChat)
+    expect(await topics.getByThreadRef('chat-a', 'thread-b')).toBeUndefined()
   })
 
-  it('answers a binding that is not there with undefined rather than throwing', () => {
-    expect(topics.getByIssue('chat-a', row().issueId)).toBeUndefined()
-    expect(topics.getByThreadRef('chat-a', 'thread-1')).toBeUndefined()
-    expect(topics.listForChat('chat-a')).toEqual([])
+  it('answers a binding that is not there with undefined rather than throwing', async () => {
+    expect(await topics.getByIssue('chat-a', row().issueId)).toBeUndefined()
+    expect(await topics.getByThreadRef('chat-a', 'thread-1')).toBeUndefined()
+    expect(await topics.listForChat('chat-a')).toEqual([])
   })
 
-  it('keys the upsert conflict on the issue AND the chat, not on the issue alone', () => {
+  it('keys the upsert conflict on the issue AND the chat, not on the issue alone', async () => {
     const first = row({ chatId: 'chat-a', threadRef: 'thread-a' })
     const second = row({ chatId: 'chat-b', threadRef: 'thread-b' })
-    topics.upsert(first)
-    topics.upsert(second)
+    await topics.upsert(first)
+    await topics.upsert(second)
 
     // One issue, two chats, TWO rows. A conflict target narrowed to `issue_id`
     // would leave one row here and this is the only assertion that sees it.
-    expect(topics.listForChat('chat-a')).toEqual([first])
-    expect(topics.listForChat('chat-b')).toEqual([second])
+    expect(await topics.listForChat('chat-a')).toEqual([first])
+    expect(await topics.listForChat('chat-b')).toEqual([second])
   })
 
-  it('overwrites the thread ref, the superagent thread and the timestamp on conflict', () => {
+  it('overwrites the thread ref, the superagent thread and the timestamp on conflict', async () => {
     const original = row()
-    topics.upsert(original)
+    await topics.upsert(original)
     const rebound = row({
       threadRef: 'thread-moved',
       superagentThreadId: asThreadId('sa-2'),
       updatedAt: '2026-02-02T00:00:00.000Z',
     })
-    topics.upsert(rebound)
+    await topics.upsert(rebound)
 
-    expect(topics.listForChat('chat-a')).toEqual([rebound])
+    expect(await topics.listForChat('chat-a')).toEqual([rebound])
     // The old thread ref is gone, not merely shadowed.
-    expect(topics.getByThreadRef('chat-a', 'thread-1')).toBeUndefined()
-    expect(topics.getByThreadRef('chat-a', 'thread-moved')).toEqual(rebound)
+    expect(await topics.getByThreadRef('chat-a', 'thread-1')).toBeUndefined()
+    expect(await topics.getByThreadRef('chat-a', 'thread-moved')).toEqual(rebound)
   })
 
-  it('lists every binding in one chat', () => {
+  it('lists every binding in one chat', async () => {
     const one = row({ issueId: asIssueId('iss_11111111-1111-4111-8111-111111111111') })
     const two = row({
       issueId: asIssueId('iss_22222222-2222-4222-8222-222222222222'),
       threadRef: 'thread-2',
     })
-    topics.upsert(one)
-    topics.upsert(two)
+    await topics.upsert(one)
+    await topics.upsert(two)
 
-    expect(new Set(topics.listForChat('chat-a').map((r) => r.threadRef))).toEqual(
+    expect(new Set((await topics.listForChat('chat-a')).map((r) => r.threadRef))).toEqual(
       new Set(['thread-1', 'thread-2']),
     )
   })

@@ -60,7 +60,7 @@ export class HandoffAdmission {
    * it cannot be resolved by picking one, because the loser would already have
    * been told its move succeeded.
    */
-  admit(
+  async admit(
     input: HandoffInput,
     caller: HandoffCaller,
     assertMachineUse: AssertMachineUse,
@@ -89,7 +89,7 @@ export class HandoffAdmission {
       assertMachineUse(session.machineId)
       assertMachineUse(input.machineId)
     } catch (error) {
-      return Promise.reject(error)
+      return await Promise.reject(error)
     }
 
     const existing = this.inFlight.get(input.sessionId)
@@ -98,7 +98,7 @@ export class HandoffAdmission {
       // Two targets for one session is the fork this command must not produce,
       // and it cannot be resolved by picking one: the loser would already have
       // been told its move succeeded.
-      return Promise.reject(new Error('session handoff already in progress'))
+      return await Promise.reject(new Error('session handoff already in progress'))
     }
     const promise = start().finally(() => {
       const current = this.inFlight.get(input.sessionId)

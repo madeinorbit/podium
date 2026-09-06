@@ -38,8 +38,7 @@ describe('the shipping lease projection waits for the outermost commit (POD-3366
     const store = await openTestStore(':memory:')
     const leases = wired()
 
-    expect(() =>
-      store.transact(() => {
+    await expect(store.transact(() => {
         const pinned = leases.pin(['order-1'])
         expect(leases.installIfUnchanged(pinned, [{ orderId: 'order-1', lease: lease('a1') }])).toEqual(
           [],
@@ -49,7 +48,7 @@ describe('the shipping lease projection waits for the outermost commit (POD-3366
         expect(leases.get('order-1')?.attemptId).toBe('a1')
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // …and the attempt row is gone, so the lease must be too. Left behind, it
     // holds the order for an attempt the ledger never kept and the next pass
@@ -78,13 +77,12 @@ describe('the shipping lease projection waits for the outermost commit (POD-3366
     const leases = wired()
     leases.set('order-1', lease('a1'))
 
-    expect(() =>
-      store.transact(() => {
+    await expect(store.transact(() => {
         leases.delete('order-1')
         expect(leases.get('order-1')).toBeUndefined()
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect(leases.get('order-1')?.attemptId).toBe('a1')
   })

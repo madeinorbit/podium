@@ -61,14 +61,17 @@ export function harnessCandidates(machines: HandoffMachine[]): HarnessCandidate[
 /** The narrow ports the seed needs, so it depends on neither store nor transport. */
 export interface SuperagentDefaultSeederDeps {
   /** Everyone with an account row; each is seeded independently. */
-  users(): UserId[]
+  users(): UserId[] | Promise<UserId[]>
   /** One person's resolved settings (their preference rows over the blob). */
-  settingsFor(userId: UserId): PodiumSettings
+  settingsFor(userId: UserId): PodiumSettings | Promise<PodiumSettings>
   /** The machines to read availability from, already scoped to what may be used. */
-  machines(): HandoffMachine[]
+  machines(): HandoffMachine[] | Promise<HandoffMachine[]>
   /** `SettingsService.updatePreferences` — routes each leaf by tier and emits
    *  `settings.changed`, so a client with Settings open sees the seed land. */
-  updatePreferences(userId: UserId, values: Record<string, unknown>): void
+  updatePreferences(
+    userId: UserId,
+    values: Record<string, unknown>,
+  ): void | Promise<void>
 }
 
 export class SuperagentDefaultSeeder {
@@ -82,13 +85,13 @@ export class SuperagentDefaultSeeder {
    * that connects after the server started is the ordinary case, and the whole
    * point is that the person does not have to be present for it.
    */
-  seed(): void {
-    const machines = this.deps.machines()
+  async seed(): Promise<void> {
+    const machines = await this.deps.machines()
     if (machines.length === 0) return
     const pick = pickSuperagentDefault(harnessCandidates(machines))
     if (!pick) return
-    for (const userId of this.deps.users()) {
-      const backend = this.deps.settingsFor(userId).roles.superagent
+    for (const userId of await this.deps.users()) {
+      const backend = (await this.deps.settingsFor(userId)).roles.superagent
       if (!superagentBackendIsUnset(backend)) continue
       const values: Record<string, unknown> = {
         'roles.superagent.accountId': pick.accountId,
@@ -99,7 +102,7 @@ export class SuperagentDefaultSeeder {
         ...(backend.effort === 'auto' ? { 'roles.superagent.effort': pick.effort } : {}),
       }
       try {
-        this.deps.updatePreferences(userId, values)
+        await this.deps.updatePreferences(userId, values)
         log.info('seeded superagent default', { userId, harness: pick.harness, model: pick.model })
       } catch (err) {
         // A seed is a convenience; it must never take down the inventory report

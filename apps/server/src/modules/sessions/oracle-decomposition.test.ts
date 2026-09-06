@@ -41,7 +41,7 @@ const ALICE_SESSION = asSessionId('10000000-0000-4000-8000-000000000001')
 const BOB_SESSION = asSessionId('20000000-0000-4000-8000-000000000002')
 
 function seedUser(
-  store: ReturnType<typeof makeOracle>['store'],
+  store: Awaited<ReturnType<typeof makeOracle>>['store'],
   id: UserId,
   displayName: string,
 ): void {
@@ -78,13 +78,13 @@ async function twoUserOracle() {
   const o = await makeOracle()
   seedUser(o.store, ALICE, 'Alice')
   seedUser(o.store, BOB, 'Bob')
-  const alice = o.reg.modules.sessions.createSession({
+  const alice = await o.reg.modules.sessions.createSession({
     sessionId: ALICE_SESSION,
     agentKind: 'codex',
     cwd: '/work/alice',
     binding: { principal: { kind: 'user', userId: ALICE } },
   })
-  const bob = o.reg.modules.sessions.createSession({
+  const bob = await o.reg.modules.sessions.createSession({
     sessionId: BOB_SESSION,
     agentKind: 'codex',
     cwd: '/work/bob',
@@ -140,8 +140,8 @@ describe('oracle: two-user SessionService fixture', () => {
       capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
     }
     expect(
-      f.o.reg.modules.sessions
-        .listSessions(narrowBob)
+      (await f.o.reg.modules.sessions
+        .listSessions(narrowBob))
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.bob.sessionId])
@@ -155,7 +155,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     const bob = sessionStatePrincipal(f.agents.bob)
     const aliceUntil = '2099-08-01T01:00:00.000Z'
     const bobUntil = '2099-08-01T02:00:00.000Z'
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'snoozes.set',
       {
         sessionId: f.alice.sessionId,
@@ -166,19 +166,19 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
-    f.sessionState.execute(
+    await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    await f.sessionState.execute(
       'pins.set',
       { kind: 'panel', id: f.alice.sessionId, pinned: true },
       alice,
     )
-    f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
-    f.sessionState.execute(
+    await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
+    await f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
       alice,
     )
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
       bob,
@@ -201,7 +201,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
 
   it(`${MUST_NOT_CHANGE}: readAt is keyed by the on-behalf-of human and one viewer cannot clear another viewer's marker`, async () => {
     const f = await twoUserOracle()
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'sessions.markRead',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.alice),
@@ -211,7 +211,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     )
     expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
     expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
-    f.sessionState.execute(
+    await f.sessionState.execute(
       'sessions.markUnread',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.bob),
@@ -227,7 +227,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
 describe('oracle: activity flush and cumulative compute', () => {
   it(`${MUST_NOT_CHANGE}: frame activity writes once at flush, a clean flush writes nothing, and daemon counter resets accumulate`, async () => {
     const o = await makeOracle()
-    const { sessionId } = o.reg.modules.sessions.createSession({
+    const { sessionId } = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/work',
     })
@@ -280,7 +280,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     expect(
       (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.workingMsTotal,
     ).toBe(7_000)
-    expect(o.meta(sessionId).agentState?.workingMsTotal).toBe(7_000)
+    expect((await o.meta(sessionId)).agentState?.workingMsTotal).toBe(7_000)
   })
 })
 
@@ -293,14 +293,14 @@ describe('oracle: priority pushes', () => {
 
   it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, async () => {
     const o = await makeOracle()
-    const first = o.reg.modules.sessions.createSession({
+    const first = (await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/one',
-    }).sessionId
-    const second = o.reg.modules.sessions.createSession({
+    })).sessionId
+    const second = (await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/two',
-    }).sessionId
+    })).sessionId
     const clientId = attachTestClient(o.reg.clientGateway, () => {})
     o.daemon.length = 0
 
@@ -338,10 +338,10 @@ describe('oracle: queued sends re-authorize at drain', () => {
         revoked ? { ok: false, reason: 'sender no longer has access to the target' } : { ok: true },
     })
     try {
-      const target = h.createIssue({ title: 'target' })
-      const sender = h.createIssue({ title: 'sender' })
+      const target = await h.createIssue({ title: 'target' })
+      const sender = await h.createIssue({ title: 'sender' })
       h.put({ sessionId: asSessionId('sender-agent'), issueId: sender.id, phase: 'idle' })
-      const sent = h.svc.send(
+      const sent = await h.svc.send(
         { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sender-agent') },
         { to: { kind: 'issue', id: target.id }, body: 'queued before revoke' },
       )
@@ -349,14 +349,14 @@ describe('oracle: queued sends re-authorize at drain', () => {
 
       revoked = true
       h.put({ sessionId: asSessionId('target-agent'), issueId: target.id, phase: 'idle' })
-      h.svc.sweep()
+      await h.svc.sweep()
 
-      expect(h.svc.message(sent.message.id)?.status).toBe('dead_letter')
+      expect((await h.svc.message(sent.message.id))?.status).toBe('dead_letter')
       expect(h.pushes.filter((push) => push.sessionId === 'target-agent')).toEqual([])
       expect(
-        h.svc
-          .inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })
-          .some((message) => message.body.includes('sender no longer has access')),
+        (await h.svc.inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })).some((message) =>
+          message.body.includes('sender no longer has access'),
+        ),
       ).toBe(true)
     } finally {
       h.store.close()
@@ -377,7 +377,7 @@ describe('oracle: native identity receipts', () => {
       ackRequested: true,
     })
 
-    expect(f.o.meta(f.bob.sessionId).resume).toEqual({
+    expect((await f.o.meta(f.bob.sessionId)).resume).toEqual({
       kind: 'codex-thread',
       value: 'thread-bob',
     })
@@ -410,11 +410,11 @@ describe('oracle: native identity receipts', () => {
       ackRequested: true,
     })
 
-    expect(f.o.meta(f.alice.sessionId).resume).toEqual(shared)
-    expect(f.o.meta(f.bob.sessionId).resume).toBeUndefined()
+    expect((await f.o.meta(f.alice.sessionId)).resume).toEqual(shared)
+    expect((await f.o.meta(f.bob.sessionId)).resume).toBeUndefined()
     expect(
-      f.o.reg.modules.sessions
-        .listSessions()
+      (await f.o.reg.modules.sessions
+        .listSessions())
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.alice.sessionId, f.bob.sessionId].sort())
@@ -443,7 +443,7 @@ describe('oracle: native identity receipts', () => {
 describe('oracle: browser-open forwarding', () => {
   it(`${MUST_NOT_CHANGE}: forwards an owning-daemon intent and stamps callback identity from the authenticated browser, never payload`, async () => {
     const o = await makeOracle()
-    const { sessionId } = o.reg.modules.sessions.createSession({
+    const { sessionId } = await o.reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/work',
     })
@@ -516,7 +516,7 @@ describe('oracle: spawn placement fails closed', () => {
         { id: asMachineId('offline'), name: 'Offline' },
       ],
     })
-    const sessions = () => o.reg.modules.sessions.listSessions().length
+    const sessions = async () => (await o.reg.modules.sessions.listSessions()).length
 
     expect(
       await messageOf(() =>
@@ -528,7 +528,7 @@ describe('oracle: spawn placement fails closed', () => {
         }),
       ),
     ).toBe("you do not have access to run agents on machine 'Online'")
-    expect(sessions()).toBe(0)
+    expect(await sessions()).toBe(0)
 
     expect(
       await messageOf(() =>
@@ -540,16 +540,16 @@ describe('oracle: spawn placement fails closed', () => {
         }),
       ),
     ).toBe("machine 'Offline' is offline")
-    expect(sessions()).toBe(0)
+    expect(await sessions()).toBe(0)
 
     expect(
-      o.reg.modules.sessions.createSession({
+      (await o.reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/work',
         machineId: asMachineId('online'),
         use: () => 'granted',
-      }).sessionId,
+      })).sessionId,
     ).toEqual(expect.any(String))
-    expect(sessions()).toBe(1)
+    expect(await sessions()).toBe(1)
   })
 })

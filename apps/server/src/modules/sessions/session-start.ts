@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
@@ -95,6 +96,8 @@ import type { SessionView } from './view'
  * actually chose them, which the request may have left to defaults — and it
  * carries both `machine` and `machineId`, a duality the aggregate does not have.
  */
+const log = createLogger('server:sessions:start')
+
 export interface SessionSpawnResult {
   sessionId: SessionId
   agentId: string
@@ -115,26 +118,26 @@ export interface SessionStartPorts {
   terminalProof: SessionTerminalProof
   /** Whose preferences a spawning read uses. NOT this module's decision. */
   settingsViewer(): UserId
-  durableLabelFor(sessionId: SessionId): string
+  durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
    *  is the coupling POD-1396's first cut existed to remove. */
   hasSession(sessionId: SessionId): boolean
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
-  defaultMachine(): MachineId
-  machineName(machineId: MachineId): string
+  defaultMachine(): MachineId | Promise<MachineId>
+  machineName(machineId: MachineId): string | Promise<string>
   nativeAccountIdForMachine(
     machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
-  ): AccountId
+  ): AccountId | Promise<AccountId>
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
-  ): MachineId
+  ): MachineId | Promise<MachineId>
   onSpawnTargetLogin?(input: {
     machineId: MachineId
     agentKind: AgentKind
@@ -146,15 +149,19 @@ export interface SessionStartPorts {
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
-  soleOwnerForCwd(cwd: string): IssueId | undefined
+  soleOwnerForCwd(cwd: string): IssueId | undefined | Promise<IssueId | undefined>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
     agentKind: AgentKind
     issueId?: IssueId
     workflowRevisionId?: string
-  }): { instructions: AgentInstruction[]; commit(): void }
-  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
+  }):
+    | { instructions: AgentInstruction[]; commit(): void | Promise<void> }
+    | Promise<{ instructions: AgentInstruction[]; commit(): void | Promise<void> }>
+  sessionOwner(
+    sessionId: SessionId,
+  ): { owner: UserId; grants: string[] } | undefined | Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
@@ -172,7 +179,7 @@ export interface SessionStartPorts {
 export class SessionStart {
   constructor(private readonly ports: SessionStartPorts) {}
 
-  create(input: {
+  async create(input: {
     /** Authenticated human owner; every production caller supplies this. */
     ownerUserId?: UserId
     agentKind?: AgentKind
@@ -214,7 +221,7 @@ export class SessionStart {
      * spawn dialog would be a product decision nobody has made.
      */
     runtimeContract?: RuntimeContractRequest
-  }): SessionSpawnResult {
+  }): Promise<SessionSpawnResult> {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
     // AgentKind: persisting or broadcasting it fails the sessionsChanged
@@ -222,14 +229,16 @@ export class SessionStart {
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
-          .harness
+      : resolveRole(
+          await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+          'coding',
+        ).harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
     if (input.loginHarness && agentKind !== 'shell') {
       throw new Error('loginHarness is only valid for shell sessions')
     }
-    const machineId = this.ports.resolveMachineForAgent(
+    const machineId = await this.ports.resolveMachineForAgent(
       input.machineId,
       input.cwd,
       agentKind,
@@ -238,7 +247,7 @@ export class SessionStart {
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
     const { forced } = assertModelSelectionValid(
-      this.ports.store.settings.getModelCatalog(machineId),
+      await this.ports.store.settings.getModelCatalog(machineId),
       {
         agentKind,
         ...(input.model !== undefined ? { model: input.model } : {}),
@@ -256,9 +265,9 @@ export class SessionStart {
     }
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.ports.soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd)) ?? undefined
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,
       agentKind,
@@ -270,12 +279,14 @@ export class SessionStart {
     // Session ownership is declared per class: an issue-owned child inherits the
     // issue owner; otherwise a binding resolves to its on-behalf-of human. The
     // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId ? this.ports.store.issues.getIssue(issueId)?.ownerUserId : undefined
+    const parentOwner = issueId
+      ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId
+      : undefined
     const bindingOwner =
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
         : input.binding?.principal.kind === 'agent'
-          ? this.ports.sessionOwner(input.binding.principal.parentBindingId)?.owner
+          ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
     const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
@@ -294,7 +305,7 @@ export class SessionStart {
     // exactly when a session is spawned under a shared issue, and conflating
     // them would attribute the spawn to the issue's owner.
     const createdBy = createdByForBinding(binding.principal, bindingOwner ?? ownerUserId)
-    const spawned = this.spawn({
+    const spawned = await this.spawn({
       agentKind,
       ownerUserId,
       cwd: input.cwd,
@@ -321,10 +332,13 @@ export class SessionStart {
       createdBy,
       sessionId,
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
-      const queued = this.ports.queueInitialPrompt({ sessionId: spawned.sessionId, text: taskPrompt })
+      const queued = this.ports.queueInitialPrompt({
+        sessionId: spawned.sessionId,
+        text: taskPrompt,
+      })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')
       }
@@ -341,7 +355,7 @@ export class SessionStart {
     // Forcing an unlisted model is a deliberate override — make it durable and
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {
-      this.ports.store.events.appendEvent({
+      await this.ports.store.events.appendEvent({
         ts: new Date().toISOString(),
         kind: 'agent.model_forced',
         subject: spawned.sessionId,
@@ -357,7 +371,7 @@ export class SessionStart {
     return spawned
   }
 
-  spawn(input: {
+  async spawn(input: {
     agentKind: AgentKind
     ownerUserId?: UserId
     cwd: string
@@ -388,7 +402,7 @@ export class SessionStart {
     /** The operator's per-spawn driver choice — see `create()`'s field of the
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     runtimeContract?: RuntimeContractRequest
-  }): SessionSpawnResult {
+  }): Promise<SessionSpawnResult> {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
@@ -396,14 +410,16 @@ export class SessionStart {
       throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = input.machineId ? asMachineId(input.machineId) : this.ports.defaultMachine()
+    const machineId = input.machineId
+      ? asMachineId(input.machineId)
+      : await this.ports.defaultMachine()
     const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const launch = this.ports.launchConfig.modelDefaults(
+    const launch = await this.ports.launchConfig.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
@@ -413,7 +429,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+            await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the
@@ -436,10 +452,10 @@ export class SessionStart {
     const accountId =
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
-        : this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+        : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
     const session = new Session({
       sessionId,
-      durableLabel: this.ports.durableLabelFor(sessionId),
+      durableLabel: await this.ports.durableLabelFor(sessionId),
       ownerUserId,
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -470,7 +486,9 @@ export class SessionStart {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then
         // rebroadcast.
-        this.ports.repository.persist(session)
+        void this.ports.repository.persist(session).catch((error) => {
+          log.error('failed to persist session activity', { error })
+        })
         this.ports.broadcastSessions()
       },
       ...(input.resume ? { resume: input.resume } : {}),
@@ -504,12 +522,12 @@ export class SessionStart {
     // draft ordinal from the repo), so it has to assign into the state the row
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
-    const additionalWrite = this.ports.view.prepareRefAllocation(draft)
-    this.ports.repository.persistDraft(session, draft, additionalWrite)
+    const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
+    await this.ports.repository.persistDraft(session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
-    const observationLease = this.ports.terminalProof.fence(session)
+    const observationLease = await this.ports.terminalProof.fence(session)
     this.ports.toMachine(machineId, {
       type: 'spawn',
       sessionId,
@@ -543,7 +561,7 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
+      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })
@@ -554,7 +572,7 @@ export class SessionStart {
       harness: input.agentKind,
       model: launch.model ?? null,
       effort: launch.effort ?? null,
-      machine: this.ports.machineName(machineId),
+      machine: await this.ports.machineName(machineId),
       machineId,
       accountId: accountId ?? null,
     }

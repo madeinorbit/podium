@@ -10,13 +10,13 @@
 
 import type { TransportTag } from '@podium/commands'
 import type { Capability, MachineId, MachineUseDecision, SessionId } from '@podium/model'
-import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipal, resolvePrincipalAsync } from '../../command-principal'
 import {
   canSeeMachine,
   isMachineOwner,
   type MachineOwnershipIndex,
   machineUseDecision,
-  ownershipFromMachines,
+  ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
@@ -54,7 +54,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
  * caller supplied. `onBehalfOfFor` is absent until POD-1075 lands accounts, so
  * every chain roots at the instance's one human.
  */
-export function sessionCommandCtx(
+export async function sessionCommandCtx(
   modules: RegistryModules,
   capability: Capability,
   overrideScope?: boolean,
@@ -66,25 +66,25 @@ export function sessionCommandCtx(
    * forgets to say gets the stricter answer rather than the looser one.
    */
   transport: TransportTag = 'relay',
-): SessionCommandCtx {
+): Promise<SessionCommandCtx> {
   const sessions = modules.sessions
   const issues = modules.issues
   const commandSessions = sessionCommandServices(modules)
-  const principal = resolvePrincipal(capability, {
+  const principal = await resolvePrincipalAsync(capability, {
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
     // hands back a `SessionId` with no cast here.
-    parentSessionOf: (sessionId) =>
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
-    onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
+    onBehalfOfFor: async (sessionId) => (await sessions.sessionOwner(sessionId))?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
-    stageAttachment: (input) => sessions.runtimeGateway.stageAttachment(input),
-    runtimeContractActive: (sessionId) => sessions.receiptSender.onContract(sessionId),
+    stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
+    runtimeContractActive: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
     // The capability is closed over HERE, at the composition root, so no handler
@@ -98,11 +98,11 @@ export function sessionCommandCtx(
     // The non-null assertion is safe by the same argument the router's makes: a
     // `undefined` here would mean `mail.send` does not name this transport, and
     // both transports that build this context are in its exposure set.
-    mailSend: (input) => {
+    mailSend: async (input) => {
       const deliveryMode = sessions.receiptSender.onContract(asSessionId(input.to))
         ? 'confirm'
         : 'immediate'
-      return modules.messageGate.dispatch(
+      return (await modules.messageGate.dispatch(
         capability,
         overrideScope,
         'send',
@@ -110,23 +110,23 @@ export function sessionCommandCtx(
         transport,
         deliveryMode,
         input.correlationId,
-      )!
+      ))!
     },
-    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
-      issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
+      await issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts) await issues.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: (issueId) => issues.discardUnlaunchedDraft(issueId),
-    issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
+    discardUnlaunchedDraft: async (issueId) => await issues.discardUnlaunchedDraft(issueId),
+    issueOwner: async (issueId) => (await issues.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
-      listSessions: () => sessions.listSessions(),
-      sessionById: (sessionId) => sessions.sessionById(sessionId),
+      listSessions: async () => await sessions.listSessions(),
+      sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
     rpc: () => modules.rpc,
-    ownership: ownershipFromMachines(modules.machines),
+    ownership: await ownershipSnapshotFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other
     // transport while the original is still running would apply twice.
@@ -150,11 +150,11 @@ export function sessionCommandCtx(
  * Today's single-account default sees everything and uses everything, so this is
  * behaviour-preserving; it is the seam POD-1079 fills, not a new policy.
  */
-export function visibleMachinesFor(
+export async function visibleMachinesFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
-): ReturnType<RegistryModules['machines']['listMachines']> {
-  return machinesForPrincipal(
+): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
+  return await machinesForPrincipal(
     modules,
     resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   )
@@ -168,21 +168,22 @@ export function visibleMachinesFor(
  * account — so it is the only way to TEST the scoping rather than merely ship
  * it. The router uses the wrapper; the wrapper is one line over this.
  */
-export function machinesForPrincipal(
+export async function machinesForPrincipal(
   modules: Pick<RegistryModules, 'machines'>,
   principal: CommandPrincipal,
-  ownership: MachineOwnershipIndex = ownershipFromMachines(modules.machines),
-): ReturnType<RegistryModules['machines']['listMachines']> {
-  return modules.machines
+  ownership?: MachineOwnershipIndex,
+): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
+  const resolvedOwnership = ownership ?? await ownershipSnapshotFromMachines(modules.machines)
+  return (await modules.machines
     .listMachines(
-      (machineId) => machineUseDecision(principal, machineId, ownership),
+      (machineId) => machineUseDecision(principal, machineId, resolvedOwnership),
       // POD-1495: the third viewer-relative answer this projection carries, next
       // to `use` and the `see` filter below — "may you give this machine away".
       // It is the SAME predicate the transfer gate refuses with, so the settings
       // panel cannot offer a transfer the server would reject.
-      (machineId) => isMachineOwner(principal, machineId, ownership),
-    )
-    .filter((machine) => canSeeMachine(principal, machine.id, ownership))
+      (machineId) => isMachineOwner(principal, machineId, resolvedOwnership),
+    ))
+    .filter((machine) => canSeeMachine(principal, machine.id, resolvedOwnership))
 }
 
 /** One registered checkout, as the fleet view reports it. */
@@ -212,12 +213,15 @@ export interface FleetRepoRow {
  * second scoping rule. Widen the projection and this follows; fork it and the two
  * drift with nobody watching.
  */
-export function fleetViewFor(
+export async function fleetViewFor(
   modules: Pick<RegistryModules, 'machines'>,
   capability: Capability,
   allRepos: FleetRepoRow[],
-): { machines: ReturnType<RegistryModules['machines']['listMachines']>; repos: FleetRepoRow[] } {
-  const machines = visibleMachinesFor(modules, capability)
+): Promise<{
+  machines: Awaited<ReturnType<RegistryModules['machines']['listMachines']>>
+  repos: FleetRepoRow[]
+}> {
+  const machines = await visibleMachinesFor(modules, capability)
   return { machines, repos: usableRepos(machines, allRepos) }
 }
 

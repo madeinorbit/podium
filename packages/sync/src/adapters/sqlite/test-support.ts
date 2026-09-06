@@ -1,10 +1,11 @@
 import type { MutationId, SessionId } from '@podium/model'
-import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SyncServerTables } from './server-tables'
-import type { StoreQueries, SyncDrizzle } from './store-queries'
+import type { StoreQueries, StoreDrizzle } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -101,21 +102,38 @@ export function createTestSyncRepository(): SyncRepository {
  * no probe, so it hands drizzle the same three-method shape over the wrapper
  * without the refusal stub.
  */
+type FullTestDrizzle = ReturnType<typeof proxyDrizzle>
+type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle["transaction"]>[0]>[0]
+
+const testTransactionScope = new AsyncLocalStorage<FullTestDrizzle | TestTransactionDrizzle>()
+
+function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
+  return proxyDrizzle(async (statement, params, method) => {
+    const prepared = db.prepare(statement)
+    if (method === 'run') {
+      return { rows: [], ...prepared.run(...params) }
+    }
+    const rows = prepared.values(...params)
+    return { rows: (method === 'get' ? rows[0] : rows) as unknown[] }
+  })
+}
+
 export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {
-  const client = {
-    exec: (statement: string) => db.exec(statement),
-    query: (statement: string) => db.prepare(statement),
-    transaction: () => {
-      throw new Error(
-        'the fixture drizzle instance has no transaction of its own: it keeps its own nesting ' +
-          'state and would open a span the store does not know about. Use `createOrJoinTransaction` ' +
-          '(POD-3221 spec rule 7).',
+  const rootDb = buildTestDrizzle(db)
+  return {
+    get rootDb() {
+      return (testTransactionScope.getStore() ?? rootDb) as unknown as StoreDrizzle
+    },
+    createOrJoinTransaction: async (fn) => {
+      const current = testTransactionScope.getStore()
+      if (current) {
+        return current.transaction((inner) => testTransactionScope.run(inner, fn))
+      }
+      return rootDb.transaction(
+        (tx) => testTransactionScope.run(tx, fn),
+        { behavior: 'immediate' },
       )
     },
-  }
-  return {
-    rootDb: drizzle({ client: client as never }) as SyncDrizzle,
-    createOrJoinTransaction: createTestTransact(db),
   }
 }
 
@@ -223,6 +241,6 @@ export function createTestSyncDatabase(): SqlDatabase {
  * fixture from the layer that owns the technology, which is the same shape the
  * production wiring has.
  */
-export function createTestTransact(db: SqlDatabase): <T>(fn: () => T) => T {
-  return <T>(fn: () => T): T => transaction(db, fn)
+export function createTestTransact(db: SqlDatabase): <T>(fn: () => Promise<T>) => Promise<T> {
+  return createTestSyncQueries(db).createOrJoinTransaction
 }

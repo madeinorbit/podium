@@ -32,31 +32,30 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
 
   async function build() {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, issues: registry.issues }
   }
 
-  const seed = (issues: SessionRegistry['issues'], title: string) =>
-    issues.create({ repoPath: '/repo', title, description: '', startNow: false })
+  const seed = async (issues: SessionRegistry['issues'], title: string) =>
+    await issues.create({ repoPath: '/repo', title, description: '', startNow: false })
 
   it('drops a row a rolled-back enclosing span installed (site 3)', async () => {
     const { store, issues } = await build()
-    const created = seed(issues, 'original title')
+    const created = await seed(issues, 'original title')
 
-    expect(() =>
-      store.transact(() => {
-        issues.update(created.id, { title: 'renamed inside the span' })
+    await expect(store.transact(async () => {
+        await issues.update(created.id, { title: 'renamed inside the span' })
         // The savepoint is released and the map is already installed today.
         // The in-window reader must see the write…
-        expect(issues.get(created.id)?.title).toBe('renamed inside the span')
+        expect((await issues.get(created.id))?.title).toBe('renamed inside the span')
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // …and the database rolled it back, so the map must hold the committed
     // title again. Read with nothing reloaded in between.
-    expect(issues.get(created.id)?.title).toBe('original title')
+    expect((await issues.get(created.id))?.title).toBe('original title')
     expect((await store.issues.listIssueRows()).find((row) => row.id === created.id)?.title).toBe(
       'original title',
     )
@@ -64,13 +63,13 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
 
   it('keeps a row whose enclosing span commits (site 3)', async () => {
     const { store, issues } = await build()
-    const created = seed(issues, 'original title')
+    const created = await seed(issues, 'original title')
 
-    await store.transact(() => {
-      issues.update(created.id, { title: 'renamed and kept' })
+    await store.transact(async () => {
+      await issues.update(created.id, { title: 'renamed and kept' })
     })
 
-    expect(issues.get(created.id)?.title).toBe('renamed and kept')
+    expect((await issues.get(created.id))?.title).toBe('renamed and kept')
   })
 
   it('a second write to the same issue in one span sees the first (the in-window reader)', async () => {
@@ -80,31 +79,30 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // a bare deferral the second update would read the PRE-span row, and its
     // own write would carry the first update's field back out.
     const { store, issues } = await build()
-    const created = seed(issues, 'original title')
+    const created = await seed(issues, 'original title')
 
-    await store.transact(() => {
-      issues.update(created.id, { title: 'first write' })
-      issues.update(created.id, { description: 'second write' })
+    await store.transact(async () => {
+      await issues.update(created.id, { title: 'first write' })
+      await issues.update(created.id, { description: 'second write' })
     })
 
-    const after = issues.get(created.id)
+    const after = await issues.get(created.id)
     expect(after?.title).toBe('first write')
     expect(after?.description).toBe('second write')
   })
 
   it('does not leave a deleted row visible after a rolled-back delete (sites 6 and 7)', async () => {
     const { store, issues } = await build()
-    const created = seed(issues, 'to be deleted')
+    const created = await seed(issues, 'to be deleted')
 
-    expect(() =>
-      store.transact(() => {
-        issues.update(created.id, { title: 'touched before the failure' })
+    await expect(store.transact(async () => {
+        await issues.update(created.id, { title: 'touched before the failure' })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // The row survives with its committed fields; nothing staged leaked.
-    expect(issues.get(created.id)?.title).toBe('to be deleted')
+    expect((await issues.get(created.id))?.title).toBe('to be deleted')
   })
 
   it('does not serve an orphaned row to a LATER write that opens its own span', async () => {
@@ -119,20 +117,19 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // that released from one that rolled back, because both close their frame,
     // and only the registration knows which happened.
     const { store, issues } = await build()
-    const survivor = seed(issues, 'the survivor')
+    const survivor = await seed(issues, 'the survivor')
 
-    expect(() =>
-      store.transact(() => {
-        issues.create({ repoPath: '/repo', title: 'orphaned by the rollback', startNow: false })
+    await expect(store.transact(async () => {
+        await issues.create({ repoPath: '/repo', title: 'orphaned by the rollback', startNow: false })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // A later, unrelated top-level write. Its own span is open while the issue
     // service reads the row map to build the wire.
-    issues.update(survivor.id, { title: 'a later unrelated write' })
+    await issues.update(survivor.id, { title: 'a later unrelated write' })
 
-    const titles = issues.list().map((issue) => issue.title)
+    const titles = (await issues.list()).map((issue) => issue.title)
     expect(titles).not.toContain('orphaned by the rollback')
     expect(titles.sort()).toEqual(
       (await store.issues
@@ -147,17 +144,16 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // not merely stale, it makes the next FULL-LIST reconcile declare an upsert
     // for an issue the database does not have. Compare the two directly.
     const { store, issues } = await build()
-    seed(issues, 'committed issue')
+    await seed(issues, 'committed issue')
 
-    expect(() =>
-      store.transact(() => {
-        issues.create({ repoPath: '/repo', title: 'never committed', startNow: false })
+    await expect(store.transact(async () => {
+        await issues.create({ repoPath: '/repo', title: 'never committed', startNow: false })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
-    const inMemory = issues
-      .list()
+    const inMemory = (await issues
+      .list())
       .map((issue) => issue.title)
       .sort()
     const inDatabase = (await store.issues
@@ -177,18 +173,18 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // the outer span must still see it — a middle span whose release dropped
     // its own staged row would be the lost-update this layer exists to stop.
     const { store, issues } = await build()
-    const created = seed(issues, 'original title')
+    const created = await seed(issues, 'original title')
     let seenInsideTheWindow: string | undefined
 
-    await store.transact(() => {
-      store.transact(() => {
-        issues.update(created.id, { title: 'staged by the middle span' })
+    await store.transact(async () => {
+      await store.transact(async () => {
+        await issues.update(created.id, { title: 'staged by the middle span' })
       })
-      seenInsideTheWindow = issues.get(created.id)?.title
+      seenInsideTheWindow = (await issues.get(created.id))?.title
     })
 
     expect(seenInsideTheWindow).toBe('staged by the middle span')
-    expect(issues.get(created.id)?.title).toBe('staged by the middle span')
+    expect((await issues.get(created.id))?.title).toBe('staged by the middle span')
   })
 
   it('does not shadow an in-window read with a row a MIDDLE span rolled back', async () => {
@@ -203,20 +199,19 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // and the next top-level operation has already freshened the orphan away —
     // which is the self-healing fixture that hides exactly this state.
     const { store, issues } = await build()
-    seed(issues, 'the survivor')
+    await seed(issues, 'the survivor')
     let seenInsideTheWindow: string[] = []
 
-    await store.transact(() => {
-      expect(() =>
-        store.transact(() => {
-          issues.create({ repoPath: '/repo', title: 'orphaned by the inner rollback', startNow: false })
+    await store.transact(async () => {
+      await expect(store.transact(async () => {
+          await issues.create({ repoPath: '/repo', title: 'orphaned by the inner rollback', startNow: false })
           throw new Error('inner span failed')
         }),
-      ).toThrow('inner span failed')
+      ).rejects.toThrow('inner span failed')
 
       // The outer span carries on and will COMMIT. A reader here decides against
       // rows the database has already thrown away.
-      seenInsideTheWindow = issues.list().map((issue) => issue.title)
+      seenInsideTheWindow = (await issues.list()).map((issue) => issue.title)
     })
 
     expect(seenInsideTheWindow).not.toContain('orphaned by the inner rollback')

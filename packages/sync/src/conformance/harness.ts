@@ -80,6 +80,7 @@ export interface ClientOptions {
  */
 export async function openClient(options: ClientOptions): Promise<ConformanceClient> {
   const { authority, storage, principal, clock } = options
+  await authority.resolveIdentity()
   const view = storage.viewFor(requireHuman(principal))
   const replicaEvents: ReplicaEvent[] = []
   const outboxEvents: OutboxEvent[] = []
@@ -271,7 +272,7 @@ export async function pumpUntilCaughtUp(
   for (let i = 0; i < rounds; i += 1) {
     if (client.replica.cursor?.seq === authority.head()) return
     const frame: ServerFrame = nextFrame(authority, client)
-    client.replica.receive(frame)
+    await client.replica.receive(frame)
     await client.settle()
   }
   throw new Error(

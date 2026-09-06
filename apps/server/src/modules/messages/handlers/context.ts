@@ -41,7 +41,7 @@ import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principa
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
@@ -139,26 +139,33 @@ export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
  * non-allowed outcomes (D20.2) inside MessageDeliveryService.
  */
 export interface PrincipalMailPolicy {
-  principalForCapability(capability: Capability): CommandPrincipal
-  principalForMessage(message: MessageRow): CommandPrincipal | undefined
-  policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+  principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
+  principalForMessage(
+    message: MessageRow,
+  ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
+  policyFor(principal: CommandPrincipal):
+    | { ceiling: HumanCeiling; machines: MachineAccess }
+    | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 }
 
 export function principalMailPolicy(opts: PrincipalMailPolicy): {
   authorizeAtApply: ApplyCeilingPort
   placementAtWake: WakePlacementPort
   gateOptions: {
-    principalForCapability(capability: Capability): CommandPrincipal
-    policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
+    principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
+    policyFor(principal: CommandPrincipal):
+      | { ceiling: HumanCeiling; machines: MachineAccess }
+      | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   }
 } {
   const authorizeAtApply = Object.assign(
-    (message: MessageRow) => {
+    async (message: MessageRow) => {
       if (message.toKind !== 'issue' || !message.toId) return { ok: true } as const
-      const principal = opts.principalForMessage(message)
+      const principal = await opts.principalForMessage(message)
       if (!principal)
         return { ok: false, reason: 'sender authorization is no longer valid' } as const
-      if (opts.policyFor(principal).ceiling.canSee({ kind: 'issue', id: message.toId })) {
+      const policy = await opts.policyFor(principal)
+      if (await policy.ceiling.canSee({ kind: 'issue', id: message.toId })) {
         return { ok: true } as const
       }
       return { ok: false, reason: 'issue no longer exists' } as const
@@ -166,13 +173,13 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
     { dynamic: true as const },
   )
   const placementAtWake: WakePlacementPort = (message, machineId) =>
-    withReadScope(() => {
-      const principal = opts.principalForMessage(message)
+    withReadScope(async () => {
+      const principal = await opts.principalForMessage(message)
       // No principal left to re-resolve → deny. A wake is code execution; the
       // single-user default only applies when the port is ABSENT, not when the
       // sender cannot be found.
       if (!principal) return 'unauthorized'
-      return placementDecision(machineId, opts.policyFor(principal).machines)
+      return placementDecision(machineId, (await opts.policyFor(principal)).machines)
     })
   return {
     authorizeAtApply,
@@ -265,11 +272,17 @@ export class MailAccess {
    * the consistent-error rule (ADR 3 Amendment 1 D20.2) enforced by construction
    * rather than by two error strings kept in sync.
    */
-  resolveRecipient(to: string): AddressResolution {
-    return resolveAddress(to, {
-      isKnownSession: (ref) => findSessionById(this.deps, asSessionId(ref)) !== undefined,
-      resolveIssueRef: (ref) => this.deps.issues.resolveRef(ref),
-      issueExists: (id) => this.deps.issues.has(id),
+  async resolveRecipient(to: string): Promise<AddressResolution> {
+    // RESOLVED IN FRONT OF resolveAddress, which calls `isKnownSession` exactly
+    // once and with this same `to`. The session lookup is a durable read now,
+    // and an async predicate here would be truthy for every ref — turning "is
+    // this a live session?" into "yes", which is the permissive direction on an
+    // address that then decides what the caller may see.
+    const knownSession = (await findSessionByIdAsync(this.deps, asSessionId(to))) !== undefined
+    return await resolveAddress(to, {
+      isKnownSession: () => knownSession,
+      resolveIssueRef: async (ref) => await this.deps.issues.resolveRef(ref),
+      issueExists: async (id) => await this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -280,11 +293,11 @@ export class MailAccess {
    * that happens to match a session id cannot be re-routed. Same ceiling, same
    * single `unresolvable` value.
    */
-  resolveIssueAddress(ref: string): AddressResolution {
-    return resolveAddress(ref, {
+  async resolveIssueAddress(ref: string): Promise<AddressResolution> {
+    return await resolveAddress(ref, {
       isKnownSession: () => false,
-      resolveIssueRef: (r) => this.deps.issues.resolveRef(r),
-      issueExists: (id) => this.deps.issues.has(id),
+      resolveIssueRef: async (r) => await this.deps.issues.resolveRef(r),
+      issueExists: async (id) => await this.deps.issues.has(id),
       ceiling: this.ceiling,
     })
   }
@@ -298,13 +311,13 @@ export class MailAccess {
    *  slice (#237 authz): issue-bound targets need write access to that issue;
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
-  assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
-    const target = findSessionById(this.deps, sessionId)
+  async assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): Promise<void> {
+    const target = await findSessionByIdAsync(this.deps, sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues
-    const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+    const targetIssueId = target.issueId ?? await issues.issueForCwd(target.cwd)
     if (targetIssueId) {
-      checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
+      await checkIssueAccess(caller, issues, proc, 'write', targetIssueId)
       return
     }
     const isOperator = caller.capability.scope.kind === 'all'
@@ -361,14 +374,14 @@ export class MailAccess {
     )
   }
 
-  wire(m: MessageRow): MessageWire {
+  async wire(m: MessageRow): Promise<MessageWire> {
     const issues = this.deps.issues
-    const label = (kind: string, issueId: IssueId | null, sessionId: SessionId | null): string => {
+    const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
-          const issue = issues.getMeta(issueId)
+          const issue = await issues.getMeta(issueId)
           // Nice-id form (#474), matching the envelope labels.
-          if (issue) return `issue:${issues.niceRef(issue)}`
+          if (issue) return `issue:${await issues.niceRef(issue)}`
           return issueId
         }
         if (sessionId) return `session:${sessionId}`
@@ -383,10 +396,10 @@ export class MailAccess {
       from:
         m.fromKind === 'system' && m.fromName
           ? `system:${m.fromName}`
-          : label(m.fromKind, m.fromIssue, m.fromSession),
+          : await label(m.fromKind, m.fromIssue, m.fromSession),
       // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so the
       // brand is recovered inside each discriminated branch — never once, up front.
-      to: label(
+      to: await label(
         m.toKind,
         m.toKind === 'issue' && m.toId ? asIssueId(m.toId) : null,
         m.toKind === 'session' && m.toId ? asSessionId(m.toId) : null,

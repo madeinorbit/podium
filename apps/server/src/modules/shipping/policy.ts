@@ -14,16 +14,17 @@ export interface ResolvedShippingPolicy {
 }
 
 export interface ShippingPolicyResolver {
-  resolve(issue: IssueWire): ResolvedShippingPolicy
+  resolve(issue: IssueWire): ResolvedShippingPolicy | Promise<ResolvedShippingPolicy>
 }
 
 /** First-slice policy: only the guarded local ff-only compatibility executor.
  * Provider queues and outward publication are intentionally not inferred. */
 export class CompatibilityShippingPolicyResolver implements ShippingPolicyResolver {
-  constructor(private readonly defaultTargetBranch: () => string) {}
+  constructor(private readonly defaultTargetBranch: () => string | Promise<string>) {}
 
-  resolve(issue: IssueWire): ResolvedShippingPolicy {
-    const targetBranch = issue.parentBranch.trim() || this.defaultTargetBranch().trim() || 'main'
+  async resolve(issue: IssueWire): Promise<ResolvedShippingPolicy> {
+    const targetBranch =
+      issue.parentBranch.trim() || (await this.defaultTargetBranch()).trim() || 'main'
     return {
       id: `compatibility-local:${targetBranch}`,
       targetBranch,

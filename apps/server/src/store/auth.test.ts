@@ -8,7 +8,7 @@ let repo: AuthRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   repo = new AuthRepository(stage)
 })

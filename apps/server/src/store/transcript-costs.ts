@@ -19,7 +19,8 @@
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
 import { and, count, gt, inArray, isNotNull, max, sql } from 'drizzle-orm'
 import { transcriptCosts } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -93,7 +94,7 @@ const toCost = (row: Row): TranscriptCost => ({
 })
 
 export class TranscriptCostsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -108,8 +109,8 @@ export class TranscriptCostsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -117,11 +118,11 @@ export class TranscriptCostsRepository {
    * observation of the disk, and half of it landing would leave the sheet's
    * total disagreeing with its own by-task breakdown.
    */
-  record(records: TranscriptCostRecord[], nowIso: string): void {
+  async record(records: TranscriptCostRecord[], nowIso: string): Promise<void> {
     if (records.length === 0) return
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (const r of records) {
-        this.db
+        ;await (this.db
           .insert(transcriptCosts)
           .values({
             machineId: r.machineId,
@@ -138,7 +139,7 @@ export class TranscriptCostsRepository {
             windowModelsJson: JSON.stringify(r.windowModels),
             windowSinceMs: r.windowSinceMs,
             updatedAt: nowIso,
-          })
+          }))
           .onConflictDoUpdate({
             target: [transcriptCosts.machineId, transcriptCosts.nativeId],
             set: {
@@ -175,29 +176,29 @@ export class TranscriptCostsRepository {
   }
 
   /** Every transcript attributed to one of these issues. */
-  forIssues(issueIds: readonly IssueId[]): TranscriptCost[] {
+  async forIssues(issueIds: readonly IssueId[]): Promise<TranscriptCost[]> {
     if (issueIds.length === 0) return []
-    return this.db
+    return (await this.db
       .select()
       .from(transcriptCosts)
       .where(inArray(transcriptCosts.issueId, issueIds))
-      .all()
+      .all())
       .map(toCost)
   }
 
   /** Every transcript that resolved to a task, for the sheet's ranked table. */
-  allAttributed(): TranscriptCost[] {
-    return this.db
+  async allAttributed(): Promise<TranscriptCost[]> {
+    return (await this.db
       .select()
       .from(transcriptCosts)
       .where(isNotNull(transcriptCosts.issueId))
-      .all()
+      .all())
       .map(toCost)
   }
 
   /** Which sessions already have a fold — the `pending` state's other half. */
-  costedSessionIds(): Set<string> {
-    const rows = this.db
+  async costedSessionIds(): Promise<Set<string>> {
+    const rows = await this.db
       .selectDistinct({ sessionId: transcriptCosts.sessionId })
       .from(transcriptCosts)
       .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
@@ -213,16 +214,16 @@ export class TranscriptCostsRepository {
    * fold has to read as zero rather than as last week's number. Comparing
    * against this is how a reader tells the two apart without a second write.
    */
-  latestWindowSinceMs(): number {
-    const row = this.db
+  async latestWindowSinceMs(): Promise<number> {
+    const row = await this.db
       .select({ m: max(transcriptCosts.windowSinceMs) })
       .from(transcriptCosts)
       .get()
     return row?.m ?? 0
   }
 
-  countAll(): number {
-    const row = this.db.select({ n: count() }).from(transcriptCosts).get()
+  async countAll(): Promise<number> {
+    const row = await this.db.select({ n: count() }).from(transcriptCosts).get()
     return row?.n ?? 0
   }
 }

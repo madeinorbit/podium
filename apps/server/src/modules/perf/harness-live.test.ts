@@ -56,8 +56,8 @@ const LIVE = perfPrincipal(
   feedPrincipalOf(userClientPrincipal('perf-fixture', FIRST_ADMIN_USER_ID, 'admin')),
 )
 
-function drive(): { registry: SessionRegistry; inbox: unknown[] } {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }> {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const inbox: unknown[] = []
   const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {
@@ -68,7 +68,7 @@ function drive(): { registry: SessionRegistry; inbox: unknown[] } {
     caps: ['metadataDelta'],
   })
   // A real write through the real funnel, then the deterministic flush seam.
-  registry.issues.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
+  await registry.issues.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
   registry.modules.funnel.flushDeltas()
   return { registry, inbox }
 }
@@ -77,11 +77,11 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
   let registry: SessionRegistry
   let inbox: unknown[]
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // The singleton is process-level, so a previous file's samples would satisfy
     // every "count > 0" below. Resetting first is what makes them about THIS run.
     perf.reset()
-    const driven = drive()
+    const driven = await drive()
     registry = driven.registry
     inbox = driven.inbox
     return () => registry.dispose()

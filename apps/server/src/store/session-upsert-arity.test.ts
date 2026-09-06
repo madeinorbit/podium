@@ -18,7 +18,7 @@ import type { SessionRow } from './types'
  * `test-support` would put six parallel conversion waves in one shared file.
  */
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).syncQueries
+  const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }

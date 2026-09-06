@@ -28,10 +28,10 @@ import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
-import { authorize, type Capability, type IssueAccessIndex } from '../../issue-authz'
+import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -84,20 +84,25 @@ export interface IssueCommandDeps {
    */
   mutations: MutationLedgerPort
   /** Session list — subscription source checks resolve session→issue through it. */
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+   *  correct via {@link findSessionByIdAsync}'s fallback, just slower. */
+  sessionById?(
+    sessionId: SessionId,
+  ): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
-  repoPaths(): string[]
+  repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
    *  relay-allowlisted `repos.inferFromPath` without touching the router. */
-  inferRepoFromPath(path: string): string | undefined
+  inferRepoFromPath(path: string): string | undefined | Promise<string | undefined>
   /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
    *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
-  sendMessage?(from: MessageSender, input: MessageSendInput): MessageSendResult
+  sendMessage?(
+    from: MessageSender,
+    input: MessageSendInput,
+  ): MessageSendResult | Promise<MessageSendResult>
   /** Deliver a Tray answer to the asking agent session (issue #53): the shared
    *  answer_question matching path (modules/superagent/answer-delivery) with
    *  text fallback for sessions without a live menu. Injected by the relay;
@@ -126,17 +131,17 @@ export interface IssueCommandDeps {
 /** The narrow read surface the capability guard and `IssueCommandCtx.access`
  *  both decide against. Exported since POD-1398: `guardIssueCommand` lives with
  *  the table it reads defs from, and the dispatcher builds one per call. */
-export type IssueCommandAccess = IssueAccessIndex &
+export type IssueCommandAccess = IssueAccessReader &
   Pick<IssueReportsCapability, 'getMeta' | 'resolveRef'>
 
 /** Flatten the two public capability contracts for the shared authz predicate. */
 export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
   return {
-    has: (id) => tracker.reports.has(id),
-    ownedTarget: (id, action) => tracker.reports.ownedTarget(id, action),
-    ancestorIds: (id) => tracker.hierarchy.ancestorIds(id),
-    getMeta: (id) => tracker.reports.getMeta(id),
-    resolveRef: (ref, scopeRepoPath) => tracker.reports.resolveRef(ref, scopeRepoPath),
+    has: async (id) => await tracker.reports.has(id),
+    ownedTarget: async (id, action) => await tracker.reports.ownedTarget(id, action),
+    ancestorIds: async (id) => await tracker.hierarchy.ancestorIds(id),
+    getMeta: async (id) => await tracker.reports.getMeta(id),
+    resolveRef: async (ref, scopeRepoPath) => await tracker.reports.resolveRef(ref, scopeRepoPath),
   }
 }
 
@@ -207,31 +212,32 @@ export class IssueCommandCtx {
     return user
   }
 
-  mayReadIssue(id: string): boolean {
-    const target = this.reports.ownedTarget(id, 'read')
+  async mayReadIssue(id: string): Promise<boolean> {
+    const target = await this.reports.ownedTarget(id, 'read')
     const user = this.readerUser()
     return target !== undefined && (target.owner === user || target.grants.includes(user))
   }
 
-  requireReadableIssue(id: string): void {
-    if (!this.mayReadIssue(id)) {
+  async requireReadableIssue(id: string): Promise<void> {
+    if (!await this.mayReadIssue(id)) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
     }
   }
 
-  visibleRows<T extends { id: string }>(rows: readonly T[]): T[] {
-    return rows.filter((row) => this.mayReadIssue(row.id))
+  async visibleRows<T extends { id: string }>(rows: readonly T[]): Promise<T[]> {
+    const visible = await Promise.all(rows.map((row) => this.mayReadIssue(row.id)))
+    return rows.filter((_, index) => visible[index])
   }
 
-  readIssue<T>(id: string, read: () => T): T {
-    this.requireReadableIssue(id)
-    return read()
+  async readIssue<T>(id: string, read: () => T | Promise<T>): Promise<T> {
+    await this.requireReadableIssue(id)
+    return await read()
   }
 
-  visibleGraph(
-    graph: ReturnType<IssueReportsCapability['graph']>,
-  ): ReturnType<IssueReportsCapability['graph']> {
-    const nodes = this.visibleRows(graph.nodes)
+  async visibleGraph(
+    graph: Awaited<ReturnType<IssueReportsCapability['graph']>>,
+  ): Promise<Awaited<ReturnType<IssueReportsCapability['graph']>>> {
+    const nodes = await this.visibleRows(graph.nodes)
     const ids = new Set(nodes.map((node) => node.id))
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }
@@ -243,8 +249,11 @@ export class IssueCommandCtx {
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */
-  withMutation<T>(mutationId: MutationId | undefined, fn: () => T): T {
-    return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
+  async withMutation<T>(
+    mutationId: MutationId | undefined,
+    fn: () => T | Promise<T>,
+  ): Promise<Awaited<T>> {
+    return await this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
   }
 
   // RETIRED at POD-309: `issueWrite(input, local)` sat between every issue mutation
@@ -257,9 +266,9 @@ export class IssueCommandCtx {
 
   /** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
    *  for a subtree-scoped agent, else 'operator'. */
-  mailIdentity(): string {
+  async mailIdentity(): Promise<string> {
     if (this.caller.capability.scope.kind === 'subtree') {
-      const me = this.reports.getMeta(this.caller.capability.scope.rootId)
+      const me = await this.reports.getMeta(this.caller.capability.scope.rootId)
       if (me) return `issue:#${me.seq}`
     }
     return 'operator'
@@ -294,9 +303,9 @@ export class IssueCommandCtx {
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
-  ownerAttribution(id: string): { actor: string; onBehalfOf: import('@podium/model').UserId } {
+  async ownerAttribution(id: string): Promise<{ actor: string; onBehalfOf: import('@podium/model').UserId }> {
     const principal = this.caller.principal
-    const row = this.reports.getMeta(id)
+    const row = await this.reports.getMeta(id)
     if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
     }
@@ -326,13 +335,13 @@ export class IssueCommandCtx {
 
   /** Resolve `issues.ship`'s optional target only from authenticated server
    * scope. Operators and unattached agents have no implicit issue. */
-  shipIssue(id?: string): IssueId {
+  async shipIssue(id?: string): Promise<IssueId> {
     if (id) {
       const scopeRepoPath =
         this.caller.capability.scope.kind === 'subtree'
-          ? (this.reports.getMeta(this.caller.capability.scope.rootId)?.repoPath ?? undefined)
+          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ?? undefined)
           : undefined
-      return this.reports.resolveRef(id, scopeRepoPath)
+      return await this.reports.resolveRef(id, scopeRepoPath)
     }
     if (this.caller.capability.scope.kind === 'subtree') {
       return this.caller.capability.scope.rootId
@@ -364,13 +373,13 @@ export class IssueCommandCtx {
    *  its subtree (mirrors the scope gate, which cannot reach into the `source`
    *  shape). Relationship sources are resolved against the caller's own subtree
    *  at match time, so they never reach here. */
-  assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): void {
+  async assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): Promise<void> {
     if (source.kind === 'issue') {
-      const id = this.reports.resolveRef(source.ref)
+      const id = await this.reports.resolveRef(source.ref)
       const decision = authorize(
         this.caller.capability,
         'write',
-        { id, ancestorIds: this.hierarchy.ancestorIds(id) },
+        { id, ancestorIds: await this.hierarchy.ancestorIds(id) },
         { override: this.caller.overrideScope },
       )
       if (decision === 'confirm-required') {
@@ -386,12 +395,12 @@ export class IssueCommandCtx {
     }
     // session source: the caller's own session, or one bound to an in-subtree issue.
     if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = findSessionById(this.deps, asSessionId(source.ref))?.issueId
+    const bound = (await findSessionByIdAsync(this.deps, asSessionId(source.ref)))?.issueId
     const ok =
       bound != null &&
       authorize(this.caller.capability, 'write', {
         id: bound,
-        ancestorIds: this.hierarchy.ancestorIds(bound),
+        ancestorIds: await this.hierarchy.ancestorIds(bound),
       }) === 'allow'
     if (!ok) {
       throw new TRPCError({
@@ -404,12 +413,12 @@ export class IssueCommandCtx {
   /** Walk an issue's parent chain; true iff some ancestor is human-audience —
    *  i.e. the board's filterBoardScope will surface this (internal) issue nested
    *  under it. Cycle-guarded. (#198) */
-  hasHumanAudienceAncestor(issue: { parentId?: string | null }): boolean {
+  async hasHumanAudienceAncestor(issue: { parentId?: string | null }): Promise<boolean> {
     const seen = new Set<string>()
     let parentId: string | null | undefined = issue.parentId
     while (parentId && !seen.has(parentId)) {
       seen.add(parentId)
-      const parent = this.reports.getMeta(parentId)
+      const parent = await this.reports.getMeta(parentId)
       if (!parent) return false
       if (parent.audience === 'human') return true
       parentId = parent.parentId

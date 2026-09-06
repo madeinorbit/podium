@@ -11,10 +11,10 @@
 
 import type { MailHandlerContext } from './context'
 
-export function pendingRemindersHandler(
+export async function pendingRemindersHandler(
   ctx: MailHandlerContext,
-): { id: string; from: string; body: string }[] {
+): Promise<{ id: string; from: string; body: string }[]> {
   const sessionId = ctx.caller.capability.actorSessionId
   if (!sessionId) return []
-  return ctx.deps.messages.pendingReminders(sessionId)
+  return await ctx.deps.messages.pendingReminders(sessionId)
 }

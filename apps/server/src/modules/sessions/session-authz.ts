@@ -10,11 +10,12 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
   resolvePrincipal,
+  resolvePrincipalAsync,
   userCommandPrincipal,
 } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
-import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipFromMachines, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
@@ -56,18 +57,18 @@ function granteesOf(edges: readonly GrantRow[]): string[] {
 export class SessionAuthz {
   constructor(private readonly ports: SessionAuthzPorts) {}
 
-  authorizeQueuedInputAtApply(input: {
+  async authorizeQueuedInputAtApply(input: {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
-  }): { ok: true } | { ok: false; reason: string } {
+  }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const refused = { ok: false, reason: 'session no longer exists' } as const
     const target = this.ports.sessions.get(input.sessionId)
     const ownership = this.sessionOwner(input.sessionId)
     if (!target || !ownership) return refused
 
     if (input.sourceMessageId) {
-      const source = this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
+      const source = await this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
       if (source && !source.ok) return source
     }
 
@@ -77,14 +78,14 @@ export class SessionAuthz {
     if (input.principal.kind === 'user') {
       const user = asUserId(input.principal.principalRef)
       if (
-        !this.ports.store.users.get(user) ||
+        !(await this.ports.store.users.get(user)) ||
         input.principal.attribution.actor.kind !== 'user' ||
         input.principal.attribution.actor.id !== user ||
         input.principal.attribution.onBehalfOf !== user
       ) {
         return refused
       }
-      const role = this.ports.store.users.roleOf(user)
+      const role = await this.ports.store.users.roleOf(user)
       if (!role) return refused
       principal = userCommandPrincipal(user, role)
     } else {
@@ -130,9 +131,9 @@ export class SessionAuthz {
        */
       let delegated: CommandPrincipal
       try {
-        delegated = resolvePrincipal(this.capabilityForSession(actorSessionId), {
-          parentSessionOf: (sessionId) =>
-            spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
+        delegated = await resolvePrincipalAsync(this.capabilityForSession(actorSessionId), {
+          parentSessionOf: async (sessionId) =>
+            spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
           onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
         })
       } catch {
@@ -141,7 +142,7 @@ export class SessionAuthz {
       principal = delegated
       if (
         principal.kind !== 'agent' ||
-        !this.ports.store.users.get(principal.onBehalfOf) ||
+        !(await this.ports.store.users.get(principal.onBehalfOf)) ||
         principal.onBehalfOf !== input.principal.attribution.onBehalfOf
       ) {
         return refused
@@ -155,7 +156,11 @@ export class SessionAuthz {
       return refused
     }
     if (
-      machineUseDecision(principal, target.machineId, ownershipFromMachines(this.ports.machines)) !==
+      machineUseDecision(
+        principal,
+        target.machineId,
+        await ownershipSnapshotFromMachines(this.ports.machines),
+      ) !==
       'granted'
     ) {
       return refused
@@ -169,7 +174,7 @@ export class SessionAuthz {
       issues: this.ports.deps.issueAccess,
       visibility: () => true,
     }
-    const resolved = resolveSessionTarget(principal, input.sessionId, access)
+    const resolved = await resolveSessionTarget(principal, input.sessionId, access)
     if (resolved.kind === 'absent') return refused
     /**
      * RIGHTS ARE RE-CHECKED; THE SCOPE CONFIRMATION IS NOT RE-ASKED (POD-3226).
@@ -199,7 +204,7 @@ export class SessionAuthz {
      * longer exists" sent two agents hunting for a coordinator that was alive.
      */
     try {
-      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
+      await assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       return { ok: false, reason: `not authorized: ${detail}` }

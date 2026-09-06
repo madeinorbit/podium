@@ -16,13 +16,13 @@ function fleet(online: string[], names: Record<string, string> = {}) {
 }
 
 describe('logs.setDaemonLevel', () => {
-  it('raises every ONLINE daemon when no target is given', () => {
+  it('raises every ONLINE daemon when no target is given', async () => {
     const { port, sent } = fleet(['flatblock', 'ludovico'], {
       flatblock: 'Flatblock',
       ludovico: 'Ludovico',
     })
 
-    const result = new FleetLogLevelDirector(port).setLevel({ level: 'debug', ttlMs: 60_000 })
+    const result = await new FleetLogLevelDirector(port).setLevel({ level: 'debug', ttlMs: 60_000 })
 
     expect(sent.map((s) => s.machineId)).toEqual(['flatblock', 'ludovico'])
     expect(sent[0]?.msg).toEqual({ type: 'setDaemonLogLevel', level: 'debug', ttlMs: 60_000 })
@@ -35,10 +35,10 @@ describe('logs.setDaemonLevel', () => {
     })
   })
 
-  it('reaches one machine by the id its log file is named after', () => {
+  it('reaches one machine by the id its log file is named after', async () => {
     const { port, sent } = fleet(['flatblock', 'ludovico'])
 
-    const result = new FleetLogLevelDirector(port).setLevel({
+    const result = await new FleetLogLevelDirector(port).setLevel({
       level: 'trace',
       target: { machineId: asMachineId('flatblock') },
     })
@@ -54,10 +54,10 @@ describe('logs.setDaemonLevel', () => {
    * investigating. Only machines with a live socket are in `onlineMachineIds`,
    * so nothing is sent and the reply says so by being empty.
    */
-  it('does not queue a raise for a machine that is offline', () => {
+  it('does not queue a raise for a machine that is offline', async () => {
     const { port, sent } = fleet(['ludovico'])
 
-    const result = new FleetLogLevelDirector(port).setLevel({
+    const result = await new FleetLogLevelDirector(port).setLevel({
       level: 'debug',
       target: { machineId: asMachineId('flatblock') },
     })
@@ -66,10 +66,10 @@ describe('logs.setDaemonLevel', () => {
     expect(result.daemons).toEqual([])
   })
 
-  it('a reset carries a null level and no ttl', () => {
+  it('a reset carries a null level and no ttl', async () => {
     const { port, sent } = fleet(['flatblock'])
 
-    const result = new FleetLogLevelDirector(port).setLevel({ level: null })
+    const result = await new FleetLogLevelDirector(port).setLevel({ level: null })
 
     expect(sent[0]?.msg).toEqual({ type: 'setDaemonLogLevel', level: null })
     expect(result.level).toBeNull()
@@ -78,14 +78,14 @@ describe('logs.setDaemonLevel', () => {
   /** A lossy link is the difference between "this daemon went quiet" and "this
    *  daemon's queue overflowed". The operator learns it from the same reply that
    *  raised the machine, rather than by grepping the file for it. */
-  it('reports drops the store has recorded for a reached machine', () => {
+  it('reports drops the store has recorded for a reached machine', async () => {
     const { port } = fleet(['flatblock'])
     const drops = {
       droppedFor: (id: MachineId) => (id === 'flatblock' ? 12 : 0),
       serverDroppedFor: () => 0,
     }
 
-    const result = new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
+    const result = await new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
 
     expect(result.daemons[0]).toEqual({
       machineId: 'flatblock',
@@ -96,11 +96,11 @@ describe('logs.setDaemonLevel', () => {
 
   /** A lossy LINK and a saturated SERVER are different problems with different
    *  fixes, so they are different fields rather than one bigger number. */
-  it('reports what the server itself lost apart from what the daemon lost', () => {
+  it('reports what the server itself lost apart from what the daemon lost', async () => {
     const { port } = fleet(['flatblock'])
     const drops = { droppedFor: () => 3, serverDroppedFor: () => 40 }
 
-    const result = new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
+    const result = await new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
 
     expect(result.daemons[0]).toEqual({
       machineId: 'flatblock',
@@ -110,11 +110,11 @@ describe('logs.setDaemonLevel', () => {
     })
   })
 
-  it('omits the drop count when a machine has lost nothing', () => {
+  it('omits the drop count when a machine has lost nothing', async () => {
     const { port } = fleet(['flatblock'])
     const drops = { droppedFor: () => 0, serverDroppedFor: () => 0 }
 
-    const result = new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
+    const result = await new FleetLogLevelDirector(port, drops).setLevel({ level: 'debug' })
 
     expect(result.daemons[0]).toEqual({ machineId: 'flatblock', name: 'flatblock' })
   })

@@ -9,9 +9,9 @@ const RESULT = {
 } as unknown as IssueWire
 
 describe('IssueAttachOrchestrator', () => {
-  it('carries one transport principal through one transaction', () => {
+  it('carries one transport principal through one transaction', async () => {
     const principal = userCommandPrincipal(asUserId('user:alice'), 'admin')
-    const attachSession = vi.fn((_input: IssueAttachInput) => RESULT)
+    const attachSession = vi.fn(async (_input: IssueAttachInput) => RESULT)
     const transactionCall = vi.fn()
     const transact = <T>(work: () => T): T => {
       transactionCall()
@@ -23,7 +23,7 @@ describe('IssueAttachOrchestrator', () => {
     })
 
     expect(
-      orchestrator.execute(
+      await orchestrator.execute(
         { capability: OPERATOR, principal },
         { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
       ),
@@ -37,7 +37,7 @@ describe('IssueAttachOrchestrator', () => {
     expect(attachSession.mock.calls[0]?.[0].principal).toBe(principal)
   })
 
-  it('fails closed before opening a transaction when transport identity is absent', () => {
+  it('fails closed before opening a transaction when transport identity is absent', async () => {
     const transactionCall = vi.fn()
     const transact = <T>(work: () => T): T => {
       transactionCall()
@@ -45,15 +45,15 @@ describe('IssueAttachOrchestrator', () => {
     }
     const orchestrator = new IssueAttachOrchestrator({
       transact,
-      attention: { attachSession: vi.fn(() => RESULT) },
+      attention: { attachSession: vi.fn(async () => RESULT) },
     })
 
-    expect(() =>
+    await expect(
       orchestrator.execute(
         { capability: OPERATOR },
         { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
       ),
-    ).toThrow('transport-derived')
+    ).rejects.toThrow('transport-derived')
     expect(transactionCall).not.toHaveBeenCalled()
   })
 })

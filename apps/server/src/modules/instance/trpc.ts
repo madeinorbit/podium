@@ -23,14 +23,20 @@ import { type InstanceAccountStore, InstanceService } from './service'
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
-  store?: { settings: { getSettings(): { transcripts: { mirror?: boolean } } } } | undefined
-  loginRequired?: (() => boolean) | undefined
+  store?: {
+    settings: {
+      getSettings():
+        | { transcripts: { mirror?: boolean } }
+        | Promise<{ transcripts: { mirror?: boolean } }>
+    }
+  }
+  loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void) | undefined
   caller: { userId: UserId }
   modules?:
     | {
-        machines: { refreshFleetChannel(): void }
+        machines: { refreshFleetChannel(): void | Promise<void> }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
     | undefined
@@ -46,7 +52,8 @@ const instanceService = (state: {
     requestCoordinatorRestart: state.requestCoordinatorRestart,
     // The bottom layer of the transcript-mirroring decision (PDM-26), read per
     // call so a Settings write shows up without a restart.
-    transcriptMirrorSetting: () => state.store?.settings.getSettings().transcripts.mirror,
+    transcriptMirrorSetting: async () =>
+      (await state.store?.settings.getSettings())?.transcripts.mirror,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
     // so writing it has to re-resolve their targets and push the new projection.
     onFleetChannelChanged: state.modules
@@ -54,7 +61,7 @@ const instanceService = (state: {
           // Order matters: load the new channel's target FIRST, then broadcast.
           // Broadcasting first would ship the new channel with the old target.
           await state.modules?.updates.refreshTarget(channel)
-          state.modules?.machines.refreshFleetChannel()
+          await state.modules?.machines.refreshFleetChannel()
         }
       : undefined,
   })

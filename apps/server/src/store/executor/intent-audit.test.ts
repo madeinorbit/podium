@@ -174,8 +174,8 @@ describe('the audit at the driver seam', () => {
     // an INSERT. Issued through the client, not hand-built, so the declaration
     // is the one a converted repository would really get.
     const client = driver.client(
-      (statement) => session.execute(statement),
-      (statements) => session.executeBatch(statements),
+      async (statement) => await session.execute(statement),
+      async (statements) => await session.executeBatch(statements),
     )
     await client.all("INSERT INTO notes (body) VALUES ('planted')")
     await session.close()
@@ -194,8 +194,8 @@ describe('the audit at the driver seam', () => {
     const { audit, driver, close } = open()
     const session = await driver.open('write')
     const client = driver.client(
-      (statement) => session.execute(statement),
-      (statements) => session.executeBatch(statements),
+      async (statement) => await session.execute(statement),
+      async (statements) => await session.executeBatch(statements),
     )
     await client.writeAll('SELECT * FROM notes')
     await session.close()
@@ -241,8 +241,8 @@ describe('the audit at the driver seam', () => {
     const { audit, driver, close } = open()
     const session = await driver.open('write')
     const client = driver.client(
-      (statement) => session.execute(statement),
-      (statements) => session.executeBatch(statements),
+      async (statement) => await session.execute(statement),
+      async (statements) => await session.executeBatch(statements),
     )
     await client.run("INSERT INTO notes (body) VALUES ('honest')")
     await client.writeGet("INSERT INTO notes (body) VALUES ('honest') RETURNING id")

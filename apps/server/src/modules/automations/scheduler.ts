@@ -29,9 +29,9 @@ export class AutomationScheduler {
   constructor(private readonly automations: Pick<AutomationsService, 'tick'>) {}
 
   start(): void {
-    this.bootTimer = setTimeout(() => {
-      this.tick()
-      this.timer = setInterval(() => this.tick(), AUTOMATIONS_INTERVAL_MS)
+    this.bootTimer = setTimeout(async () => {
+      await this.tick()
+      this.timer = setInterval(async () => await this.tick(), AUTOMATIONS_INTERVAL_MS)
       this.timer.unref?.()
     }, AUTOMATIONS_BOOT_DELAY_MS)
     this.bootTimer.unref?.()
@@ -44,7 +44,7 @@ export class AutomationScheduler {
 
   /** One scheduler pass. Failures are logged, never thrown — a broken tick must not
    *  take down the timer or the process. */
-  private tick(): void {
+  private async tick(): Promise<void> {
     // SINGLE-FLIGHT (POD-3258). A pass reads every automation row plus its last
     // spawned session, then applies each decision — and a spawn decision writes
     // the occurrence run id that stops the NEXT pass re-spawning the same
@@ -55,7 +55,7 @@ export class AutomationScheduler {
     if (this.ticking) return
     this.ticking = true
     try {
-      this.automations.tick()
+      await this.automations.tick()
     } catch (err) {
       log.warn('scheduler tick failed', { err })
     } finally {

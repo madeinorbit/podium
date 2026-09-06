@@ -21,7 +21,7 @@ describe('AutomationScheduler single-flight (POD-3258)', () => {
       let reentered = false
       let armed = false
       const scheduler = new AutomationScheduler({
-        tick: () => {
+        tick: async () => {
           passes += 1
           // Re-enter exactly once, from inside a pass the interval drives.
           if (armed && !reentered) {
@@ -53,7 +53,7 @@ describe('AutomationScheduler single-flight (POD-3258)', () => {
     try {
       let passes = 0
       const scheduler = new AutomationScheduler({
-        tick: () => {
+        tick: async () => {
           passes += 1
         },
       })
@@ -74,7 +74,7 @@ describe('AutomationScheduler single-flight (POD-3258)', () => {
     try {
       let passes = 0
       const scheduler = new AutomationScheduler({
-        tick: () => {
+        tick: async () => {
           passes += 1
           throw new Error('boom')
         },

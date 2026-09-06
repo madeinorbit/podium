@@ -48,7 +48,8 @@
 import { settingsPathsInTier, type UserId } from '@podium/model'
 import { and, asc, eq } from 'drizzle-orm'
 import { userPreferences } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -63,7 +64,7 @@ const PERSONAL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(
 export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFERENCE_KEYS.has(key)
 
 export class UserPreferencesRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -74,7 +75,7 @@ export class UserPreferencesRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -86,8 +87,8 @@ export class UserPreferencesRepository {
    * The skipped path then resolves to its fallback, which is the same answer as
    * "never set".
    */
-  getFor(userId: UserId): Map<string, unknown> {
-    const rows = this.db
+  async getFor(userId: UserId): Promise<Map<string, unknown>> {
+    const rows = await this.db
       .select({ key: userPreferences.key, value: userPreferences.value })
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
@@ -106,8 +107,8 @@ export class UserPreferencesRepository {
   /** One person's value for one path, or `undefined` when they have never set
    *  it. `undefined` is the ABSENCE answer and is never a stored value — the
    *  column is NOT NULL and holds JSON, so a stored `null` reads back as `null`. */
-  get(userId: UserId, key: string): unknown {
-    const row = this.db
+  async get(userId: UserId, key: string): Promise<unknown> {
+    const row = await this.db
       .select({ value: userPreferences.value })
       .from(userPreferences)
       .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
@@ -129,7 +130,7 @@ export class UserPreferencesRepository {
    * write are indistinguishable — and a permissive write would let an
    * instance-tier path grow a per-user row that shadows the singleton.
    */
-  set(userId: UserId, key: string, value: unknown, updatedAt: string): void {
+  async set(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
     if (!isPersonalPreferenceKey(key)) {
       throw new Error(
         `'${key}' is not a personal preference (POD-418 classification), so it has no per-user row`,
@@ -145,9 +146,9 @@ export class UserPreferencesRepository {
       value: JSON.stringify(value ?? null),
       updatedAt,
     }
-    this.db
+    ;await (this.db
       .insert(userPreferences)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: [userPreferences.userId, userPreferences.key],
         set: values,
@@ -158,8 +159,8 @@ export class UserPreferencesRepository {
   /** Forget one person's choice for one path — it resolves to the fallback
    *  again. A DELETE rather than a written default, so "never chosen" and "chose
    *  the value that happens to be the default" stay distinguishable. */
-  clear(userId: UserId, key: string): void {
-    this.db
+  async clear(userId: UserId, key: string): Promise<void> {
+    await this.db
       .delete(userPreferences)
       .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
       .run()
@@ -167,8 +168,8 @@ export class UserPreferencesRepository {
 
   /** Every path this person has set. Scoped to one user like every other method
    *  here — see the file header on why there is no cross-user read. */
-  keysFor(userId: UserId): string[] {
-    const rows = this.db
+  async keysFor(userId: UserId): Promise<string[]> {
+    const rows = await this.db
       .select({ key: userPreferences.key })
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))

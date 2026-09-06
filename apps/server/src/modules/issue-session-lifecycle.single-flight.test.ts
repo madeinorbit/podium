@@ -15,11 +15,11 @@ import { CLOSED_ISSUE_SWEEP_INTERVAL_MS } from './issue-session-lifecycle'
  * how many times the listing is asked for.
  */
 describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', () => {
-  function harness() {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  async function harness() {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let calls = 0
     let onList: () => void = () => {}
-    const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(() => {
+    const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(async () => {
       calls += 1
       onList()
       return []
@@ -37,10 +37,10 @@ describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', ()
     }
   }
 
-  it('skips a tick that lands on a sweep already running', () => {
+  it('skips a tick that lands on a sweep already running', async () => {
     vi.useFakeTimers()
     try {
-      const h = harness()
+      const h = await harness()
       let reentered = false
       h.setOnList(() => {
         if (reentered) return
@@ -62,7 +62,7 @@ describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', ()
   it('a later, non-overlapping tick sweeps normally', async () => {
     vi.useFakeTimers()
     try {
-      const h = harness()
+      const h = await harness()
       await vi.advanceTimersByTimeAsync(CLOSED_ISSUE_SWEEP_INTERVAL_MS)
       await vi.advanceTimersByTimeAsync(CLOSED_ISSUE_SWEEP_INTERVAL_MS)
 

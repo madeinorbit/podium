@@ -44,13 +44,13 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     let onAttempt: () => void = () => {}
     const scheduler = new DeliveryScheduler({
       messages: {
-        countPending: () => 0,
-        countQueued: () => 1,
-        listQueuedPage: () => {
+        countPending: async () => 0,
+        countQueued: async () => 1,
+        listQueuedPage: async () => {
           listQueuedPageCalls += 1
           return [row('msg_1')]
         },
-        pendingForPage: () => [],
+        pendingForPage: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
@@ -69,7 +69,7 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     }
   }
 
-  it('skips a sweep that lands mid-page on a pass already running', () => {
+  it('skips a sweep that lands mid-page on a pass already running', async () => {
     const h = harness()
     let reentered = false
     h.setOnAttempt(() => {
@@ -78,32 +78,32 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
       h.scheduler.sweep()
     })
 
-    h.scheduler.sweep()
+    await h.scheduler.sweep()
 
     expect(reentered).toBe(true)
     expect(h.calls()).toBe(1)
     h.scheduler.dispose()
   })
 
-  it('a later, non-overlapping sweep runs normally', () => {
+  it('a later, non-overlapping sweep runs normally', async () => {
     const h = harness()
-    h.scheduler.sweep()
-    h.scheduler.sweep()
+    await h.scheduler.sweep()
+    await h.scheduler.sweep()
     expect(h.calls()).toBe(2)
     h.scheduler.dispose()
   })
 
-  it('a failed page query releases the fence rather than wedging the backstop', () => {
+  it('a failed page query releases the fence rather than wedging the backstop', async () => {
     let calls = 0
     const scheduler = new DeliveryScheduler({
       messages: {
-        countPending: () => 0,
-        countQueued: () => 1,
-        listQueuedPage: () => {
+        countPending: async () => 0,
+        countQueued: async () => 1,
+        listQueuedPage: async () => {
           calls += 1
           throw new Error('store is gone')
         },
-        pendingForPage: () => [],
+        pendingForPage: async () => [],
       },
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
@@ -114,8 +114,8 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
       },
     })
 
-    scheduler.sweep()
-    scheduler.sweep()
+    await scheduler.sweep()
+    await scheduler.sweep()
 
     expect(calls).toBe(2)
     scheduler.dispose()

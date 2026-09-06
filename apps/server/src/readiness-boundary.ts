@@ -120,13 +120,13 @@ export function readinessBoundary(opts: {
   isHostLocal: (request: Request) => boolean
 }): MiddlewareHandler {
   return async (c, next) => {
-    if (c.req.method === 'OPTIONS') return next()
+    if (c.req.method === 'OPTIONS') return await next()
     const readiness = opts.readiness()
-    if (readiness.dataPlane === 'available') return next()
-    if (isHostSetupBootstrap(readiness, c.req.path, c.req.raw, opts.isHostLocal)) return next()
+    if (readiness.dataPlane === 'available') return await next()
+    if (isHostSetupBootstrap(readiness, c.req.path, c.req.raw, opts.isHostLocal)) return await next()
     // The restart, from anywhere, once the state says the instance may be talked
     // to about itself. The login guard downstream is what keeps it authenticated.
-    if (controlPlaneAvailable(readiness) && isControlPlanePath(c.req.path)) return next()
+    if (controlPlaneAvailable(readiness) && isControlPlanePath(c.req.path)) return await next()
     return c.json({ error: 'server_not_ready', readiness }, 503)
   }
 }
@@ -158,10 +158,10 @@ export function isHostSetupBootstrap(
  */
 export function authReadinessBoundary(readiness: () => ServerReadiness): MiddlewareHandler {
   return async (c, next) => {
-    if (c.req.method === 'OPTIONS' || c.req.path === '/auth/status') return next()
+    if (c.req.method === 'OPTIONS' || c.req.path === '/auth/status') return await next()
     const status = readiness()
-    if (status.dataPlane === 'available') return next()
-    if (controlPlaneAvailable(status) && CONTROL_PLANE_AUTH_PATHS.has(c.req.path)) return next()
+    if (status.dataPlane === 'available') return await next()
+    if (controlPlaneAvailable(status) && CONTROL_PLANE_AUTH_PATHS.has(c.req.path)) return await next()
     return c.json({ error: 'server_not_ready', readiness: status }, 503)
   }
 }

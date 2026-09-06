@@ -31,7 +31,8 @@ import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, inArray } from 'drizzle-orm'
 import { grants } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
 export const MACHINE_RESOURCE_KIND = 'machine'
@@ -99,11 +100,11 @@ export class GrantsRepository {
    */
   private visibilityRevisionValue = 0
 
-  visibilityRevision(): number {
+  async visibilityRevision(): Promise<number> {
     return this.visibilityRevisionValue
   }
 
-  visibilityAudienceFor(resourceKind: string, resourceId: string): readonly string[] {
+  async visibilityAudienceFor(resourceKind: string, resourceId: string): Promise<readonly string[]> {
     return [...(this.visibilityAudiences.get(resourceKind + ':' + resourceId) ?? [])]
   }
 
@@ -118,7 +119,7 @@ export class GrantsRepository {
    * nothing may be decided from membership in it. `visibilityAudienceFor`
    * remains the only door to the audience.
    */
-  visibilityAudienceResourceIds(resourceKind: string): string[] {
+  async visibilityAudienceResourceIds(resourceKind: string): Promise<string[]> {
     const prefix = `${resourceKind}:`
     const ids: string[] = []
     for (const key of this.visibilityAudiences.keys()) {
@@ -127,13 +128,13 @@ export class GrantsRepository {
     return ids
   }
 
-  private noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): void {
+  private async noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): Promise<void> {
     const key = resourceKind + ':' + resourceId
     const audience = this.visibilityAudiences.get(key) ?? new Set<string>()
     audience.add(grantee)
     this.visibilityAudiences.set(key, audience)
   }
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -146,13 +147,13 @@ export class GrantsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
-  listForResource(resourceKind: string, resourceId: string): GrantRow[] {
-    const rows = this.db
+  async listForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]> {
+    const rows = await this.db
       .select()
       .from(grants)
       .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId)))
@@ -186,7 +187,7 @@ export class GrantsRepository {
    * the answer, and a caller must read it as "no grants", never as "not looked
    * at" — {@link primeOwnerMemo} depends on exactly that distinction.
    */
-  listForResources(resourceKind: string, resourceIds: readonly string[]): Map<string, GrantRow[]> {
+  async listForResources(resourceKind: string, resourceIds: readonly string[]): Promise<Map<string, GrantRow[]>> {
     const out = new Map<string, GrantRow[]>()
     const unique = [...new Set(resourceIds)]
     if (unique.length === 0) return out
@@ -196,7 +197,7 @@ export class GrantsRepository {
     const CHUNK = 500
     for (let i = 0; i < unique.length; i += CHUNK) {
       const chunk = unique.slice(i, i + CHUNK)
-      const rows = this.db
+      const rows = await this.db
         .select()
         .from(grants)
         .where(and(eq(grants.resourceKind, resourceKind), inArray(grants.resourceId, chunk)))
@@ -215,8 +216,8 @@ export class GrantsRepository {
 
   /** Every edge on every resource of one kind — the fleet-wide read the machine
    *  listing needs, so N machines cost one query rather than N. */
-  listForKind(resourceKind: string): GrantRow[] {
-    const rows = this.db
+  async listForKind(resourceKind: string): Promise<GrantRow[]> {
+    const rows = await this.db
       .select()
       .from(grants)
       .where(eq(grants.resourceKind, resourceKind))
@@ -234,12 +235,12 @@ export class GrantsRepository {
    * the granter, which is what makes a re-share by a NEW owner accountable to
    * that owner rather than to the previous one.
    */
-  upsert(row: GrantRow): void {
-    this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
+  async upsert(row: GrantRow): Promise<void> {
+    await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
     // `grants` carries its four-column primary key and NO second uniqueness
     // constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly
     // (checklist item 1, as amended: every column is named).
-    this.db
+    ;await (this.db
       .insert(grants)
       .values({
         resourceKind: row.resourceKind,
@@ -252,7 +253,7 @@ export class GrantsRepository {
         actorKind: row.actorKind,
         actorId: row.actorId,
         onBehalfOf: row.onBehalfOf,
-      })
+      }))
       .onConflictDoUpdate({
         target: [grants.resourceKind, grants.resourceId, grants.grantee, grants.verb],
         set: {
@@ -271,16 +272,16 @@ export class GrantsRepository {
   /** Revocation of one verb. Returns whether an edge was actually removed, so a
    *  caller can tell "revoked" from "there was nothing to revoke" without a
    *  second read that could race the delete. */
-  remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): boolean {
-    this.noteVisibilityAudience(resourceKind, resourceId, grantee)
+  async remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): Promise<boolean> {
+    await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
     const match = and(
       eq(grants.resourceKind, resourceKind),
       eq(grants.resourceId, resourceId),
       eq(grants.grantee, grantee),
       eq(grants.verb, verb),
     )
-    const before = this.db.select({ n: count() }).from(grants).where(match).get()
-    this.db.delete(grants).where(match).run()
+    const before = await this.db.select({ n: count() }).from(grants).where(match).get()
+    await this.db.delete(grants).where(match).run()
     const removed = (before?.n ?? 0) > 0
     if (removed) this.visibilityRevisionValue += 1
     return removed
@@ -293,8 +294,8 @@ export class GrantsRepository {
    * keeps it), so surviving edges would silently re-grant a machine its previous
    * owner already un-shared. This is not a reaper: it is part of the delete.
    */
-  removeAllForResource(resourceKind: string, resourceId: string): void {
-    const result = this.db
+  async removeAllForResource(resourceKind: string, resourceId: string): Promise<void> {
+    const result = await this.db
       .delete(grants)
       .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId)))
       .run()

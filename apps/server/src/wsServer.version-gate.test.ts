@@ -28,7 +28,7 @@ afterEach(async () => {
 /** Start a real native Bun server with an open client surface. */
 async function start(): Promise<string> {
   store = await openTestStore(':memory:')
-  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     userForClient: () => FIRST_ADMIN_USER_ID,
     roleForClient: () => 'admin',
@@ -37,8 +37,8 @@ async function start(): Promise<string> {
     port: 0,
     hostname: '127.0.0.1',
     websocket: handle.websocket,
-    fetch(request, nativeServer) {
-      const result = handle?.handleRequest(request, nativeServer)
+    async fetch(request, nativeServer) {
+      const result = await handle?.handleRequest(request, nativeServer)
       return result === null ? new Response('not found', { status: 404 }) : result
     },
   })

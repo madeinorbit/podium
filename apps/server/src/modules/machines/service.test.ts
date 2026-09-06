@@ -29,7 +29,7 @@ function makeService(): MachinesService {
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -44,7 +44,7 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
 }
 
 describe('MachinesService daemon socket identity', () => {
-  test('a superseded socket’s late close does not evict the reconnected daemon', () => {
+  test('a superseded socket’s late close does not evict the reconnected daemon', async () => {
     // Reproduces the 2026-07-09 vmi outage: the daemon reconnects while its previous
     // socket is wedged; the keepalive sweep terminates the old socket a beat later and
     // its `close` fires. Keyed only by machineId, that close deleted the FRESH send —
@@ -53,8 +53,8 @@ describe('MachinesService daemon socket identity', () => {
     const old = recorder()
     const fresh = recorder()
 
-    svc.attach(MACHINE, old.send)
-    svc.attach(MACHINE, fresh.send) // daemon reconnects, replacing the registration
+    await svc.attach(MACHINE, old.send)
+    await svc.attach(MACHINE, fresh.send) // daemon reconnects, replacing the registration
 
     const detached = svc.detach(MACHINE, old.send) // the dead socket's late close
 
@@ -67,26 +67,26 @@ describe('MachinesService daemon socket identity', () => {
     expect(old.got).toEqual([])
   })
 
-  test('the current socket’s close detaches the machine', () => {
+  test('the current socket’s close detaches the machine', async () => {
     const svc = makeService()
     const only = recorder()
 
-    svc.attach(MACHINE, only.send)
+    await svc.attach(MACHINE, only.send)
     const detached = svc.detach(MACHINE, only.send)
 
     expect(detached).toBe(true)
     expect(svc.hasDaemon(MACHINE)).toBe(false)
   })
 
-  test('an unidentified detach still drops the socket (legacy callers)', () => {
+  test('an unidentified detach still drops the socket (legacy callers)', async () => {
     const svc = makeService()
-    svc.attach(MACHINE, recorder().send)
+    await svc.attach(MACHINE, recorder().send)
 
     expect(svc.detach(MACHINE)).toBe(true)
     expect(svc.hasDaemon(MACHINE)).toBe(false)
   })
 
-  test('one local participant owns update grants while the daemon keeps session traffic', () => {
+  test('one local participant owns update grants while the daemon keeps session traffic', async () => {
     const svc = makeService()
     const daemon = recorder()
     const local: ControlMessage[] = []
@@ -109,7 +109,7 @@ describe('MachinesService daemon socket identity', () => {
       },
     } as ControlMessage
 
-    svc.attach(MACHINE, daemon.send)
+    await svc.attach(MACHINE, daemon.send)
     svc.attachUpdateParticipant(MACHINE, participant)
     svc.toMachine(MACHINE, keystroke)
     svc.toMachine(MACHINE, grant)
@@ -119,7 +119,7 @@ describe('MachinesService daemon socket identity', () => {
     expect(() => svc.attachUpdateParticipant(MACHINE, () => {})).toThrow(/already has/i)
   })
 
-  test('flushes queued control and canonical input in FIFO order without re-encoding', () => {
+  test('flushes queued control and canonical input in FIFO order without re-encoding', async () => {
     const svc = makeService()
     const events: string[] = []
     const input: DaemonPtyInputBatch = {
@@ -129,7 +129,7 @@ describe('MachinesService daemon socket identity', () => {
     }
     svc.toMachine(MACHINE, keystroke)
     svc.toPtyInput(MACHINE, input)
-    svc.attach(MACHINE, {
+    await svc.attach(MACHINE, {
       send: () => events.push('control'),
       sendInput: (received) => {
         expect(received.bytes).toEqual(input.bytes)
@@ -140,7 +140,7 @@ describe('MachinesService daemon socket identity', () => {
     expect(events).toEqual(['control', 'input'])
   })
 
-  test('adapts canonical input to legacy base64 only at a function transport', () => {
+  test('adapts canonical input to legacy base64 only at a function transport', async () => {
     const svc = makeService()
     const sent: ControlMessage[] = []
     const input: DaemonPtyInputBatch = {
@@ -148,7 +148,7 @@ describe('MachinesService daemon socket identity', () => {
       inputOrigin: 'human',
       bytes: Uint8Array.of(0, 0xff, 0x1b),
     }
-    svc.attach(MACHINE, (message) => sent.push(message))
+    await svc.attach(MACHINE, (message) => sent.push(message))
     svc.toPtyInput(MACHINE, input)
     expect(sent).toEqual([
       {
@@ -169,9 +169,9 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines
     return svc
   }
-  function refusal(machines: unknown[]): TRPCError {
+  async function refusal(machines: unknown[]): Promise<TRPCError> {
     try {
-      serviceListing(machines).requireAgent(MACHINE, 'codex')
+      await serviceListing(machines).requireAgent(MACHINE, 'codex')
     } catch (error) {
       expect(error).toBeInstanceOf(TRPCError)
       return error as TRPCError
@@ -185,26 +185,26 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' as const } }] },
   }
 
-  test('a denied machine throws about access, not about being offline', () => {
+  test('a denied machine throws about access, not about being offline', async () => {
     // The counterfactual is the SAME machine without the denial: it is accepted,
     // so the throw is caused by `use`, not by the fixture being unrunnable. And
     // the offline machine is here too, proving the two refusals are different
     // messages rather than one generic "unavailable".
-    expect(() =>
+    await expect(
       serviceListing([{ ...runnable, online: true }]).requireAgent(MACHINE, 'codex'),
-    ).not.toThrow()
-    expect(refusal([{ ...runnable, online: true, use: 'denied' }])).toMatchObject({
+    ).resolves.not.toThrow()
+    expect(await refusal([{ ...runnable, online: true, use: 'denied' }])).toMatchObject({
       code: 'FORBIDDEN',
       message: "you do not have access to run agents on machine 'vmi'",
     })
-    expect(refusal([{ ...runnable, online: false }])).toMatchObject({
+    expect(await refusal([{ ...runnable, online: false }])).toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: "machine 'vmi' is offline",
     })
   })
 
-  test('distinguishes unknown inventory as retryable 4xx preconditions', () => {
-    expect(refusal([{ id: MACHINE, name: 'vmi', online: true }])).toMatchObject({
+  test('distinguishes unknown inventory as retryable 4xx preconditions', async () => {
+    expect(await refusal([{ id: MACHINE, name: 'vmi', online: true }])).toMatchObject({
       code: 'PRECONDITION_FAILED',
       message:
         "machine 'vmi' is still probing whether codex is installed; wait for the probe or run `podium machine reprobe vmi`",
@@ -224,25 +224,25 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
         ],
       },
     }
-    expect(refusal([timedOut])).toMatchObject({
+    expect(await refusal([timedOut])).toMatchObject({
       code: 'PRECONDITION_FAILED',
       message:
         "could not determine whether codex is installed on machine 'vmi' (probe timed out after 60s); retry",
     })
   })
 
-  test('a shell on a denied machine is refused too — spawning is `use`', () => {
+  test('a shell on a denied machine is refused too — spawning is `use`', async () => {
     // Shells skip the harness checks, and that shortcut must not skip the access
     // gate. Counterfactual: the same shell request on an undenied machine passes.
-    expect(() =>
+    await expect(
       serviceListing([{ id: MACHINE, name: 'vmi', online: true }]).requireAgent(MACHINE, 'shell'),
-    ).not.toThrow()
-    expect(() =>
+    ).resolves.not.toThrow()
+    await expect(
       serviceListing([{ id: MACHINE, name: 'vmi', online: true, use: 'denied' }]).requireAgent(
         MACHINE,
         'shell',
       ),
-    ).toThrow(/do not have access/)
+    ).rejects.toThrow(/do not have access/)
   })
 })
 
@@ -278,7 +278,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       },
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -288,12 +288,12 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     // Warm both caches on the pre-pair fleet: machineName populates the name map,
     // listMachines the record list. Everything after this is served from them
     // until something drops them.
-    svc.machineName(MACHINE)
-    const before = svc.listMachines().map((m) => m.id)
+    await svc.machineName(MACHINE)
+    const before = (await svc.listMachines()).map((m) => m.id)
     expect(before).not.toContain(MACHINE)
 
     const code = svc.mintPairingCode({ ownerUserId: asUserId('user:sole') })
-    const result = svc.authenticateDaemon({
+    const result = await svc.authenticateDaemon({
       type: 'pair',
       code,
       machineId: MACHINE,
@@ -302,10 +302,10 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     })
     expect(result.ok).toBe(true)
 
-    expect(svc.machineName(MACHINE)).toBe('Builder')
-    expect(svc.listMachines().find((m) => m.id === MACHINE)?.name).toBe('Builder')
+    expect(await svc.machineName(MACHINE)).toBe('Builder')
+    expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.name).toBe('Builder')
     // Ownership reads the same cache, and it is the authorization input.
-    expect(svc.ownershipRows().find((m) => m.id === MACHINE)?.ownerUserId).toBe('user:sole')
+    expect((await svc.ownershipRows()).find((m) => m.id === MACHINE)?.ownerUserId).toBe('user:sole')
   })
 
   test('a hello’s restamped hostname is visible without a manual invalidate', async () => {
@@ -321,9 +321,9 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
 
     // Warm on the pre-hello row — the upsert went straight to the store, so this
     // read is what puts the stale hostname in the cache.
-    expect(svc.listMachines().find((m) => m.id === MACHINE)?.hostname).toBe('old.local')
+    expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.hostname).toBe('old.local')
 
-    const result = svc.authenticateDaemon({
+    const result = await svc.authenticateDaemon({
       type: 'hello',
       machineId: MACHINE,
       token,
@@ -331,7 +331,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     })
     expect(result.ok).toBe(true)
 
-    expect(svc.listMachines().find((m) => m.id === MACHINE)?.hostname).toBe('new.local')
+    expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.hostname).toBe('new.local')
   })
 })
 
@@ -360,10 +360,34 @@ describe('MachinesService inventory persistence (#222)', () => {
       hostMachineId: store.hostMachineId,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
+
+  test('async predicate regression: repo placement skips the first foreign cwd', async () => {
+    const { svc, store } = await makeStoreService()
+    const other = asMachineId('repo-owner')
+    await svc.attach(MACHINE, recorder().send)
+    await svc.attach(other, recorder().send)
+    await store.repos.addRepo('/foreign', MACHINE)
+    await store.repos.addRepo('/wanted', other)
+    expect(await svc.pickMachineForRepo(undefined, '/wanted/subdir')).toBe(other)
+  })
+
+  test('async predicate regression: agent placement rejects every incapable repo owner', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
+      id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    await store.repos.addRepo('/repo', MACHINE)
+    await svc.attach(MACHINE, recorder().send)
+    await svc.recordInventory(MACHINE, INV)
+    await expect(svc.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow(
+      "codex is not installed on machine 'Missing'",
+    )
+  })
 
   test('recordInventory persists the report and it survives a hello reconnect', async () => {
     const { svc, store } = await makeStoreService()
@@ -375,7 +399,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       ownerUserId: asUserId('user:sole'),
     })
 
-    svc.recordInventory(MACHINE, INV)
+    await svc.recordInventory(MACHINE, INV)
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
 
     // A hello only restamps last_seen_at/hostname — the inventory must remain.
@@ -393,7 +417,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    svc.recordInventory(MACHINE, {
+    await svc.recordInventory(MACHINE, {
       ...INV,
       agents: [
         {
@@ -404,10 +428,10 @@ describe('MachinesService inventory persistence (#222)', () => {
       ],
     })
 
-    expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
+    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
       'native:codex:fp-a',
     )
-    expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
+    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
       'native:codex:fp-b',
     )
   })
@@ -421,21 +445,21 @@ describe('MachinesService inventory persistence (#222)', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    svc.recordInventory(MACHINE, {
+    await svc.recordInventory(MACHINE, {
       ...INV,
       agents: [{ kind: 'claude-code', installed: false, login: { state: 'unknown' } }],
     })
     const daemon = recorder()
-    svc.attach(MACHINE, daemon.send)
+    await svc.attach(MACHINE, daemon.send)
 
-    expect(svc.listMachines().find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
-    expect(() => svc.requireAgent(MACHINE, 'claude-code')).toThrow(
+    expect((await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
+    await expect(svc.requireAgent(MACHINE, 'claude-code')).rejects.toThrow(
       "machine 'Builder' is still probing whether claude-code is installed",
     )
 
-    const waiting = svc.waitForInventory(MACHINE)
+    const waiting = await svc.waitForInventory(MACHINE)
     expect(daemon.got).toEqual([{ type: 'inventoryRequest' }])
-    svc.recordInventory(MACHINE, {
+    await svc.recordInventory(MACHINE, {
       ...INV,
       agents: [
         {
@@ -448,7 +472,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     })
     await waiting
 
-    expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'claude-code')).toBe(MACHINE)
+    expect(await svc.resolveMachineForAgent(MACHINE, '/repo', 'claude-code')).toBe(MACHINE)
   })
 
   test('explicit session placement rejects a missing harness but starts logged out', async () => {
@@ -460,19 +484,19 @@ describe('MachinesService inventory persistence (#222)', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    svc.attach(MACHINE, recorder().send)
+    await svc.attach(MACHINE, recorder().send)
 
-    svc.recordInventory(MACHINE, INV)
-    expect(() => svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toThrow(
+    await svc.recordInventory(MACHINE, INV)
+    await expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).rejects.toThrow(
       "codex is not installed on machine 'Builder'",
     )
 
-    svc.recordInventory(MACHINE, {
+    await svc.recordInventory(MACHINE, {
       ...INV,
       agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
     })
-    expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toBe(MACHINE)
-    expect(svc.agentLoginCondition(MACHINE, 'codex')).toBe('logged-out')
+    expect(await svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toBe(MACHINE)
+    expect(await svc.agentLoginCondition(MACHINE, 'codex')).toBe('logged-out')
   })
 
   test('implicit placement moves to a capable machine that owns the cwd', async () => {
@@ -494,18 +518,18 @@ describe('MachinesService inventory persistence (#222)', () => {
     })
     await store.repos.addRepo('/repo', MACHINE)
     await store.repos.addRepo('/repo', asMachineId(other))
-    svc.attach(MACHINE, recorder().send)
-    svc.attach(asMachineId(other), recorder().send)
-    svc.recordInventory(MACHINE, {
+    await svc.attach(MACHINE, recorder().send)
+    await svc.attach(asMachineId(other), recorder().send)
+    await svc.recordInventory(MACHINE, {
       ...INV,
       agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
     })
-    svc.recordInventory(asMachineId(other), {
+    await svc.recordInventory(asMachineId(other), {
       ...INV,
       agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
     })
 
-    expect(svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex')).toBe(other)
+    expect(await svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex')).toBe(other)
   })
 })
 
@@ -553,8 +577,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // Called once per client on every broadcast. Reading `ownershipRows()`
       // here is the load-bearing part: it goes through the SAME record cache the
       // transfer must have dropped, so a stale entry lands in this array.
-      machinesForPrincipal: () => {
-        broadcasts.push(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId)
+      machinesForPrincipal: async () => {
+        broadcasts.push((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId)
         return []
       },
     } satisfies MachinesDeps)
@@ -587,22 +611,22 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       // Warm on the pre-transfer fleet. Without this the read-back below is a
       // cache MISS that rebuilds anyway and would pass with the invalidate gone.
-      expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
       expect(broadcasts).toHaveLength(0)
 
-      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
+      await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // 1 — THE ROW. Read straight from the store, past every cache.
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_B)
       // 2 — THE FLEET. The same public read that was warmed above, with no
       // manual invalidate in between.
-      expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_B)
+      expect((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_B)
       // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
       // it was built from already showed the new owner — so it was emitted
       // AFTER the transition committed, not before.
       expect(broadcasts).toEqual([OWNER_B])
       // 4 — THE LEDGER, which is the commit point the row merely projects.
-      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -623,13 +647,13 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         actorId: 'alice',
         onBehalfOf: OWNER_A,
       })
-      expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
+      await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
       // Bob's, and `use` is a code-execution boundary (readiness M2).
-      expect(svc.grantsForMachine(MACHINE)).toHaveLength(0)
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(0)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -641,13 +665,13 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
       // service refuses it again, because a service reachable from more than one
       // transport must not depend on every one of them remembering.
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
-      ).toThrow('only the machine owner may transfer ownership')
+      ).rejects.toThrow('only the machine owner may transfer ownership')
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
-      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -656,14 +680,14 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('an unknown recipient is refused rather than quarantining the machine', async () => {
     const { svc, store, dir, broadcasts } = await transferWorld()
     try {
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), asUserId(OWNER_A)),
-      ).toThrow('unknown user: user:typo')
+      ).rejects.toThrow('unknown user: user:typo')
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
-      expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
       expect(broadcasts).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -673,9 +697,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('transferring to the current owner is refused, not a silent no-op broadcast', async () => {
     const { svc, dir, broadcasts } = await transferWorld()
     try {
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_A)),
-      ).toThrow('machine is already owned by that user')
+      ).rejects.toThrow('machine is already owned by that user')
       expect(broadcasts).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -720,7 +744,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         userExists: (id) => known.has(id),
         sessionsChangedForMachine: () => {},
         clients: () => [],
-        machinesForPrincipal: () => [],
+        machinesForPrincipal: async () => [],
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({
@@ -742,11 +766,11 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     const { svc, store, dir } = await adoptWorld()
     try {
       // The ledger holds nothing about this machine's ownership at all.
-      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+      expect(await svc.effectiveOwner(MACHINE)).toBeNull()
 
-      svc.adoptMachine(MACHINE, asUserId(ALICE))
+      await svc.adoptMachine(MACHINE, asUserId(ALICE))
 
-      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -758,12 +782,12 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       // What `authenticateDaemon` writes for a code with no `ownerUserId`: an
       // owner event whose owner is explicitly null, not a missing event.
-      svc.transferOwnership(MACHINE, asUserId(null as unknown as string))
-      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+      await svc.transferOwnership(MACHINE, asUserId(null as unknown as string))
+      expect(await svc.effectiveOwner(MACHINE)).toBeNull()
 
-      svc.adoptMachine(MACHINE, asUserId(BOB))
+      await svc.adoptMachine(MACHINE, asUserId(BOB))
 
-      expect(svc.effectiveOwner(MACHINE)).toBe(BOB)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -773,8 +797,8 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', async () => {
     const { svc, store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, asUserId(ALICE))
-      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      await svc.transferOwnership(MACHINE, asUserId(ALICE))
+      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
       // Alice's account goes away. This is POD-1114's quarantine, reached
       // exactly as production reaches it: `userExists` stops resolving a name
@@ -785,15 +809,15 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // The LEDGER still says Alice — it is append-only and never rewritten.
       // What changed is that Alice no longer resolves, which is why this reads
       // null while the ledger entry survives.
-      expect(rebooted.effectiveOwner(MACHINE)).toBeNull()
+      expect(await rebooted.effectiveOwner(MACHINE)).toBeNull()
 
       // ADOPTION IS ALLOWED HERE, and this is the deliberate part. POD-1114
       // refused AUTOMATIC assignment to the first admin on a restore; it did not
       // refuse assignment. Without this the machine is usable by nobody forever,
       // because its only other remedy is revoke plus a physical re-pair.
-      rebooted.adoptMachine(MACHINE, asUserId(BOB))
+      await rebooted.adoptMachine(MACHINE, asUserId(BOB))
 
-      expect(rebooted.effectiveOwner(MACHINE)).toBe(BOB)
+      expect(await rebooted.effectiveOwner(MACHINE)).toBe(BOB)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -807,18 +831,18 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', async () => {
     const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, asUserId(ALICE))
+      await svc.transferOwnership(MACHINE, asUserId(ALICE))
 
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
-      expect(() => svc.adoptMachine(MACHINE, asUserId(ALICE))).toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
+      await expect(svc.adoptMachine(MACHINE, asUserId(ALICE))).rejects.toThrow(
         'machine already has an owner',
       )
 
       // Refused means SILENT: the ledger was not appended and the row is intact.
-      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -828,7 +852,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('the refusal reads the LEDGER, not the row it is a projection of', async () => {
     const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, asUserId(ALICE))
+      await svc.transferOwnership(MACHINE, asUserId(ALICE))
       // Force the row to disagree with the ledger — the state D19.4d says can
       // exist between an append and its projection, and which boot repair
       // exists to fix. A service that asked the ROW would now happily adopt a
@@ -836,9 +860,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await store.machines.setMachineOwner(MACHINE, null)
       svc.invalidateMachineCache()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
-      expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
-      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -847,13 +871,13 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
     const { svc, store, dir } = await adoptWorld()
     try {
-      expect(() => svc.adoptMachine(MACHINE, asUserId('user:typo'))).toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId('user:typo'))).rejects.toThrow(
         'unknown user: user:typo',
       )
       // The hazard: adopting to an unresolvable id appends an owner the next
       // reconcile cannot resolve, so the machine comes out of adoption in
       // exactly the quarantine it went in with. Nothing was appended.
-      expect(svc.effectiveOwner(MACHINE)).toBeNull()
+      expect(await svc.effectiveOwner(MACHINE)).toBeNull()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -863,7 +887,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', async () => {
     const { svc, dir } = await adoptWorld()
     try {
-      expect(() => svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).toThrow(
+      await expect(svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).rejects.toThrow(
         "unknown machine 'ghost'",
       )
     } finally {
@@ -878,7 +902,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', async () => {
     const { svc, store, dir, reboot } = await adoptWorld()
     try {
-      svc.adoptMachine(MACHINE, asUserId(ALICE))
+      await svc.adoptMachine(MACHINE, asUserId(ALICE))
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
 
       // DESTROY THE PROJECTION and nothing else. If the row were the source of
@@ -892,7 +916,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // not the row — the moment the adoption became real.
       const rebooted = reboot()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
-      expect(rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
+      expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -901,10 +925,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('adoption APPENDS — it never rewrites the ledger entry that was there', async () => {
     const { svc, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, asUserId(ALICE))
+      await svc.transferOwnership(MACHINE, asUserId(ALICE))
       known.delete(ALICE)
       const quarantined = reboot()
-      quarantined.adoptMachine(MACHINE, asUserId(BOB))
+      await quarantined.adoptMachine(MACHINE, asUserId(BOB))
 
       // Alice's account comes back — a half-restored directory finishing its
       // import. The ledger is append-only and never-delete, so her original
@@ -912,7 +936,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // append rather than overwritten it, or Bob's ownership would evaporate
       // the moment Alice resolves again.
       known.add(ALICE)
-      expect(reboot().effectiveOwner(MACHINE)).toBe(BOB)
+      expect(await reboot().effectiveOwner(MACHINE)).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -936,13 +960,13 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         actorId: 'alice',
         onBehalfOf: ALICE,
       })
-      expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      svc.adoptMachine(MACHINE, asUserId(BOB))
+      await svc.adoptMachine(MACHINE, asUserId(BOB))
 
       // Carol's `use` was approved under a regime that is gone, on hardware that
       // is now Bob's. `use` is a code-execution boundary (readiness M2).
-      expect(svc.grantsForMachine(MACHINE)).toHaveLength(0)
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(0)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

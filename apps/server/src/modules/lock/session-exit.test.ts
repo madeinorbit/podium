@@ -24,8 +24,8 @@ const bind = (sessionId: SessionId, cwd: string) =>
     geometry: G,
   }) as const
 
-function regWithDaemon() {
-  const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function regWithDaemon() {
+  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }
@@ -36,8 +36,8 @@ function regWithDaemon() {
  * `--allow-sibling`, and these cases pin death → release → advance — not the
  * sibling refuse path.
  */
-function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`): string {
-  const { sessionId } = reg.modules.sessions.createSession({
+async function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`): Promise<string> {
+  const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd,
   })
@@ -56,16 +56,16 @@ async function acquireAs(reg: SessionRegistry, sessionId: string, name: string):
   expect(r.lock.holder.sessionId).toBe(sessionId)
 }
 
-function lockNames(reg: SessionRegistry): string[] {
-  return reg.modules.locks.status({ repoPath: REPO }).map((l) => l.name)
+async function lockNames(reg: SessionRegistry): Promise<string[]> {
+  return (await reg.modules.locks.status({ repoPath: REPO })).map((l) => l.name)
 }
 
 describe('session.exited → lock auto-release wiring', () => {
   it('daemon agentExit releases the dead session locks and prunes its queue entries', async () => {
-    const reg = regWithDaemon()
+    const reg = await regWithDaemon()
     // Distinct workspaces: not co-located siblings (POD-556).
-    const dying = liveSession(reg, `${REPO}/.worktrees/dying`)
-    const survivor = liveSession(reg, `${REPO}/.worktrees/survivor`)
+    const dying = await liveSession(reg, `${REPO}/.worktrees/dying`)
+    const survivor = await liveSession(reg, `${REPO}/.worktrees/survivor`)
     await acquireAs(reg, dying, 'held-by-dying')
     await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
@@ -81,49 +81,49 @@ describe('session.exited → lock auto-release wiring', () => {
       sessionId: asSessionId(dying),
       code: 0,
     })
-    expect(lockNames(reg)).toEqual(['held-by-survivor'])
+    expect(await lockNames(reg)).toEqual(['held-by-survivor'])
     expect(
-      reg.modules.locks.status({ repoPath: REPO, name: 'held-by-survivor' })[0]?.queue,
+      (await reg.modules.locks.status({ repoPath: REPO, name: 'held-by-survivor' }))[0]?.queue,
     ).toEqual([])
     reg.dispose()
   })
 
   it('killSession releases locks even though the row is deleted before agentExit (finding 1)', async () => {
-    const reg = regWithDaemon()
-    const victim = liveSession(reg)
+    const reg = await regWithDaemon()
+    const victim = await liveSession(reg)
     await acquireAs(reg, victim, 'merge:main')
-    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
-    expect(lockNames(reg)).toEqual([])
+    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    expect(await lockNames(reg)).toEqual([])
     reg.dispose()
   })
 
   it('kill advances the queue to a live waiter (grant survives the kill)', async () => {
-    const reg = regWithDaemon()
+    const reg = await regWithDaemon()
     // Distinct workspaces so the waiter can enqueue without --allow-sibling.
-    const victim = liveSession(reg, `${REPO}/.worktrees/victim`)
-    const waiter = liveSession(reg, `${REPO}/.worktrees/waiter`)
+    const victim = await liveSession(reg, `${REPO}/.worktrees/victim`)
+    const waiter = await liveSession(reg, `${REPO}/.worktrees/waiter`)
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
       { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(waiter) } },
       'acquire',
       { repoPath: REPO, name: 'merge:main' },
     )
-    reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
-    const after = reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
+    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    const after = await reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
     expect(after[0]?.holder.sessionId).toBe(waiter)
     reg.dispose()
   })
 
   it('hibernation keeps the leases (intentional park, not a death)', async () => {
-    const reg = regWithDaemon()
-    const parked = liveSession(reg)
+    const reg = await regWithDaemon()
+    const parked = await liveSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: asSessionId(parked),
       resume: { kind: 'claude', value: 'conv-1' },
     })
     await acquireAs(reg, parked, 'merge:main')
-    const r = reg.modules.sessions.hibernateSession({ sessionId: asSessionId(parked) })
+    const r = await reg.modules.sessions.hibernateSession({ sessionId: asSessionId(parked) })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no release.
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -131,20 +131,20 @@ describe('session.exited → lock auto-release wiring', () => {
       sessionId: asSessionId(parked),
       code: 0,
     })
-    expect(lockNames(reg)).toEqual(['merge:main'])
+    expect(await lockNames(reg)).toEqual(['merge:main'])
     reg.dispose()
   })
 
   it('spawnError releases locks too (status flips to exited without an agentExit round-trip)', async () => {
-    const reg = regWithDaemon()
-    const doomed = liveSession(reg)
+    const reg = await regWithDaemon()
+    const doomed = await liveSession(reg)
     await acquireAs(reg, doomed, 'merge:main')
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId: asSessionId(doomed),
       message: 'boom',
     })
-    expect(lockNames(reg)).toEqual([])
+    expect(await lockNames(reg)).toEqual([])
     reg.dispose()
   })
 })

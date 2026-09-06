@@ -32,7 +32,7 @@ export interface ConversationCommand {
 export const CONVERSATION_COMMANDS_TRPC = {
   setMeta: {
     contract: CONVERSATION_CONTRACTS.setMeta,
-    handler: ((svc, input) => svc.setConversationMeta(input)) satisfies ConversationHandler<
+    handler: (async (svc, input) => await svc.setConversationMeta(input)) satisfies ConversationHandler<
       z.infer<(typeof CONVERSATION_CONTRACTS)['setMeta']['input']>,
       unknown
     >,

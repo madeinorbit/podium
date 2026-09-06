@@ -64,9 +64,18 @@ export const WORKFLOW_COMMANDS = {
   fork: { contract: WORKFLOW_CONTRACTS.fork, handler: forkHandler },
   publish: { contract: WORKFLOW_CONTRACTS.publish, handler: publishHandler },
   assign: { contract: WORKFLOW_CONTRACTS.assign, handler: assignHandler },
-  profileSave: { contract: WORKFLOW_CONTRACTS.profileSave, handler: profileSaveHandler },
-  checkpoint: { contract: WORKFLOW_CONTRACTS.checkpoint, handler: checkpointHandler },
-  assignStep: { contract: WORKFLOW_CONTRACTS.assignStep, handler: assignStepHandler },
+  profileSave: {
+    contract: WORKFLOW_CONTRACTS.profileSave,
+    handler: profileSaveHandler,
+  },
+  checkpoint: {
+    contract: WORKFLOW_CONTRACTS.checkpoint,
+    handler: checkpointHandler,
+  },
+  assignStep: {
+    contract: WORKFLOW_CONTRACTS.assignStep,
+    handler: assignStepHandler,
+  },
   skip: { contract: WORKFLOW_CONTRACTS.skip, handler: skipHandler },
   retry: { contract: WORKFLOW_CONTRACTS.retry, handler: retryHandler },
   adopt: { contract: WORKFLOW_CONTRACTS.adopt, handler: adoptHandler },
@@ -103,11 +112,11 @@ export const workflowRegistryClassificationErrors = (): string[] =>
  * deliberate ordering — a caller may not probe the idempotency ledger for a run
  * it cannot see.
  */
-function advanceTarget(
+async function advanceTarget(
   ctx: WorkflowHandlerContext,
   input: { runId?: string | undefined },
-): { id: string; hasSteps: boolean } {
-  const run = ctx.engine.runFor(ctx.caller, input.runId)
+): Promise<{ id: string; hasSteps: boolean }> {
+  const run = await ctx.engine.runFor(ctx.caller, input.runId)
   return { id: run.id, hasSteps: run.steps.length > 0 }
 }
 
@@ -131,12 +140,12 @@ function advanceTarget(
  * A handler that is never invoked cannot double-advance. That is the whole
  * mechanism, and it is why the check lives here.
  */
-export function dispatchWorkflowCommand(
+export async function dispatchWorkflowCommand(
   proc: WorkflowProcName,
   ctx: WorkflowHandlerContext,
   rawInput: unknown,
   opts?: { ledger?: AdvanceIdempotencyPort },
-): unknown {
+): Promise<unknown> {
   const { contract, handler } = WORKFLOW_COMMANDS[proc]
   const ledger = opts?.ledger
   // THE PARSE IS UNCONDITIONAL (POD-732).
@@ -160,14 +169,18 @@ export function dispatchWorkflowCommand(
   const advance = workflowAdvanceOf(proc)
   if (advance === undefined) return run(ctx, input)
 
-  const identity = input as { mutationId?: MutationId; stepId?: string; runId?: string }
+  const identity = input as {
+    mutationId?: MutationId
+    stepId?: string
+    runId?: string
+  }
   // Resolving the target FIRST is deliberate on two counts. It runs the run's
   // visibility decision before anything else, so a caller cannot probe the
   // idempotency ledger for a run it may not see; and it is what tells the
   // framework whether there is a step to name at all — a prompt-only run has
   // none, and refusing it for not naming one would refuse a frame with no
   // ambiguity and no remedy.
-  const target = advanceTarget(ctx, identity)
+  const target = await advanceTarget(ctx, identity)
   assertAdvanceIsDeliverable({
     ...(identity.mutationId !== undefined ? { mutationId: identity.mutationId } : {}),
     ...(identity.stepId !== undefined ? { stepId: identity.stepId } : {}),
@@ -181,13 +194,13 @@ export function dispatchWorkflowCommand(
     runId: target.id,
     mutationId: identity.mutationId,
   })
-  const recalled = ledger.recall(key)
+  const recalled = await ledger.recall(key)
   // A recorded result is returned VERBATIM rather than recomputed. Recomputing
   // it would re-read a run that has since moved and hand the caller a different
   // answer to the same delivery — which is the double-advance again, wearing a
   // read's clothes.
   if (recalled !== undefined) return JSON.parse(recalled)
-  const result = run(ctx, input)
-  ledger.record(key, JSON.stringify(result ?? null))
+  const result = await run(ctx, input)
+  await ledger.record(key, JSON.stringify(result ?? null))
   return result
 }

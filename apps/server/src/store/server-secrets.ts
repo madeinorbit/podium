@@ -41,7 +41,8 @@ import type { PortableCredentialBundle as PortableCredentialBundleValue } from '
 import { PortableCredentialBundle } from '@podium/protocol'
 import { eq } from 'drizzle-orm'
 import { serverSecrets } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
@@ -49,7 +50,7 @@ function nativeLoginTransferKey(principalUserId: UserId, transferId: string): st
 }
 
 export class ServerSecretsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -60,7 +61,7 @@ export class ServerSecretsRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -77,21 +78,21 @@ export class ServerSecretsRepository {
    * never retrieve the row. These rows are intentionally outside the closed
    * settings-secret vocabulary and are never part of presence().
    */
-  putNativeLoginTransfer(
+  async putNativeLoginTransfer(
     principalUserId: UserId,
     bundle: PortableCredentialBundleValue,
     updatedAt = new Date().toISOString(),
-  ): string {
+  ): Promise<string> {
     const transferId = randomUUID()
-    this.writeNativeLoginTransfer(principalUserId, transferId, bundle, updatedAt)
+    await this.writeNativeLoginTransfer(principalUserId, transferId, bundle, updatedAt)
     return transferId
   }
 
-  getNativeLoginTransfer(
+  async getNativeLoginTransfer(
     principalUserId: UserId,
     transferId: string,
-  ): PortableCredentialBundleValue | undefined {
-    const row = this.db
+  ): Promise<PortableCredentialBundleValue | undefined> {
+    const row = await this.db
       .select({ value: serverSecrets.value })
       .from(serverSecrets)
       .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
@@ -105,26 +106,26 @@ export class ServerSecretsRepository {
     }
   }
 
-  clearNativeLoginTransfer(principalUserId: UserId, transferId: string): void {
-    this.db
+  async clearNativeLoginTransfer(principalUserId: UserId, transferId: string): Promise<void> {
+    await this.db
       .delete(serverSecrets)
       .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
       .run()
   }
 
-  private writeNativeLoginTransfer(
+  private async writeNativeLoginTransfer(
     principalUserId: UserId,
     transferId: string,
     bundle: PortableCredentialBundleValue,
     updatedAt: string,
-  ): void {
-    this.db
+  ): Promise<void> {
+    ;await (this.db
       .insert(serverSecrets)
       .values({
         key: nativeLoginTransferKey(principalUserId, transferId),
         value: JSON.stringify(bundle),
         updatedAt,
-      })
+      }))
       .onConflictDoUpdate({
         target: serverSecrets.key,
         set: { value: JSON.stringify(bundle), updatedAt },
@@ -132,8 +133,8 @@ export class ServerSecretsRepository {
       .run()
   }
 
-  get(key: ServerSecretKey): string | undefined {
-    const row = this.db
+  async get(key: ServerSecretKey): Promise<string | undefined> {
+    const row = await this.db
       .select({ value: serverSecrets.value })
       .from(serverSecrets)
       .where(eq(serverSecrets.key, key))
@@ -144,8 +145,8 @@ export class ServerSecretsRepository {
   /** {@link get}, with the empty string for absent — for the several consumers
    *  whose downstream shape is a `string` and whose "not configured" test is
    *  already `!value`. Named so the substitution is visible at the call site. */
-  getOrEmpty(key: ServerSecretKey): string {
-    return this.get(key) ?? ''
+  async getOrEmpty(key: ServerSecretKey): Promise<string> {
+    return await this.get(key) ?? ''
   }
 
   /**
@@ -156,14 +157,14 @@ export class ServerSecretsRepository {
    * ambiguity the keyed store exists to remove, and every caller that "clears by
    * writing empty" would then create a row that reads as configured.
    */
-  set(key: ServerSecretKey, value: string, updatedAt: string): void {
+  async set(key: ServerSecretKey, value: string, updatedAt: string): Promise<void> {
     if (value === '') {
-      this.clear(key)
+      await this.clear(key)
       return
     }
-    this.db
+    ;await (this.db
       .insert(serverSecrets)
-      .values({ key, value, updatedAt })
+      .values({ key, value, updatedAt }))
       .onConflictDoUpdate({ target: serverSecrets.key, set: { value, updatedAt } })
       .run()
   }
@@ -177,19 +178,19 @@ export class ServerSecretsRepository {
    * a well-typed lie that happens to return `undefined` today. An unrecognised
    * provider answers "no key", which is what every caller already handles.
    */
-  apiKeyFor(provider: string): string | undefined {
+  async apiKeyFor(provider: string): Promise<string | undefined> {
     const candidate = `apiKeys.${provider}`
     if (!(SERVER_SECRET_KEYS as readonly string[]).includes(candidate)) return undefined
-    return this.get(candidate as ServerSecretKey)
+    return await this.get(candidate as ServerSecretKey)
   }
 
-  clear(key: ServerSecretKey): void {
-    this.db.delete(serverSecrets).where(eq(serverSecrets.key, key)).run()
+  async clear(key: ServerSecretKey): Promise<void> {
+    await this.db.delete(serverSecrets).where(eq(serverSecrets.key, key)).run()
   }
 
   /** When this key's secret was last replaced, or `undefined` when absent. */
-  updatedAt(key: ServerSecretKey): string | undefined {
-    const row = this.db
+  async updatedAt(key: ServerSecretKey): Promise<string | undefined> {
+    const row = await this.db
       .select({ updatedAt: serverSecrets.updatedAt })
       .from(serverSecrets)
       .where(eq(serverSecrets.key, key))
@@ -206,8 +207,8 @@ export class ServerSecretsRepository {
    * which is not this layer's business), so this returns it null and the service
    * fills it — see `SettingsService.secretPresenceList`.
    */
-  presence(): SecretPresenceWire[] {
-    const rows = this.db
+  async presence(): Promise<SecretPresenceWire[]> {
+    const rows = await this.db
       .select({
         key: serverSecrets.key,
         value: serverSecrets.value,

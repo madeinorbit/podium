@@ -27,13 +27,17 @@ export class NativeLoginService {
       bus: EventBus
       /** Refusal reason for using a machine, with the owner resolved once
        *  (rule 18) and grant checks bound to start()'s per-pass lease (rule 46). */
-      authorizerFor(ownerUserId: UserId): (machineId: MachineId) => string | undefined
-      cwdForMachine(machineId: MachineId): string
+      authorizerFor(
+        ownerUserId: UserId,
+      ):
+        | ((machineId: MachineId) => string | undefined)
+        | Promise<(machineId: MachineId) => string | undefined>
+      cwdForMachine(machineId: MachineId): string | Promise<string>
     },
   ) {
     deps.bus.on('session.exited', ({ sessionId, code }) => this.onExit(sessionId, code))
-    deps.bus.on('machine.metadataChanged', ({ machineId, inventory }) => {
-      if (inventory) this.onInventory(machineId)
+    deps.bus.on('machine.metadataChanged', async ({ machineId, inventory }) => {
+      if (inventory) await this.onInventory(machineId)
     })
   }
 
@@ -49,25 +53,25 @@ export class NativeLoginService {
     return this.attempts.get(harness)
   }
 
-  start(input: {
+  async start(input: {
     harness: HarnessAgent
     machineId?: MachineId
     ownerUserId: UserId
-  }): NativeLoginAttempt {
-    return withReadScope(() => this.startInScope(input))
+  }): Promise<NativeLoginAttempt> {
+    return await withReadScope(async () => await this.startInScope(input))
   }
 
-  private startInScope(input: {
+  private async startInScope(input: {
     harness: HarnessAgent
     machineId?: MachineId
     ownerUserId: UserId
-  }): NativeLoginAttempt {
+  }): Promise<NativeLoginAttempt> {
     const existing = this.attempts.get(input.harness)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
-    const candidates = this.deps.machines
-      .listMachines()
+    const candidates = (await this.deps.machines
+      .listMachines())
       .filter(
         (machine) =>
           machine.online &&
@@ -79,7 +83,7 @@ export class NativeLoginService {
     // checks use the explicit read scope opened by start() (rule 46). Candidate
     // filtering and the selected-machine recheck therefore share one lease
     // snapshot; the next start() opens a new lease and re-reads.
-    const authorize = this.deps.authorizerFor(input.ownerUserId)
+    const authorize = await this.deps.authorizerFor(input.ownerUserId)
     const authorized = input.machineId
       ? candidates
       : candidates.filter((candidate) => authorize(candidate.id) === undefined)
@@ -94,10 +98,10 @@ export class NativeLoginService {
     const refusal = authorize(machine.id)
     if (refusal) throw new Error(refusal)
 
-    const spawned = this.deps.sessions.createSession({
+    const spawned = await this.deps.sessions.createSession({
       agentKind: 'shell',
       loginHarness: input.harness,
-      cwd: this.deps.cwdForMachine(machine.id),
+      cwd: await this.deps.cwdForMachine(machine.id),
       title: `${input.harness} login`,
       name: `${input.harness} login`,
       machineId: asMachineId(machine.id),
@@ -132,10 +136,10 @@ export class NativeLoginService {
     this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
   }
 
-  private onInventory(machineId: MachineId): void {
+  private async onInventory(machineId: MachineId): Promise<void> {
     for (const [harness, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
-      const machine = this.deps.machines.listMachines().find((row) => row.id === machineId)
+      const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {
         this.attempts.set(harness, { ...attempt, status: 'succeeded' })

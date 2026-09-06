@@ -31,11 +31,11 @@ async function storeWithClaudeDefaults(accountId = 'native:claude-code'): Promis
   return store
 }
 
-function makeRegistry(store: SessionStore): {
+async function makeRegistry(store: SessionStore): Promise<{
   registry: SessionRegistry
   daemon: ControlMessage[]
-} {
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+}> {
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const daemon: ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
@@ -54,13 +54,13 @@ async function createFrame(
   agentKind: AgentKind,
   override: { model?: string; effort?: string } = {},
 ): Promise<Extract<ControlMessage, { type: 'spawn' }>> {
-  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
-  registry.modules.sessions.createSession({ agentKind, cwd: '/proj', ...override })
+  const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
+  await registry.modules.sessions.createSession({ agentKind, cwd: '/proj', ...override })
   return latestSpawn(daemon)
 }
 
 async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
-  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
+  const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
   const resume =
     agentKind === 'codex'
       ? ({ kind: 'codex-thread', value: 'thread-1' } as const)
@@ -79,7 +79,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     agentKind,
     geometry: { cols: 80, rows: 24 },
   })
-  expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
     ok: true,
   })
@@ -105,8 +105,8 @@ it('omits configured model and effort when another harness is selected', async (
 })
 
 it('resolves an omitted incompatible native role account to the selected agent', async () => {
-  const { registry } = makeRegistry(await storeWithClaudeDefaults())
-  const { sessionId } = registry.modules.sessions.createSession({
+  const { registry } = await makeRegistry(await storeWithClaudeDefaults())
+  const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
   })
@@ -114,8 +114,8 @@ it('resolves an omitted incompatible native role account to the selected agent',
 })
 
 it('normalizes an omitted colliding native harness prefix', async () => {
-  const { registry } = makeRegistry(await storeWithClaudeDefaults('native:opencodeevil'))
-  const { sessionId } = registry.modules.sessions.createSession({
+  const { registry } = await makeRegistry(await storeWithClaudeDefaults('native:opencodeevil'))
+  const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
   })
@@ -127,8 +127,8 @@ it.each([
   'native:claude-code',
   'managed:anthropic',
 ])('preserves the explicit account %s exactly', async (accountId) => {
-  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
-  const { sessionId } = registry.modules.sessions.createSession({
+  const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
+  const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
     accountId: asAccountId(accountId),

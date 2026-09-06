@@ -53,8 +53,8 @@ const MANAGED_ANTHROPIC = {
 } as const
 
 /** Registry + the daemon's inbox of control frames. */
-function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -64,9 +64,9 @@ function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: Cont
 const spawns = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
 /** The frame for a fresh create (call site 1: SessionLifecycle.spawn). */
-function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
-  const { reg, daemon } = makeRegistry(store)
-  reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
+async function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
+  const { reg, daemon } = await makeRegistry(store)
+  await reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
   const frame = spawns(daemon).at(-1)
   expect(frame).toBeDefined()
   return frame as Extract<ControlMessage, { type: 'spawn' }>
@@ -74,7 +74,7 @@ function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = '
 
 /** The frame for a wake (call site 2: SessionLifecycle.resurrectSession). */
 async function resurrectFrame(store: SessionStore) {
-  const { reg, daemon } = makeRegistry(store)
+  const { reg, daemon } = await makeRegistry(store)
   const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'codex',
     cwd: '/proj',
@@ -89,7 +89,7 @@ async function resurrectFrame(store: SessionStore) {
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
   })
-  expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+  expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   const before = spawns(daemon).length
   expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
     ok: true,
@@ -102,7 +102,7 @@ async function resurrectFrame(store: SessionStore) {
 }
 
 it('createSession injects the managed credential into the spawn frame (#216)', async () => {
-  const frame = createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC))
+  const frame = await createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC))
   expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-managed' })
 })
 
@@ -112,7 +112,7 @@ it('resurrectSession injects the managed credential into the spawn frame (#216)'
 })
 
 it('createSession on a NATIVE account leaves env absent — not an empty object', async () => {
-  const frame = createFrame(await storeWith('native:claude-code'))
+  const frame = await createFrame(await storeWith('native:claude-code'))
   expect(Object.hasOwn(frame, 'env')).toBe(false)
 })
 
@@ -128,7 +128,7 @@ it('resurrectSession on a NATIVE account leaves env absent — not an empty obje
  * for the harness; a shell never gets it.
  */
 it('never injects the managed credential into a SHELL pane (#216)', async () => {
-  const frame = createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC), 'shell')
+  const frame = await createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC), 'shell')
   expect(frame.agentKind).toBe('shell')
   expect(Object.hasOwn(frame, 'env')).toBe(false)
   expect(JSON.stringify(frame)).not.toContain('sk-ant-managed')

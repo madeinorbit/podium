@@ -137,7 +137,7 @@ describe('planning reads never scan the retained backups', () => {
         }
       },
     })
-    const verification = verifier.verify(staged)
+    const verification = await verifier.verify(staged)
 
     // The request path, exercised repeatedly WHILE the verification is
     // outstanding. Under the old implementation the first of these was the

@@ -36,8 +36,8 @@ function registry(): FeedIdentityRegistry {
   let held: Parameters<FeedIdentityStore['writeIdentity']>[0] | null = null
   let index = 0
   const store: FeedIdentityStore = {
-    readIdentity: () => held,
-    writeIdentity: (identity) => {
+    readIdentity: async () => held,
+    writeIdentity: async (identity) => {
       held = identity
     },
   }
@@ -90,12 +90,12 @@ const ALICE: Principal = {
  * evaluated up to here and this is what survived" — including `emit(feed, [], 5)`,
  * which is a watermark and not an empty call.
  */
-const emit = (
+const emit = async (
   feed: FeedPublisher,
   changes: readonly ScopedChange[],
   throughSeq?: number,
-): void => {
-  feed.publish(ALICE, {
+): Promise<void> => {
+  await feed.publish(ALICE, {
     kind: 'batch',
     throughSeq: throughSeq ?? (changes[changes.length - 1]?.seq ?? 0),
     changes,
@@ -103,21 +103,21 @@ const emit = (
 }
 
 describe('covered range — contiguous and non-overlapping PER CONNECTION', () => {
-  it('certifies (fromSeq, seq] from the connection position, not from the batch', () => {
+  it('certifies (fromSeq, seq] from the connection position, not from the batch', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
 
-    emit(feed, [change(1, 'a'), change(2, 'b')])
-    emit(feed, [change(3, 'c')])
+    await emit(feed, [change(1, 'a'), change(2, 'b')])
+    await emit(feed, [change(3, 'c')])
 
-    const frames = deltas(connection.drain())
+    const frames = deltas(await connection.drain())
     expect(frames.map((f) => [f.fromSeq, f.seq])).toEqual([
       [0, 2],
       [2, 3],
     ])
   })
 
-  it('certifies from the CONNECTION position even when the batch starts above it', () => {
+  it('certifies from the CONNECTION position even when the batch starts above it', async () => {
     // THE BUG THIS PINS: deriving `fromSeq` from the batch's first seq. It reads
     // naturally and it is wrong, and the wrongness is invisible unless the batch
     // SKIPS a seq — which is routine, since a seq the authority evaluated and
@@ -135,55 +135,55 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
     // `fromSeq` to the batch-derived form left that version green.
     const feed = publisher()
     const connection = feed.connect('late', 2, ALICE)
-    emit(feed, [change(4, 'd'), change(5, 'e')])
+    await emit(feed, [change(4, 'd'), change(5, 'e')])
 
-    expect(deltas(connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 5]])
+    expect(deltas(await connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 5]])
   })
 
-  it('two connections at DIFFERENT positions each get their own lower bound', () => {
+  it('two connections at DIFFERENT positions each get their own lower bound', async () => {
     const feed = publisher()
     const early = feed.connect('early', 0, ALICE)
-    emit(feed, [change(1, 'a'), change(2, 'b')])
+    await emit(feed, [change(1, 'a'), change(2, 'b')])
     const late = feed.connect('late', 2, ALICE)
-    emit(feed, [change(3, 'c')])
+    await emit(feed, [change(3, 'c')])
 
-    expect(deltas(early.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([
+    expect(deltas(await early.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([
       [0, 2],
       [2, 3],
     ])
-    expect(deltas(late.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 3]])
+    expect(deltas(await late.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[2, 3]])
   })
 
-  it('a batch straddling a connection position carries only the part above it', () => {
+  it('a batch straddling a connection position carries only the part above it', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 2, ALICE)
-    emit(feed, [change(1, 'a'), change(2, 'b'), change(3, 'c')])
+    await emit(feed, [change(1, 'a'), change(2, 'b'), change(3, 'c')])
 
-    const [frame] = deltas(connection.drain())
+    const [frame] = deltas(await connection.drain())
     expect(frame?.fromSeq).toBe(2)
     expect(frame?.changes.map((c) => c.seq)).toEqual([3])
   })
 
-  it('emits a WATERMARK — an empty frame over a NON-empty range (Amendment 1 D13)', () => {
+  it('emits a WATERMARK — an empty frame over a NON-empty range (Amendment 1 D13)', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
-    emit(feed, [], 5)
+    await emit(feed, [], 5)
 
-    const [frame] = deltas(connection.drain())
+    const [frame] = deltas(await connection.drain())
     expect(frame?.changes).toEqual([])
     expect([frame?.fromSeq, frame?.seq]).toEqual([0, 5])
   })
 
-  it('does NOT emit for a connection already at or past the range', () => {
+  it('does NOT emit for a connection already at or past the range', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 9, ALICE)
-    emit(feed, [change(1, 'a')])
-    expect(connection.drain()).toEqual([])
+    await emit(feed, [change(1, 'a')])
+    expect(await connection.drain()).toEqual([])
   })
 })
 
 describe('minAvailableSeq — D5 floor, read LIVE on every frame', () => {
-  it('publishes the floor, and follows it when the log is pruned', () => {
+  it('publishes the floor, and follows it when the log is pruned', async () => {
     // The counterfactual: a publisher that cached the floor at construction — or
     // that published a constant 0 — passes an assertion on the first frame and
     // fails here. Without the second frame this case cannot tell the two apart,
@@ -192,23 +192,23 @@ describe('minAvailableSeq — D5 floor, read LIVE on every frame', () => {
     const feed = publisher({ retention: floor })
     const connection = feed.connect('c1', 0, ALICE)
 
-    emit(feed, [change(1, 'a')])
+    await emit(feed, [change(1, 'a')])
     floor.floor = 4
-    emit(feed, [change(5, 'b')])
+    await emit(feed, [change(5, 'b')])
 
-    expect(deltas(connection.drain()).map((f) => f.minAvailableSeq)).toEqual([0, 4])
+    expect(deltas(await connection.drain()).map((f) => f.minAvailableSeq)).toEqual([0, 4])
   })
 
-  it('publishes 0 for an EMPTY log, which means "nothing pruned" and not "unset"', () => {
+  it('publishes 0 for an EMPTY log, which means "nothing pruned" and not "unset"', async () => {
     const feed = publisher({ retention: retention(null) })
     const connection = feed.connect('c1', 0, ALICE)
-    emit(feed, [change(1, 'a')])
-    expect(deltas(connection.drain())[0]?.minAvailableSeq).toBe(0)
+    await emit(feed, [change(1, 'a')])
+    expect(deltas(await connection.drain())[0]?.minAvailableSeq).toBe(0)
   })
 })
 
 describe('backpressure — D9 demotion, and what it does to the connection position', () => {
-  it('emits resync-required and STOPS advancing the position', () => {
+  it('emits resync-required and STOPS advancing the position', async () => {
     // The position assertion is the load-bearing one. A publisher that demoted but
     // let `fromSeq` advance would, on the next re-arm, resume from a cursor
     // certifying frames that were discarded — the silent divergence D9 exists to
@@ -216,25 +216,25 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
     const feed = publisher({ maxBytes: 10 })
     const connection = feed.connect('c1', 0, ALICE)
 
-    emit(feed, [change(1, 'a')])
-    emit(feed, [change(2, 'b')])
+    await emit(feed, [change(1, 'a')])
+    await emit(feed, [change(2, 'b')])
 
     // ONLY the control frame. The first frame was admitted and then discarded by
     // the overflow, and that is the behaviour rather than an accident: delivering
     // it alongside the demotion would hand the replica a range it is about to
     // throw away, and delivering it INSTEAD of the demotion is the silent drop.
-    const frames = connection.drain()
+    const frames = await connection.drain()
     expect(frames.map((f) => f.kind)).toEqual(['resync-required'])
     expect(connection.isDemoted()).toBe(true)
 
     // Re-arm at the seq the replica actually re-bootstrapped to, and the next
     // frame is certified from THERE — not from 2, which the demoted frame claimed.
     connection.rearm(7)
-    emit(feed, [change(8, 'c')])
-    expect(deltas(connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[7, 8]])
+    await emit(feed, [change(8, 'c')])
+    expect(deltas(await connection.drain()).map((f) => [f.fromSeq, f.seq])).toEqual([[7, 8]])
   })
 
-  it('bounds ONE connection without touching its neighbour', () => {
+  it('bounds ONE connection without touching its neighbour', async () => {
     // ADR 2 D9's whole argument: "one slow phone on a train takes down everyone's
     // server" is the outcome being avoided, so a demotion that spread would be the
     // bug rather than the fix.
@@ -248,27 +248,27 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
     const slow = feed.connect('slow', 0, ALICE)
     const healthy = feed.connect('healthy', 0, ALICE)
 
-    emit(feed, [change(1, 'a')])
-    healthy.drain()
-    emit(feed, [change(2, 'b')])
+    await emit(feed, [change(1, 'a')])
+    await healthy.drain()
+    await emit(feed, [change(2, 'b')])
 
     expect(slow.isDemoted()).toBe(true)
     expect(healthy.isDemoted()).toBe(false)
-    expect(deltas(healthy.drain()).map((f) => f.seq)).toEqual([2])
+    expect(deltas(await healthy.drain()).map((f) => f.seq)).toEqual([2])
   })
 
-  it('bumpEpoch demotes every connection and publishes the NEW identity', () => {
+  it('bumpEpoch demotes every connection and publishes the NEW identity', async () => {
     const feed = publisher()
     const one = feed.connect('one', 0, ALICE)
     const two = feed.connect('two', 0, ALICE)
-    emit(feed, [change(1, 'a')])
-    const epochBefore = deltas(one.drain())[0]?.epoch
-    two.drain()
+    await emit(feed, [change(1, 'a')])
+    const epochBefore = deltas(await one.drain())[0]?.epoch
+    await two.drain()
 
-    feed.bumpEpoch('restore')
+    await feed.bumpEpoch('restore')
 
     for (const connection of [one, two]) {
-      const [control] = connection.drain()
+      const [control] = await connection.drain()
       expect(control?.kind).toBe('resync-required')
       expect(control?.epoch).not.toBe(epochBefore)
       expect(connection.isDemoted()).toBe(true)
@@ -277,15 +277,15 @@ describe('backpressure — D9 demotion, and what it does to the connection posit
 })
 
 describe('provenance rides the envelope (ADR 2 D8)', () => {
-  it('carries originId / causationId / mutationId, and omits them when absent', () => {
+  it('carries originId / causationId / mutationId, and omits them when absent', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
-    emit(feed, [
+    await emit(feed, [
       { ...change(1, 'a'), causationId: 'cmd-1', mutationId: asMutationId('mut-1'), originId: 'peer-1' },
       change(2, 'b'),
     ])
 
-    const [withProvenance, without] = deltas(connection.drain())[0]?.changes ?? []
+    const [withProvenance, without] = deltas(await connection.drain())[0]?.changes ?? []
     expect(withProvenance).toMatchObject({
       causationId: 'cmd-1',
       mutationId: asMutationId('mut-1'),
@@ -296,15 +296,15 @@ describe('provenance rides the envelope (ADR 2 D8)', () => {
     expect(without && 'causationId' in without).toBe(false)
   })
 
-  it('a remove carries NO payload and an upsert always does', () => {
+  it('a remove carries NO payload and an upsert always does', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
-    emit(feed, [
+    await emit(feed, [
       { seq: 1, entity: 'session', entityId: 'a', op: 'remove' },
       change(2, 'b'),
     ])
 
-    const [removal, upsert] = deltas(connection.drain())[0]?.changes ?? []
+    const [removal, upsert] = deltas(await connection.drain())[0]?.changes ?? []
     expect(removal && 'payload' in removal).toBe(false)
     expect(upsert?.payload).toEqual({ id: 'b' })
   })

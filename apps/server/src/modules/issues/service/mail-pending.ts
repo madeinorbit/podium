@@ -16,33 +16,33 @@ import type { SessionStore } from '../../../store'
  * - legacy unread with a substrate twin → trust substrate (already covered or excluded)
  * - legacy unread with NO twin (pre-substrate) → COUNT
  */
-export function countContextAwarePendingMail(
+export async function countContextAwarePendingMail(
   store: Pick<SessionStore, 'messages' | 'issues'>,
   issueId: IssueId,
-  formatFromIssue: (fromIssue: string) => string = (id) => id,
+  formatFromIssue: (fromIssue: string) => string | Promise<string> = (id) => id,
   /** The READING session [POD-1379]. Given one, the count is per-reader: it
    *  never includes that session's own sends, never counts what it has already
    *  seen, and — the data-loss half — a peer's read cannot clear it. Absent
    *  (operator / UI peek), the issue-wide queued predicate stands. */
   sessionId?: SessionId,
-): { unread: number; senders: string[] } {
+): Promise<{ unread: number; senders: string[] }> {
   const target = { kind: 'issue' as const, id: issueId }
   const queued = sessionId
-    ? store.messages.pendingSummaryForSession(issueId, sessionId)
-    : store.messages.pendingSummary(target)
+    ? await store.messages.pendingSummaryForSession(issueId, sessionId)
+    : await store.messages.pendingSummary(target)
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
   // queued — those are already in `queued.count` above).
-  const legacyRows = store.issues.listIssueMessages(issueId, { status: 'unread' })
+  const legacyRows = await store.issues.listIssueMessages(issueId, { status: 'unread' })
   // ONE existence query for the whole backlog, not one per row (POD-3257): the
   // twin lookup is the only thing the predicate needed, and asking for it per
   // row is a round trip per row on a networked backend.
-  const twinned = store.messages.existingMessageIds(legacyRows.map((m) => m.id))
+  const twinned = await store.messages.existingMessageIds(legacyRows.map((m) => m.id))
   const legacyUnread = legacyRows.filter((m) => !twinned.has(m.id))
   // A pre-substrate row carries no sender session, so self-nag cannot be
   // decided for it; the reader's own receipt still retires it.
   const seen = sessionId
-    ? store.messages.readReceipts(
+    ? await store.messages.readReceipts(
         sessionId,
         legacyUnread.map((m) => m.id),
       )
@@ -50,11 +50,13 @@ export function countContextAwarePendingMail(
   const pureLegacy = legacyUnread.filter((m) => !seen.has(m.id))
   const senders = [
     ...new Set(
-      queued.senders.map((m) => {
-        if (m.fromKind !== 'agent') return m.fromKind
-        if (m.fromIssue) return formatFromIssue(m.fromIssue)
-        return m.fromSession ? `session:${m.fromSession}` : 'agent'
-      }),
+      await Promise.all(
+        queued.senders.map(async (m) => {
+          if (m.fromKind !== 'agent') return m.fromKind
+          if (m.fromIssue) return await formatFromIssue(m.fromIssue)
+          return m.fromSession ? `session:${m.fromSession}` : 'agent'
+        }),
+      ),
     ),
   ]
   return { unread: queued.count + pureLegacy.length, senders }

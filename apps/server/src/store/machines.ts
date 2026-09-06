@@ -15,7 +15,8 @@ import {
 import type { PeerBuild } from '@podium/protocol'
 import { asc, eq, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import type { MachineRecord } from './types'
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: daemon enrollment and compatibility
@@ -190,7 +191,7 @@ export const MACHINE_ID_SITES: readonly string[] = [
 ]
 
 export class MachinesRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -207,7 +208,7 @@ export class MachinesRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
@@ -231,7 +232,7 @@ export class MachinesRepository {
    * first offending row, and a remote driver pays one round trip for the whole
    * scan instead of fourteen.
    */
-  legacyMachineSentinelSites(): string[] {
+  async legacyMachineSentinelSites(): Promise<string[]> {
     const sentinels = RETIRED_MACHINE_SENTINELS.map((v) => `'${v}'`).join(', ')
     const arms = MACHINE_ID_SITES.map((site) => {
       const [table, column] = site.split('.')
@@ -245,7 +246,7 @@ export class MachinesRepository {
     // without appearing there. One statement rather than fourteen is the
     // method's own documented choice about round trips, not an accident.
     const statement = arms.join('\nUNION ALL\n')
-    const rows = this.db.all<{ site: string }>(sql.raw(statement)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
+    const rows = await this.db.all<{ site: string }>(sql.raw(statement)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
     return rows.map((r) => r.site)
   }
 
@@ -265,16 +266,16 @@ export class MachinesRepository {
    * machine. It fills a NULL, so a row written before this column existed
    * acquires an owner the first time its owner touches it.
    */
-  upsertMachine(m: {
+  async upsertMachine(m: {
     id: string
     name: string
     hostname: string
     tokenHash: string
     ownerUserId: UserId | null
     podiumManaged?: boolean
-  }): void {
+  }): Promise<void> {
     const now = new Date().toISOString()
-    this.db
+    ;await (this.db
       .insert(machines)
       .values({
         // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
@@ -287,7 +288,7 @@ export class MachinesRepository {
         lastSeenAt: now,
         ownerUserId: m.ownerUserId,
         podiumManaged: m.podiumManaged ?? true,
-      })
+      }))
       .onConflictDoUpdate({
         target: machines.id,
         set: {
@@ -306,17 +307,17 @@ export class MachinesRepository {
       .run()
   }
 
-  listMachines(): MachineRecord[] {
-    return this.db
+  async listMachines(): Promise<MachineRecord[]> {
+    return (await this.db
       .select(MACHINE_COLUMNS)
       .from(machines)
       .orderBy(asc(machines.createdAt))
-      .all()
+      .all())
       .map(toRecord)
   }
 
-  getMachine(id: string): MachineRecord | undefined {
-    const r = this.db
+  async getMachine(id: string): Promise<MachineRecord | undefined> {
+    const r = await this.db
       .select(MACHINE_COLUMNS)
       .from(machines)
       .where(eq(machines.id, id as MachineId))
@@ -341,8 +342,8 @@ export class MachinesRepository {
    * Returns whether the row actually changed, so the caller can skip a broadcast
    * on the overwhelmingly common no-op (every hello re-stamps `daemon`).
    */
-  addMachineComponent(id: string, component: MachineComponent): boolean {
-    const row = this.db
+  async addMachineComponent(id: string, component: MachineComponent): Promise<boolean> {
+    const row = await this.db
       .select({ componentsJson: machines.componentsJson })
       .from(machines)
       .where(eq(machines.id, id as MachineId))
@@ -351,7 +352,7 @@ export class MachinesRepository {
     const current = parseComponents(row.componentsJson) ?? []
     if (current.includes(component)) return false
     const next = [...current, component]
-    this.db
+    await this.db
       .update(machines)
       .set({ componentsJson: JSON.stringify(next) })
       .where(eq(machines.id, id as MachineId))
@@ -360,8 +361,8 @@ export class MachinesRepository {
   }
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
-  setMachineInventory(id: string, inventoryJson: string): void {
-    this.db
+  async setMachineInventory(id: string, inventoryJson: string): Promise<void> {
+    await this.db
       .update(machines)
       .set({ inventoryJson })
       .where(eq(machines.id, id as MachineId))
@@ -369,8 +370,8 @@ export class MachinesRepository {
   }
 
   /** Persist the daemon's advisory build report and the capabilities it offered. */
-  setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): void {
-    this.db
+  async setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): Promise<void> {
+    await this.db
       .update(machines)
       .set({
         appVersion: build.appVersion ?? null,
@@ -388,8 +389,8 @@ export class MachinesRepository {
   }
 
   /** Constant-time token comparison using sha-256 hex. */
-  getMachineByToken(id: string, token: string): boolean {
-    const row = this.db
+  async getMachineByToken(id: string, token: string): Promise<boolean> {
+    const row = await this.db
       .select({ tokenHash: machines.tokenHash })
       .from(machines)
       .where(eq(machines.id, id as MachineId))
@@ -402,16 +403,16 @@ export class MachinesRepository {
 
   /** Persist the operator-selected update authority for one managed machine.
    *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
-  setUpdateChannel(id: string, channel: UpdateChannelValue | null): void {
-    this.db
+  async setUpdateChannel(id: string, channel: UpdateChannelValue | null): Promise<void> {
+    await this.db
       .update(machines)
       .set({ updateChannelOverride: channel })
       .where(eq(machines.id, id as MachineId))
       .run()
   }
 
-  renameMachine(id: string, name: string): void {
-    this.db
+  async renameMachine(id: string, name: string): Promise<void> {
+    await this.db
       .update(machines)
       .set({ name })
       .where(eq(machines.id, id as MachineId))
@@ -424,23 +425,23 @@ export class MachinesRepository {
    * owner transition: the ledger append is the commit point, and this method
    * projects it onto the row. `null` is quarantine (usable by nobody).
    */
-  setMachineOwner(id: string, ownerUserId: UserId | null): void {
-    this.db
+  async setMachineOwner(id: string, ownerUserId: UserId | null): Promise<void> {
+    await this.db
       .update(machines)
       .set({ ownerUserId })
       .where(eq(machines.id, id as MachineId))
       .run()
   }
 
-  deleteMachine(id: string): void {
-    this.db
+  async deleteMachine(id: string): Promise<void> {
+    await this.db
       .delete(machines)
       .where(eq(machines.id, id as MachineId))
       .run()
   }
 
-  touchMachine(id: string, hostname: string): void {
-    this.db
+  async touchMachine(id: string, hostname: string): Promise<void> {
+    await this.db
       .update(machines)
       .set({ lastSeenAt: new Date().toISOString(), hostname })
       .where(eq(machines.id, id as MachineId))

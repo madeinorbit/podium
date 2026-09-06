@@ -39,9 +39,9 @@ export class EventLogRetention {
   ) {}
 
   start(): void {
-    this.bootTimer = setTimeout(() => {
-      this.schedulePrune()
-      this.timer = setInterval(() => this.schedulePrune(), EVENT_PRUNE_INTERVAL_MS)
+    this.bootTimer = setTimeout(async () => {
+      await this.schedulePrune()
+      this.timer = setInterval(async () => await this.schedulePrune(), EVENT_PRUNE_INTERVAL_MS)
       this.timer.unref?.()
     }, EVENT_PRUNE_BOOT_DELAY_MS)
     this.bootTimer.unref?.()
@@ -59,7 +59,7 @@ export class EventLogRetention {
    * coalesce into at most one follow-up pass, so timer/manual races cannot run
    * duplicate plans and deletes concurrently.
    */
-  pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
+  async pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
     if (this.pruneFlight) {
       this.pruneRerunRequested = true
       return this.pruneFlight
@@ -97,17 +97,17 @@ export class EventLogRetention {
   private async runPruneJob(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
     const batchSize = this.options.batchSize ?? EVENT_PRUNE_BATCH_ROWS
     let deleted = 0
-    let plan: ReturnType<EventsRepository['planEventPrune']> | undefined
+    let plan: Awaited<ReturnType<EventsRepository['planEventPrune']>> | undefined
     const metrics = await runTimeBudgetedJob(
-      () => {
+      async () => {
         if (!plan) {
-          plan = this.events.planEventPrune({
+          plan = await this.events.planEventPrune({
             maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
             maxRows: EVENT_RETENTION_MAX_ROWS,
           })
           return 'continue'
         }
-        const batchDeleted = this.events.pruneEventBatch(plan, batchSize)
+        const batchDeleted = await this.events.pruneEventBatch(plan, batchSize)
         deleted += batchDeleted
         return batchDeleted < batchSize ? 'done' : 'continue'
       },
@@ -133,7 +133,7 @@ export class EventLogRetention {
   }
 
   /** Timer failures are logged, never thrown into the process. */
-  private schedulePrune(): void {
+  private async schedulePrune(): Promise<void> {
     void this.pruneNow().catch((err) => {
       log.warn('event log prune failed', { err })
     })

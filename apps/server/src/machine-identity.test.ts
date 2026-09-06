@@ -82,7 +82,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     const path = tmpDb()
     await seedLegacyDb(path)
 
-    expect(() => openTestStore(path, HOST)).toThrow(
+    await expect(openTestStore(path, HOST)).rejects.toThrow(
       /retired machine sentinels.*machines\.id.*repos\.machine_id.*sessions\.machine_id/s,
     )
   })
@@ -103,7 +103,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     `)
     db.close()
 
-    expect(() => openTestStore(path, HOST)).toThrow(
+    await expect(openTestStore(path, HOST)).rejects.toThrow(
       /retired machine sentinels.*issues\.machine_id/s,
     )
   })
@@ -187,15 +187,15 @@ describe('a database that already ran the retired upgrades', () => {
   it('and the seed itself would have been refused — the assertion above is not vacuous', async () => {
     const path = tmpDb()
     await seedLegacyDb(path)
-    expect(() => openTestStore(path, HOST)).toThrow(/retired machine sentinels/)
+    await expect(openTestStore(path, HOST)).rejects.toThrow(/retired machine sentinels/)
   })
 })
 
 describe('the split-mode local daemon authenticates as this host', () => {
   const bootedRegistry = async (secret: string) => {
     const store = await openTestStore(':memory:', HOST)
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('this-host', secret)
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await registry.modules.machines.ensureHostMachine('this-host', secret)
     return registry
   }
 
@@ -204,7 +204,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
       (await bootedRegistry('shared-secret')).modules.machines,
     )
 
-    const resolved = directory.verifyDaemonSecret('shared-secret', { hostname: 'this-host' })
+    const resolved = await directory.verifyDaemonSecret('shared-secret', { hostname: 'this-host' })
 
     expect(resolved).toMatchObject({ machine: HOST, name: 'this-host' })
   })
@@ -216,7 +216,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
       (await bootedRegistry('shared-secret')).modules.machines,
     )
 
-    expect(directory.verifyDaemonSecret('not-the-secret')).toBeNull()
+    expect(await directory.verifyDaemonSecret('not-the-secret')).toBeNull()
   })
 
   it('the directory names the host from the service, not from a constant', async () => {
@@ -224,11 +224,11 @@ describe('the split-mode local daemon authenticates as this host', () => {
     // its own. A hard-coded `'local'` could not tell them apart.
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
     const store = await openTestStore(':memory:', other)
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
     expect(
-      createMachineDirectory(registry.modules.machines).verifyDaemonSecret('other-secret'),
+      await createMachineDirectory(registry.modules.machines).verifyDaemonSecret('other-secret'),
     ).toMatchObject({ machine: other })
   })
 })
@@ -236,10 +236,10 @@ describe('the split-mode local daemon authenticates as this host', () => {
 describe('composition threads deployment identity explicitly', () => {
   it('derives fleet and durable-session namespaces from the constructor parameter', async () => {
     const store = await openTestStore(':memory:', HOST)
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'blue' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'blue' })
 
     expect(registry.modules.machines.instanceId).toBe('blue')
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
     })
@@ -261,16 +261,16 @@ describe('composition threads deployment identity explicitly', () => {
 describe('rows are attributed from birth — there is no placeholder phase', () => {
   it('a session created before any daemon connects already names the host', async () => {
     const store = await openTestStore(':memory:', HOST)
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('this-host', 'secret')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
     })
 
     expect(
-      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.machineId,
+      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.machineId,
     ).toBe(HOST)
     expect((await store.sessions.loadSessions())[0]?.machineId).toBe(HOST)
     store.close()
@@ -278,14 +278,14 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
 
   it('defaultMachine answers with the host even when its daemon is offline', async () => {
     const store = await openTestStore(':memory:', HOST)
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('this-host', 'secret')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
-    expect(registry.modules.machines.defaultMachine()).toBe(HOST)
+    expect(await registry.modules.machines.defaultMachine()).toBe(HOST)
     expect(registry.modules.machines.hasDaemon(HOST)).toBe(false)
     // …and a connected remote takes precedence, so this is not a hard-coded answer.
     registry.gateway.attachDaemon(asMachineId('remote-1'), () => {})
-    expect(registry.modules.machines.defaultMachine()).toBe(asMachineId('remote-1'))
+    expect(await registry.modules.machines.defaultMachine()).toBe(asMachineId('remote-1'))
     store.close()
   })
 
@@ -317,11 +317,11 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
       workState: null,
     }
 
-    expect(() =>
+    await expect(
       // @ts-expect-error machineId is REQUIRED (POD-318) — this is the compile-time
       // half of the same guarantee the runtime throw below is the other half of.
       store.sessions.upsertSession(row),
-    ).toThrow()
+    ).rejects.toThrow()
     store.close()
   })
 })

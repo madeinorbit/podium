@@ -233,7 +233,7 @@ export interface VisibilityStatePort {
    * same live point-read behavior for any ref outside that set. This is a
    * batching seam, not a long-lived authorization cache.
    */
-  forBootstrap?(refs: readonly EntityRef[]): VisibilityStatePort
+  forBootstrap?(refs: readonly EntityRef[]): Promise<VisibilityStatePort>
   /**
    * The same seam for ONE APPENDED BATCH, evaluated across every subscribed
    * principal [POD-3261].
@@ -252,7 +252,7 @@ export interface VisibilityStatePort {
    * the committed head. One read per batch under that lease IS the live read;
    * one read per row was one live read too many, not a stricter guarantee.
    */
-  forBatch?(refs: readonly EntityRef[]): VisibilityStatePort
+  forBatch?(refs: readonly EntityRef[]): Promise<VisibilityStatePort>
 }
 
 /**
@@ -290,7 +290,9 @@ export interface VisibilityAnchorPort {
    */
   visibilityEdge(
     ref: EntityRef,
-  ): { readonly audience: readonly UserRef[]; readonly subjects: readonly EntityRef[] } | null
+  ): Promise<
+    { readonly audience: readonly UserRef[]; readonly subjects: readonly EntityRef[] } | null
+  >
   /**
    * The entity's CURRENT wire value, for a re-admitting `upsert` (D14.2), or
    * `undefined` when the entity no longer exists — in which case nothing is
@@ -299,7 +301,7 @@ export interface VisibilityAnchorPort {
    * D14.2's point restated, because it looks wrong: the entity's `revision` does
    * not move. An upsert whose revision has not moved is still a valid upsert.
    */
-  currentValueOf(ref: EntityRef): unknown | undefined
+  currentValueOf(ref: EntityRef): Promise<unknown | undefined>
 }
 
 /**
@@ -327,7 +329,7 @@ export interface FeedVisibilityPolicy {
    * batch the refs that bootstrap will evaluate. The ordinary policy remains
    * the fallback for live deltas and refs outside the prepared set.
    */
-  forBootstrap?(refs: readonly EntityRef[]): FeedVisibilityPolicy
+  forBootstrap?(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy>
   /**
    * The same, for one appended batch [POD-3261]. See
    * {@link VisibilityStatePort.forBatch} for why a batch gets its own method
@@ -336,7 +338,7 @@ export interface FeedVisibilityPolicy {
    * The returned policy is used for EVERY principal in the batch, so an
    * implementation must not close over a principal.
    */
-  forBatch?(refs: readonly EntityRef[]): FeedVisibilityPolicy
+  forBatch?(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy>
 }
 
 /**
@@ -384,12 +386,12 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     private readonly delegations: DelegationScopePort,
   ) {}
 
-  forBootstrap(refs: readonly EntityRef[]): FeedVisibilityPolicy {
-    return this.over(this.state.forBootstrap?.(refs))
+  async forBootstrap(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy> {
+    return this.over(await this.state.forBootstrap?.(refs))
   }
 
-  forBatch(refs: readonly EntityRef[]): FeedVisibilityPolicy {
-    return this.over(this.state.forBatch?.(refs))
+  async forBatch(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy> {
+    return this.over(await this.state.forBatch?.(refs))
   }
 
   /**
@@ -553,11 +555,11 @@ export class NoDelegationsGranted implements DelegationScopePort {
 }
 
 export class DeviceGradeNoAnchors implements VisibilityAnchorPort {
-  visibilityEdge(): null {
+  async visibilityEdge(): Promise<null> {
     return null
   }
 
-  currentValueOf(): undefined {
+  async currentValueOf(): Promise<undefined> {
     return undefined
   }
 }

@@ -73,7 +73,7 @@ export interface SessionRevivalPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
   spawn: SessionStart['spawn']
-  machineUseGate(caller: HandoffCaller): AssertMachineUse
+  machineUseGate(caller: HandoffCaller): Promise<AssertMachineUse>
   issueAccess: DurableIssueAccessIndex
   instructionsForStart(input: {
     sessionId: SessionId
@@ -81,7 +81,7 @@ export interface SessionRevivalPorts {
     agentKind: AgentKind
     issueId?: IssueId
     existingOnly?: boolean
-  }): PreparedSessionInstructions
+  }): PreparedSessionInstructions | Promise<PreparedSessionInstructions>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
@@ -142,23 +142,23 @@ export class SessionRevival {
     if (input.machineId && input.agentKind !== 'shell') {
       await this.ports.machines.waitForInventory(input.machineId)
     }
-    const machineId = this.ports.machines.resolveMachineForAgent(
+    const machineId = await this.ports.machines.resolveMachineForAgent(
       input.machineId,
       input.cwd,
       input.agentKind,
       input.use,
     )
-    const issueId = this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = await this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,
       agentKind: input.agentKind,
       ...(issueId ? { issueId } : {}),
     })
-    const spawned = this.ports.spawn({
+    const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
       ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
       cwd: input.cwd,
@@ -173,7 +173,7 @@ export class SessionRevival {
       ...(issueId ? { issueId } : {}),
       sessionId,
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     return spawned
   }
 
@@ -213,12 +213,12 @@ export class SessionRevival {
    *
    * `machineUseGate` arrives as a port — it is not decided here.
    */
-  handoffSession(
+  async handoffSession(
     input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return this.handoffs(issues).handoff(input, caller, this.ports.machineUseGate(caller))
+    return await this.handoffs(issues).handoff(input, caller, await this.ports.machineUseGate(caller))
   }
 
   /**
@@ -245,13 +245,15 @@ export class SessionRevival {
               ]
             : [],
         ),
-      listRepos: () => this.ports.store.repos.listRepos(),
-      listMachines: () => this.ports.machines.listMachines(),
-      waitForInventory: (machineId) => this.ports.machines.waitForInventory(machineId),
-      issueMeta: (issueId) => this.ports.issueAccess.getMeta(issueId) ?? undefined,
-      rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
-      ensureTargetRepo: (sourceRepo, targetMachineId) =>
-        this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
+      listRepos: async () => await this.ports.store.repos.listRepos(),
+      listMachines: async () => await this.ports.machines.listMachines(),
+      waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
+      issueMeta: async (issueId) => await this.ports.issueAccess.getMeta(issueId) ?? undefined,
+      rehomeIssue: async (issueId, where) => {
+        await issues.rehome(issueId, where)
+      },
+      ensureTargetRepo: async (sourceRepo, targetMachineId) =>
+        await this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
       write: (session, mutate) => this.ports.repository.write(session, mutate),
       mutateSessionView: (sessionId, mutate) => {
         this.ports.repository.mutateSessionView(sessionId, mutate)
@@ -261,10 +263,10 @@ export class SessionRevival {
       toMachine: (machineId, message) => this.ports.toMachine(machineId, message),
       onWorktreesChanged: (repoPath, machineId) =>
         this.ports.onWorktreesChanged(repoPath, machineId),
-      resumeSession: (resumeInput) => this.resumeSession(resumeInput, issues),
-      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput, issues),
-      recordEvent: (event) => {
-        this.ports.store.events.appendEvent(event)
+      resumeSession: async (resumeInput) => await this.resumeSession(resumeInput, issues),
+      resurrectSession: async (resurrectInput) => await this.resurrectSession(resurrectInput, issues),
+      recordEvent: async (event) => {
+        await this.ports.store.events.appendEvent(event)
       },
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     }
@@ -275,7 +277,7 @@ export class SessionRevival {
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  resurrectSession(
+  async resurrectSession(
     {
       sessionId,
       adoptedBinding,
@@ -286,8 +288,8 @@ export class SessionRevival {
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
-    if (session.archived) return Promise.resolve({ ok: false, reason: 'session is archived' })
+    if (!session) return await Promise.resolve({ ok: false, reason: 'unknown session' })
+    if (session.archived) return await Promise.resolve({ ok: false, reason: 'session is archived' })
     const pending = this.pendingResurrections.get(sessionId)
     if (pending) return pending
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -302,7 +304,7 @@ export class SessionRevival {
       // misleading "process still running" error. Republish the current row so
       // the client converges immediately.
       this.ports.broadcastSessions()
-      return Promise.resolve({ ok: true })
+      return await Promise.resolve({ ok: true })
     }
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one
@@ -329,7 +331,7 @@ export class SessionRevival {
     // with it, which is what spawn-on-wake already builds. This verb is the
     // operator's retry, not that one.
     if (session.agentKind !== 'shell' && !session.resume && !session.neverBound) {
-      return Promise.resolve({ ok: false, reason: 'no resume ref' })
+      return await Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
@@ -342,25 +344,22 @@ export class SessionRevival {
     // succeeds, so consulting its still-source-machine worktree here would
     // mistake the ordered handoff transition for stale resume state.
     const ensured = adoptedBinding
-      ? { ok: true, cwd: session.cwd }
-      : this.ports.workspace.ensureSessionWorktree(session, issues)
-    if (ensured instanceof Promise) {
-      const resurrection = ensured
-        .then((e) => this.finishResurrect(session, e, adoptedBinding))
-        .finally(() => {
-          this.pendingResurrections.delete(sessionId)
-        })
-      this.pendingResurrections.set(sessionId, resurrection)
-      return resurrection
-    }
-    return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
+      ? Promise.resolve({ ok: true, cwd: session.cwd })
+      : Promise.resolve(this.ports.workspace.ensureSessionWorktree(session, issues))
+    const resurrection = ensured
+      .then(async (result) => await this.finishResurrect(session, result, adoptedBinding))
+      .finally(() => {
+        this.pendingResurrections.delete(sessionId)
+      })
+    this.pendingResurrections.set(sessionId, resurrection)
+    return await resurrection
   }
 
-  finishResurrect(
+  async finishResurrect(
     session: Session,
     ensured: { ok: boolean; reason?: string; cwd?: string },
     adoptedBinding?: SessionBindingAdoptLaunchInstruction,
-  ): { ok: boolean; reason?: string } {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const sessionId = session.sessionId
     // `ensureSessionWorktree` may be asynchronous. Re-check the retirement
     // boundary after it resolves so an archive racing the ensure cannot spawn.
@@ -373,7 +372,7 @@ export class SessionRevival {
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
 
-    const preparedInstructions = this.ports.instructionsForStart({
+    const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd,
       agentKind: session.agentKind,
@@ -388,7 +387,7 @@ export class SessionRevival {
       // lastActiveAt makes it immediately eligible to be parked again.
       session.markResumed(draft)
     })
-    const observationLease = this.ports.terminalProof.fence(session)
+    const observationLease = await this.ports.terminalProof.fence(session)
     this.ports.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
@@ -431,11 +430,11 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...this.ports.launchConfig.modelDefaults(session.agentKind),
-      ...this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
+      ...await this.ports.launchConfig.modelDefaults(session.agentKind),
+      ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
-    preparedInstructions.commit()
+    await preparedInstructions.commit()
     this.ports.broadcastSessions()
     return { ok: true }
   }

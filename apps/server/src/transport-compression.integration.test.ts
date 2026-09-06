@@ -148,7 +148,7 @@ class SocketReader {
   async takeThrough(marker: Buffer): Promise<Buffer> {
     while (true) {
       const end = this.bytes.indexOf(marker)
-      if (end >= 0) return this.take(end + marker.length)
+      if (end >= 0) return await this.take(end + marker.length)
       if (this.failure) throw this.failure
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(

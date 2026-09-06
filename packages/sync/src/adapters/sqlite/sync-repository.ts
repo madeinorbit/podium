@@ -33,7 +33,7 @@ import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change
 import type { ChangePrunePlan } from '../../change-log'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './store-queries'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './store-queries'
 
 /**
  * SQLite's OWN autoincrement bookkeeping table, declared so that
@@ -56,7 +56,7 @@ const sqliteSequence = sqliteTable('sqlite_sequence', {
   seq: integer().notNull(),
 })
 
-const prepareLatestChangeStateUpsert = (db: SyncDrizzle) =>
+const prepareLatestChangeStateUpsert = (db: StoreDrizzle) =>
   db
     .insert(changeLatest)
     .values({
@@ -71,7 +71,7 @@ const prepareLatestChangeStateUpsert = (db: SyncDrizzle) =>
     })
     .prepare()
 
-const prepareLatestChangeStateDelete = (db: SyncDrizzle) =>
+const prepareLatestChangeStateDelete = (db: StoreDrizzle) =>
   db
     .delete(changeLatest)
     .where(
@@ -134,10 +134,8 @@ export class SyncRepository {
    */
   private readonly queuedMessages: QueuedMessagesTable
   private readonly upstreamOutbox: UpstreamOutboxTable
-  private readonly rootDb: SyncDrizzle
-  private preparedLatestStateUpsertValue:
-    | ReturnType<typeof prepareLatestChangeStateUpsert>
-    | undefined
+  private readonly queries: StoreQueries
+  private preparedLatestStateUpsertValue: ReturnType<typeof prepareLatestChangeStateUpsert> | undefined
   private preparedLatestStateDeleteValue:
     | ReturnType<typeof prepareLatestChangeStateDelete>
     | undefined
@@ -153,7 +151,7 @@ export class SyncRepository {
    * the wrong connection silently.
    */
   private get db() {
-    return this.rootDb
+    return this.queries.rootDb
   }
 
   /**
@@ -162,15 +160,15 @@ export class SyncRepository {
    * each row reuses the SQL Drizzle constructed on first access.
    */
   private get preparedLatestStateUpsert(): ReturnType<typeof prepareLatestChangeStateUpsert> {
-    return (this.preparedLatestStateUpsertValue ??= prepareLatestChangeStateUpsert(this.rootDb))
+    return (this.preparedLatestStateUpsertValue ??= prepareLatestChangeStateUpsert(this.db))
   }
 
   private get preparedLatestStateDelete(): ReturnType<typeof prepareLatestChangeStateDelete> {
-    return (this.preparedLatestStateDeleteValue ??= prepareLatestChangeStateDelete(this.rootDb))
+    return (this.preparedLatestStateDeleteValue ??= prepareLatestChangeStateDelete(this.db))
   }
 
   constructor(queries: StoreQueries, tables: SyncServerTables) {
-    this.rootDb = queries.rootDb
+    this.queries = queries
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.queuedMessages = tables.queuedMessages
     this.upstreamOutbox = tables.upstreamOutbox
@@ -186,7 +184,7 @@ export class SyncRepository {
    * Row type is {@link ChangeLogWriteRow} — composed from the lifecycle shape,
    * not restated here (POD-1251).
    */
-  appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): number[] {
+  async appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]> {
     if (rows.length === 0) return []
     const seqs: number[] = []
     // Stay below SQLite's conservative 999-parameter builds (100 × 5 = 500)
@@ -199,7 +197,7 @@ export class SyncRepository {
     // for `seq` and for the three provenance columns rather than binding them,
     // so the chunk size still buys the same headroom it was chosen for.
     const chunkSize = 100
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
         // AN EXPLICIT NULL WHERE THE ORIGINAL OMITTED [spec rule 43], and it is
@@ -208,7 +206,7 @@ export class SyncRepository {
         // omission does; the three provenance columns are nullable with no
         // DEFAULT clause, so null IS what the omission stored. No column of
         // `changes` carries a default for an explicit null to defeat.
-        const result = this.db
+        const result = await (this.db
           .insert(changes)
           .values(
             chunk.map((row) => ({
@@ -218,15 +216,15 @@ export class SyncRepository {
               payload: row.payload,
               eventTime,
             })),
-          )
+          ))
           .run()
         const last = Number(result.lastInsertRowid)
         const first = last - chunk.length + 1
         for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-        this.applyLatestChangeStates(chunk, first)
+        await this.applyLatestChangeStates(chunk, first)
       }
     })
-    this.invalidateLatestChangeStatesCache()
+    await this.invalidateLatestChangeStatesCache()
     return seqs
   }
 
@@ -243,7 +241,7 @@ export class SyncRepository {
    * transaction are what make "last write in the batch wins" true here for the
    * same reason it is true in the log.
    */
-  private applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): void {
+  private async applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): Promise<void> {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] as ChangeLogWriteRow
       // A payload-less upsert is the corrupt row every reader of the fold already
@@ -256,14 +254,14 @@ export class SyncRepository {
         // constraint — checked with `pragma index_list` on the migrated table, so
         // no conflict can arrive on a constraint this target does not cover
         // [spec rule 31a].
-        this.preparedLatestStateUpsert.run({
+        await this.preparedLatestStateUpsert.run({
           entity: row.entity,
           entityId: row.entityId,
           seq: firstSeq + i,
           payload: row.payload,
         })
       } else {
-        this.preparedLatestStateDelete.run({ entity: row.entity, entityId: row.entityId })
+        await this.preparedLatestStateDelete.run({ entity: row.entity, entityId: row.entityId })
       }
     }
   }
@@ -278,16 +276,16 @@ export class SyncRepository {
    * lives in `change_latest`. Invalidating on prune would only throw away a valid
    * read cache on a timer.
    */
-  latestChangeStatesGeneration(): number {
+  async latestChangeStatesGeneration(): Promise<number> {
     return this.latestChangeStatesGenerationValue
   }
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
-  maxChangeSeq(): number {
+  async maxChangeSeq(): Promise<number> {
     // ABSENT ROW, NOT ZERO, is the empty case: SQLite creates the
     // `sqlite_sequence` entry on the first insert, so a log that has never been
     // written has no row here at all.
-    const row = this.db
+    const row = await this.db
       .select({ seq: sqliteSequence.seq })
       .from(sqliteSequence)
       .where(eq(sqliteSequence.name, 'changes'))
@@ -296,11 +294,11 @@ export class SyncRepository {
   }
 
   /** Lowest RETAINED seq, or null when the log is empty. */
-  minChangeSeq(): number | null {
+  async minChangeSeq(): Promise<number | null> {
     // An aggregate over an empty table is still ONE row carrying NULL, which is
     // the `null` this returns; the `?? null` is for `.get()`'s optional type, not
     // for a case SQLite produces.
-    const row = this.db
+    const row = await this.db
       .select({ seq: min(changes.seq) })
       .from(changes)
       .get()
@@ -312,11 +310,11 @@ export class SyncRepository {
    * cursor is still within the retained range (see Ledger.changesSince) —
    * this is a plain range read.
    */
-  changesSince(cursor: number, limit = 10_000): ChangeLogReadRow[] {
+  async changesSince(cursor: number, limit = 10_000): Promise<ChangeLogReadRow[]> {
     // FIVE COLUMNS OF NINE, named rather than spread [spec rule 39]: the original
     // statement projected a subset, and a spread would read the four provenance
     // and clock columns nobody here asks for.
-    const rows = this.db
+    const rows = await this.db
       .select({
         seq: changes.seq,
         entity: changes.entity,
@@ -342,8 +340,8 @@ export class SyncRepository {
    * recur inside every bounded delete unit. Rows appended after the snapshot are
    * intentionally handled by the next job.
    */
-  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan {
-    const rowCapSeq = this.maxChangeSeq() - opts.keepRows
+  async planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): Promise<ChangePrunePlan> {
+    const rowCapSeq = await this.maxChangeSeq() - opts.keepRows
     // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
     // which rule 1 allows inside a builder query, and which keeps the WHERE, the
     // aggregate and the row decoding on the builder where the rest of this file
@@ -351,7 +349,7 @@ export class SyncRepository {
     // fixture, `EXPLAIN QUERY PLAN` reports `SEARCH changes` without it against
     // `SEARCH changes USING COVERING INDEX changes_event_time` with it, and this
     // read runs once per prune job.
-    const aged = this.db
+    const aged = await this.db
       .select({ seq: max(changes.seq) })
       .from(sql`${changes} indexed by ${sql.identifier('changes_event_time')}`)
       .where(lt(changes.eventTime, opts.now - opts.maxAgeMs))
@@ -366,12 +364,12 @@ export class SyncRepository {
    * {@link latestChangeStates} — so a prune that also swept it would be deleting
    * the answer to "what is there?" in order to bound the answer to "what changed?".
    */
-  pruneChangeBatch(plan: ChangePrunePlan, batchSize = 500): number {
+  async pruneChangeBatch(plan: ChangePrunePlan, batchSize = 500): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
     if (plan.thresholdSeq <= 0) return 0
-    const result = this.db
+    const result = await this.db
       .delete(changes)
       .where(
         inArray(
@@ -406,11 +404,11 @@ export class SyncRepository {
    * tombstones. No consumer read them: the bootstrap, the baseline seed and the
    * visibility read cache all skip non-upsert rows before doing anything.
    */
-  latestChangeStates(): ChangeLogReadRow[] {
+  async latestChangeStates(): Promise<ChangeLogReadRow[]> {
     if (this.latestChangeStatesCache !== undefined) return this.latestChangeStatesCache
     // FOUR COLUMNS OF FOUR — the whole table, named rather than spread so the
     // projection stays a statement about what this read wants [spec rule 39].
-    const rows = this.db
+    const rows = await this.db
       .select({
         seq: changeLatest.seq,
         entity: changeLatest.entity,
@@ -424,7 +422,7 @@ export class SyncRepository {
     return this.latestChangeStatesCache
   }
 
-  private invalidateLatestChangeStatesCache(): void {
+  private async invalidateLatestChangeStatesCache(): Promise<void> {
     this.latestChangeStatesCache = undefined
     this.latestChangeStatesGenerationValue++
   }
@@ -432,8 +430,8 @@ export class SyncRepository {
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
   /** The stored result of an already-applied mutation, or undefined if new. */
-  getAppliedMutation(mutationId: MutationId): string | undefined {
-    const row = this.db
+  async getAppliedMutation(mutationId: MutationId): Promise<string | undefined> {
+    const row = await this.db
       .select({ result: appliedMutations.result })
       .from(appliedMutations)
       .where(eq(appliedMutations.mutationId, mutationId))
@@ -441,12 +439,12 @@ export class SyncRepository {
     return row?.result
   }
 
-  recordAppliedMutation(
+  async recordAppliedMutation(
     mutationId: MutationId,
     proc: string,
     result: string,
     appliedAt: number,
-  ): void {
+  ): Promise<void> {
     // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a]. The two
     // forms differ only where a NOT NULL or a CHECK violation is reachable, and
     // on the shipped `applied_mutations` neither is: the table declares no CHECK
@@ -454,15 +452,15 @@ export class SyncRepository {
     // non-nullable parameters. The conflict target is left off deliberately —
     // a bare `on conflict do nothing` covers every uniqueness constraint, which
     // is what `OR IGNORE` did.
-    this.db
+    ;await (this.db
       .insert(appliedMutations)
-      .values({ mutationId, proc, result, appliedAt })
+      .values({ mutationId, proc, result, appliedAt }))
       .onConflictDoNothing()
       .run()
   }
 
-  pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): void {
-    this.db
+  async pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): Promise<void> {
+    await this.db
       .delete(appliedMutations)
       .where(lt(appliedMutations.appliedAt, opts.now - opts.maxAgeMs))
       .run()
@@ -470,7 +468,7 @@ export class SyncRepository {
 
   /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
    *  Returns false when the id already existed (replay). */
-  enqueueMessage(row: {
+  async enqueueMessage(row: {
     id: string
     sessionId: SessionId
     text: string
@@ -483,7 +481,7 @@ export class SyncRepository {
     actorId?: string
     onBehalfOf?: string | null
     sourceMessageId?: string | null
-  }): boolean {
+  }): Promise<boolean> {
     // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a], and this
     // table is the one that needs the enumeration spelled out because it DOES
     // carry CHECK constraints. `queued_messages_principal_kind` and
@@ -499,7 +497,7 @@ export class SyncRepository {
     // injected table object, not a null. That holds because the declaration
     // agrees with the shipped DDL, which is what `schema.test.ts` pins. Printed
     // to confirm, rather than reasoned from the builder.
-    const r = this.db
+    const r = await (this.db
       .insert(this.queuedMessages)
       .values({
         id: row.id,
@@ -514,14 +512,14 @@ export class SyncRepository {
         actorId: row.actorId ?? 'legacy-session-inbox',
         onBehalfOf: row.onBehalfOf ?? null,
         sourceMessageId: row.sourceMessageId ?? null,
-      })
+      }))
       .onConflictDoNothing()
       .run()
     return Number(r.changes) > 0
   }
 
   /** FIFO head-first queue for one session. */
-  listQueuedMessages(sessionId: SessionId): {
+  async listQueuedMessages(sessionId: SessionId): Promise<{
     id: string
     text: string
     attempts: number
@@ -533,10 +531,10 @@ export class SyncRepository {
     actorId: string
     onBehalfOf: string | null
     sourceMessageId: string | null
-  }[] {
+  }[]> {
     // ELEVEN COLUMNS OF THIRTEEN, named [spec rule 39]: `queued_at` and
     // `session_id` are the ordering and the predicate, not part of the answer.
-    const rows = this.db
+    const rows = await this.db
       .select({
         id: this.queuedMessages.id,
         text: this.queuedMessages.text,
@@ -572,8 +570,8 @@ export class SyncRepository {
   }
 
   /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
-  queuedMessageCounts(): Map<SessionId, number> {
-    const rows = this.db
+  async queuedMessageCounts(): Promise<Map<SessionId, number>> {
+    const rows = await this.db
       .select({ sessionId: this.queuedMessages.sessionId, n: count() })
       .from(this.queuedMessages)
       .groupBy(this.queuedMessages.sessionId)
@@ -581,12 +579,12 @@ export class SyncRepository {
     return new Map(rows.map((r) => [r.sessionId, r.n]))
   }
 
-  deleteQueuedMessage(id: string): void {
-    this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.id, id)).run()
+  async deleteQueuedMessage(id: string): Promise<void> {
+    await this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.id, id)).run()
   }
 
-  bumpQueuedAttempts(id: string): void {
-    this.db
+  async bumpQueuedAttempts(id: string): Promise<void> {
+    await this.db
       .update(this.queuedMessages)
       .set({ attempts: sql`${this.queuedMessages.attempts} + 1` })
       .where(eq(this.queuedMessages.id, id))
@@ -595,8 +593,8 @@ export class SyncRepository {
 
   /** The count bounds how many copies ONE CLI process may be typed; a fresh PTY
    *  has received none of them, so a bind clears it (POD-1242). */
-  resetQueuedAttempts(id: string): void {
-    this.db
+  async resetQueuedAttempts(id: string): Promise<void> {
+    await this.db
       .update(this.queuedMessages)
       .set({ attempts: 0 })
       .where(eq(this.queuedMessages.id, id))
@@ -604,8 +602,8 @@ export class SyncRepository {
   }
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
-  deleteQueuedMessagesForSession(sessionId: SessionId): void {
-    this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.sessionId, sessionId)).run()
+  async deleteQueuedMessagesForSession(sessionId: SessionId): Promise<void> {
+    await this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.sessionId, sessionId)).run()
   }
 
   // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----
@@ -621,11 +619,11 @@ export class SyncRepository {
    * boot) tells the operator they exist. A read with no writer cannot resurrect the
    * forwarding path; a table quietly dropped would have taken the evidence with it.
    */
-  listParkedUpstreamMutations(): { mutationId: MutationId; proc: string; queuedAt: number }[] {
+  async listParkedUpstreamMutations(): Promise<{ mutationId: MutationId; proc: string; queuedAt: number }[]> {
     // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
     // this report deliberately does not read, and `attempts` belongs to the
     // retired forwarder.
-    const rows = this.db
+    const rows = await this.db
       .select({
         mutationId: this.upstreamOutbox.mutationId,
         proc: this.upstreamOutbox.proc,
@@ -653,8 +651,8 @@ export class SyncRepository {
    * the rule in SQL would be a second definition able to disagree with the first,
    * and the one that runs would depend on which door the write came through.
    */
-  readFeedIdentity(): { feedId: string; epoch: string } | null {
-    const row = this.db
+  async readFeedIdentity(): Promise<{ feedId: string; epoch: string } | null> {
+    const row = await this.db
       .select({ feedId: feedIdentity.feedId, epoch: feedIdentity.epoch })
       .from(feedIdentity)
       .where(eq(feedIdentity.singleton, 1))
@@ -668,13 +666,13 @@ export class SyncRepository {
    * hold two would leave "which epoch is this feed on?" answered by whichever row
    * a query happened to return first.
    */
-  writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): void {
+  async writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): Promise<void> {
     // TARGETED ON THE PRIMARY KEY, which is `feed_identity`'s ONLY uniqueness
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
-    this.db
+    ;await (this.db
       .insert(feedIdentity)
-      .values({ singleton: 1, feedId: identity.feedId, epoch: identity.epoch, mintedAt })
+      .values({ singleton: 1, feedId: identity.feedId, epoch: identity.epoch, mintedAt }))
       .onConflictDoUpdate({
         target: feedIdentity.singleton,
         set: {

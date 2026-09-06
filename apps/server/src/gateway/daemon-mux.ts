@@ -97,7 +97,7 @@ type Dispatcher = {
     ports: DaemonFeaturePorts,
     principal: MachinePrincipal,
     msg: DaemonFrame<K>,
-  ) => void
+  ) => void | Promise<void>
 }
 
 const toSessions = (
@@ -156,7 +156,7 @@ const DISPATCH: Dispatcher = {
   // ---- hosts: a per-machine fact, so the machine rides the delivery path ----
   hostMetrics: (ports, principal, msg) => {
     const { type: _type, ...sample } = msg
-    ports.hosts.onHostMetrics(principal.machine, sample)
+    return ports.hosts.onHostMetrics(principal.machine, sample)
   },
   memoryBreakdownResult: (ports, principal, msg) =>
     ports.hosts.onMemoryBreakdownResult(principal.machine, msg),
@@ -298,7 +298,7 @@ export class DaemonMux {
     log.info('daemon attached — the machine is now online', { machineId })
     machines.flushQueued(machineId)
     sessions.onMachineAttached(principal)
-    machines.broadcastMachines()
+    machines.scheduleBroadcastMachines()
     this.deps.bus.emit('machine.connected', { machineId })
   }
 
@@ -322,7 +322,7 @@ export class DaemonMux {
     log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
-    machines.broadcastMachines()
+    machines.scheduleBroadcastMachines()
   }
 
   routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {
@@ -349,8 +349,19 @@ export class DaemonMux {
       ports: DaemonFeaturePorts,
       principal: MachinePrincipal,
       msg: DaemonMessage,
-    ) => void
-    dispatch(this.deps.ports, principal, msg)
+    ) => void | Promise<void>
+    /**
+     * A FRAME IS DELIVERED, NOT ANSWERED. Nothing upstream of this router waits
+     * for a handler: the socket receive loop and `server.ts`'s `queueMicrotask`
+     * both hand a frame over and move on. Handlers that now read durably return
+     * a promise, so this SCHEDULES that work — and attaches the rejection
+     * handler, because the alternative is a promise floating through a `void`
+     * slot and a handler fault surfacing only as an unhandled rejection with no
+     * frame type on it.
+     */
+    void Promise.resolve(dispatch(this.deps.ports, principal, msg)).catch((err: unknown) => {
+      log.error('a daemon frame handler failed', { frameType: msg.type, err })
+    })
   }
 
   /** Which port(s) own a frame type — exposed for the routing audit. */

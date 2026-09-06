@@ -25,28 +25,28 @@ import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
 /** The shared read: resolve, gate on `mayView`, project. */
-function viewable(ctx: MailHandlerContext, id: string): MessageWire {
+async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
-  const m = deps.messages.message(id)
+  const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
   if (!access.mayView(caller.capability, m)) {
     throw new Error('not allowed to view a message you neither sent nor received')
   }
-  return access.wire(m)
+  return await access.wire(m)
 }
 
-export function showHandler(
+export async function showHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailShowContract>,
-): MessageWire {
-  return viewable(ctx, input.id)
+): Promise<MessageWire> {
+  return await viewable(ctx, input.id)
 }
 
-export function statusHandler(
+export async function statusHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailStatusContract>,
-): MessageWire {
-  return viewable(ctx, input.id)
+): Promise<MessageWire> {
+  return await viewable(ctx, input.id)
 }
 
 /**
@@ -54,29 +54,29 @@ export function statusHandler(
  * admits the SENDER; dismiss must not, because clearing a row out of someone
  * else's mailbox is not a thing a sender may do to a recipient.
  */
-export function dismissHandler(
+export async function dismissHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailDismissContract>,
-): MessageWire {
+): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const svc = deps.messages
-  const message = svc.message(input.id)
+  const message = await svc.message(input.id)
   if (!message) throw new Error(`unknown message ${input.id}`)
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {
     throw new Error('only the recipient of a message may dismiss it')
   }
-  return access.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
+  return await access.wire(await svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
 }
 
-export function cancelHandler(
+export async function cancelHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof mailCancelContract>,
-): MessageWire {
+): Promise<MessageWire> {
   const { caller, deps, access } = ctx
-  const message = deps.messages.message(input.id)
+  const message = await deps.messages.message(input.id)
   if (!message) throw new Error(`unknown message ${input.id}`)
   if (!access.isSender(caller, message)) {
     throw new Error('only the sender of a message may cancel it')
   }
-  return access.wire(deps.messages.cancel(message.id))
+  return await access.wire(await deps.messages.cancel(message.id))
 }

@@ -36,7 +36,7 @@ import type { SettingsService } from '../settings/service'
 export interface ModelState {
   readonly settings: SettingsService
   /** `machines.defaultMachine()` — resolved lazily when the client omits machineId. */
-  readonly defaultMachine: () => MachineId
+  readonly defaultMachine: () => MachineId | Promise<MachineId>
 }
 
 export type ModelHandler<In, Out> = (state: ModelState, input: In) => Out
@@ -51,9 +51,9 @@ export interface ModelCommand {
 export const MODEL_COMMANDS_TRPC = {
   refresh: {
     contract: MODEL_CONTRACTS.refresh,
-    handler: ((state, input) =>
-      state.settings.refreshModelCatalog(
-        input?.machineId ?? state.defaultMachine(),
+    handler: (async (state, input) =>
+      await state.settings.refreshModelCatalog(
+        input?.machineId ?? (await state.defaultMachine()),
       )) satisfies ModelHandler<z.infer<(typeof MODEL_CONTRACTS)['refresh']['input']>, unknown>,
   },
 } as const satisfies Record<ModelContractName, ModelCommand>
@@ -79,6 +79,6 @@ export const modelRegistryClassificationErrors = (): string[] =>
 export function selectModelState(modules: RegistryModules): ModelState {
   return {
     settings: modules.settings,
-    defaultMachine: () => modules.machines.defaultMachine(),
+    defaultMachine: async () => await modules.machines.defaultMachine(),
   }
 }

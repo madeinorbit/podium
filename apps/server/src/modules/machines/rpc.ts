@@ -183,10 +183,10 @@ interface DaemonRpcDeps {
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  defaultMachine(): MachineId
-  resolveMachine(requested: string | undefined, cwd: string): string
+  defaultMachine(): MachineId | Promise<MachineId>
+  resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   hasDaemon(machineId: MachineId): boolean
-  machineName(id: MachineId): string
+  machineName(id: MachineId): string | Promise<string>
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
   portableStateFence?: PortableStateWriteFence
@@ -424,8 +424,8 @@ export class DaemonRpcService {
    * the segment lookup that turns a path into a session has to be scoped to the
    * daemon whose walk produced it (POD-1858).
    */
-  answeringMachineId(): MachineId {
-    return this.deps.defaultMachine()
+  async answeringMachineId(): Promise<MachineId> {
+    return await this.deps.defaultMachine()
   }
 
   nextRequestId(prefix: string): string {
@@ -434,20 +434,20 @@ export class DaemonRpcService {
 
   /** One round-trip against a named family. A thin alias for the broker's own
    *  `request` — kept so every call below reads as one call, not two. */
-  private request<T>(
+  private async request<T>(
     kind: DaemonRequestKind<T>,
     timeoutMs: number,
     onTimeout: () => T,
-    build: (requestId: string) => ControlMessage,
+    build: (requestId: string) => ControlMessage | Promise<ControlMessage>,
     machineId?: MachineId,
   ): Promise<T> {
-    return this.broker.request({ kind, timeoutMs, onTimeout, build, machineId })
+    return await this.broker.request({ kind, timeoutMs, onTimeout, build, machineId })
   }
 
   // ---- requests ----
 
-  scan(): Promise<ScanResult> {
-    return this.request(
+  async scan(): Promise<ScanResult> {
+    return await this.request(
       SCAN,
       SCAN_TIMEOUT_MS,
       () => ({
@@ -458,12 +458,12 @@ export class DaemonRpcService {
     )
   }
 
-  scanRepos(
+  async scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number } = {},
     machineId?: MachineId,
   ): Promise<ScanReposResult> {
-    return this.request(
+    return await this.request(
       SCAN_REPOS,
       SCAN_TIMEOUT_MS,
       () => ({
@@ -484,12 +484,12 @@ export class DaemonRpcService {
   /** One directory's sub-directories on `machineId`'s disk (POD-814) [spec:SP-3701]
    *  — the repo picker's browser. `path` omitted browses that machine's $HOME.
    *  A daemon-reported failure comes back in `error`, not as a rejection. */
-  browseDirs(
+  async browseDirs(
     path?: string,
     opts: { includeHidden?: boolean } = {},
     machineId?: MachineId,
   ): Promise<BrowseDirsResult> {
-    return this.request(
+    return await this.request(
       BROWSE_DIRS,
       BROWSE_TIMEOUT_MS,
       () => ({ error: 'directory browse timed out' }),
@@ -509,12 +509,12 @@ export class DaemonRpcService {
    *  A refusal comes back in `error`, not as a rejection, exactly as a browse
    *  failure does. `createRepo` also runs `git init` and seeds a commit, which
    *  is why it gets the longer budget. */
-  dirOp(
+  async dirOp(
     op: DirOp,
     machineId: MachineId,
     input: { parentPath: string; name: string; currentName?: string },
   ): Promise<DirOpResult> {
-    return this.request(
+    return await this.request(
       DIR_OP,
       op === 'createRepo' ? DIR_OP_INIT_TIMEOUT_MS : BROWSE_TIMEOUT_MS,
       () => ({ error: 'directory operation timed out' }),
@@ -531,12 +531,12 @@ export class DaemonRpcService {
   }
 
   /** Live GitHub CLI readiness/list/clone on one machine. No credential is returned. */
-  githubCli(
+  async githubCli(
     action: 'status' | 'list' | 'clone',
     machineId: MachineId,
     input: { repository?: string; destination?: string } = {},
   ): Promise<Payload<GitHubCliResultMessage>> {
-    return this.request(
+    return await this.request(
       GITHUB_CLI,
       action === 'clone' ? 130_000 : 35_000,
       () => ({ status: { state: 'logged-out' }, error: 'GitHub CLI request timed out' }),
@@ -560,7 +560,7 @@ export class DaemonRpcService {
    * cost fold on `usage.summary`, which strips it before the payload reaches a
    * client. The status chip's 90-second poll asks without it.
    */
-  usage(
+  async usage(
     sinceMs?: number,
     withSources?: boolean,
   ): Promise<{
@@ -571,7 +571,7 @@ export class DaemonRpcService {
     /** The window the `sources` folds cover — the daemon's memo, not `sinceMs`. */
     sourcesSinceMs?: number
   }> {
-    return this.request(
+    return await this.request(
       USAGE,
       20_000,
       () => ({ hostname: '', buckets: [] }),
@@ -587,11 +587,11 @@ export class DaemonRpcService {
   /** Per-agent plan-quota (5h/weekly windows), read live read-only on one daemon
    *  host. Empty agents on timeout. Distinct from `usage` (token-cost analytics).
    *  `machineId` targets a specific machine; omitted → the default online machine. */
-  agentQuota(
+  async agentQuota(
     refresh?: boolean,
     machineId?: MachineId,
   ): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
-    return this.request(
+    return await this.request(
       AGENT_QUOTA,
       20_000,
       () => ({ hostname: '', agents: [] }),
@@ -616,8 +616,8 @@ export class DaemonRpcService {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
     const perMachine = await Promise.all(
-      machineIds.map((machineId) =>
-        this.request(
+      machineIds.map(async (machineId) =>
+        await this.request(
           QUOTA_HISTORY,
           120_000,
           () => ({ samples: [] }),
@@ -642,8 +642,8 @@ export class DaemonRpcService {
    * `cursor-agent models` plus the Anthropic model list can take several seconds,
    * and this read is stale-while-revalidate — no client is blocked on it.
    */
-  modelProbe(machineId: MachineId): Promise<Record<string, ModelChoiceWire[]>> {
-    return this.request(
+  async modelProbe(machineId: MachineId): Promise<Record<string, ModelChoiceWire[]>> {
+    return await this.request(
       MODEL_PROBE,
       20_000,
       () => ({}),
@@ -656,11 +656,11 @@ export class DaemonRpcService {
    * Prove the exact authenticated development artifact route from one managed
    * machine. A timeout is a failed proof, never permission to publish.
    */
-  probeDevArtifact(
+  async probeDevArtifact(
     url: string,
     machineId: MachineId,
   ): Promise<Payload<DevArtifactProbeResultMessage>> {
-    return this.request(
+    return await this.request(
       DEV_ARTIFACT_PROBE,
       20_000,
       () => ({
@@ -687,37 +687,37 @@ export class DaemonRpcService {
   async agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
-    return Promise.all(
+    return await Promise.all(
       machineIds.map(async (machineId) => {
         const { hostname, agents } = await this.agentQuota(refresh, machineId)
-        return { machineId, machineName: this.deps.machineName(machineId), hostname, agents }
+        return { machineId, machineName: await this.deps.machineName(machineId), hostname, agents }
       }),
     )
   }
 
   /** Allowlisted git op on a dev machine (superagent tools). */
-  repoOp(
+  async repoOp(
     op: RepoOp,
     cwd: string,
     args?: Record<string, string>,
     machineId?: MachineId,
   ): Promise<OpResult> {
-    return this.request(
+    return await this.request(
       REPO_OP,
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      asMachineId(machineId ?? this.deps.resolveMachine(undefined, cwd)),
+      asMachineId(machineId ?? await this.deps.resolveMachine(undefined, cwd)),
     )
   }
 
   /** Purpose-built shipping effect RPC. Its input is a fixed operation schema;
    * callers cannot smuggle argv or shell text through this boundary. */
-  shippingJob(
+  async shippingJob(
     input: Omit<ShippingJobRequestMessage, 'type' | 'requestId'>,
     machineId: MachineId,
   ): Promise<ShippingJobResult> {
-    return this.request(
+    return await this.request(
       SHIPPING_JOB,
       40_000,
       () => ({
@@ -740,13 +740,13 @@ export class DaemonRpcService {
     )
   }
 
-  shippingEvidence(
+  async shippingEvidence(
     authority: ShippingJobRequestMessage,
     artifactRef: string,
     maxBytes: number,
     machineId: MachineId,
   ): Promise<Payload<ShippingEvidenceResultMessage>> {
-    return this.request(
+    return await this.request(
       SHIPPING_EVIDENCE,
       15_000,
       () => ({ artifactRef, ok: false, error: 'shipping evidence daemon did not answer' }),
@@ -761,7 +761,7 @@ export class DaemonRpcService {
     )
   }
 
-  shippingRepairApply(
+  async shippingRepairApply(
     input: {
       authority: ShippingJobRequestMessage
       contextDigest: string
@@ -772,7 +772,7 @@ export class DaemonRpcService {
     },
     machineId: MachineId,
   ): Promise<Payload<ShippingRepairApplyResultMessage>> {
-    return this.request(
+    return await this.request(
       SHIPPING_REPAIR_APPLY,
       40_000,
       () => ({
@@ -802,7 +802,7 @@ export class DaemonRpcService {
    * means. Reporting `refused` would tell a caller the session declined the
    * write, and a caller that believed it would send the same text twice.
    */
-  runtimeSend(
+  async runtimeSend(
     input: {
       sessionId: SessionId
       turnId?: string
@@ -813,7 +813,7 @@ export class DaemonRpcService {
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
-    return this.request(
+    return await this.request(
       RUNTIME_SEND,
       RUNTIME_SEND_TIMEOUT_MS,
       () => ({
@@ -836,14 +836,14 @@ export class DaemonRpcService {
     )
   }
 
-  runtimeStageAttachment(
+  async runtimeStageAttachment(
     input: {
       sessionId: SessionId
       source: { bytes: Uint8Array; filename: string; mediaType: string }
     },
     machineId: MachineId,
   ): Promise<Payload<RuntimeStageAttachmentResultMessage>> {
-    return this.request(
+    return await this.request(
       RUNTIME_STAGE_ATTACHMENT,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
@@ -863,11 +863,11 @@ export class DaemonRpcService {
 
   /** REQUEST a fence. The fence itself, if the provider confirms one, arrives on
    *  the causal stream as a terminal turn event — never as this reply. */
-  runtimeInterrupt(
+  async runtimeInterrupt(
     sessionId: SessionId,
     machineId: MachineId,
   ): Promise<Payload<RuntimeLifecycleResultMessage>> {
-    return this.request(
+    return await this.request(
       RUNTIME_LIFECYCLE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
@@ -890,11 +890,11 @@ export class DaemonRpcService {
    * session. Manufacturing an empty snapshot would hand a consumer a cursor that
    * silently discards everything before it.
    */
-  runtimeSnapshot(
+  async runtimeSnapshot(
     sessionId: SessionId,
     machineId: MachineId,
   ): Promise<Payload<RuntimeSnapshotResultMessage>> {
-    return this.request(
+    return await this.request(
       RUNTIME_SNAPSHOT,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
@@ -903,11 +903,11 @@ export class DaemonRpcService {
     )
   }
 
-  runtimeAnswer(
+  async runtimeAnswer(
     input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome> {
-    return this.request(
+    return await this.request(
       RUNTIME_ANSWER,
       RUNTIME_VERB_TIMEOUT_MS,
       // A timeout is not "already answered" and not "expired": the ask may still
@@ -935,11 +935,11 @@ export class DaemonRpcService {
    * and the requested-vs-observed split would then be showing a requested value
    * that was never requested of anything.
    */
-  runtimeConfigure(
+  async runtimeConfigure(
     input: { sessionId: SessionId; model?: string; effort?: string; permissionMode?: string },
     machineId: MachineId,
   ): Promise<Payload<RuntimeConfigureResultMessage>> {
-    return this.request(
+    return await this.request(
       RUNTIME_CONFIGURE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
@@ -955,11 +955,11 @@ export class DaemonRpcService {
     )
   }
 
-  runtimeLifecycle(
+  async runtimeLifecycle(
     input: { sessionId: SessionId; verb: 'stop' | 'hibernate' | 'kill' },
     machineId: MachineId,
   ): Promise<Payload<RuntimeLifecycleResultMessage>> {
-    return this.request(
+    return await this.request(
       RUNTIME_LIFECYCLE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
@@ -974,12 +974,12 @@ export class DaemonRpcService {
   }
 
   /** Read only allowlisted native auth files from one authenticated daemon. */
-  credentialExport(
+  async credentialExport(
     kinds: PortableCredentialKind[],
     machineId: MachineId,
     options?: { propagation?: boolean },
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       CREDENTIAL_EXPORT,
       15_000,
       () => ({ bundles: [], unavailable: kinds }),
@@ -994,12 +994,12 @@ export class DaemonRpcService {
   }
 
   /** Atomically install allowlisted auth files on one authenticated daemon. */
-  credentialInstall(
+  async credentialInstall(
     bundles: PortableCredentialBundle[],
     machineId: MachineId,
     options?: { propagation?: boolean },
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       CREDENTIAL_INSTALL,
       15_000,
       () => ({ installed: [], failed: bundles.map((bundle) => bundle.kind) }),
@@ -1013,7 +1013,7 @@ export class DaemonRpcService {
     )
   }
 
-  handoffExport(
+  async handoffExport(
     input: {
       sessionId: SessionId
       cwd: string
@@ -1030,7 +1030,7 @@ export class DaemonRpcService {
     },
     machineId: MachineId,
   ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       HANDOFF_EXPORT,
       120_000,
       () => ({ ok: false, error: 'handoff export timed out' }),
@@ -1039,13 +1039,13 @@ export class DaemonRpcService {
     )
   }
 
-  handoffReadChunk(
+  async handoffReadChunk(
     stagePath: string,
     offset: number,
     length: number,
     machineId: MachineId,
   ): Promise<Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       HANDOFF_READ,
       30_000,
       () => ({ ok: false, error: 'handoff read timed out' }),
@@ -1065,13 +1065,13 @@ export class DaemonRpcService {
    * The wire field STAYS `sessionId`: the bytes are a compatibility surface with
    * every deployed daemon, and this issue renames in-repo only.
    */
-  handoffWriteChunk(
+  async handoffWriteChunk(
     stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
     machineId: MachineId,
   ): Promise<Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       HANDOFF_WRITE,
       30_000,
       () => ({ ok: false, error: 'handoff write timed out' }),
@@ -1086,7 +1086,7 @@ export class DaemonRpcService {
     )
   }
 
-  handoffImport(
+  async handoffImport(
     sessionId: SessionId,
     repoPath: string,
     worktreeName: string,
@@ -1094,7 +1094,7 @@ export class DaemonRpcService {
     occupiedWorktreePaths: string[] = [],
     binding?: HandoffBindingImportInstruction,
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       HANDOFF_IMPORT,
       120_000,
       () => ({ ok: false, error: 'handoff import timed out' }),
@@ -1111,7 +1111,7 @@ export class DaemonRpcService {
     )
   }
 
-  handoffBindingFinalize(
+  async handoffBindingFinalize(
     input: {
       sessionId: SessionId
       transitionId: string
@@ -1124,7 +1124,7 @@ export class DaemonRpcService {
     },
     machineId: MachineId,
   ): Promise<Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       HANDOFF_BINDING_FINALIZE,
       30_000,
       () => ({ ok: false, error: 'handoff binding finalize timed out' }),
@@ -1138,7 +1138,7 @@ export class DaemonRpcService {
   }
 
   /** Lazy workspace snapshot export on the SOURCE daemon [POD-658]. */
-  workspaceExport(
+  async workspaceExport(
     input: {
       fetchId: string
       cwd: string
@@ -1148,7 +1148,7 @@ export class DaemonRpcService {
     },
     machineId: MachineId,
   ): Promise<Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       WORKSPACE_EXPORT,
       120_000,
       () => ({ ok: false, error: 'workspace export timed out' }),
@@ -1158,12 +1158,12 @@ export class DaemonRpcService {
   }
 
   /** Materialize a transferred snapshot as a detached peek worktree [POD-658]. */
-  workspaceImport(
+  async workspaceImport(
     fetchId: string,
     repoPath: string,
     machineId: MachineId,
   ): Promise<Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       WORKSPACE_IMPORT,
       120_000,
       () => ({ ok: false, error: 'workspace import timed out' }),
@@ -1173,11 +1173,11 @@ export class DaemonRpcService {
   }
 
   /** Remove every peek worktree under a repo [POD-658]. */
-  workspaceClean(
+  async workspaceClean(
     repoPath: string,
     machineId: MachineId,
   ): Promise<Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>> {
-    return this.request(
+    return await this.request(
       WORKSPACE_CLEAN,
       60_000,
       () => ({ ok: false, error: 'workspace clean timed out' }),
@@ -1187,7 +1187,7 @@ export class DaemonRpcService {
   }
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
-  harnessExec(input: {
+  async harnessExec(input: {
     agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'pi'
     model?: string
     effort?: string
@@ -1200,7 +1200,7 @@ export class DaemonRpcService {
      *  wait adds 10s slack over it so the daemon's own timeout reports first. */
     timeoutMs?: number
   }): Promise<OpResult> {
-    return this.request(
+    return await this.request(
       HARNESS_EXEC,
       (input.timeoutMs ?? 240_000) + 10_000,
       () => ({ ok: false, output: 'harness run timed out' }),
@@ -1226,7 +1226,7 @@ export class DaemonRpcService {
    * absolute path. Resolves with that path so the caller can insert it into a
    * prompt — Claude Code reads images by path.
    */
-  uploadImage(input: {
+  async uploadImage(input: {
     sessionId: SessionId
     filename: string
     mimeType: string
@@ -1239,8 +1239,8 @@ export class DaemonRpcService {
     // The upload is written to (and read back by) the machine that runs the session,
     // so the returned path is valid in that session's prompt.
     const session = this.deps.getSession(input.sessionId)
-    const write = () =>
-      this.request(
+    const write = async () =>
+      await this.request(
         IMAGE_UPLOAD,
         30_000,
         () => ({ path: '' }),
@@ -1254,22 +1254,22 @@ export class DaemonRpcService {
         }),
         session?.machineId ?? input.machineId,
       )
-    return this.deps.portableStateFence ? this.deps.portableStateFence.runWriter(write) : write()
+    return this.deps.portableStateFence ? await this.deps.portableStateFence.runWriter(write) : await write()
   }
 
   /** The recorded segment path for a session's conversation, shaped for message
    *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
-  transcriptPathHint(
+  async transcriptPathHint(
     reader: TranscriptReader,
     session: {
       id: SessionId
       machineId: MachineId
       resume?: { value: string }
     },
-  ): { pathHint: string } | undefined {
+  ): Promise<{ pathHint: string } | undefined> {
     const nativeId = session.resume?.value
     if (!nativeId) return undefined
-    const path = this.deps.memory.transcriptPathHint(reader, session)?.pathHint
+    const path = (await this.deps.memory.transcriptPathHint(reader, session))?.pathHint
     return path ? { pathHint: path } : undefined
   }
 
@@ -1297,7 +1297,7 @@ export class DaemonRpcService {
     const recordTotal = (): void => {
       perf.record('phase', 'transcriptRead.total', performance.now() - startedAt, DEPLOYMENT)
     }
-    if (!this.deps.memory.canReadSession(reader, input.sessionId)) {
+    if (!await this.deps.memory.canReadSession(reader, input.sessionId)) {
       recordTotal()
       return { items: [], hasMore: false }
     }
@@ -1330,7 +1330,7 @@ export class DaemonRpcService {
     // an immutable predecessor, it is the only source that can answer an opaque
     // cursor across the complete chain, so consult it first even while the
     // machine is online. Fall back to the daemon if preserved files are missing.
-    if (this.deps.memory.transcriptHasPredecessors(session)) {
+    if (await this.deps.memory.transcriptHasPredecessors(session)) {
       fromLake = await readLake()
       if (fromLake) {
         perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
@@ -1353,7 +1353,7 @@ export class DaemonRpcService {
           TRANSCRIPT_READ,
           SCAN_TIMEOUT_MS,
           () => ({ items: [], hasMore: false }),
-          (requestId) => ({
+          async (requestId) => ({
             type: 'transcriptRead',
             requestId,
             sessionId: input.sessionId,
@@ -1363,7 +1363,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(this.transcriptPathHint(reader, session) ?? {}),
+            ...(await this.transcriptPathHint(reader, session) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -1396,13 +1396,13 @@ export class DaemonRpcService {
     return projected
   }
 
-  listDir(input: {
+  async listDir(input: {
     machineId?: MachineId
     root: string
     path?: string
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
     const path = input.path ?? input.root
-    return this.request(
+    return await this.request(
       DIR_LIST,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, entries: [], error: 'timeout' }),
@@ -1411,16 +1411,16 @@ export class DaemonRpcService {
     )
   }
 
-  readFile(
+  async readFile(
     input:
       | { sessionId: SessionId; path: string }
       | { machineId?: MachineId; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
-      return this.request(
+      return await this.request(
         FILE_READ,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, path: input.path, error: 'timeout' }),
@@ -1434,7 +1434,7 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
-    return this.request(
+    return await this.request(
       FILE_READ,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path: input.path, error: 'timeout' }),
@@ -1449,7 +1449,7 @@ export class DaemonRpcService {
     )
   }
 
-  readAsset(
+  async readAsset(
     input:
       | { sessionId: SessionId; path: string; offset?: number; length?: number }
       | {
@@ -1463,9 +1463,9 @@ export class DaemonRpcService {
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
-      return this.request(
+      return await this.request(
         FILE_ASSET,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, path: input.path, error: 'timeout' }),
@@ -1485,7 +1485,7 @@ export class DaemonRpcService {
     // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
     // may be worktree-relative; the daemon realpaths them, so absolutize here.
     const absPath = isAbsolute(input.path) ? input.path : join(input.root, input.path)
-    return this.request(
+    return await this.request(
       FILE_ASSET,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path: input.path, error: 'timeout' }),
@@ -1502,7 +1502,7 @@ export class DaemonRpcService {
     )
   }
 
-  writeFile(
+  async writeFile(
     input:
       | { sessionId: SessionId; path: string; content: string; baseHash?: string }
       | { machineId?: MachineId; root: string; path: string; content: string; baseHash?: string },
@@ -1517,8 +1517,8 @@ export class DaemonRpcService {
     })
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, error: 'no session' })
-      return this.request(
+      if (!session) return await Promise.resolve({ ok: false, error: 'no session' })
+      return await this.request(
         FILE_WRITE,
         FILE_RPC_TIMEOUT_MS,
         () => ({ ok: false, error: 'timeout' }),
@@ -1526,7 +1526,7 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
-    return this.request(
+    return await this.request(
       FILE_WRITE,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, error: 'timeout' }),
@@ -1536,7 +1536,7 @@ export class DaemonRpcService {
   }
 
   /** Stage a portable server snapshot on a named target daemon. */
-  serverTransferPrepare(
+  async serverTransferPrepare(
     input:
       | { transferId: string; manifest: ServerTransferManifest; manifestDigest: string }
       | {
@@ -1549,7 +1549,7 @@ export class DaemonRpcService {
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     if (Array.isArray(input.manifest))
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',
         ok: false,
@@ -1558,14 +1558,14 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
     const manifest = input.manifest as ServerTransferManifest
-    const sourceMachineId = this.deps.defaultMachine()
+    const sourceMachineId = await this.deps.defaultMachine()
     if (
       manifest.transferId !== input.transferId ||
       manifest.sourceMachineId !== sourceMachineId ||
       manifest.targetMachineId !== machineId ||
       manifest.sourceMachineId === manifest.targetMachineId
     )
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',
         ok: false,
@@ -1574,7 +1574,7 @@ export class DaemonRpcService {
         errorCode: 'identity-mismatch',
       })
     this.serverTransferDigests.set(machineId + ':' + input.transferId, input.manifestDigest)
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       120_000,
       () => ({
@@ -1659,13 +1659,13 @@ export class DaemonRpcService {
   }
 
   /** Ask the target to hash every staged file before the source is fenced. */
-  serverTransferValidate(
+  async serverTransferValidate(
     transferId: string,
     manifestDigest: string,
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       120_000,
       () => ({
@@ -1687,7 +1687,7 @@ export class DaemonRpcService {
   }
 
   /** Promote a validated target and switch its persisted mode to server. */
-  serverTransferPromote(
+  async serverTransferPromote(
     transferId: string,
     manifestDigest: string,
     publicUrl: string,
@@ -1695,7 +1695,7 @@ export class DaemonRpcService {
     port?: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       120_000,
       () => ({
@@ -1721,14 +1721,14 @@ export class DaemonRpcService {
   }
 
   /** Remove a target stage. A promoted transfer is deliberately not abortable. */
-  serverTransferAbort(
+  async serverTransferAbort(
     transferId: string,
     reason: string | undefined,
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     const manifestDigest = this.serverTransferDigests.get(machineId + ':' + transferId)
     if (!manifestDigest)
-      return Promise.resolve({
+      return await Promise.resolve({
         transferId,
         operation: 'abort',
         ok: false,
@@ -1737,7 +1737,7 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
 
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       30_000,
       () => ({
@@ -1760,13 +1760,13 @@ export class DaemonRpcService {
   }
 
   /** Acknowledge durable promoted proof so the retained target daemon may retire. */
-  serverTransferAcknowledge(
+  async serverTransferAcknowledge(
     transferId: string,
     manifestDigest: string,
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       10_000,
       () => ({
@@ -1789,12 +1789,12 @@ export class DaemonRpcService {
   }
 
   /** Read target-side recovery state through the same authenticated machine broker. */
-  serverTransferStatus(
+  async serverTransferStatus(
     transferId: string | undefined,
     machineId: MachineId,
     manifestDigest?: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
-    return this.request(
+    return await this.request(
       SERVER_TRANSFER,
       10_000,
       () => ({

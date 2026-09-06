@@ -92,35 +92,35 @@ export class RepoRegistry {
   ) {}
 
   /** Flat list of registered repo paths. Optionally filtered to a machine. */
-  list(machineId?: MachineId): string[] {
-    return this.store.repos.listRepoPaths(machineId)
+  async list(machineId?: MachineId): Promise<string[]> {
+    return await this.store.repos.listRepoPaths(machineId)
   }
 
   /** The longest registered repo root that contains `path` (cwd → repo inference).
    *  Pure over `list()` — see {@link inferRepoFromRoots}. */
-  inferFromPath(path: string, machineId?: MachineId): string | undefined {
-    return inferRepoFromRoots(this.list(machineId), path)
+  async inferFromPath(path: string, machineId?: MachineId): Promise<string | undefined> {
+    return inferRepoFromRoots(await this.list(machineId), path)
   }
 
   async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
     // whatever is written next — funnels through here, which is why the check
     // sits at the WRITE rather than in each handler: a filtered dropdown does
     // nothing for a stale tab, a direct RPC call or a CLI, and a per-handler
     // guard is one someone can forget to copy.
-    this.sessionReg.modules.machines.requireRepoHostStructure(mid)
+    await this.sessionReg.modules.machines.requireRepoHostStructure(mid)
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
-    this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
+    await this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
     // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
     // new 'repo' entity on the feed [POD-822].
-    this.publishRepos()
+    await this.publishRepos()
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
@@ -130,17 +130,17 @@ export class RepoRegistry {
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
-    this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
-    this.store.repos.addRepo(p, machineId, originUrl)
-    this.publishRepos()
+    await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
+    await this.store.repos.addRepo(p, machineId, originUrl)
+    await this.publishRepos()
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
-  setPrefix(path: string, prefix: string, machineId?: MachineId): void {
-    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
-    this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
-    this.publishRepos()
+  async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+    await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
+    await this.publishRepos()
   }
 
   /**
@@ -164,17 +164,17 @@ export class RepoRegistry {
    * that missed one publish self-heals on the next boot reconcile. Never let it
    * fail the mutation that triggered it.
    */
-  private publishRepos(): void {
+  private async publishRepos(): Promise<void> {
     try {
-      this.sessionReg.modules.issues.publishRepos()
+      await this.sessionReg.modules.issues.publishRepos()
     } catch (err) {
       log.warn('repo projection publish failed', { err })
     }
   }
 
   async remove(path: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
-    this.store.repos.removeRepo(normalizeRepoPath(path), mid)
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+    await this.store.repos.removeRepo(normalizeRepoPath(path), mid)
   }
 
   /**
@@ -203,8 +203,8 @@ export class RepoRegistry {
     // roots are machine facts and require only `see`. Keeping those predicates
     // separate is what lets a reload restore a visible surviving session even
     // while its daemon is reconnecting or its execution grant is unavailable.
-    const registeredRows = this.store.repos
-      .listRepos()
+    const registeredRows = (await this.store.repos
+      .listRepos())
       .filter((row) => maySee(row.machineId))
     const fallbackFor = (rows: typeof registeredRows) =>
       rows.map((row) => ({
@@ -231,7 +231,7 @@ export class RepoRegistry {
 
     const perMachine = await Promise.all(
       machineIds.map(async (machineId) => {
-        const roots = this.store.repos.listRepoPaths(machineId)
+        const roots = await this.store.repos.listRepoPaths(machineId)
         const result = await this.sessionReg.modules.rpc.scanRepos(
           roots,
           { includeHome: false, maxDepth: 0 },
@@ -240,7 +240,7 @@ export class RepoRegistry {
         // Record scan-reported origins for registered repos (upgrades path-fallback
         // repo_ids to origin-derived ones — remote/late origins included).
         for (const r of result.repositories) {
-          if (r.originUrl) this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
+          if (r.originUrl) await this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
         }
         const storedRows = registeredRows.filter((row) => row.machineId === machineId)
         const repoIdByPath = new Map(

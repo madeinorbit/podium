@@ -15,7 +15,7 @@ export async function sendHandler(
 ): Promise<unknown> {
   const { caller, deps, access } = ctx
   const svc = deps.messages
-  const resolved = access.resolveRecipient(input.to)
+  const resolved = await access.resolveRecipient(input.to)
   // THE CONSISTENT-ERROR RULE (ADR 3 Amendment 1 D20.2), by construction.
   //
   // An id that does not exist and an id beyond the delegating human's visibility
@@ -33,7 +33,7 @@ export async function sendHandler(
   const to =
     resolved.kind === 'unresolvable' ? ({ kind: 'issue', id: UNADDRESSABLE } as const) : resolved
   if (to.kind === 'session') {
-    access.assertSessionTargetAccess(caller, to.id, 'messages.send')
+    await access.assertSessionTargetAccess(caller, to.id, 'messages.send')
   } else {
     // Issue-addressed: a write gated against the RESOLVED target issue
     // [spec:SP-34d7 authz] — messages carry urgency/lifecycle (wake →
@@ -42,7 +42,7 @@ export async function sendHandler(
     // crosses scope; it never elevates the clamp matrix. The spawn-on-wake
     // seam is downstream of this same check, so a spawn always required
     // write access to the target issue.
-    checkIssueAccess(caller, deps.issues, 'messages.send', 'write', to.id)
+    await checkIssueAccess(caller, deps.issues, 'messages.send', 'write', to.id)
   }
   // Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
   // surface waits for the trustworthy outcome — interrupt until delivered
@@ -71,7 +71,7 @@ export async function sendHandler(
   }
   const r =
     ctx.deliveryMode === 'immediate'
-      ? svc.send(from, payload)
+      ? await svc.send(from, payload)
       : await svc.sendAndConfirm(from, payload, {
           ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
           ...(sleep ? { sleep } : {}),

@@ -26,8 +26,8 @@ function shortSha(raw: string): string {
 
 async function assertSnapshotIdentity(root: string, approvedSha: string): Promise<void> {
   const [head, changed] = await Promise.all([
-    git(root, ['rev-parse', '--short=7', 'HEAD']),
-    git(root, ['status', '--porcelain=v1', '--untracked-files=no']),
+    await git(root, ['rev-parse', '--short=7', 'HEAD']),
+    await git(root, ['status', '--porcelain=v1', '--untracked-files=no']),
   ])
   if (shortSha(head) !== shortSha(approvedSha)) {
     throw new Error(
@@ -67,8 +67,8 @@ export async function withDevBuildSnapshot<T>(
   const snapshotRoot = join(parent, 'checkout')
   let attached = false
   let failed = false
-  const timed = <T>(phase: string, task: string, run: () => Promise<T> | T): Promise<T> =>
-    timeReleaseBuildTask(
+  const timed = async <T>(phase: string, task: string, run: () => Promise<T> | T): Promise<T> =>
+    await timeReleaseBuildTask(
       {
         phase,
         task,
@@ -80,8 +80,8 @@ export async function withDevBuildSnapshot<T>(
       input.timing,
     )
   try {
-    await timed('checkout', 'detached-worktree', () =>
-      git(input.sourceRoot, [
+    await timed('checkout', 'detached-worktree', async () =>
+      await git(input.sourceRoot, [
         'worktree',
         'add',
         '--detach',
@@ -91,8 +91,8 @@ export async function withDevBuildSnapshot<T>(
       ]),
     )
     attached = true
-    await timed('validation', 'initial-source-identity', () =>
-      assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    await timed('validation', 'initial-source-identity', async () =>
+      await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
     )
     await timed('dependency-preparation', 'bun-install', async () => {
       if (input.install) {
@@ -106,8 +106,8 @@ export async function withDevBuildSnapshot<T>(
       }
     })
     const result = await build(snapshotRoot)
-    await timed('validation', 'final-source-identity', () =>
-      assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    await timed('validation', 'final-source-identity', async () =>
+      await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
     )
     return result
   } catch (error) {
@@ -116,8 +116,8 @@ export async function withDevBuildSnapshot<T>(
   } finally {
     if (attached) {
       try {
-        await timed('checkout', 'remove-detached-worktree', () =>
-          git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot]),
+        await timed('checkout', 'remove-detached-worktree', async () =>
+          await git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot]),
         )
       } catch (error) {
         await rm(snapshotRoot, { recursive: true, force: true })
@@ -127,6 +127,6 @@ export async function withDevBuildSnapshot<T>(
     }
     // The worktree removal above is timed; the temp PARENT it lived in is a separate
     // recursive delete, and an untimed one made the envelope look larger than its phases.
-    await timed('checkout', 'snapshot-teardown', () => rm(parent, { recursive: true, force: true }))
+    await timed('checkout', 'snapshot-teardown', async () => await rm(parent, { recursive: true, force: true }))
   }
 }

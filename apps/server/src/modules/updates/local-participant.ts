@@ -40,7 +40,7 @@ export interface LocalUpdateParticipantDeps {
       send?: (message: Extract<ControlMessage, { type: 'updateGrant' }>) => void,
     ): boolean
   }
-  updates: { onStatus(machineId: MachineId, message: UpdateStatusMessage): void }
+  updates: { onStatus(machineId: MachineId, message: UpdateStatusMessage): Promise<void> }
   installTarget?: (target: UpdateTarget) => Promise<{ releaseHadMigrations?: boolean }>
   writePending?: Parameters<typeof createGrantRunner>[0]['writePending']
   restart?: (expectedVersion: string, handover: { releaseHadMigrations?: boolean }) => void
@@ -57,8 +57,8 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
   }
   const installTarget =
     deps.installTarget ??
-    ((target: UpdateTarget) =>
-      requestParentSwap({
+    (async (target: UpdateTarget) =>
+      await requestParentSwap({
         expectedVersion: target.version,
         target: target as unknown as Record<string, unknown>,
         ...(deps.pinnedPubkey ? { pinnedPubkey: deps.pinnedPubkey } : {}),
@@ -79,7 +79,7 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
     installTarget,
     writePending: deps.writePending ?? ((pending) => writePendingGrant(deps.runtimeDir, pending)),
     restart,
-    report: (status) => {
+    report: async (status) => {
       // Every convergence decision, INCLUDING the ones that do nothing. Four
       // days of a coordinator silently judged already-current is what made this
       // line a requirement, not a nicety (POD-2732): a skipped machine that
@@ -91,7 +91,7 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
         version: status.version,
         ...(status.detail ? { detail: status.detail } : {}),
       })
-      deps.updates.onStatus(deps.machineId, status)
+      await deps.updates.onStatus(deps.machineId, status)
     },
     // The coordinator's own phase timings, on the same seam every other
     // participant uses (POD-3170), so one update reads as one timeline whether

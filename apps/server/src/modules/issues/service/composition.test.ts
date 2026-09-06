@@ -31,7 +31,7 @@ describe('issue tracker capability composition', () => {
       repoOp: async () => ({ ok: true, output: '' }),
       ...issueTestPlumbing(),
     }
-    const tracker = IssueService.create(deps)
+    const tracker = await IssueService.create(deps)
     const capabilities = [
       tracker.crud,
       tracker.hierarchy,
@@ -43,9 +43,9 @@ describe('issue tracker capability composition', () => {
     expect(new Set(capabilities).size).toBe(capabilities.length)
     expect(new Set(capabilities.map((capability) => capability.store)).size).toBe(1)
 
-    expect(tracker.reports.list()).toEqual([])
-    const created = tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
-    expect(tracker.reports.get(created.id)?.title).toBe('one store')
+    expect(await tracker.reports.list()).toEqual([])
+    const created = await tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
+    expect((await tracker.reports.get(created.id))?.title).toBe('one store')
     deps.store.close()
   })
 

@@ -417,7 +417,7 @@ export class SnapshotVerifier {
     const timeoutMs = this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS
     const runChild =
       this.deps.runChild ??
-      ((request, ms, signal) => spawnSnapshotVerifierChild(request, ms, { signal }))
+      (async (request, ms, signal) => await spawnSnapshotVerifierChild(request, ms, { signal }))
     const request: VerifySnapshotRequest = {
       path,
       expected,

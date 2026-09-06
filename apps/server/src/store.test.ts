@@ -61,9 +61,9 @@ describe('SessionStore repos', () => {
   it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
     const store = await openTestStore(':memory:')
     store.beginTransferFence()
-    expect(() => store.repos.addRepo('/home/u/fenced', store.hostMachineId)).toThrow()
+    await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
     store.endTransferFence()
-    expect(() => store.repos.addRepo('/home/u/reopened', store.hostMachineId)).not.toThrow()
+    await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
     store.close()
   })
 
@@ -195,7 +195,7 @@ describe('SessionStore sessions', () => {
     // never reach the table, since it later fails the sessionsChanged zod-parse and
     // blanks every client. Fail loudly at the source instead.
     const s = await openTestStore(':memory:')
-    expect(() => s.sessions.upsertSession(row({ agentKind: 'auto' }))).toThrow(/agentKind/i)
+    await expect(s.sessions.upsertSession(row({ agentKind: 'auto' }))).rejects.toThrow(/agentKind/i)
     s.close()
   })
 
@@ -511,7 +511,7 @@ describe('SessionStore sessions', () => {
 
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
-    expect(() => store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).toThrow(
+    await expect(store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).rejects.toThrow(
       /no user id/,
     )
     store.close()
@@ -737,7 +737,7 @@ describe('SessionStore tab order', () => {
 
   it('rejects an empty worktree path', async () => {
     const store = await openTestStore(':memory:')
-    expect(() => store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).toThrow(
+    await expect(store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).rejects.toThrow(
       'worktree path is empty',
     )
     store.close()
@@ -851,55 +851,55 @@ describe('conversation index', () => {
 
   it('indexes discovered conversations and finds them by keyword', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
-    const hits = store.conversations.index.search({ query: 'keyboard' })
+    const hits = await store.conversations.index.search({ query: 'keyboard' })
     expect(hits.map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
+    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
     ])
-    const hits = store.conversations.index.search({ projectPath: '/src/app' })
+    const hits = await store.conversations.index.search({ projectPath: '/src/app' })
     expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
     store.close()
   })
 
   it('excludes subagent (sidechain) conversations from the resume picker', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect(store.conversations.index.search({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
     store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect(store.conversations.index.search({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
+    expect((await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
       'newer',
       'older',
     ])
@@ -908,13 +908,13 @@ describe('conversation index', () => {
 
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a')])
-    store.conversations.index.setMeta('a', {
+    await store.conversations.index.upsert([conv('a')])
+    await store.conversations.index.setMeta('a', {
       name: 'Soft keyboard epic',
       summary: 'shipped; awaiting review',
     })
-    store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
-    const [hit] = store.conversations.index.search({ query: 'epic' })
+    await store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
+    const [hit] = await store.conversations.index.search({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
@@ -923,33 +923,33 @@ describe('conversation index', () => {
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([
+    await store.conversations.index.upsert([
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
     ])
     // Both match before the delete.
     expect(
-      store.conversations.index
-        .search({ query: 'keyboard' })
+      (await store.conversations.index
+        .search({ query: 'keyboard' }))
         .map((h) => h.id)
         .sort(),
     ).toEqual(['a', 'b'])
 
-    store.conversations.index.delete(['b'])
+    await store.conversations.index.delete(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect(store.conversations.index.search({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', async () => {
     const store = await openTestStore(':memory:')
-    store.conversations.index.upsert([conv('a')])
-    store.conversations.index.delete([])
-    expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert([conv('a')])
+    await store.conversations.index.delete([])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 })
@@ -1040,7 +1040,7 @@ describe('SessionStore superagent threads', () => {
       .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
       .run()
 
-    expect(() => s.superagent.loadSuperagentMessages('global')).not.toThrow()
+    await s.superagent.loadSuperagentMessages('global')
     const msgs = await s.superagent.loadSuperagentMessages('global')
     expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
     expect(msgs[0]?.toolCalls).toBeUndefined()

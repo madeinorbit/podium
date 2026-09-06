@@ -51,9 +51,12 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
  *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
  *  tests can fake it. */
 export interface SessionLedger {
-  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
-  capture(specs: EntityChangeSpec[]): MetadataChange[]
-  reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
+  capture(specs: EntityChangeSpec[]): MetadataChange[] | Promise<MetadataChange[]>
+  reconcile(
+    entity: 'session',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 /** Non-session fields retained by the expiring wire-v1 catch-up snapshot. */
@@ -86,7 +89,9 @@ export interface SessionLifecycleDeps {
   now(): number
   bus: EventBus
   /** Lazy source-message re-authorization; resolved on every inbox drain. */
-  authorizeQueuedMessage?(messageId: string): { ok: true } | { ok: false; reason: string }
+  authorizeQueuedMessage?(
+    messageId: string,
+  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
   /** Dead-letter the durable source intent after a drain-time refusal. */
   rejectQueuedMessage?(messageId: string, reason: string): void
   /** Advance the source intent only after queued input crosses into the PTY. */
@@ -152,7 +157,7 @@ export interface SessionLifecycleDeps {
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
   /** Cross-feature snapshot material read from the already-constructed durable authority. */
-  snapshotTail(): SnapshotTail
+  snapshotTail(): SnapshotTail | Promise<SnapshotTail>
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
@@ -165,7 +170,7 @@ export interface SessionLifecycleDeps {
     issueId?: IssueId
     workflowRevisionId?: string
     existingOnly?: boolean
-  }): PreparedSessionInstructions
+  }): PreparedSessionInstructions | Promise<PreparedSessionInstructions>
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the

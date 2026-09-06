@@ -68,27 +68,27 @@ const internals = (reg: SessionRegistry) =>
  * same seam `MemoryService.reconcileConversations` writes them on. Their ids are
  * the `resumeValue`s the policy will be asked to resolve.
  */
-function seedConversations(reg: SessionRegistry, count: number): number {
+async function seedConversations(reg: SessionRegistry, count: number): Promise<number> {
   const specs: EntityChangeSpec[] = Array.from({ length: count }, (_, i) => ({
     entity: 'conversation',
     id: `conv-${i}`,
     op: 'upsert',
     value: { id: `conv-${i}`, machineId: 'm1', nativeId: `conv-${i}` },
   }))
-  return internals(reg).ledger.capture(specs).length
+  return (await internals(reg).ledger.capture(specs)).length
 }
 
 /** How many times a bootstrap loads the WHOLE sessions table. */
-function loadSessionsCallsDuringBootstrap(reg: SessionRegistry): number {
+async function loadSessionsCallsDuringBootstrap(reg: SessionRegistry): Promise<number> {
   const { ledger, store } = internals(reg)
   const original = store.sessions.loadSessions.bind(store.sessions)
   let calls = 0
-  store.sessions.loadSessions = () => {
+  store.sessions.loadSessions = async () => {
     calls++
-    return original()
+    return await original()
   }
   try {
-    ledger.authority.bootstrap(feedPrincipal)
+    await ledger.authority.bootstrap(feedPrincipal)
   } finally {
     store.sessions.loadSessions = original
   }
@@ -106,10 +106,10 @@ function loadSessionsCallsDuringBootstrap(reg: SessionRegistry): number {
  * would drive points down without ever producing a batch, and this has to tell
  * those two apart.
  */
-function bootstrapRepositoryCalls(reg: SessionRegistry): {
+async function bootstrapRepositoryCalls(reg: SessionRegistry): Promise<{
   batches: number
   pointReads: number
-} {
+}> {
   const { ledger, store } = internals(reg)
   const originals = {
     getIssue: store.issues.getIssue.bind(store.issues),
@@ -121,32 +121,32 @@ function bootstrapRepositoryCalls(reg: SessionRegistry): {
   }
   let batches = 0
   let pointReads = 0
-  store.issues.getIssue = (id) => {
+  store.issues.getIssue = async (id) => {
     pointReads++
-    return originals.getIssue(id)
+    return await originals.getIssue(id)
   }
-  store.sessions.getSession = (id) => {
+  store.sessions.getSession = async (id) => {
     pointReads++
-    return originals.getSession(id)
+    return await originals.getSession(id)
   }
-  store.sessions.findSessionByResumeValue = (v) => {
+  store.sessions.findSessionByResumeValue = async (v) => {
     pointReads++
-    return originals.findOne(v)
+    return await originals.findOne(v)
   }
-  store.issues.getIssues = (ids) => {
+  store.issues.getIssues = async (ids) => {
     batches++
-    return originals.getIssues(ids)
+    return await originals.getIssues(ids)
   }
-  store.sessions.getSessions = (ids) => {
+  store.sessions.getSessions = async (ids) => {
     batches++
-    return originals.getSessions(ids)
+    return await originals.getSessions(ids)
   }
-  store.sessions.findSessionsByResumeValues = (vs) => {
+  store.sessions.findSessionsByResumeValues = async (vs) => {
     batches++
-    return originals.findMany(vs)
+    return await originals.findMany(vs)
   }
   try {
-    ledger.authority.bootstrap(feedPrincipal)
+    await ledger.authority.bootstrap(feedPrincipal)
   } finally {
     store.issues.getIssue = originals.getIssue
     store.issues.getIssues = originals.getIssues
@@ -159,33 +159,33 @@ function bootstrapRepositoryCalls(reg: SessionRegistry): {
 }
 
 describe('POD-1614 — a bootstrap does not re-read the sessions table per row', () => {
-  it('never loads the whole sessions table while scoping conversation rows', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('never loads the whole sessions table while scoping conversation rows', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const CONVERSATIONS = 24
 
     // CONTROL: the rows really landed in the change log, so the bootstrap below
     // has 24 conversation rows to ask the policy about. Without this, a count of
     // 0 would pass just as well against a world that was empty — which is the
     // one way this assertion could be satisfied for the wrong reason.
-    expect(seedConversations(reg, CONVERSATIONS)).toBe(CONVERSATIONS)
+    expect(await seedConversations(reg, CONVERSATIONS)).toBe(CONVERSATIONS)
 
     // THE ASSERTION THAT WAS FAILING. Before the fix this was CONVERSATIONS: one
     // full 49-column load of every session, per conversation row.
-    expect(loadSessionsCallsDuringBootstrap(reg)).toBe(0)
+    expect(await loadSessionsCallsDuringBootstrap(reg)).toBe(0)
   })
 
-  it('costs the same whether the corpus has 8 conversation rows or 64', () => {
-    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    seedConversations(small, 8)
-    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    seedConversations(large, 64)
+  it('costs the same whether the corpus has 8 conversation rows or 64', async () => {
+    const small = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await seedConversations(small, 8)
+    const large = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await seedConversations(large, 64)
 
     // The property, stated directly: growing the corpus 8x must not grow the
     // per-row table scans at all. Before the fix these read 8 and 64.
-    expect(loadSessionsCallsDuringBootstrap(large)).toBe(loadSessionsCallsDuringBootstrap(small))
+    expect(await loadSessionsCallsDuringBootstrap(large)).toBe(await loadSessionsCallsDuringBootstrap(small))
   })
   it('memoizes authorization snapshots across anchored issue refs and refreshes after append', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     for (const issueId of ['i1', 'i2']) {
       await store.grants.upsert({
@@ -221,7 +221,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       ],
       1000,
     )
-    const first = ledger.authority.changesSince(0, feedPrincipal)
+    const first = await ledger.authority.changesSince(0, feedPrincipal)
     if (first === null || first.kind !== 'batch') {
       throw new Error('expected the first scoped delivery to be a batch')
     }
@@ -258,7 +258,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
       2000,
     )
-    const second = ledger.authority.changesSince(cursor, feedPrincipal)
+    const second = await ledger.authority.changesSince(cursor, feedPrincipal)
     if (second === null || second.kind !== 'batch') {
       throw new Error('expected the refreshed scoped delivery to be a batch')
     }
@@ -278,17 +278,17 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
 })
 
 describe('POD-1732 — a bootstrap resolves visibility in batches, not per row', () => {
-  it('grows its corpus without growing its point-read count', () => {
-    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('grows its corpus without growing its point-read count', async () => {
+    const small = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const large = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
     // CONTROL, same reason as the POD-1614 case above: prove the rows landed,
     // or a count of 0 passes against an empty world for the wrong reason.
-    expect(seedConversations(small, 8)).toBe(8)
-    expect(seedConversations(large, 64)).toBe(64)
+    expect(await seedConversations(small, 8)).toBe(8)
+    expect(await seedConversations(large, 64)).toBe(64)
 
-    const a = bootstrapRepositoryCalls(small)
-    const b = bootstrapRepositoryCalls(large)
+    const a = await bootstrapRepositoryCalls(small)
+    const b = await bootstrapRepositoryCalls(large)
 
     // THE CONSERVED QUANTITY. An 8x corpus must not multiply the reads. Before
     // POD-1732 the point reads scaled with the row count — the live bootstrap
@@ -357,9 +357,9 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
-  return ledger.capture(
+  return (await ledger.capture(
     ids.map((id) => ({ entity: 'issue', id, op: 'upsert', value: { id } }) as EntityChangeSpec),
-  ).length
+  )).length
 }
 
 /** Point reads and batched reads of the `grants` table during `run`. */
@@ -372,13 +372,13 @@ function grantReadsDuring(reg: SessionRegistry, run: () => void): {
   const many = store.grants.listForResources.bind(store.grants)
   let points = 0
   let batches = 0
-  store.grants.listForResource = (kind, id) => {
+  store.grants.listForResource = async (kind, id) => {
     points++
-    return one(kind, id)
+    return await one(kind, id)
   }
-  store.grants.listForResources = (kind, ids) => {
+  store.grants.listForResources = async (kind, ids) => {
     batches++
-    return many(kind, ids)
+    return await many(kind, ids)
   }
   try {
     run()
@@ -391,8 +391,8 @@ function grantReadsDuring(reg: SessionRegistry, run: () => void): {
 
 describe('POD-3261 — a pass reads grants once, not once per row or once per principal', () => {
   it('reads the shared corpus grants in one statement, however large the corpus', async () => {
-    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const small = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const large = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
     // CONTROL. Without it a count of 0 passes just as well against a world with
     // no shared rows in it, which is the one way this could be satisfied for the
@@ -415,12 +415,12 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
 
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
     // world. A prefetch that returned nothing would satisfy every count above.
-    const world = internals(large).ledger.authority.bootstrap(feedPrincipal)
+    const world = await internals(large).ledger.authority.bootstrap(feedPrincipal)
     expect(world.changes.filter((change) => change.entity === 'issue')).toHaveLength(32)
   })
 
   it('reads them once for a batch, not once per subscribed principal', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger } = internals(reg)
     expect(await seedGrantedIssues(reg, 6)).toBe(6)
 

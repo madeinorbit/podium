@@ -32,9 +32,9 @@ function parkRow(
 }
 
 describe('listParkedUpstreamMutations — the archived outbox, read-only', () => {
-  it('reports nothing on a database with an empty outbox', () => {
+  it('reports nothing on a database with an empty outbox', async () => {
     const db = createTestSyncDatabase()
-    expect(new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([])
+    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([])
   })
 
   /**
@@ -44,12 +44,12 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
    * that anything works. Rows are inserted OUT of queue order so FIFO is measured
    * rather than coincidental with insertion order.
    */
-  it('returns every parked row, oldest queue time first, with its proc', () => {
+  it('returns every parked row, oldest queue time first, with its proc', async () => {
     const db = createTestSyncDatabase()
     parkRow(db, 'm-late', 'close', 3_000)
     parkRow(db, 'm-early', 'update', 1_000)
     parkRow(db, 'm-mid', 'claim', 2_000)
-    expect(new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([
+    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([
       { mutationId: 'm-early', proc: 'update', queuedAt: 1_000 },
       { mutationId: 'm-mid', proc: 'claim', queuedAt: 2_000 },
       { mutationId: 'm-late', proc: 'close', queuedAt: 3_000 },

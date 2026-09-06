@@ -174,7 +174,7 @@ export interface HarnessOptions {
    * blocking wait without ever sleeping on the wall clock (POD-757: a fixed
    * sleep before an assertion is itself a bug).
    */
-  onPoll?(poll: number): void
+  onPoll?(poll: number): void | Promise<void>
   /**
    * ADDITIVE, POD-728. The multi-user seams the mail vertical now consults, so a
    * test can exercise them without a second harness. Every default is exactly
@@ -218,19 +218,19 @@ export interface MailHarness {
   advance(ms: number): void
   setNow(iso: string): void
   /** Create an issue and return its row-ish metadata. */
-  createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): {
+  createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): Promise<{
     id: IssueId
     seq: number
-  }
+  }>
   /** Attach a worktree path to an issue (issue-membership by cwd). Goes through
    *  the IssueService, not the raw store: the service holds the authoritative
    *  in-memory rows and a direct store write is invisible to it. */
-  setWorktree(issueId: IssueId, worktreePath: string): void
-  archive(issueId: IssueId): void
+  setWorktree(issueId: IssueId, worktreePath: string): Promise<void>
+  archive(issueId: IssueId): Promise<void>
   put(...fixtures: SessionFixture[]): SessionMeta[]
   /** A capability for an agent bound to an issue subtree. */
   agentCap(issueId: IssueId, sessionId?: SessionId): Capability
-  events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
+  events(kinds?: string[]): Promise<{ kind: string; subject: string; payload: unknown }[]>
 }
 
 // THE operator capability, re-exported (POD-335). This used to be a
@@ -244,8 +244,8 @@ export interface MailHarness {
 // which is why this now names the home POD-333 gave it.
 export { OPERATOR } from '../../test-support/capabilities'
 
-export function mailHarness(opts?: HarnessOptions): MailHarness {
-  const store = openTestStore(':memory:')
+export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
+  const store = await openTestStore(':memory:')
   const sessions: SessionMeta[] = []
   const pushes: Push[] = []
   const wakeSpawns: Record<string, unknown>[] = []
@@ -272,7 +272,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     ...issueTestPlumbing(),
     now,
   }
-  const issues = IssueService.create(issueDeps)
+  const issues = await IssueService.create(issueDeps)
 
   const record =
     (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
@@ -339,9 +339,9 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     },
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
-    mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
-    mirrorMarkIssueMailRead: (issueId, ids) =>
-      store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
+    mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
+    mirrorMarkIssueMailRead: async (issueId, ids) =>
+      await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
@@ -353,7 +353,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
             placementAtWake: (_message, machineId) => placementDecision(machineId, opts.machines!),
           }
         : {}),
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
     ...(opts?.omitSpawnOnWake
       ? {}
       : {
@@ -384,7 +384,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       listSessions: () => sessions,
       spawnSession:
         opts?.spawnSession ??
-        ((input) => {
+        (async (input) => {
           gateSpawns.push(input as unknown as Record<string, unknown>)
           const sessionId = asSessionId(`child${gateSpawns.length}`)
           sessions.push(
@@ -400,22 +400,24 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       ...(opts?.resolveExecutionProfile
         ? { resolveExecutionProfile: opts.resolveExecutionProfile }
         : {}),
-      createIssue: (input) => issues.create({ ...input, startNow: false }),
-      appendEvent: (e) => store.events.appendEvent(e),
+      createIssue: async (input) => await issues.create({ ...input, startNow: false }),
+      appendEvent: async (e) => {
+        await store.events.appendEvent(e)
+      },
       // Deterministic poll seam (POD-757: never sleep before an assertion). A
       // "sleep" advances the INJECTED clock by exactly the requested amount and
       // returns immediately, so a bounded wait converges through its real polling
       // loop with zero wall-clock time. `onPoll` lets a test flip state mid-wait.
-      sleep: (ms: number) => {
+      sleep: async (ms: number) => {
         nowMs += ms
         polls += 1
-        opts?.onPoll?.(polls)
-        return Promise.resolve()
+        await opts?.onPoll?.(polls)
+        return await Promise.resolve()
       },
       awaitPollMs: opts?.awaitPollMs ?? 500,
       now,
-      retireNotificationFact: (factKey, target) =>
-        store.notificationFacts.retire(factKey, target, now()),
+      retireNotificationFact: async (factKey, target) =>
+        await store.notificationFacts.retire(factKey, target, now()),
     },
     {
       ...(opts?.ceiling ? { ceiling: opts.ceiling } : {}),
@@ -461,8 +463,8 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     setNow: (iso) => {
       nowMs = Date.parse(iso)
     },
-    createIssue: (input) => {
-      const wire = issues.create({
+    createIssue: async (input) => {
+      const wire = await issues.create({
         repoPath: input.repoPath ?? '/repo',
         title: input.title,
         ...(input.parentId ? { parentId: input.parentId } : {}),
@@ -470,11 +472,11 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       })
       return { id: wire.id, seq: wire.seq }
     },
-    setWorktree: (issueId, worktreePath) => {
-      issues.update(issueId, { worktreePath })
+    setWorktree: async (issueId, worktreePath) => {
+      await issues.update(issueId, { worktreePath })
     },
-    archive: (issueId) => {
-      issues.update(issueId, { archived: true })
+    archive: async (issueId) => {
+      await issues.update(issueId, { archived: true })
     },
     put: (...fixtures) => {
       const created = fixtures.map(session)
@@ -487,9 +489,9 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       ...(sessionId ? { actorSessionId: sessionId } : {}),
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }),
-    events: (kinds) =>
-      store.events
-        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 })
+    events: async (kinds) =>
+      (await store.events
+        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 }))
         .map((e) => ({ kind: e.kind, subject: e.subject, payload: e.payload })),
   }
 }

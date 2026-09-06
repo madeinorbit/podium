@@ -132,10 +132,10 @@ export class MemoryVisibilityPolicy {
    * supplies the session snapshot it already needs, while this context owns
    * only request-local indexes and memoized reads.
    */
-  forRequest(
+  async forRequest(
     sessions: readonly SessionRow[],
     options: { batchIssueOwners?: boolean } = {},
-  ): MemoryVisibilityPolicy {
+  ): Promise<MemoryVisibilityPolicy> {
     const request = visibilityRequestFor(sessions)
     // The native conversation list asks visibility about each matching session.
     // Its issue owner is the same live fact for every session on that issue, so
@@ -148,7 +148,7 @@ export class MemoryVisibilityPolicy {
         ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
       ]
       if (issueIds.length > 0) {
-        const rows = this.store.issues.getIssues(issueIds)
+        const rows = await this.store.issues.getIssues(issueIds)
         for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
 
         // The same distinct issue ids drive the grant read in mayReadSessionRow.
@@ -156,7 +156,7 @@ export class MemoryVisibilityPolicy {
         // not repeat the query. Sessions without issueId resolve grants against
         // their own session id; leave those keys lazy because they are outside
         // this issue-owner fanout and the live fallback preserves their semantics.
-        const grants = this.store.grants.listForResources('issue', issueIds)
+        const grants = await this.store.grants.listForResources('issue', issueIds)
         for (const id of issueIds) {
           request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
         }
@@ -171,7 +171,7 @@ export class MemoryVisibilityPolicy {
       : undefined
   }
 
-  mayRead(reader: MemoryReader, ref: MemoryDocumentRef | { class: string }): boolean {
+  async mayRead(reader: MemoryReader, ref: MemoryDocumentRef | { class: string }): Promise<boolean> {
     const visibility = this.classOf(ref.class)
     if (!visibility) return false
     if (reader.kind === 'system') return true
@@ -179,22 +179,22 @@ export class MemoryVisibilityPolicy {
     const userId = reader.kind === 'user' ? reader.id : reader.onBehalfOf
     switch (ref.class) {
       case 'session': {
-        const row = 'id' in ref ? this.sessionById(asSessionId(String(ref.id))) : undefined
-        return row ? this.mayReadSessionRow(userId, row) : false
+        const row = 'id' in ref ? await this.sessionById(asSessionId(String(ref.id))) : undefined
+        return row ? await this.mayReadSessionRow(userId, row) : false
       }
       case 'issue': {
-        const row = 'id' in ref ? this.issueById(asIssueId(String(ref.id))) : undefined
+        const row = 'id' in ref ? await this.issueById(asIssueId(String(ref.id))) : undefined
         if (!row) return false
         return mayReadOwned(userId, {
           id: row.id,
           owner: row.ownerUserId,
-          grants: this.readGranteesOf('issue', row.id),
+          grants: await this.readGranteesOf('issue', row.id),
         })
       }
       case 'conversation':
       case 'transcript':
         return 'machineId' in ref && 'nativeId' in ref
-          ? this.mayReadNativeConversation(userId, ref.machineId, ref.nativeId)
+          ? await this.mayReadNativeConversation(userId, ref.machineId, ref.nativeId)
           : false
       case 'superagent-thread':
         return 'ownerUserId' in ref && ref.ownerUserId === userId
@@ -205,32 +205,32 @@ export class MemoryVisibilityPolicy {
     }
   }
 
-  mayReadSession(reader: MemoryReader, sessionId: SessionId): boolean {
+  async mayReadSession(reader: MemoryReader, sessionId: SessionId): Promise<boolean> {
     if (reader.kind === 'system') return true
-    const row = this.sessionById(sessionId)
+    const row = await this.sessionById(sessionId)
     if (!row) return false
-    return this.mayReadSessionRow(reader.kind === 'user' ? reader.id : reader.onBehalfOf, row)
+    return await this.mayReadSessionRow(reader.kind === 'user' ? reader.id : reader.onBehalfOf, row)
   }
 
-  private sessionById(sessionId: SessionId): SessionRow | undefined {
+  private async sessionById(sessionId: SessionId): Promise<SessionRow | undefined> {
     return (
       this.request?.sessionsById.get(sessionId) ??
-      this.store.sessions.getSession(asSessionId(sessionId))
+      await this.store.sessions.getSession(asSessionId(sessionId))
     )
   }
 
-  private issueById(issueId: IssueId): IssueRow | null {
-    if (!this.request) return this.store.issues.getIssue(issueId)
+  private async issueById(issueId: IssueId): Promise<IssueRow | null> {
+    if (!this.request) return await this.store.issues.getIssue(issueId)
     if (!this.request.issues.has(issueId)) {
-      this.request.issues.set(issueId, this.store.issues.getIssue(issueId))
+      this.request.issues.set(issueId, await this.store.issues.getIssue(issueId))
     }
     return this.request.issues.get(issueId) ?? null
   }
 
-  private mayReadSessionRow(userId: UserId, row: SessionRow): boolean {
+  private async mayReadSessionRow(userId: UserId, row: SessionRow): Promise<boolean> {
     const issueId = row.issueId ?? undefined
     const owner = issueId
-      ? (this.issueById(issueId)?.ownerUserId ?? row.ownerUserId)
+      ? ((await this.issueById(issueId))?.ownerUserId ?? row.ownerUserId)
       : row.ownerUserId
     // The owner-or-grant rule itself comes from `@podium/model`'s `authorize`
     // (POD-335). What stays here is the RESOLUTION — which row carries the
@@ -239,29 +239,30 @@ export class MemoryVisibilityPolicy {
     return mayReadOwned(userId, {
       id: issueId ?? row.id,
       owner,
-      grants: this.readGranteesOf(issueId ? 'issue' : 'session', issueId ?? row.id),
+      grants: await this.readGranteesOf(issueId ? 'issue' : 'session', issueId ?? row.id),
     })
   }
 
-  private mayReadNativeConversation(
+  private async mayReadNativeConversation(
     userId: UserId,
     machineId: MachineId,
     nativeId: string,
-  ): boolean {
-    const siblings = this.store.conversations.registry.siblingSegments(machineId, nativeId)
+  ): Promise<boolean> {
+    const siblings = await this.store.conversations.registry.siblingSegments(machineId, nativeId)
     const evidence = siblings.length > 0 ? siblings : [{ machineId, nativeId }]
     const keys = new Set(evidence.map((segment) => nativeKey(segment.machineId, segment.nativeId)))
     const sessions = this.request
       ? [...new Set([...keys].flatMap((key) => this.request?.sessionsByNativeKey.get(key) ?? []))]
-      : this.store.sessions.loadSessions()
-    return sessions.some((row) => {
-      if (!row.resumeValue && !row.conversationId) return false
+      : await this.store.sessions.loadSessions()
+    for (const row of sessions) {
+      if (!row.resumeValue && !row.conversationId) continue
       const rowMachine = row.machineId
       const matches =
         (row.resumeValue && keys.has(nativeKey(rowMachine, row.resumeValue))) ||
         (row.conversationId && keys.has(nativeKey(rowMachine, row.conversationId)))
-      return Boolean(matches) && this.mayReadSessionRow(userId, row)
-    })
+      if (matches && await this.mayReadSessionRow(userId, row)) return true
+    }
+    return false
   }
 
   /**
@@ -274,10 +275,10 @@ export class MemoryVisibilityPolicy {
    * a search index. Returning the grantee list hands `authorize` the FACT and
    * leaves it the decision.
    */
-  private readGranteesOf(resourceKind: string, resourceId: string): string[] {
+  private async readGranteesOf(resourceKind: string, resourceId: string): Promise<string[]> {
     const key = `${resourceKind}\0${resourceId}`
     if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = readGranteesFrom(this.store.grants.listForResource(resourceKind, resourceId))
+    const grantees = readGranteesFrom(await this.store.grants.listForResource(resourceKind, resourceId))
     this.request?.grants.set(key, grantees)
     return grantees
   }

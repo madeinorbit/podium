@@ -49,8 +49,8 @@ async function harness() {
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  const svc = IssueService.create(deps)
-  const issue = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+  const svc = await IssueService.create(deps)
+  const issue = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
   return { store, svc, issue }
 }
 
@@ -70,20 +70,20 @@ async function harness() {
  * directive becomes UNUSED, and `tsgo --noEmit` fails the build with TS2578 —
  * this file does not have to run at all for the guard to bite.
  */
-function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string): void {
+async function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string): Promise<void> {
   // @ts-expect-error POD-1315: omitting the principal must not compile. If this
   // directive is reported unused, a default has come back — restore the fix, do
   // not delete the directive.
-  svc.addComment(id, 'mike', 'no principal named')
+  await svc.addComment(id, 'mike', 'no principal named')
 
   // @ts-expect-error POD-1315: same guard one layer down. `IssueService` is an
   // INTERSECTION that includes this module's signature, so leaving the module's
   // parameter optional would keep 3-argument calls legal even with the facade's
   // default removed. Both surfaces are pinned deliberately.
-  svc.commentsMail.addComment(id, 'mike', 'no principal named')
+  await svc.commentsMail.addComment(id, 'mike', 'no principal named')
 
   // @ts-expect-error POD-1315: an optional parameter would accept this too.
-  svc.addComment(id, 'mike', 'explicitly nobody', undefined)
+  await svc.addComment(id, 'mike', 'explicitly nobody', undefined)
 }
 void _addCommentRefusesAnUnnamedCaller
 
@@ -93,18 +93,18 @@ void _addCommentRefusesAnUnnamedCaller
  * hazard shape — callers that still pass a principal would stay green while
  * omission silently invents a job. These probes make that a compile error.
  */
-function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): void {
+async function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): Promise<void> {
   // @ts-expect-error POD-1344: cleanup without a principal must not compile.
-  void svc.cleanup(id)
+  void await svc.cleanup(id)
 
   // @ts-expect-error POD-1344: integrate without a principal must not compile.
-  void svc.integrate(id)
+  void await svc.integrate(id)
 
   // @ts-expect-error POD-1344: freeWorktreeKeepBranch without a principal must not compile.
-  void svc.freeWorktreeKeepBranch(id)
+  void await svc.freeWorktreeKeepBranch(id)
 
   // @ts-expect-error POD-1344: an explicit undefined is still not a principal.
-  void svc.cleanup(id, undefined)
+  void await svc.cleanup(id, undefined)
 }
 void _gitWorkflowRefusesAnUnnamedCaller
 
@@ -114,7 +114,7 @@ describe('addComment requires an explicit principal', () => {
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
 
-    svc.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
+    await svc.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     expect(comment?.actor).toBe(alice)
@@ -124,7 +124,7 @@ describe('addComment requires an explicit principal', () => {
   it('stamps a system job as a system actor with no human behind it', async () => {
     const { store, svc, issue } = await harness()
 
-    svc.addComment(issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
+    await svc.addComment(issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     // Visibly a job, not a person — and `onBehalfOf` stays null rather than
@@ -136,7 +136,7 @@ describe('addComment requires an explicit principal', () => {
   it('always records attribution — a comment can no longer land anonymously', async () => {
     const { store, svc, issue } = await harness()
 
-    svc.addComment(
+    await svc.addComment(
       issue.id,
       'mike',
       'attributed',

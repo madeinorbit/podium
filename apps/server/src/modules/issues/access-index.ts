@@ -25,24 +25,24 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     private readonly repos: ReposRepository,
   ) {}
 
-  has(id: IssueId): boolean {
-    return this.issues.getIssue(id) !== null
+  async has(id: IssueId): Promise<boolean> {
+    return await this.issues.getIssue(id) !== null
   }
 
-  ancestorIds(id: IssueId): string[] {
+  async ancestorIds(id: IssueId): Promise<string[]> {
     const ancestors: string[] = []
     const seen = new Set<string>()
-    let parent = this.issues.getIssue(id)?.parentId ?? null
+    let parent = (await this.issues.getIssue(id))?.parentId ?? null
     while (parent && !seen.has(parent)) {
       seen.add(parent)
       ancestors.push(parent)
-      parent = this.issues.getIssue(parent)?.parentId ?? null
+      parent = (await this.issues.getIssue(parent))?.parentId ?? null
     }
     return ancestors
   }
 
-  ownedTarget(id: IssueId, action: IssueAction) {
-    const row = this.issues.getIssue(id)
+  async ownedTarget(id: IssueId, action: IssueAction) {
+    const row = await this.issues.getIssue(id)
     if (!row) return undefined
     const covers = (verb: string): boolean =>
       action === 'read'
@@ -54,28 +54,28 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: this.grants
-        .listForResource('issue', row.id)
+      grants: (await this.grants
+        .listForResource('issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }
   }
 
-  getMeta(id: IssueId) {
-    return this.issues.getIssue(id)
+  async getMeta(id: IssueId) {
+    return await this.issues.getIssue(id)
   }
 
-  worktreePaths(): string[] {
-    return this.issues
-      .listIssueCwdRows()
+  async worktreePaths(): Promise<string[]> {
+    return (await this.issues
+      .listIssueCwdRows())
       .filter((row) => !row.deletedAt && row.worktreePath)
       .map((row) => row.worktreePath as string)
   }
 
-  soleOwnerForCwd(cwd: string): IssueId | null {
-    const repoRoots = new Set(this.repos.listRepoPaths())
-    const owners = this.issues
-      .listIssueCwdRows()
+  async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
+    const repoRoots = new Set(await this.repos.listRepoPaths())
+    const owners = (await this.issues
+      .listIssueCwdRows())
       .filter(
         (row) =>
           !row.deletedAt &&
@@ -92,9 +92,9 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
   }
 
-  issueForCwd(cwd: string): IssueId | null {
+  async issueForCwd(cwd: string): Promise<IssueId | null> {
     let best: { id: IssueId; length: number } | undefined
-    for (const row of this.issues.listIssueCwdRows()) {
+    for (const row of await this.issues.listIssueCwdRows()) {
       if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
       const length = row.worktreePath?.length ?? 0
       if (!best || length > best.length) best = { id: row.id, length }

@@ -35,12 +35,12 @@ import { openTestStore } from '../test-support/open-test-store'
 
 const owner = 'user-1' as UserId
 
-function register(
-  store: ReturnType<typeof openTestStore>,
+async function register(
+  store: Awaited<ReturnType<typeof openTestStore>>,
   id: string,
   over: Partial<{ podiumManaged: boolean; ownerUserId: UserId | null }> = {},
 ) {
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id,
     name: id,
     hostname: `${id}.local`,
@@ -57,20 +57,20 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
     // that distinguishes a boolean read from a numeric comparison. Verified by
     // mutation: comparing this column to `1` passes the whole store lane
     // without this assertion.
-    register(store, 'unmanaged', { podiumManaged: false })
-    register(store, 'managed', { podiumManaged: true })
-    register(store, 'defaulted')
+    await register(store, 'unmanaged', { podiumManaged: false })
+    await register(store, 'managed', { podiumManaged: true })
+    await register(store, 'defaulted')
 
-    expect(store.machines.getMachine('unmanaged')?.podiumManaged).toBe(false)
-    expect(store.machines.getMachine('managed')?.podiumManaged).toBe(true)
+    expect((await store.machines.getMachine('unmanaged'))?.podiumManaged).toBe(false)
+    expect((await store.machines.getMachine('managed'))?.podiumManaged).toBe(true)
     // Omitting the flag means managed, which is the caller-side default.
-    expect(store.machines.getMachine('defaulted')?.podiumManaged).toBe(true)
+    expect((await store.machines.getMachine('defaulted'))?.podiumManaged).toBe(true)
 
     // Strictly boolean, never the underlying integer: `toBe(false)` above would
     // also hold for `0` under a loose comparison, this pins the type.
-    expect(typeof store.machines.getMachine('unmanaged')?.podiumManaged).toBe('boolean')
+    expect(typeof (await store.machines.getMachine('unmanaged'))?.podiumManaged).toBe('boolean')
 
-    const listed = store.machines.listMachines()
+    const listed = await store.machines.listMachines()
     expect(listed.find((m) => m.id === 'unmanaged')?.podiumManaged).toBe(false)
     expect(listed.find((m) => m.id === 'managed')?.podiumManaged).toBe(true)
   } finally {
@@ -81,26 +81,26 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
 it('reads supervised as a boolean, and an unreported machine is false rather than null', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // NULL until a daemon reports, which the mapper reads as false: the
     // truthful answer, since a supervised daemon re-asserts on every hello.
-    expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+    expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
 
     const build = {
       appVersion: '1.2.3',
       wireSchemaDigest: 'digest',
       installKind: 'installed' as const,
     }
-    store.machines.setMachineBuild('m1', { ...build, supervised: true }, ['payload'], 'at-1')
-    expect(store.machines.getMachine('m1')?.supervised).toBe(true)
-    expect(typeof store.machines.getMachine('m1')?.supervised).toBe('boolean')
+    await store.machines.setMachineBuild('m1', { ...build, supervised: true }, ['payload'], 'at-1')
+    expect((await store.machines.getMachine('m1'))?.supervised).toBe(true)
+    expect(typeof (await store.machines.getMachine('m1'))?.supervised).toBe('boolean')
 
     // Written on EVERY report, so a machine that stops being supervised loses
     // the flag on its next hello rather than keeping it forever.
-    store.machines.setMachineBuild('m1', { ...build, supervised: false }, ['payload'], 'at-2')
-    expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+    await store.machines.setMachineBuild('m1', { ...build, supervised: false }, ['payload'], 'at-2')
+    expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
 
-    expect(store.machines.getMachine('m1')).toMatchObject({
+    expect(await store.machines.getMachine('m1')).toMatchObject({
       appVersion: '1.2.3',
       wireSchemaDigest: 'digest',
       installKind: 'installed',
@@ -115,23 +115,23 @@ it('reads supervised as a boolean, and an unreported machine is false rather tha
 it('keeps an unowned machine unowned, and never substitutes an owner', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'orphan', { ownerUserId: null })
+    await register(store, 'orphan', { ownerUserId: null })
     // POD-1079: null is MEANINGFUL and refuses `use` to everyone. A conversion
     // that coalesced it to a default would be the fail-open shape the nullable
     // column exists to avoid.
-    expect(store.machines.getMachine('orphan')?.ownerUserId).toBeNull()
+    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
 
     // A returning hello does NOT transfer ownership, but it does fill a NULL.
-    register(store, 'orphan', { ownerUserId: owner })
-    expect(store.machines.getMachine('orphan')?.ownerUserId).toBe(owner)
-    register(store, 'orphan', { ownerUserId: 'user-2' as UserId })
-    expect(store.machines.getMachine('orphan')?.ownerUserId).toBe(owner)
+    await register(store, 'orphan', { ownerUserId: owner })
+    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
+    await register(store, 'orphan', { ownerUserId: 'user-2' as UserId })
+    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
 
     // The forced projection is the path that DOES move it, and null is quarantine.
-    store.machines.setMachineOwner('orphan', 'user-2' as UserId)
-    expect(store.machines.getMachine('orphan')?.ownerUserId).toBe('user-2')
-    store.machines.setMachineOwner('orphan', null)
-    expect(store.machines.getMachine('orphan')?.ownerUserId).toBeNull()
+    await store.machines.setMachineOwner('orphan', 'user-2' as UserId)
+    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe('user-2')
+    await store.machines.setMachineOwner('orphan', null)
+    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
   } finally {
     store.close()
   }
@@ -140,14 +140,14 @@ it('keeps an unowned machine unowned, and never substitutes an owner', async () 
 it('reads an unpinned update channel as null and keeps an unreadable one unpinned', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // POD-1882: null means "follow the fleet default", not "no answer".
-    expect(store.machines.getMachine('m1')?.updateChannelOverride).toBeNull()
+    expect((await store.machines.getMachine('m1'))?.updateChannelOverride).toBeNull()
 
-    store.machines.setUpdateChannel('m1', 'edge')
-    expect(store.machines.getMachine('m1')?.updateChannelOverride).toBe('edge')
-    store.machines.setUpdateChannel('m1', null)
-    expect(store.machines.getMachine('m1')?.updateChannelOverride).toBeNull()
+    await store.machines.setUpdateChannel('m1', 'edge')
+    expect((await store.machines.getMachine('m1'))?.updateChannelOverride).toBe('edge')
+    await store.machines.setUpdateChannel('m1', null)
+    expect((await store.machines.getMachine('m1'))?.updateChannelOverride).toBeNull()
   } finally {
     store.close()
   }
@@ -156,22 +156,22 @@ it('reads an unpinned update channel as null and keeps an unreadable one unpinne
 it('distinguishes components NOT RECORDED from components recorded as none', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, 'm1')
+    await register(store, 'm1')
     // NULL is distinct from '[]' (POD-2700): a machine that has not said what it
     // runs refuses nothing, where one that runs nothing must refuse.
-    expect(store.machines.getMachine('m1')?.components).toBeNull()
+    expect((await store.machines.getMachine('m1'))?.components).toBeNull()
 
-    expect(store.machines.addMachineComponent('m1', 'daemon')).toBe(true)
-    expect(store.machines.getMachine('m1')?.components).toEqual(['daemon'])
+    expect(await store.machines.addMachineComponent('m1', 'daemon')).toBe(true)
+    expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon'])
 
     // ADDITIVE and idempotent: the second writer must not evict the first, and
     // a repeated stamp reports no change so the caller skips its broadcast.
-    expect(store.machines.addMachineComponent('m1', 'server')).toBe(true)
-    expect(store.machines.getMachine('m1')?.components).toEqual(['daemon', 'server'])
-    expect(store.machines.addMachineComponent('m1', 'daemon')).toBe(false)
-    expect(store.machines.getMachine('m1')?.components).toEqual(['daemon', 'server'])
+    expect(await store.machines.addMachineComponent('m1', 'server')).toBe(true)
+    expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon', 'server'])
+    expect(await store.machines.addMachineComponent('m1', 'daemon')).toBe(false)
+    expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon', 'server'])
 
-    expect(store.machines.addMachineComponent('absent', 'daemon')).toBe(false)
+    expect(await store.machines.addMachineComponent('absent', 'daemon')).toBe(false)
   } finally {
     store.close()
   }
@@ -180,11 +180,11 @@ it('distinguishes components NOT RECORDED from components recorded as none', asy
 it('finds no retired machine sentinel on a database a supported install can hold', async () => {
   const store = await openTestStore(':memory:')
   try {
-    register(store, asMachineId('11111111-1111-4111-8111-111111111111'))
+    await register(store, asMachineId('11111111-1111-4111-8111-111111111111'))
     // The boot refusal's input. Empty is the only answer a shipped Podium can
     // produce, and the check exists because the alternative to finding out is
     // not finding out.
-    expect(store.machines.legacyMachineSentinelSites()).toEqual([])
+    expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
   } finally {
     store.close()
   }

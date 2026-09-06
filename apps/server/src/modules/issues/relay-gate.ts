@@ -174,7 +174,7 @@ export class AgentRelayGate {
                 machineId,
               }
             : msg.input
-      const result = this.deps.dispatch(
+      const result = await this.deps.dispatch(
         this.deps.capabilityForSession(msg.sessionId),
         msg.outsideScope,
         msg.router,

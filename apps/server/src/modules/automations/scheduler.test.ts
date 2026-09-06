@@ -22,8 +22,8 @@ class TestAutomationsService extends AutomationsService {
     return super.setEnabled(id, enabled, TEST_PRINCIPAL)
   }
 
-  override remove(id: string) {
-    return super.remove(id, TEST_PRINCIPAL)
+  override async remove(id: string) {
+    return await super.remove(id, TEST_PRINCIPAL)
   }
 }
 
@@ -193,7 +193,7 @@ async function harness(
   const ledger = new Ledger({
     repo: store.sync,
     now: () => clock.getTime(),
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
   })
   const createSession = vi.fn((_input: { cwd: string }) => {
     if (opts.spawnThrows) throw new Error('no daemon for that machine')
@@ -237,8 +237,8 @@ async function harness(
 }
 
 /** A daily-at-09:00 automation, enabled and armed for today's 09:00. */
-function daily(h: Awaited<ReturnType<typeof harness>>, over: { repoPath?: string | null } = {}) {
-  const created = h.service.create({
+async function daily(h: Awaited<ReturnType<typeof harness>>, over: { repoPath?: string | null } = {}) {
+  const created = await h.service.create({
     name: 'Nightly sweep',
     cron: '0 9 * * *',
     agentKind: 'claude-code',
@@ -253,9 +253,9 @@ describe('AutomationsService.create', () => {
   it('arms an enabled automation strictly in the future; a disabled one is unarmed', async () => {
     const h = await harness()
     h.setNow(new Date(2026, 6, 14, 9, 0, 0)) // exactly on an occurrence
-    const armed = daily(h)
+    const armed = await daily(h)
     expect(armed.nextRunAt).toBe(iso(new Date(2026, 6, 15, 9, 0)))
-    const off = h.service.create({
+    const off = await h.service.create({
       name: 'Off',
       cron: '0 9 * * *',
       agentKind: 'claude-code',
@@ -268,7 +268,7 @@ describe('AutomationsService.create', () => {
   it('arms a one-off at its exact future timestamp and rejects past timestamps', async () => {
     const h = await harness()
     const runAt = iso(minutesAhead(2))
-    const created = h.service.create({
+    const created = await h.service.create({
       name: 'Wake this session',
       scheduleKind: 'once',
       runAt,
@@ -286,7 +286,7 @@ describe('AutomationsService.create', () => {
       targetSessionId: 'sess_sleeping',
     })
 
-    expect(() =>
+    await expect(
       h.service.create({
         name: 'Too late',
         scheduleKind: 'once',
@@ -295,20 +295,20 @@ describe('AutomationsService.create', () => {
         prompt: 'x',
         enabled: true,
       }),
-    ).toThrow(/future/)
+    ).rejects.toThrow(/future/)
   })
 
   it('rejects an unparseable cron before it can be persisted', async () => {
     const h = await harness()
-    expect(() =>
+    await expect(
       h.service.create({ name: 'Bad', cron: 'every tuesday', agentKind: 'codex', prompt: 'x' }),
-    ).toThrow(/5 fields/)
-    expect(h.service.list()).toEqual([])
+    ).rejects.toThrow(/5 fields/)
+    expect(await h.service.list()).toEqual([])
   })
 
   it('accepts an every-minute cron and defaults to a fresh session per run', async () => {
     const h = await harness()
-    const created = h.service.create({
+    const created = await h.service.create({
       name: 'Every minute',
       cron: '* * * * *',
       agentKind: 'codex',
@@ -319,9 +319,9 @@ describe('AutomationsService.create', () => {
 
   it('an update can change both cron and session mode', async () => {
     const h = await harness()
-    const created = daily(h)
+    const created = await daily(h)
     expect(
-      h.service.update(created.id, { cron: '* * * * *', sessionMode: 'resume' }),
+      await h.service.update(created.id, { cron: '* * * * *', sessionMode: 'resume' }),
     ).toMatchObject({
       cron: '* * * * *',
       sessionMode: 'resume',
@@ -330,20 +330,20 @@ describe('AutomationsService.create', () => {
 
   it('setEnabled arms and disarms', async () => {
     const h = await harness()
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'A',
       cron: '0 9 * * *',
       agentKind: 'claude-code',
       prompt: 'x',
     })
-    expect(h.service.setEnabled(a.id, true).nextRunAt).not.toBeNull()
-    expect(h.service.setEnabled(a.id, false).nextRunAt).toBeNull()
+    expect((await h.service.setEnabled(a.id, true)).nextRunAt).not.toBeNull()
+    expect((await h.service.setEnabled(a.id, false)).nextRunAt).toBeNull()
   })
 
   it('editing the cron re-arms — the old expression keeps no pending fire', async () => {
     const h = await harness()
-    const a = daily(h)
-    const updated = h.service.update(a.id, { cron: '0 * * * *' })
+    const a = await daily(h)
+    const updated = await h.service.update(a.id, { cron: '0 * * * *' })
     expect(updated.nextRunAt).toBe(iso(new Date(2026, 6, 14, 10, 0)))
   })
 })
@@ -352,7 +352,7 @@ describe('AutomationsService.tick — spawn', () => {
   it('wakes an explicit existing session through resume-and-send exactly once', async () => {
     const h = await harness()
     const runAt = minutesAhead(2)
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Overnight continuation',
       scheduleKind: 'once',
       runAt: iso(runAt),
@@ -364,8 +364,8 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     h.setNow(new Date(runAt.getTime() + 1_000))
-    h.service.tick()
-    h.service.tick()
+    await h.service.tick()
+    await h.service.tick()
 
     expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
     expect(h.resumeAndSend).toHaveBeenCalledWith({
@@ -376,8 +376,8 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createIssue).not.toHaveBeenCalled()
     expect(h.createSession).not.toHaveBeenCalled()
     expect(h.queueText).not.toHaveBeenCalled()
-    expect(h.service.runs(a.id)).toHaveLength(1)
-    expect(h.service.runs(a.id)[0]).toMatchObject({
+    expect(await h.service.runs(a.id)).toHaveLength(1)
+    expect((await h.service.runs(a.id))[0]).toMatchObject({
       outcome: 'spawned',
       sessionId: asSessionId('sess_sleeping'),
       firedAt: iso(runAt),
@@ -387,12 +387,12 @@ describe('AutomationsService.tick — spawn', () => {
       nextRunAt: null,
       lastRunAt: iso(runAt),
     })
-    expect(() => h.service.setEnabled(a.id, true)).toThrow(/new runAt/)
+    await expect(h.service.setEnabled(a.id, true)).rejects.toThrow(/new runAt/)
   })
 
   it('[POD-1107] refuses to create an automation naming a harness this build cannot run', async () => {
     const h = await harness()
-    expect(() =>
+    await expect(
       h.service.create({
         name: 'Unknown harness',
         scheduleKind: 'once',
@@ -401,9 +401,9 @@ describe('AutomationsService.tick — spawn', () => {
         prompt: 'Continue.',
         sessionMode: 'fresh',
       }),
-    ).toThrow(/unknown agent kind: not-a-harness/)
+    ).rejects.toThrow(/unknown agent kind: not-a-harness/)
 
-    const ok = h.service.create({
+    const ok = await h.service.create({
       name: 'Known harness',
       scheduleKind: 'once',
       runAt: iso(minutesAhead(2)),
@@ -411,7 +411,7 @@ describe('AutomationsService.tick — spawn', () => {
       prompt: 'Continue.',
       sessionMode: 'fresh',
     })
-    expect(() => h.service.update(ok.id, { agentKind: 'not-a-harness' })).toThrow(
+    await expect(h.service.update(ok.id, { agentKind: 'not-a-harness' })).rejects.toThrow(
       /unknown agent kind/,
     )
   })
@@ -424,7 +424,7 @@ describe('AutomationsService.tick — spawn', () => {
     // before this build — or by one — CAN carry a kind it cannot run. Written
     // straight to the store, the way such a row actually arrives: the write seam
     // above refuses it, the spawn seam is what protects the rows already there.
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Unknown harness',
       scheduleKind: 'once',
       runAt: iso(runAt),
@@ -439,11 +439,11 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     h.setNow(new Date(runAt.getTime() + 1_000))
-    h.service.tick()
+    await h.service.tick()
 
     expect(h.createSession).not.toHaveBeenCalled()
     expect(h.createIssue).not.toHaveBeenCalled()
-    const [run] = h.service.runs(a.id)
+    const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'error', sessionId: null })
     expect(run?.detail).toContain('not-a-harness')
   })
@@ -451,7 +451,7 @@ describe('AutomationsService.tick — spawn', () => {
   it('records a terminal error instead of replacing a lost explicit target', async () => {
     const h = await harness({ resumeOk: false, resumeReason: 'no resume ref' })
     const runAt = minutesAhead(2)
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Strict targeted wake',
       scheduleKind: 'once',
       runAt: iso(runAt),
@@ -463,11 +463,11 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     h.setNow(new Date(runAt.getTime() + 1_000))
-    h.service.tick()
+    await h.service.tick()
 
     expect(h.createIssue).not.toHaveBeenCalled()
     expect(h.createSession).not.toHaveBeenCalled()
-    expect(h.service.runs(a.id)[0]).toMatchObject({
+    expect((await h.service.runs(a.id))[0]).toMatchObject({
       outcome: 'error',
       sessionId: asSessionId('sess_deleted'),
       detail: expect.stringContaining('no resume ref'),
@@ -477,9 +477,9 @@ describe('AutomationsService.tick — spawn', () => {
 
   it('spawns at the due time with automation provenance and the prompt via queueText', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 30)) // 30s after tomorrow's occurrence
-    h.service.tick()
+    await h.service.tick()
 
     expect(h.createSession).toHaveBeenCalledTimes(1)
     const spawn = h.createSession.mock.calls[0]![0] as Record<string, unknown>
@@ -511,7 +511,7 @@ describe('AutomationsService.tick — spawn', () => {
       mutationId: expect.stringMatching(/^arun_/),
     })
 
-    const [run] = h.service.runs(a.id)
+    const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'spawned', sessionId: asSessionId('sess_1') })
     expect(run!.firedAt).toBe(iso(new Date(2026, 6, 15, 9, 0)))
     // Re-armed for the day after, and stamped with the fire it just did.
@@ -522,11 +522,11 @@ describe('AutomationsService.tick — spawn', () => {
 
   it('records the definition, run, and re-arm as ordered durable metadata', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
+    await h.service.tick()
 
-    const changes = h.ledger.changesSince(0)
+    const changes = await h.ledger.changesSince(0)
     // create → reserve run only → finalize run + re-arm [POD-925]
     expect(changes?.map((change) => [change.entity, change.id, change.op])).toEqual([
       ['automation', a.id, 'upsert'],
@@ -554,7 +554,7 @@ describe('AutomationsService.tick — spawn', () => {
 
   it('[POD-925] reserved-but-unfinished occurrence resumes instead of losing the fire', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     const firedAt = iso(new Date(2026, 6, 15, 9, 0))
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     // Materialize crash gap: reserved run, nextRunAt NOT re-armed.
@@ -572,7 +572,7 @@ describe('AutomationsService.tick — spawn', () => {
     // nextRunAt still the original occurrence
     expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(firedAt)
 
-    const result = h.service.applyObservedOccurrence({
+    const result = await h.service.applyObservedOccurrence({
       automationId: a.id,
       nextRunAt: firedAt,
       enabled: true,
@@ -590,7 +590,7 @@ describe('AutomationsService.tick — spawn', () => {
 
   it('re-authorizes a reserved occurrence on replay after its owner is revoked', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     const firedAt = iso(new Date(2026, 6, 15, 9, 0))
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     const runId = automationOccurrenceRunId(a.id, firedAt)
@@ -607,7 +607,7 @@ describe('AutomationsService.tick — spawn', () => {
 
     // Revocation happens after durable reservation and before startup replay.
     h.revokeOwner()
-    const result = h.service.applyObservedOccurrence({
+    const result = await h.service.applyObservedOccurrence({
       automationId: a.id,
       nextRunAt: firedAt,
       enabled: true,
@@ -626,7 +626,7 @@ describe('AutomationsService.tick — spawn', () => {
   })
   it('resume mode reuses the previous successful session on later fires', async () => {
     const h = await harness()
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Continuing sweep',
       cron: '0 9 * * *',
       agentKind: 'codex',
@@ -637,9 +637,9 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
+    await h.service.tick()
     h.setNow(new Date(2026, 6, 16, 9, 0, 10))
-    h.service.tick()
+    await h.service.tick()
 
     expect(h.createIssue).toHaveBeenCalledTimes(1)
     expect(h.createSession).toHaveBeenCalledTimes(1)
@@ -649,13 +649,13 @@ describe('AutomationsService.tick — spawn', () => {
       text: 'Continue the sweep.',
       mutationId: expect.stringMatching(/^arun_/),
     })
-    expect(h.service.runs(a.id)).toHaveLength(2)
-    expect(h.service.runs(a.id).every((run) => run.sessionId === 'sess_1')).toBe(true)
+    expect(await h.service.runs(a.id)).toHaveLength(2)
+    expect((await h.service.runs(a.id)).every((run) => run.sessionId === 'sess_1')).toBe(true)
   })
 
   it('resume mode safely falls back to a fresh issue and session when the ref is gone', async () => {
     const h = await harness({ resumeOk: false, resumeReason: 'no resume ref' })
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Continuing sweep',
       cron: '0 9 * * *',
       agentKind: 'codex',
@@ -666,31 +666,31 @@ describe('AutomationsService.tick — spawn', () => {
     })
 
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
+    await h.service.tick()
     h.setNow(new Date(2026, 6, 16, 9, 0, 10))
-    h.service.tick()
+    await h.service.tick()
 
     expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
     expect(h.createIssue).toHaveBeenCalledTimes(2)
     expect(h.createSession).toHaveBeenCalledTimes(2)
-    expect(h.service.runs(a.id).map((run) => run.sessionId)).toEqual(['sess_2', 'sess_1'])
+    expect((await h.service.runs(a.id)).map((run) => run.sessionId)).toEqual(['sess_2', 'sess_1'])
   })
 
   it('a GLOBAL automation (repo_path NULL) runs in the home directory', async () => {
     const h = await harness()
-    daily(h, { repoPath: null })
+    await daily(h, { repoPath: null })
     h.setNow(new Date(2026, 6, 15, 9, 1))
-    h.service.tick()
+    await h.service.tick()
     expect((h.createSession.mock.calls[0]![0] as { cwd: string }).cwd).toBe('/home/tester')
   })
 
   it('does nothing when nothing is due', async () => {
     const h = await harness()
-    daily(h)
+    await daily(h)
     h.setNow(new Date(2026, 6, 14, 23, 0))
-    h.service.tick()
+    await h.service.tick()
     expect(h.createSession).not.toHaveBeenCalled()
-    expect(h.service.runs(h.service.list()[0]!.id)).toEqual([])
+    expect(await h.service.runs((await h.service.list())[0]!.id)).toEqual([])
   })
 })
 
@@ -699,7 +699,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     // Hourly automation, armed for 09:00; the server comes back at 09:30 THREE DAYS
     // later. A backfill would spawn ~72 sessions. [spec:SP-17db]
     const h = await harness()
-    const a = h.service.create({
+    const a = await h.service.create({
       name: 'Hourly',
       cron: '0 * * * *',
       agentKind: 'claude-code',
@@ -710,26 +710,26 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     expect(a.nextRunAt).toBe(iso(new Date(2026, 6, 14, 10, 0)))
 
     h.setNow(new Date(2026, 6, 17, 9, 30))
-    h.service.tick()
+    await h.service.tick()
     // The overdue occurrence is > 1h late → recorded as missed, NOT spawned.
     expect(h.createSession).not.toHaveBeenCalled()
-    expect(h.service.runs(a.id).map((r) => r.outcome)).toEqual(['missed'])
+    expect((await h.service.runs(a.id)).map((r) => r.outcome)).toEqual(['missed'])
     // …and it is re-armed to the very next occurrence (10:00 the same day).
     expect((await h.store.automations.get(a.id))!.nextRunAt).toBe(iso(new Date(2026, 6, 17, 10, 0)))
 
     // The next tick, once that occurrence comes due, spawns exactly once.
     h.setNow(new Date(2026, 6, 17, 10, 0, 5))
-    h.service.tick()
+    await h.service.tick()
     expect(h.createSession).toHaveBeenCalledTimes(1)
-    expect(h.service.runs(a.id).map((r) => r.outcome)).toEqual(['spawned', 'missed'])
+    expect((await h.service.runs(a.id)).map((r) => r.outcome)).toEqual(['spawned', 'missed'])
   })
 
   it('a still-running previous session skips the occurrence instead of piling up', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
-    expect(h.service.runs(a.id)[0]!.sessionId).toBe('sess_1')
+    await h.service.tick()
+    expect((await h.service.runs(a.id))[0]!.sessionId).toBe('sess_1')
 
     // sess_1 is still going a day later, when the next occurrence comes due.
     const live = await harness({ live: ['sess_1'] })
@@ -745,9 +745,9 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
       mayUseDefaultMachine: () => true,
       now: () => new Date(2026, 6, 16, 9, 0, 10),
     })
-    service.tick()
+    await service.tick()
     expect(live.createSession).not.toHaveBeenCalled()
-    const runs = service.runs(a.id)
+    const runs = await service.runs(a.id)
     expect(runs[0]).toMatchObject({ outcome: 'skipped_overlap', sessionId: null })
     expect(runs[0]!.detail).toContain('sess_1')
     // Skipped, not deferred: the automation is armed for the NEXT day.
@@ -756,10 +756,10 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
 
   it('a throwing spawn records an error run, and the next tick still proceeds', async () => {
     const h = await harness({ spawnThrows: true })
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     expect(() => h.service.tick()).not.toThrow()
-    const [run] = h.service.runs(a.id)
+    const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'error', sessionId: null })
     expect(run!.detail).toContain('no daemon')
     // Still armed for tomorrow — an erroring run never disables the automation.
@@ -768,10 +768,10 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
 
   it('a session that spawns but rejects the prompt is an error, not a silent success', async () => {
     const h = await harness({ queueOk: false })
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
-    const [run] = h.service.runs(a.id)
+    await h.service.tick()
+    const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'error', sessionId: asSessionId('sess_1') })
     expect(run!.detail).toContain('sess_1')
   })
@@ -780,13 +780,13 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
 describe('AutomationsService.remove', () => {
   it('deletes the automation and cascades its run history', async () => {
     const h = await harness()
-    const a = daily(h)
+    const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    h.service.tick()
-    expect(h.service.runs(a.id)).toHaveLength(1)
-    expect(h.service.remove(a.id)).toEqual({ removed: true })
-    expect(h.service.list()).toEqual([])
-    expect(h.service.runs(a.id)).toEqual([])
-    expect(h.service.remove(a.id)).toEqual({ removed: false })
+    await h.service.tick()
+    expect(await h.service.runs(a.id)).toHaveLength(1)
+    expect(await h.service.remove(a.id)).toEqual({ removed: true })
+    expect(await h.service.list()).toEqual([])
+    expect(await h.service.runs(a.id)).toEqual([])
+    expect(await h.service.remove(a.id)).toEqual({ removed: false })
   })
 })

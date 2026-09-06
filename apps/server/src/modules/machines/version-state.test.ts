@@ -5,23 +5,23 @@ import { deriveVersionState, MachinesService } from './service'
 import { openTestStore } from '../../test-support/open-test-store'
 
 describe('deriveVersionState', () => {
-  it('is unreported when the machine has not said', () => {
+  it('is unreported when the machine has not said', async () => {
     expect(deriveVersionState(null, '0.4.2')).toBe('unreported')
   })
 
-  it('is unreported when this server has no target of its own', () => {
+  it('is unreported when this server has no target of its own', async () => {
     expect(deriveVersionState('0.4.2', undefined)).toBe('unreported')
   })
 
-  it('is current on an exact match', () => {
+  it('is current on an exact match', async () => {
     expect(deriveVersionState('0.4.2', '0.4.2')).toBe('current')
   })
 
-  it('is behind on any mismatch, without parsing either side as a semver', () => {
+  it('is behind on any mismatch, without parsing either side as a semver', async () => {
     expect(deriveVersionState('0.4.1', '0.4.2')).toBe('behind')
   })
 
-  it('treats a development identity as a plain label', () => {
+  it('treats a development identity as a plain label', async () => {
     expect(deriveVersionState('dev+aaa', 'dev+bbb')).toBe('behind')
     expect(deriveVersionState('dev+aaa', 'dev+aaa')).toBe('current')
   })
@@ -46,12 +46,12 @@ describe('deriveVersionState', () => {
       instanceId: 'default',
       store,
       hostMachineId: asMachineId('host'),
-      targetVersion: () => target,
+      targetVersion: async () => target,
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
 
-    expect(service.listMachines()[0]).toMatchObject({
+    expect((await service.listMachines())[0]).toMatchObject({
       appVersion: '0.4.2',
       wireSchemaDigest: 'abc',
       installKind: 'installed',
@@ -60,31 +60,31 @@ describe('deriveVersionState', () => {
     })
 
     target = '0.4.3'
-    expect(service.listMachines()[0]?.versionState).toBe('behind')
+    expect((await service.listMachines())[0]?.versionState).toBe('behind')
   })
 
   it('composes the server target into the machine read model', async () => {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, {
+    const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',
     })
     const machine = (await store.machines.listMachines())[0]
     if (!machine) throw new Error('expected the registry host machine')
 
-    registry.modules.machines.setMachineBuild(
+    await registry.modules.machines.setMachineBuild(
       machine.id,
       { appVersion: '0.4.2' },
       [],
       '2026-08-04T00:00:00.000Z',
     )
-    registry.modules.updates.setTarget('stable', {
+    await registry.modules.updates.setTarget('stable', {
       version: '0.4.2',
       critical: false,
       artifacts: {},
     } as never)
 
-    expect(registry.modules.machines.listMachines()[0]?.versionState).toBe('current')
+    expect((await registry.modules.machines.listMachines())[0]?.versionState).toBe('current')
     registry.dispose()
   })
 })

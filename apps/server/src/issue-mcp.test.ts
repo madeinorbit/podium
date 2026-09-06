@@ -162,8 +162,7 @@ describe('CompositeMcpProvider', () => {
   it('merges specs and routes calls to the owning provider', async () => {
     const c = new CompositeMcpProvider([a, b])
     expect(
-      c
-        .mcpToolSpecs()
+      (await c.mcpToolSpecs())
         .map((s) => s.name)
         .sort(),
     ).toEqual(['a_one', 'b_two'])

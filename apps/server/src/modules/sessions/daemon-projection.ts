@@ -77,7 +77,7 @@ export class SessionDaemonProjection {
     debouncer.push(title)
   }
 
-  handle(machineId: MachineId, message: SessionProjectionDaemonFrame): void {
+  async handle(machineId: MachineId, message: SessionProjectionDaemonFrame): Promise<void> {
     switch (message.type) {
       // The three sightings below all ASK before they write [POD-3330]: the
       // setter answers whether the value actually moved, and only then is there
@@ -138,7 +138,7 @@ export class SessionDaemonProjection {
         break
       }
       case 'sessionResumeRef':
-        this.ports.binding.observeResumeRef(machineId, message)
+        await this.ports.binding.observeResumeRef(machineId, message)
         break
       case 'sessionCwd': {
         const session = this.ports.sessions.get(message.sessionId)

@@ -40,14 +40,14 @@ type ProceduresFor<T extends Record<string, AnyIssueCommandDef>> = {
  *  old path-parsing issueCapabilityGuard did. */
 function guardFor(name: string, def: AnyIssueCommandDef) {
   return t.middleware(async ({ ctx, next, getRawInput }) => {
-    guardIssueCommand(
+    await guardIssueCommand(
       issueCaller(ctx),
       familyState(ctx).modules.issues,
       name,
       def,
       await getRawInput(),
     )
-    return next()
+    return await next()
   })
 }
 
@@ -87,15 +87,15 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
     // Not an `async` wrapper: a synchronous handler must stay synchronous, or the
     // mutation ledger's check-run-record pass stops being one uninterrupted turn
     // and a replay in the same tRPC batch could interleave with its original.
-    const resolve = (opts: { ctx: Context; input: unknown }) => {
+    const resolve = async (opts: { ctx: Context; input: unknown }) => {
       try {
-        const out = familyState(opts.ctx).modules.issueCommands.run(
+        const out = await familyState(opts.ctx).modules.issueCommands.run(
           issueCaller(opts.ctx),
           name,
           def,
           opts.input,
         )
-        return out instanceof Promise ? out.catch(rethrowAsTrpc) : out
+        return out instanceof Promise ? await out.catch(rethrowAsTrpc) : out
       } catch (err) {
         return rethrowAsTrpc(err)
       }

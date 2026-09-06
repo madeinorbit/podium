@@ -40,24 +40,24 @@ export class IssueSessionLifecycle {
   ) {}
 
   /** Resume a durable conversation under one visible issue/session workflow. */
-  resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
-    return this.deps.sessions.resumeSession(input, this.deps.issues)
+  async resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
+    return await this.deps.sessions.resumeSession(input, this.deps.issues)
   }
 
   /** Recreate a freed issue worktree before respawning its parked session. */
-  resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
-    return this.deps.sessions.resurrectSession(input, this.deps.issues)
+  async resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
+    return await this.deps.sessions.resurrectSession(input, this.deps.issues)
   }
 
   /** Park one session and free its worktree without an asynchronous ordering hop. */
-  stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
-    return this.deps.sessions.stopSession(input, this.deps.issues)
+  async stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
+    return await this.deps.sessions.stopSession(input, this.deps.issues)
   }
 
   /** Stop every issue member before the single final worktree-free pass. */
-  stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
-    const issueId = this.deps.issues.resolveRef(input.issueId)
-    return this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues)
+  async stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
+    const issueId = await this.deps.issues.resolveRef(input.issueId)
+    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues)
   }
   /**
    * Stop a closed issue through the same no-force path as `podium issue stop`.
@@ -67,35 +67,35 @@ export class IssueSessionLifecycle {
    * queued close cleanup from stopping work that was reopened before it ran.
    * Dirty worktrees preserve the existing refusal and remain recoverable.
    */
-  stopClosedIssue(input: {
+  async stopClosedIssue(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
-  }): void {
+  }): Promise<void> {
     void this.stopClosedIssueNow(input).catch((error) => {
       log.warn('closed issue cleanup failed', { err: error, issueId: input.issueId })
     })
   }
 
-  private stopClosedIssueNow(input: {
+  private async stopClosedIssueNow(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
   }): Promise<void> {
     let issueId: IssueId
     try {
-      issueId = this.deps.issues.resolveRef(input.issueId)
+      issueId = await this.deps.issues.resolveRef(input.issueId)
     } catch (error) {
       log.warn('closed-issue cleanup could not resolve its issue', {
         err: error,
         issueId: input.issueId,
         reason: input.reason,
       })
-      return Promise.resolve()
+      return await Promise.resolve()
     }
     const inFlight = this.closedIssueStops.get(issueId)
     if (inFlight) return inFlight
 
     const task = (async (): Promise<void> => {
-      const current = this.deps.issues.get(issueId)
+      const current = await this.deps.issues.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
       const result = await this.stopIssue({
         issueId,
@@ -138,7 +138,7 @@ export class IssueSessionLifecycle {
     try {
       let issues: IssueWire[]
       try {
-        issues = this.deps.issues.reports.list()
+        issues = await this.deps.issues.reports.list()
       } catch (error) {
         log.warn('closed issue sweep could not list issues', { err: error, reason })
         return
@@ -152,7 +152,7 @@ export class IssueSessionLifecycle {
   }
 
   /** Start the boot pass and the bounded periodic backstop exactly once. */
-  startClosedIssueSweep(): void {
+  async startClosedIssueSweep(): Promise<void> {
     if (this.closedIssueSweepTimer) return
     void this.sweepClosedIssues('startup').catch((error) => {
       log.warn('closed issue startup sweep failed', { err: error })
@@ -171,16 +171,16 @@ export class IssueSessionLifecycle {
   }
 
   /** Carry the transport-derived caller through every handoff apply point. */
-  handoffSession(input: Parameters<SessionLifecycle['handoffSession']>[0], caller: HandoffCaller) {
-    return this.deps.sessions.handoffSession(input, caller, this.deps.issues)
+  async handoffSession(input: Parameters<SessionLifecycle['handoffSession']>[0], caller: HandoffCaller) {
+    return await this.deps.sessions.handoffSession(input, caller, this.deps.issues)
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
-  deleteIssue(id: string): DeleteIssueResult {
+  async deleteIssue(id: string): Promise<DeleteIssueResult> {
     // Full wire is intentional: no-op deletes return the public IssueWire, and
     // projected membership is the cascade boundary this lifecycle owns.
-    const current = this.deps.issues.get(id)
+    const current = await this.deps.issues.get(id)
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
 
@@ -189,15 +189,15 @@ export class IssueSessionLifecycle {
       current.worktreePath,
     )
     const deletedIds = new Set(sessionPlan.sessionIds)
-    const remainingSessions = this.deps.sessions
-      .listSessions(undefined, 'issueDeleteRestore')
+    const remainingSessions = (await this.deps.sessions
+      .listSessions(undefined, 'issueDeleteRestore'))
       .filter((s) => !deletedIds.has(s.sessionId))
-    const issuePlan = this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
+    const issuePlan = await this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
-    this.deps.ledger.commit({
-      write: () => {
+    await this.deps.ledger.commit({
+      write: async () => {
         sessionPlan.write()
-        issuePlan.write()
+        await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
@@ -224,9 +224,9 @@ export class IssueSessionLifecycle {
     // registered separately for that reason: a fan-out failure is an external
     // effect nobody waits for, and routing it through the commit application
     // above would report a socket problem as a divergent projection.
-    afterCommit(() => {
+    afterCommit(async () => {
       this.deps.sessions.broadcastSessions()
-      issuePlan.publish()
+      await issuePlan.publish()
     }, 'issue-session-delete-broadcast')
 
     return { issue: issuePlan.wire(), deletedSessionIds: sessionPlan.sessionIds }
@@ -234,26 +234,26 @@ export class IssueSessionLifecycle {
   /** Restore an issue and the exact sessions tombstoned by its deletion. Session
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
-  restoreIssue(id: string): RestoreIssueResult {
+  async restoreIssue(id: string): Promise<RestoreIssueResult> {
     // Full wire is intentional for the symmetric public/no-op return contract.
-    const current = this.deps.issues.get(id)
+    const current = await this.deps.issues.get(id)
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
 
     const sessionPlan = this.deps.sessions.prepareIssueSessionRestore(current.id)
     const restoredIds = new Set(sessionPlan.sessionIds)
     const restoredSessions = [
-      ...this.deps.sessions
-        .listSessions(undefined, 'issueDeleteRestore')
+      ...(await this.deps.sessions
+        .listSessions(undefined, 'issueDeleteRestore'))
         .filter((s) => !restoredIds.has(s.sessionId)),
       ...sessionPlan.restoredSessions,
     ]
-    const issuePlan = this.deps.issues.prepareRestore(current.id, restoredSessions)
+    const issuePlan = await this.deps.issues.prepareRestore(current.id, restoredSessions)
 
-    this.deps.ledger.commit({
-      write: () => {
+    await this.deps.ledger.commit({
+      write: async () => {
         sessionPlan.write()
-        issuePlan.write()
+        await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // The same argument as the delete above, in the other direction: the
@@ -269,9 +269,9 @@ export class IssueSessionLifecycle {
         issuePlan.apply()
       },
     })
-    afterCommit(() => {
+    afterCommit(async () => {
       this.deps.sessions.broadcastSessions()
-      issuePlan.publish()
+      await issuePlan.publish()
     }, 'issue-session-restore-broadcast')
 
     return {

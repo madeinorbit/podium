@@ -25,7 +25,7 @@ describe('machine build report over a live daemon socket', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_APP_VERSION = '0.4.2'
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
-    server.registry.modules.updates.setTarget('stable', {
+    await server.registry.modules.updates.setTarget('stable', {
       version: '0.4.2',
       critical: false,
       artifacts: {},
@@ -71,7 +71,7 @@ describe('machine build report over a live daemon socket', () => {
 
   it('accepts an old daemon hello and leaves its build unreported', async () => {
     const ws = await connect()
-    const row = server.registry.modules.machines.listMachines()[0]
+    const row = (await server.registry.modules.machines.listMachines())[0]
     expect(row).toMatchObject({
       appVersion: null,
       installKind: null,
@@ -87,7 +87,7 @@ describe('machine build report over a live daemon socket', () => {
       wireSchemaDigest: 'abc',
       installKind: 'installed',
     })
-    const row = server.registry.modules.machines.listMachines()[0]
+    const row = (await server.registry.modules.machines.listMachines())[0]
     expect(row).toMatchObject({
       appVersion: '0.4.2',
       wireSchemaDigest: 'abc',
@@ -111,10 +111,10 @@ describe('machine build report over a live daemon socket', () => {
       installKind: 'installed',
       supervised: true,
     })
-    const listed = server.registry.modules.machines.listMachines()[0]
+    const listed = (await server.registry.modules.machines.listMachines())[0]
     expect(listed).toMatchObject({ supervised: true })
 
-    const planned = server.registry.modules.updates.fleet()[0]
+    const planned = (await server.registry.modules.updates.fleet())[0]
     expect(planned?.supervised).toBe(true)
     expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(true)
     await close(ws)
@@ -136,16 +136,16 @@ describe('machine build report over a live daemon socket', () => {
       wireSchemaDigest: 'abc',
       installKind: 'installed',
     })
-    const listed = server.registry.modules.machines.listMachines()[0]
+    const listed = (await server.registry.modules.machines.listMachines())[0]
     expect(listed).toBeDefined()
-    server.registry.modules.machines.recordInventory(asMachineId(listed?.id ?? ''), {
+    await server.registry.modules.machines.recordInventory(asMachineId(listed?.id ?? ''), {
       os: 'darwin',
       arch: 'arm64',
       agents: [],
       tools: [],
     })
 
-    const planned = server.registry.modules.updates.fleet()[0]
+    const planned = (await server.registry.modules.updates.fleet())[0]
     expect(planned?.platform).toBe('darwin-aarch64')
     expect(machineCanTakeTargetPlatform(planned as WaveMachine, ['linux-x86_64'])).toBe(false)
     await close(ws)

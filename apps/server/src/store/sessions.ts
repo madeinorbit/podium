@@ -26,7 +26,8 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -48,7 +49,7 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 type SessionSelect = typeof sessionsTable.$inferSelect
 
 export class SessionsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -71,18 +72,18 @@ export class SessionsRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   // ---- sessions ----
-  loadSessions(): SessionRow[] {
-    return this.readSessions(isNull(sessionsTable.deletedAt))
+  async loadSessions(): Promise<SessionRow[]> {
+    return await this.readSessions(isNull(sessionsTable.deletedAt))
   }
 
   /** One durable row, including a tombstone, for scoped delete visibility. */
-  getSession(sessionId: SessionId): SessionRow | undefined {
-    return this.readSessions(eq(sessionsTable.id, sessionId))[0]
+  async getSession(sessionId: SessionId): Promise<SessionRow | undefined> {
+    return (await this.readSessions(eq(sessionsTable.id, sessionId)))[0]
   }
 
   /**
@@ -101,10 +102,10 @@ export class SessionsRepository {
    * a `resumeValue`. `deleted_at IS NULL` is restated for the same reason — it is
    * the filter `loadSessions` applied, not an added condition.
    */
-  findSessionByResumeValue(resumeValue: string): SessionRow | undefined {
-    return this.readSessions(
+  async findSessionByResumeValue(resumeValue: string): Promise<SessionRow | undefined> {
+    return (await this.readSessions(
       and(eq(sessionsTable.resumeValue, resumeValue), isNull(sessionsTable.deletedAt)),
-    )[0]
+    ))[0]
   }
 
   /**
@@ -113,10 +114,10 @@ export class SessionsRepository {
    * delete-audience answer. The 500-row chunks stay below SQLite's variable
    * limit while keeping one repository call for a bootstrap pass.
    */
-  getSessions(sessionIds: readonly string[]): Map<string, SessionRow> {
+  async getSessions(sessionIds: readonly string[]): Promise<Map<string, SessionRow>> {
     const out = new Map<string, SessionRow>()
     for (const chunk of chunked(sessionIds)) {
-      for (const row of this.readSessions(inArray(sessionsTable.id, chunk as SessionId[]))) {
+      for (const row of await this.readSessions(inArray(sessionsTable.id, chunk as SessionId[]))) {
         out.set(row.id, row)
       }
     }
@@ -129,10 +130,10 @@ export class SessionsRepository {
    * resume value is exactly the row returned by
    * {@link findSessionByResumeValue} when duplicate values exist.
    */
-  findSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow> {
+  async findSessionsByResumeValues(resumeValues: readonly string[]): Promise<Map<string, SessionRow>> {
     const out = new Map<string, SessionRow>()
     for (const chunk of chunked(resumeValues)) {
-      for (const row of this.readSessions(this.liveByResumeValue(chunk))) {
+      for (const row of await this.readSessions(await this.liveByResumeValue(chunk))) {
         if (row.resumeValue !== null && !out.has(row.resumeValue)) {
           out.set(row.resumeValue, row)
         }
@@ -154,10 +155,10 @@ export class SessionsRepository {
    * candidates and lets the caller state its own preference, leaving the
    * visibility answer above untouched.
    */
-  listSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow[]> {
+  async listSessionsByResumeValues(resumeValues: readonly string[]): Promise<Map<string, SessionRow[]>> {
     const out = new Map<string, SessionRow[]>()
     for (const chunk of chunked(resumeValues)) {
-      for (const row of this.readSessions(this.liveByResumeValue(chunk))) {
+      for (const row of await this.readSessions(await this.liveByResumeValue(chunk))) {
         if (row.resumeValue === null) continue
         const list = out.get(row.resumeValue)
         if (list) list.push(row)
@@ -168,7 +169,7 @@ export class SessionsRepository {
   }
 
   /** The predicate the two plural resume readers share, so they cannot drift. */
-  private liveByResumeValue(chunk: readonly string[]): SQL | undefined {
+  private async liveByResumeValue(chunk: readonly string[]): Promise<SQL | undefined> {
     return and(inArray(sessionsTable.resumeValue, chunk), isNull(sessionsTable.deletedAt))
   }
 
@@ -180,11 +181,11 @@ export class SessionsRepository {
    * is a zero-dollar figure. Tombstones stay excluded — a deleted session's work
    * is not part of what the task cost today.
    */
-  findSessionsByIssueIds(issueIds: readonly IssueId[]): SessionRow[] {
+  async findSessionsByIssueIds(issueIds: readonly IssueId[]): Promise<SessionRow[]> {
     const out: SessionRow[] = []
     for (const chunk of chunked(issueIds)) {
       out.push(
-        ...this.readSessions(
+        ...await this.readSessions(
           and(inArray(sessionsTable.issueId, chunk), isNull(sessionsTable.deletedAt)),
         ),
       )
@@ -193,13 +194,13 @@ export class SessionsRepository {
   }
 
   /** All session tombstones, for repository-level inspection and maintenance. */
-  loadDeletedSessions(): SessionRow[] {
-    return this.readSessions(isNotNull(sessionsTable.deletedAt))
+  async loadDeletedSessions(): Promise<SessionRow[]> {
+    return await this.readSessions(isNotNull(sessionsTable.deletedAt))
   }
 
   /** Recoverable session tombstones created by one issue deletion. */
-  loadDeletedSessionsForIssue(issueId: IssueId): SessionRow[] {
-    return this.readSessions(
+  async loadDeletedSessionsForIssue(issueId: IssueId): Promise<SessionRow[]> {
+    return await this.readSessions(
       and(
         isNotNull(sessionsTable.deletedAt),
         eq(sessionsTable.deletionSource, 'issue'),
@@ -213,17 +214,17 @@ export class SessionsRepository {
    * this ordering; three of them depend on it meaning the same thing, so it is
    * declared once (see {@link findSessionByResumeValue}).
    */
-  private readSessions(where: SQL | undefined): SessionRow[] {
-    return this.db
+  private async readSessions(where: SQL | undefined): Promise<SessionRow[]> {
+    return (await this.db
       .select()
       .from(sessionsTable)
       .where(where)
       .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
-      .all()
+      .all())
       .map(mapSession)
   }
 
-  upsertSession(row: SessionRow): void {
+  async upsertSession(row: SessionRow): Promise<void> {
     if (!row.ownerUserId) {
       throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
     }
@@ -303,9 +304,9 @@ export class SessionsRepository {
       createdByActorId: createdBy ? createdBy.id : null,
       createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
     }
-    this.db
+    ;await (this.db
       .insert(sessionsTable)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: sessionsTable.id,
         set: {
@@ -383,14 +384,14 @@ export class SessionsRepository {
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites. */
-  softDeleteSessions(
+  async softDeleteSessions(
     ids: string[],
     deletedAt: string,
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
-  ): void {
+  ): Promise<void> {
     for (const id of ids) {
-      this.db
+      await this.db
         .update(sessionsTable)
         .set({ deletedAt, deletionSource: source, deletedByIssueId })
         .where(and(eq(sessionsTable.id, id as SessionId), isNull(sessionsTable.deletedAt)))
@@ -399,13 +400,13 @@ export class SessionsRepository {
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
-  softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): void {
-    this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
+  async softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): Promise<void> {
+    await this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
   }
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
-  restoreDeletedForIssue(issueId: IssueId): void {
-    this.db
+  async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
+    await this.db
       .update(sessionsTable)
       .set({
         deletedAt: null,
@@ -449,8 +450,8 @@ export class SessionsRepository {
    * `refIssueId` is set — leaving the session permanently unable to earn the draft
    * ref it should now get.
    */
-  detachTombstonesFromIssue(issueId: IssueId): void {
-    this.db
+  async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
+    await this.db
       .update(sessionsTable)
       .set({
         issueId: sql`CASE WHEN ${sessionsTable.issueId} = ${issueId} THEN NULL ELSE ${sessionsTable.issueId} END`,
@@ -473,14 +474,14 @@ export class SessionsRepository {
    * of every reader in the process, so no in-memory `Session` exists yet to
    * desync. Returns the number of rows healed.
    */
-  detachDanglingIssueReferences(): number {
+  async detachDanglingIssueReferences(): Promise<number> {
     // The subquery's own column is unqualified and resolves inside `issues`,
     // which is what it must do; the OUTER columns are the `sessions` ones the
     // builder qualifies for us here because they are named as columns rather
     // than interpolated into the fragment.
     const danglingIssue = sql`${sessionsTable.issueId} IS NOT NULL AND ${sessionsTable.issueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
     const danglingRef = sql`${sessionsTable.refIssueId} IS NOT NULL AND ${sessionsTable.refIssueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
-    const result = this.db
+    const result = await this.db
       .update(sessionsTable)
       .set({
         issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${sessionsTable.issueId} END`,
@@ -493,19 +494,19 @@ export class SessionsRepository {
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  purgeSession(id: SessionId): void {
-    this.db.delete(runtimeEventCheckpoints).where(eq(runtimeEventCheckpoints.sessionId, id)).run()
+  async purgeSession(id: SessionId): Promise<void> {
+    await this.db.delete(runtimeEventCheckpoints).where(eq(runtimeEventCheckpoints.sessionId, id)).run()
     this.purgeObservationCheckpoint(id)
-    this.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
-    this.db
+    await this.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
+    await this.db
       .delete(pinsTable)
       .where(and(eq(pinsTable.kind, 'panel'), eq(pinsTable.id, id)))
       .run()
-    this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
-    this.db.delete(snoozesTable).where(eq(snoozesTable.sessionId, id)).run()
-    this.db.delete(sessionUserState).where(eq(sessionUserState.sessionId, id)).run()
-    this.db.delete(offersTable).where(eq(offersTable.sessionId, id)).run() // [spec:SP-c7f1]
-    this.scrubTabOrders(id)
+    await this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
+    await this.db.delete(snoozesTable).where(eq(snoozesTable.sessionId, id)).run()
+    await this.db.delete(sessionUserState).where(eq(sessionUserState.sessionId, id)).run()
+    await this.db.delete(offersTable).where(eq(offersTable.sessionId, id)).run() // [spec:SP-c7f1]
+    await this.scrubTabOrders(id)
   }
 
   // ---- pins (PER-USER STATE, POD-380) ----
@@ -516,8 +517,8 @@ export class SessionsRepository {
   // caller must say whose state it is touching. Server-internal paths that have no
   // principal pass SOLE_USER_ID explicitly, which makes them greppable for
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
-  listPins(userId: UserId): PinState {
-    const rows = this.db
+  async listPins(userId: UserId): Promise<PinState> {
+    const rows = await this.db
       .select({ kind: pinsTable.kind, id: pinsTable.id })
       .from(pinsTable)
       .where(eq(pinsTable.userId, userId))
@@ -532,7 +533,7 @@ export class SessionsRepository {
     return pins
   }
 
-  setPin(userId: UserId, kind: PinKind, id: string, pinned: boolean): void {
+  async setPin(userId: UserId, kind: PinKind, id: string, pinned: boolean): Promise<void> {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
     requireUserId(userId)
     const cleanId = id.trim()
@@ -555,13 +556,13 @@ export class SessionsRepository {
       //               the `PIN_KINDS` membership throw, `id` by the empty-string
       //               throw on the trimmed value, and `pinned_at` is a freshly
       //               built ISO string.
-      this.db
+      ;await (this.db
         .insert(pinsTable)
-        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
+        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() }))
         .onConflictDoNothing()
         .run()
     } else {
-      this.db
+      await this.db
         .delete(pinsTable)
         .where(
           and(eq(pinsTable.userId, userId), eq(pinsTable.kind, kind), eq(pinsTable.id, cleanId)),
@@ -579,9 +580,9 @@ export class SessionsRepository {
    * Returns only sessions this user has opened. An absent key is "never opened",
    * which is the ONLY spelling — see {@link markSessionUnread}.
    */
-  listReadAt(userId: UserId): Record<string, string | null> {
+  async listReadAt(userId: UserId): Promise<Record<string, string | null>> {
     requireUserId(userId)
-    const rows = this.db
+    const rows = await this.db
       .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
       .from(sessionUserState)
       .where(eq(sessionUserState.userId, userId))
@@ -591,9 +592,9 @@ export class SessionsRepository {
     return out
   }
 
-  getReadAt(userId: UserId, sessionId: SessionId): string | null {
+  async getReadAt(userId: UserId, sessionId: SessionId): Promise<string | null> {
     requireUserId(userId)
-    const row = this.db
+    const row = await this.db
       .select({ readAt: sessionUserState.readAt })
       .from(sessionUserState)
       .where(
@@ -606,13 +607,13 @@ export class SessionsRepository {
     return row?.readAt ?? null
   }
 
-  markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): void {
+  async markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
-    this.db
+    ;await (this.db
       .insert(sessionUserState)
-      .values({ userId, sessionId: asSessionId(id), readAt })
+      .values({ userId, sessionId: asSessionId(id), readAt }))
       .onConflictDoUpdate({
         target: [sessionUserState.userId, sessionUserState.sessionId],
         set: { readAt },
@@ -623,9 +624,9 @@ export class SessionsRepository {
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
    *  would be two spellings of "never opened", and a table with two spellings of
    *  one fact acquires a second meaning nobody documented. */
-  markSessionUnread(userId: UserId, sessionId: SessionId): void {
+  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
     requireUserId(userId)
-    this.db
+    await this.db
       .delete(sessionUserState)
       .where(
         and(
@@ -645,8 +646,8 @@ export class SessionsRepository {
    * is true for everybody. It is not a widening — it removes rows, so no reader
    * ever sees another reader's state.
    */
-  clearAllReadAt(sessionId: SessionId): void {
-    this.db
+  async clearAllReadAt(sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(sessionUserState)
       .where(eq(sessionUserState.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -656,8 +657,8 @@ export class SessionsRepository {
   /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
    *  (the client clock also ignores lapsed ones at render time; this is just
    *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
-  listSnoozes(userId: UserId, now: number = Date.now()): SnoozeMap {
-    const rows = this.db
+  async listSnoozes(userId: UserId, now: number = Date.now()): Promise<SnoozeMap> {
+    const rows = await this.db
       .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
       .from(snoozesTable)
       .where(eq(snoozesTable.userId, userId))
@@ -674,7 +675,7 @@ export class SessionsRepository {
     // The lazy delete stays scoped to the reader: housekeeping on read must never
     // drop somebody else's row, even an expired one.
     for (const id of expired) {
-      this.db
+      await this.db
         .delete(snoozesTable)
         .where(and(eq(snoozesTable.userId, userId), eq(snoozesTable.sessionId, id)))
         .run()
@@ -684,18 +685,18 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  setSnooze(userId: UserId, sessionId: SessionId, until: string | null): void {
+  async setSnooze(userId: UserId, sessionId: SessionId, until: string | null): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
-    this.db
+    ;await (this.db
       .insert(snoozesTable)
       .values({
         userId,
         sessionId: asSessionId(id),
         snoozedUntil: until,
         createdAt: new Date().toISOString(),
-      })
+      }))
       .onConflictDoUpdate({
         target: [snoozesTable.userId, snoozesTable.sessionId],
         set: { snoozedUntil: until },
@@ -704,8 +705,8 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  clearSnooze(userId: UserId, sessionId: SessionId): void {
-    this.db
+  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(snoozesTable)
       .where(
         and(
@@ -716,9 +717,9 @@ export class SessionsRepository {
       .run()
   }
 
-  hasAnySnooze(sessionId: SessionId): boolean {
+  async hasAnySnooze(sessionId: SessionId): Promise<boolean> {
     return (
-      this.db
+      await this.db
         .select({ present: sql<number>`1` })
         .from(snoozesTable)
         .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
@@ -728,8 +729,8 @@ export class SessionsRepository {
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
-  clearAllSnoozes(sessionId: SessionId): void {
-    this.db
+  async clearAllSnoozes(sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(snoozesTable)
       .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -738,8 +739,8 @@ export class SessionsRepository {
   // ---- agent action offers [spec:SP-c7f1] ----
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */
-  listOffers(): OfferMap {
-    const rows = this.db.select().from(offersTable).all()
+  async listOffers(): Promise<OfferMap> {
+    const rows = await this.db.select().from(offersTable).all()
     const out: OfferMap = {}
     for (const r of rows) {
       try {
@@ -769,7 +770,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  setOffer(sessionId: SessionId, offer: OfferRecord): void {
+  async setOffer(sessionId: SessionId, offer: OfferRecord): Promise<void> {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     const values = {
@@ -780,9 +781,9 @@ export class SessionsRepository {
         offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
       createdAt: offer.createdAt,
     }
-    this.db
+    ;await (this.db
       .insert(offersTable)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: offersTable.sessionId,
         set: {
@@ -798,8 +799,8 @@ export class SessionsRepository {
   /** The stamp of one session's live offer, or undefined when it has none. The
    *  guard a dismissal checks itself against — one row, not the whole table,
    *  because `listOffers` exists to rebuild every session at boot. */
-  offerCreatedAt(sessionId: SessionId): string | undefined {
-    const row = this.db
+  async offerCreatedAt(sessionId: SessionId): Promise<string | undefined> {
+    const row = await this.db
       .select({ createdAt: offersTable.createdAt })
       .from(offersTable)
       .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
@@ -808,8 +809,8 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  clearOffer(sessionId: SessionId): void {
-    this.db
+  async clearOffer(sessionId: SessionId): Promise<void> {
+    await this.db
       .delete(offersTable)
       .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -817,8 +818,8 @@ export class SessionsRepository {
 
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
-  listTabOrders(userId: UserId): Record<string, string[]> {
-    const rows = this.db
+  async listTabOrders(userId: UserId): Promise<Record<string, string[]>> {
+    const rows = await this.db
       .select({ worktree: tabOrder.worktree, ids: tabOrder.ids })
       .from(tabOrder)
       .where(eq(tabOrder.userId, userId))
@@ -835,12 +836,12 @@ export class SessionsRepository {
     return out
   }
 
-  setTabOrder(userId: UserId, worktree: string, sessionIds: string[]): void {
+  async setTabOrder(userId: UserId, worktree: string, sessionIds: string[]): Promise<void> {
     requireUserId(userId)
     const cleanWorktree = worktree.trim()
     if (!cleanWorktree) throw new Error('worktree path is empty')
     if (sessionIds.length === 0) {
-      this.db
+      await this.db
         .delete(tabOrder)
         .where(and(eq(tabOrder.userId, userId), eq(tabOrder.worktree, cleanWorktree)))
         .run()
@@ -848,9 +849,9 @@ export class SessionsRepository {
     }
     const ids = JSON.stringify(sessionIds)
     const updatedAt = new Date().toISOString()
-    this.db
+    ;await (this.db
       .insert(tabOrder)
-      .values({ userId, worktree: cleanWorktree, ids, updatedAt })
+      .values({ userId, worktree: cleanWorktree, ids, updatedAt }))
       .onConflictDoUpdate({
         target: [tabOrder.userId, tabOrder.worktree],
         set: { ids, updatedAt },
@@ -865,14 +866,14 @@ export class SessionsRepository {
    * it names. This is §3.1.6 S5's system-writer rule — a system job may act
    * across owners, and it lands in the scope of what it acted on.
    */
-  private scrubTabOrders(sessionId: SessionId): void {
+  private async scrubTabOrders(sessionId: SessionId): Promise<void> {
     // THREE COLUMNS, NAMED, because the statement this replaces named three
     // [spec rule 39]. `tab_order` has four; spreading the table here would read
     // `updated_at` on every row of every purge and hand it to a reader that
     // builds its object from `user_id`, `worktree` and `ids` — right rows, right
     // values, and an extra column over the wire on a remote driver, which is
     // this epic's whole criterion. No test could have seen it.
-    const rows = this.db
+    const rows = await this.db
       .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
       .from(tabOrder)
       .all()
@@ -886,7 +887,7 @@ export class SessionsRepository {
         continue // corrupt row -> nothing to scrub
       }
       if (!ids.includes(sessionId)) continue
-      this.setTabOrder(
+      await this.setTabOrder(
         row.userId,
         row.worktree,
         ids.filter((id) => id !== sessionId),
@@ -901,8 +902,8 @@ export class SessionsRepository {
   // every keystroke, while a SessionRow is rewritten on every meta change — sharing
   // a row would make either write clobber the other. The registry debounces the
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
-  loadDrafts(): Record<SessionId, string> {
-    const rows = this.db
+  async loadDrafts(): Promise<Record<SessionId, string>> {
+    const rows = await this.db
       .select({ sessionId: sessionDrafts.sessionId, text: sessionDrafts.text })
       .from(sessionDrafts)
       .all()
@@ -914,8 +915,8 @@ export class SessionsRepository {
   /** Draft last-edit times by session — the companion to {@link loadDrafts}, used
    *  to seed `Session.draftUpdatedAt` at boot so a draft lifts its session in the
    *  attention ordering after a restart. */
-  loadDraftTimes(): Record<string, string> {
-    const rows = this.db
+  async loadDraftTimes(): Promise<Record<string, string>> {
+    const rows = await this.db
       .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
       .from(sessionDrafts)
       .all()
@@ -927,19 +928,19 @@ export class SessionsRepository {
   /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
    *  session's draft. Returns the new updated_at when set, or undefined when cleared
    *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
-  setDraft(sessionId: SessionId, text: string): string | undefined {
+  async setDraft(sessionId: SessionId, text: string): Promise<string | undefined> {
     const id = sessionId.trim()
     if (!id) return undefined
     if (text) {
       const updatedAt = new Date().toISOString()
-      this.db
+      ;await (this.db
         .insert(sessionDrafts)
-        .values({ sessionId: asSessionId(id), text, updatedAt })
+        .values({ sessionId: asSessionId(id), text, updatedAt }))
         .onConflictDoUpdate({ target: sessionDrafts.sessionId, set: { text, updatedAt } })
         .run()
       return updatedAt
     }
-    this.db
+    await this.db
       .delete(sessionDrafts)
       .where(eq(sessionDrafts.sessionId, asSessionId(id)))
       .run()
@@ -966,8 +967,8 @@ export class SessionsRepository {
   /** All persisted draft docs, keyed by session. A row written before the
    *  versioning columns existed reads back with `rev: 0`, `origin: null`, and an
    *  empty history. */
-  loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
-    const rows = this.db.select().from(sessionDrafts).all()
+  async loadDraftDocs(): Promise<Record<SessionId, StoredDraftDoc>> {
+    const rows = await this.db.select().from(sessionDrafts).all()
     const out: Record<string, StoredDraftDoc> = {}
     for (const r of rows) {
       out[r.sessionId] = {
@@ -983,13 +984,13 @@ export class SessionsRepository {
 
   /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
    *  removes the row just like {@link setDraft}, so a cleared draft never lingers. */
-  setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): void {
+  async setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): Promise<void> {
     // `.trim()` returns a plain `string` — a normalizing method STRIPS the brand.
     // Re-applied because trimming an id yields the same id, not a different one.
     const id = asSessionId(sessionId.trim())
     if (!id) return
     if (!doc.text) {
-      this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
+      await this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
       return
     }
     const values = {
@@ -1000,9 +1001,9 @@ export class SessionsRepository {
       origin: doc.origin,
       history: JSON.stringify(doc.history),
     }
-    this.db
+    ;await (this.db
       .insert(sessionDrafts)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: sessionDrafts.sessionId,
         set: {

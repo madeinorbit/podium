@@ -25,7 +25,7 @@ type BunBackedDatabase = Parameters<typeof createBunStoreExecutor>[0]['database'
 
 /** The capability over `database`, refusing loudly rather than handing back undefined. */
 export function stageASeam(database: BunBackedDatabase): StoreQueries {
-  const queries = createBunStoreExecutor({ database }).syncQueries
+  const queries = createBunStoreExecutor({ database }).queries
   if (!queries) {
     throw new Error(
       'this test database is not bun-backed, so it carries no synchronous query ' +

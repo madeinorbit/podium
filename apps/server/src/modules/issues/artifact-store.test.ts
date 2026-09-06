@@ -91,9 +91,9 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     const calls: Array<number | undefined> = []
     const rpc = fakeRpc({ '/wt/big.bin': big })
     const inner = rpc.readAsset.bind(rpc)
-    rpc.readAsset = (i) => {
+    rpc.readAsset = async (i) => {
       calls.push(i.offset)
-      return inner(i)
+      return await inner(i)
     }
     const store = new IssueArtifactStore(base, rpc)
     const snap = await store.snapshot({

@@ -106,14 +106,14 @@ export class HandoffPreflight {
         ),
       ]
       const sourceVerified = await Promise.all(
-        candidates.map((ref) =>
-          this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+        candidates.map(async (ref) =>
+          await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
         ),
       )
       const sourceBaseShas = verifiedBundleBases(sourceVerified)
       const targetVerified = await Promise.all(
-        sourceBaseShas.map((ref) =>
-          this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+        sourceBaseShas.map(async (ref) =>
+          await this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
         ),
       )
       baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
@@ -135,14 +135,14 @@ export class HandoffPreflight {
        */
       if (baseShas.length === 0) {
         const targetCandidates = await Promise.all(
-          candidates.map((ref) =>
-            this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+          candidates.map(async (ref) =>
+            await this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
           ),
         )
         const targetBaseShas = verifiedBundleBases(targetCandidates)
         const sourceVerifiedTargetBases = await Promise.all(
-          targetBaseShas.map((ref) =>
-            this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+          targetBaseShas.map(async (ref) =>
+            await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
           ),
         )
         baseShas = verifiedCommonBundleBases(targetCandidates, sourceVerifiedTargetBases)

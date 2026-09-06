@@ -31,66 +31,66 @@ const OFFER = {
   ],
 }
 
-function metaOffer(reg: SessionRegistry, sessionId: string) {
-  return reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
+async function metaOffer(reg: SessionRegistry, sessionId: string) {
+  return (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.offer
 }
 
 describe('agent action offer [spec:SP-c7f1]', () => {
-  it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
 
-    expect(metaOffer(reg, sessionId)).toBeUndefined()
+    expect(await metaOffer(reg, sessionId)).toBeUndefined()
 
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    const surfaced = metaOffer(reg, sessionId)
+    const surfaced = await metaOffer(reg, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
     expect(typeof surfaced?.createdAt).toBe('string')
 
     reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
-    expect(metaOffer(reg, sessionId)?.message).toBe('Ready to land')
-    expect(metaOffer(reg, sessionId)?.actions).toEqual([])
+    expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
+    expect((await metaOffer(reg, sessionId))?.actions).toEqual([])
   })
 
-  it('carries artifact references [POD-120] on meta and across a restart', () => {
+  it('carries artifact references [POD-120] on meta and across a restart', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     const artifacts = ['e2e/header-after.png', 'docs/proposal.md']
     reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
-    expect(metaOffer(reg, sessionId)?.artifacts).toEqual(artifacts)
+    expect((await metaOffer(reg, sessionId))?.artifacts).toEqual(artifacts)
     reg.dispose()
 
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    expect(metaOffer(reg2, sessionId)?.artifacts).toEqual(artifacts)
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    expect((await metaOffer(reg2, sessionId))?.artifacts).toEqual(artifacts)
 
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
     reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
-    expect(metaOffer(reg2, sessionId)?.artifacts).toBeUndefined()
+    expect((await metaOffer(reg2, sessionId))?.artifacts).toBeUndefined()
     reg2.dispose()
 
-    const reg3 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    expect(metaOffer(reg3, sessionId)?.artifacts).toBeUndefined()
+    const reg3 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    expect((await metaOffer(reg3, sessionId))?.artifacts).toBeUndefined()
     reg3.dispose()
   })
 
-  it('clearOffer removes it', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('clearOffer removes it', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.modules.sessions.clearOffer(sessionId)
-    expect(metaOffer(reg, sessionId)).toBeUndefined()
+    expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
   /**
@@ -101,9 +101,9 @@ describe('agent action offer [spec:SP-c7f1]', () => {
    * replaced the offer. That click must do NOTHING: the operator has not seen
    * the new offer, so consuming it would drop a question nobody answered.
    */
-  it('dismissOffer clears the offer it names, and leaves one that replaced it', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('dismissOffer clears the offer it names, and leaves one that replaced it', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -113,23 +113,23 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     try {
       vi.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-      const first = metaOffer(reg, sessionId)?.createdAt as string
+      const first = (await metaOffer(reg, sessionId))?.createdAt as string
 
       // A stamp nobody posted is not a licence to clear whatever is standing.
       expect(reg.modules.sessions.dismissOffer(sessionId, '1999-01-01T00:00:00.000Z')).toBe(false)
-      expect(metaOffer(reg, sessionId)?.createdAt).toBe(first)
+      expect((await metaOffer(reg, sessionId))?.createdAt).toBe(first)
 
       vi.setSystemTime(new Date('2026-08-12T10:00:05.000Z'))
       reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
-      const second = metaOffer(reg, sessionId)?.createdAt as string
+      const second = (await metaOffer(reg, sessionId))?.createdAt as string
       expect(second).not.toBe(first)
 
       // The click aimed at the FIRST offer arrives late; the second survives it.
       expect(reg.modules.sessions.dismissOffer(sessionId, first)).toBe(false)
-      expect(metaOffer(reg, sessionId)?.message).toBe('Ready to land')
+      expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
 
       expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(true)
-      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      expect(await metaOffer(reg, sessionId)).toBeUndefined()
       // Dismissing nothing is a no-op, not a throw.
       expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(false)
     } finally {
@@ -151,8 +151,8 @@ describe('agent action offer [spec:SP-c7f1]', () => {
    */
   describe('the durable write and the feed row travel together', () => {
     /** Session changes on the feed since `cursor`, newest state per change. */
-    function sessionChangesSince(reg: SessionRegistry, cursor: number) {
-      const res = reg.modules.sessions.syncChangesSince(cursor)
+    async function sessionChangesSince(reg: SessionRegistry, cursor: number) {
+      const res = await reg.modules.sessions.syncChangesSince(cursor)
       // A cursor this recent is always servable as a delta; a snapshot here
       // would mean the assertion silently stopped testing the feed.
       expect(res.kind).toBe('delta')
@@ -161,19 +161,19 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       )
     }
 
-    function seeded() {
-      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const { sessionId } = reg.modules.sessions.createSession({
+    async function seeded() {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       reg.modules.sessions.flushBroadcasts()
-      return { reg, sessionId, cursor: reg.modules.sessions.syncChangesSince(null).cursor }
+      return { reg, sessionId, cursor: (await reg.modules.sessions.syncChangesSince(null)).cursor }
     }
 
-    it('clearing a standing offer puts the offer-free meta on the feed', () => {
-      const { reg, sessionId, cursor } = seeded()
+    it('clearing a standing offer puts the offer-free meta on the feed', async () => {
+      const { reg, sessionId, cursor } = await seeded()
       // The hot path must not pay the durable stamp read: memory answered, so
       // the row is never consulted. Every frequent caller lands here.
       const stampRead = vi.spyOn(reg.sessionStore.sessions, 'offerCreatedAt')
@@ -182,7 +182,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(stampRead).not.toHaveBeenCalled()
       stampRead.mockRestore()
 
-      const changes = sessionChangesSince(reg, cursor)
+      const changes = await sessionChangesSince(reg, cursor)
       expect(changes).toHaveLength(1)
       expect((changes[0]?.value as { offer?: unknown }).offer).toBeUndefined()
     })
@@ -194,17 +194,17 @@ describe('agent action offer [spec:SP-c7f1]', () => {
      * on screen until a reload. Clearing memory's copy directly is how the state
      * is reached here; what matters is that the clear still publishes.
      */
-    it('republishes when only the durable row still holds the offer', () => {
-      const { reg, sessionId, cursor } = seeded()
+    it('republishes when only the durable row still holds the offer', async () => {
+      const { reg, sessionId, cursor } = await seeded()
       const live = (reg as any).modules.sessions.sessions.get(sessionId)
       expect(live.clearOffer()).toBe(true) // memory only — the row survives
-      expect(reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+      expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
 
       reg.modules.sessions.clearOffer(asSessionId(sessionId))
       reg.modules.sessions.flushBroadcasts()
 
-      expect(reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
-      const changes = sessionChangesSince(reg, cursor)
+      expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
+      const changes = await sessionChangesSince(reg, cursor)
       expect(changes).toHaveLength(1)
       expect((changes[0]?.value as { offer?: unknown }).offer).toBeUndefined()
     })
@@ -218,11 +218,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
      * auto-clear callers all gate on the in-memory copy, that row would outlive
      * every turn and every restart. A clear must still retire it.
      */
-    it('retires a row that boot could not parse into an in-memory offer', () => {
+    it('retires a row that boot could not parse into an in-memory offer', async () => {
       const dir = trackTmp('podium-offer-')
       const file = join(dir, 'store.db')
-      const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-      const { sessionId } = reg.modules.sessions.createSession({
+      const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
       })
@@ -233,34 +233,34 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{not json', sessionId)
       db.close()
 
-      const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+      const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
       // Boot dropped it from memory but left the row standing.
-      expect(metaOffer(reg2, sessionId)).toBeUndefined()
-      expect(reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+      expect(await metaOffer(reg2, sessionId)).toBeUndefined()
+      expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
 
       reg2.modules.sessions.clearOffer(asSessionId(sessionId))
       reg2.modules.sessions.flushBroadcasts()
-      expect(reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
+      expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
       reg2.dispose()
     })
 
     /** The common case. Nothing to clear must cost neither a DELETE nor a feed
      *  row — and must not cost the durable read either, which is why the callers
      *  that clear a standing offer gate on the in-memory copy first. */
-    it('clearing when there is no offer writes nothing and says nothing', () => {
-      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const { sessionId } = reg.modules.sessions.createSession({
+    it('clearing when there is no offer writes nothing and says nothing', async () => {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
       })
       reg.modules.sessions.flushBroadcasts()
-      const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+      const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
       const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
 
       reg.modules.sessions.clearOffer(asSessionId(sessionId))
       reg.modules.sessions.flushBroadcasts()
       expect(deleted).not.toHaveBeenCalled()
-      expect(sessionChangesSince(reg, cursor)).toEqual([])
+      expect(await sessionChangesSince(reg, cursor)).toEqual([])
       deleted.mockRestore()
     })
 
@@ -271,52 +271,52 @@ describe('agent action offer [spec:SP-c7f1]', () => {
      * change baseline too (kill and issue-delete publish removes; the boot
      * reconcile drops a row it could not load), so no client is holding it.
      */
-    it('a non-resident session is durable-only, on both set and clear', () => {
-      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    it('a non-resident session is durable-only, on both set and clear', async () => {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.modules.sessions.flushBroadcasts()
-      const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+      const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
       const gone = asSessionId('a-session-not-in-memory')
 
       reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
       reg.modules.sessions.flushBroadcasts()
-      expect(reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
-      expect(sessionChangesSince(reg, cursor)).toEqual([])
+      expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
+      expect(await sessionChangesSince(reg, cursor)).toEqual([])
 
       reg.modules.sessions.clearOffer(gone)
       reg.modules.sessions.flushBroadcasts()
-      expect(reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
-      expect(sessionChangesSince(reg, cursor)).toEqual([])
+      expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
+      expect(await sessionChangesSince(reg, cursor)).toEqual([])
     })
   })
 
-  it('persists the offer across a restart (reload from the same store file)', () => {
+  it('persists the offer across a restart (reload from the same store file)', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.dispose()
 
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    const surfaced = metaOffer(reg2, sessionId)
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const surfaced = await metaOffer(reg2, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
     reg2.dispose()
   })
 
-  it('boot reconciliation: user input after the offer drops it on reload', () => {
+  it('boot reconciliation: user input after the offer drops it on reload', async () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    const { sessionId } = reg.modules.sessions.createSession({
+    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+    const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
     reg.dispose()
 
     // The user typed into the session after the offer was posted (e.g. via the
@@ -328,8 +328,8 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     )
     db.close()
 
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
-    expect(metaOffer(reg2, sessionId)).toBeUndefined()
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    expect(await metaOffer(reg2, sessionId)).toBeUndefined()
     reg2.dispose()
 
     // ...and the offers table row is gone too, not just the in-memory overlay.
@@ -338,17 +338,17 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     check.close()
   })
 
-  it('clears the offer when a message is queued to the session (a user turn)', () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('clears the offer when a message is queued to the session (a user turn)', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     // A session with no live daemon parks the send into the durable queue, which
     // is the clear-on-turn path a button click also rides through.
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
     })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
-    expect(metaOffer(reg, sessionId)).toBeUndefined()
+    expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
   // The USER moving the conversation past the offer makes it stale — a NEW
@@ -368,15 +368,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       nativeSubagentCount: 0,
     })
 
-    function seed() {
-      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    async function seed() {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-      const { sessionId } = reg.modules.sessions.createSession({
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-      const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+      const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       return { reg, sessionId, createdAt }
     }
     // Raw PTY keystrokes from the controlling client — bumps lastInputAtMs.
@@ -402,40 +402,40 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const plusMinute = (iso: string) => new Date(Date.parse(iso) + 60_000).toISOString()
     const minusMinute = (iso: string) => new Date(Date.parse(iso) - 60_000).toISOString()
 
-    it('entering working after the user typed into the PTY consumes it', () => {
-      const { reg, sessionId, createdAt } = seed()
+    it('entering working after the user typed into the PTY consumes it', async () => {
+      const { reg, sessionId, createdAt } = await seed()
       typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
       })
-      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
-    it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', () => {
-      const { reg, sessionId, createdAt } = seed()
+    it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', async () => {
+      const { reg, sessionId, createdAt } = await seed()
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
-    it('a boot replay of the turn that produced the offer (older event-time) leaves it', () => {
-      const { reg, sessionId, createdAt } = seed()
+    it('a boot replay of the turn that produced the offer (older event-time) leaves it', async () => {
+      const { reg, sessionId, createdAt } = await seed()
       typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(minusMinute(createdAt)),
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
-    it('non-working phases and continued working do not clear', () => {
-      const { reg, sessionId, createdAt } = seed()
+    it('non-working phases and continued working do not clear', async () => {
+      const { reg, sessionId, createdAt } = await seed()
       typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -443,7 +443,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         sessionId,
         state: idle(plusMinute(createdAt)),
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
       // ENTRY into working counts, so an offer set mid-turn survives its turn.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -458,7 +458,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         sessionId,
         state: working(plusMinute(plusMinute(createdAt))),
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
   })
 
@@ -470,12 +470,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const shift = (iso: string, seconds: number) =>
       new Date(Date.parse(iso) + seconds * 1000).toISOString()
 
-    function seed(agentKind: 'claude-code' | 'codex') {
-      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    async function seed(agentKind: 'claude-code' | 'codex') {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-      const { sessionId } = reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-      const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+      const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
       const observe = (observation: AgentObservation) =>
         reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -552,16 +552,16 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       }
     }
 
-    it("a human-origin turn_opened consumes it (the harness's own answer)", () => {
-      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+    it("a human-origin turn_opened consumes it (the harness's own answer)", async () => {
+      const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
       observe(turnOpened('human'))
-      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
-    it('a controller-origin turn_opened (chat/button) consumes it', () => {
-      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+    it('a controller-origin turn_opened (chat/button) consumes it', async () => {
+      const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
       observe(turnOpened('controller'))
-      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
     it.each([
@@ -569,58 +569,58 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       'auto_continue',
       'steward',
       'system',
-    ] as const)('a %s-origin turn preserves it — nobody saw the offer yet [POD-118]', (origin) => {
-      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+    ] as const)('a %s-origin turn preserves it — nobody saw the offer yet [POD-118]', async (origin) => {
+      const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
       observe(turnOpened(origin))
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
     // Codex and grok observers stamp every transition 'provider' — they track
     // no origin — so those harnesses fall back to input evidence.
-    it('a provider-origin turn consumes it only after the user typed', () => {
-      const withoutTyping = seed('codex')
+    it('a provider-origin turn consumes it only after the user typed', async () => {
+      const withoutTyping = await seed('codex')
       withoutTyping.observe(withoutTyping.turnOpened('provider'))
-      expect(metaOffer(withoutTyping.reg, withoutTyping.sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(withoutTyping.reg, withoutTyping.sessionId))?.message).toBe(OFFER.message)
 
-      const withTyping = seed('codex')
+      const withTyping = await seed('codex')
       typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
       withTyping.observe(withTyping.turnOpened('provider'))
-      expect(metaOffer(withTyping.reg, withTyping.sessionId)).toBeUndefined()
+      expect(await metaOffer(withTyping.reg, withTyping.sessionId)).toBeUndefined()
     })
 
     // A mail wake types into the PTY too, so "any input since the offer" is not
     // evidence of a person — only user-origin input counts. The delivery must
     // not consume the offer on its own way in either [POD-118].
-    it('a mail delivery neither clears the offer nor counts as input evidence', () => {
-      const { reg, sessionId, observe, turnOpened } = seed('codex')
+    it('a mail delivery neither clears the offer nor counts as input evidence', async () => {
+      const { reg, sessionId, observe, turnOpened } = await seed('codex')
       reg.modules.sessions.sendText({
         sessionId: asSessionId(sessionId),
         text: 'a message from another agent',
         inputOrigin: 'mail',
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
       observe(turnOpened('provider'))
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
-    it('a chat send still clears it on the way in', () => {
-      const { reg, sessionId } = seed('codex')
+    it('a chat send still clears it on the way in', async () => {
+      const { reg, sessionId } = await seed('codex')
       reg.modules.sessions.sendText({
         sessionId: asSessionId(sessionId),
         text: 'carry on',
       })
-      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
-    it('a turn that opened BEFORE the offer cannot consume it', () => {
-      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+    it('a turn that opened BEFORE the offer cannot consume it', async () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const early = turnOpened('human')
       observe({ ...early, receivedAt: shift(createdAt, -30), providerAt: shift(createdAt, -30) })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
-    it('mid-turn activity and the turn end that posts the offer leave it', () => {
-      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+    it('mid-turn activity and the turn end that posts the offer leave it', async () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const open = turnOpened('human')
       observe({
         ...open,
@@ -628,7 +628,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         sourceEventKind: 'PostToolUse',
         transitionId: 'turn-1-activity',
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
       observe({
         ...open,
         providerCursor: { segmentId: 'seg-1', components: { file: 30 } },
@@ -644,12 +644,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
           nativeSubagentCount: 0,
         },
       })
-      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
     // The same branch divergence dropped the POD-98 git refresh (POD-381).
-    it('a turn ending on this path fires the issue git-state refresh [POD-381]', () => {
-      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+    it('a turn ending on this path fires the issue git-state refresh [POD-381]', async () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const derived: string[] = []
       reg.bus.on('issue.sessionDerived', (event) => {
         if ('sessionId' in event && event.sessionId === sessionId) derived.push(event.kind)

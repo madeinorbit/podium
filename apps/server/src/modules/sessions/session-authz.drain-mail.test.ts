@@ -106,8 +106,8 @@ const agentPrincipal = (id: string) => ({
 })
 
 describe('drain-time authorization of mail rows [POD-3226]', () => {
-  it('lets a worker reply reach the coordinator on the parent issue', () => {
-    const verdict = harness().authorizeQueuedInputAtApply({
+  it('lets a worker reply reach the coordinator on the parent issue', async () => {
+    const verdict = await harness().authorizeQueuedInputAtApply({
       sessionId: COORDINATOR.sessionId,
       principal: agentPrincipal('worker'),
       sourceMessageId: 'msg_reply',
@@ -115,8 +115,8 @@ describe('drain-time authorization of mail rows [POD-3226]', () => {
     expect(verdict).toEqual({ ok: true })
   })
 
-  it('still lets the coordinator reach its worker on the child issue', () => {
-    const verdict = harness().authorizeQueuedInputAtApply({
+  it('still lets the coordinator reach its worker on the child issue', async () => {
+    const verdict = await harness().authorizeQueuedInputAtApply({
       sessionId: WORKER.sessionId,
       principal: agentPrincipal('coordinator'),
       sourceMessageId: 'msg_brief',
@@ -124,11 +124,11 @@ describe('drain-time authorization of mail rows [POD-3226]', () => {
     expect(verdict).toEqual({ ok: true })
   })
 
-  it('names a policy refusal instead of calling a visible target gone', () => {
+  it('names a policy refusal instead of calling a visible target gone', async () => {
     // An issueless target may be commanded only by its parent or the operator.
     // The worker is neither, and it CAN see the stray session, so the sender
     // is owed the rule it tripped — not "session no longer exists".
-    const verdict = harness().authorizeQueuedInputAtApply({
+    const verdict = await harness().authorizeQueuedInputAtApply({
       sessionId: STRAY.sessionId,
       principal: agentPrincipal('worker'),
       sourceMessageId: 'msg_stray',
@@ -139,8 +139,8 @@ describe('drain-time authorization of mail rows [POD-3226]', () => {
     expect(verdict.reason).toContain('only its parent or the operator')
   })
 
-  it('still reports a target that does not exist as gone', () => {
-    const verdict = harness().authorizeQueuedInputAtApply({
+  it('still reports a target that does not exist as gone', async () => {
+    const verdict = await harness().authorizeQueuedInputAtApply({
       sessionId: asSessionId('nobody'),
       principal: agentPrincipal('worker'),
       sourceMessageId: 'msg_ghost',

@@ -31,10 +31,10 @@ async function captureSpawn(over: {
       tools: [],
     }),
   )
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const sent: ControlMessage[] = []
   registry.gateway.attachDaemon('m1', (m) => sent.push(m))
-  registry.modules.sessions.createSession({ cwd: '/wt', machineId: asMachineId('m1'), ...over })
+  await registry.modules.sessions.createSession({ cwd: '/wt', machineId: asMachineId('m1'), ...over })
   const spawn = sent.find((m) => m.type === 'spawn')
   registry.dispose()
   return spawn as Extract<ControlMessage, { type: 'spawn' }> | undefined

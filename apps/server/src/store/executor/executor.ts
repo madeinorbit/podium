@@ -26,8 +26,7 @@
  * scope-bound.
  */
 
-import type { StoreQueries } from './sync-drizzle'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { storeQueriesOver, type StoreQueries } from './sync-drizzle'
 import {
   ALWAYS_ALIVE,
   assertAddressable,
@@ -66,7 +65,6 @@ export type StoreContext = Readonly<Record<string, never>>
 
 export interface StoreExecutor<TClient = QueryClient> {
   readonly drizzle: TClient
-  readonly legacy: SqlDatabase | undefined
   /**
    * THE SYNCHRONOUS QUERY CAPABILITY: a drizzle instance and a transaction that
    * return values rather than promises. Present when the handle is bun-backed,
@@ -78,7 +76,7 @@ export interface StoreExecutor<TClient = QueryClient> {
    * B1 moves repositories from this pair to that one; the query bodies are the same
    * either way, which is what makes the existing suite the flip's oracle.
    */
-  readonly syncQueries: StoreQueries | undefined
+  readonly queries: StoreQueries
   readonly context: StoreContext
   transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
@@ -119,11 +117,7 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
 }
 
 export interface StoreExecutorOptions<TClient> {
-  /** The synchronous query capability; see {@link StoreExecutor.syncQueries}. */
-  syncQueries?: StoreQueries
   driver: StoreDriver<TClient>
-  /** The raw handle, for repositories not yet converted. Transitional. */
-  legacy?: SqlDatabase
   watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
   now?: () => number
   /** Mechanism 3's report sink. Failures are reported, never rethrown. */
@@ -136,28 +130,6 @@ export interface StoreExecutorOptions<TClient> {
    * failure into an unmarked rejection of a committed write.
    */
   onReportFailure?: (error: unknown, label: string) => void
-}
-
-/**
- * The raw handle a repository that has not been converted yet still runs on
- * [POD-3254]. TRANSITIONAL, and the refusal is the point: `legacy` is optional
- * on the executor because a fake driver or a remote one has no bun:sqlite handle
- * to offer, and a repository built over such an executor must fail LOUDLY at
- * construction rather than at the first statement, where the stack no longer
- * says which repository was mis-wired.
- *
- * POD-3267 deletes this function together with the field it reads, and the
- * compiler then names every repository that still had not been converted.
- */
-export function legacyHandle(executor: { readonly legacy: SqlDatabase | undefined }): SqlDatabase {
-  if (!executor.legacy) {
-    throw new Error(
-      'this executor carries no legacy handle, and the repository being constructed has not ' +
-        'been converted to the query layer yet. Build the executor with `legacy` set (the ' +
-        'bun:sqlite composition does), or convert the repository.',
-    )
-  }
-  return executor.legacy
 }
 
 /**
@@ -251,11 +223,12 @@ export function createStoreExecutor<TClient>(
    * dropping the runner at the end of the drain would make `effectsSettled()`
    * blind to exactly the work it exists to wait for.
    */
-  function retire(runner: PostCommitRunner): void {
-    void runner.effectsSettled().then(
-      () => runners.delete(runner),
-      () => runners.delete(runner),
-    )
+  async function retire(runner: PostCommitRunner): Promise<void> {
+    try {
+      await runner.effectsSettled()
+    } finally {
+      runners.delete(runner)
+    }
   }
 
   function newRunner(): PostCommitRunner {
@@ -279,24 +252,26 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, [statement])
-      return scope.frame.unit.inFlight.track(() => scope.frame.lease.session.execute(statement))
+      return await scope.frame.unit.inFlight.track(
+        async () => await scope.frame.lease.session.execute(statement),
+      )
     }
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
       // on the held lease, inside the scheduler's ordered operation.
       assertDraining(scope)
-      return scope.inFlight.track(() => scope.lease.session.execute(statement))
+      return await scope.inFlight.track(async () => await scope.lease.session.execute(statement))
     }
     const lane: Lane = laneFor([statement])
-    return scheduler.run(lane, async (lease) => {
+    return await scheduler.run(lane, async (lease) => {
       // AGAIN, on the far side of admission. The check above ran when the call
       // was made; a write can sit in the queue behind the very transaction
       // whose commit application fails, and mechanism 1 says the store refuses
       // further work from that moment — including work already waiting.
       assertHealthy()
       return lane === 'write'
-        ? lease.atomicWrite(() => lease.session.execute(statement))
-        : lease.session.execute(statement)
+        ? await lease.atomicWrite(async () => await lease.session.execute(statement))
+        : await lease.session.execute(statement)
     })
   }
 
@@ -325,20 +300,22 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, statements)
-      return scope.frame.unit.inFlight.track(() =>
-        scope.frame.lease.session.executeBatch(statements),
+      return await scope.frame.unit.inFlight.track(
+        async () => await scope.frame.lease.session.executeBatch(statements),
       )
     }
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return scope.inFlight.track(() => scope.lease.session.executeBatch(statements))
+      return await scope.inFlight.track(
+        async () => await scope.lease.session.executeBatch(statements),
+      )
     }
     const lane = laneFor(statements)
-    return scheduler.run(lane, async (lease) => {
+    return await scheduler.run(lane, async (lease) => {
       assertHealthy()
       return lane === 'write'
-        ? lease.atomicWrite(() => lease.session.executeBatch(statements))
-        : lease.session.executeBatch(statements)
+        ? await lease.atomicWrite(async () => await lease.session.executeBatch(statements))
+        : await lease.session.executeBatch(statements)
     })
   }
 
@@ -379,7 +356,9 @@ export function createStoreExecutor<TClient>(
       assertHealthy()
       assertAddressable(frame)
       assertWritable(frame, [statement])
-      return frame.unit.inFlight.track(() => frame.lease.session.execute(statement))
+      return await frame.unit.inFlight.track(
+        async () => await frame.lease.session.execute(statement),
+      )
     }
   }
 
@@ -388,7 +367,9 @@ export function createStoreExecutor<TClient>(
       assertHealthy()
       assertAddressable(frame)
       assertWritable(frame, statements)
-      return frame.unit.inFlight.track(() => frame.lease.session.executeBatch(statements))
+      return await frame.unit.inFlight.track(
+        async () => await frame.lease.session.executeBatch(statements),
+      )
     }
   }
 
@@ -399,11 +380,12 @@ export function createStoreExecutor<TClient>(
     if (cached) return cached
     const bound: StoreExecutor<TClient> = {
       drizzle: driver.client(frameRouter(frame), frameBatchRouter(frame)),
-      legacy: options.legacy,
-      syncQueries: options.syncQueries,
+      get queries() {
+        return root.queries
+      },
       context: {},
-      transact: (fn) => transactOn(frame, fn),
-      read: (fn) => readOn(frame, fn),
+      transact: async (fn) => await transactOn(frame, fn),
+      read: async (fn) => await readOn(frame, fn),
     }
     boundExecutors.set(frame, bound)
     return bound
@@ -533,7 +515,7 @@ export function createStoreExecutor<TClient>(
       try {
         await runInScope(
           { kind: 'post-commit', lease, runner, inFlight, active: () => draining },
-          () => runner.drain(registry),
+          async () => await runner.drain(registry),
         )
         // The drain waits for what its steps RETURN; a step that issued a
         // statement and dropped the promise leaves a round trip in flight on
@@ -577,7 +559,7 @@ export function createStoreExecutor<TClient>(
     // Claimed before the first await, so a second branch opened in the same
     // turn is refused rather than racing for the savepoint stack.
     parent.child = frame
-    const name = `podium_sp_${frame.depth}`
+    const name = `podium_nested_${frame.depth}`
     try {
       await parent.lease.session.enterSavepoint(name)
     } catch (error) {
@@ -674,7 +656,7 @@ export function createStoreExecutor<TClient>(
           'scope at the top of the operation instead.',
       )
     }
-    return runNested(frame, fn)
+    return await runNested(frame, fn)
   }
 
   async function readOn<T>(
@@ -696,7 +678,7 @@ export function createStoreExecutor<TClient>(
   async function transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
     assertHealthy()
     const scope = currentScope()
-    if (scope.kind === 'transaction') return transactOn(scope.frame, fn)
+    if (scope.kind === 'transaction') return await transactOn(scope.frame, fn)
     if (scope.kind === 'post-commit') {
       // A follow-up committing durably: the same lease, a fresh transaction,
       // and its own post-commit work queued behind the batch being drained.
@@ -705,9 +687,9 @@ export function createStoreExecutor<TClient>(
       // wait for what a step returns, so a follow-up that starts a transaction
       // and drops its promise would otherwise go on begin-ing, writing and
       // committing on a lease the scheduler has taken back.
-      return runTopLevel(scope.lease, 'write', fn, scope.runner, () => scope.active())
+      return await runTopLevel(scope.lease, 'write', fn, scope.runner, () => scope.active())
     }
-    return scheduler.run('write', async (lease) => {
+    return await scheduler.run('write', async (lease) => {
       // On the far side of admission: a write queued behind the transaction
       // whose commit application failed must be refused, not committed into a
       // store already known to have diverged.
@@ -716,7 +698,7 @@ export function createStoreExecutor<TClient>(
       try {
         return await runTopLevel(lease, 'write', fn, runner)
       } finally {
-        retire(runner)
+        await retire(runner)
       }
     })
   }
@@ -724,21 +706,32 @@ export function createStoreExecutor<TClient>(
   async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
     assertHealthy()
     const scope = currentScope()
-    if (scope.kind === 'transaction') return readOn(scope.frame, fn)
+    if (scope.kind === 'transaction') return await readOn(scope.frame, fn)
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return runTopLevel(scope.lease, 'read', fn, undefined, () => scope.active())
+      return await runTopLevel(scope.lease, 'read', fn, undefined, () => scope.active())
     }
-    return scheduler.run('read', async (lease) => {
+    return await scheduler.run('read', async (lease) => {
       assertHealthy()
-      return runTopLevel(lease, 'read', fn, undefined)
+      return await runTopLevel(lease, 'read', fn, undefined)
     })
   }
 
+  const rootClient = driver.client(ambientRouter, ambientBatchRouter)
+  const rootQueries = isQueryClient(rootClient)
+    ? storeQueriesOver(
+        rootClient,
+        async (fn) => await transact(async (tx) => fn(tx.drizzle as unknown as QueryClient)),
+      )
+    : undefined
   const root: RootStoreExecutor<TClient> = {
-    drizzle: driver.client(ambientRouter, ambientBatchRouter),
-    legacy: options.legacy,
-    syncQueries: options.syncQueries,
+    drizzle: rootClient,
+    get queries() {
+      if (!rootQueries) {
+        throw new Error('the repository query capability requires the executor QueryClient')
+      }
+      return rootQueries
+    },
     context: {},
     transact,
     read,
@@ -751,7 +744,7 @@ export function createStoreExecutor<TClient>(
             'lane it would have to wait for. Take it from the root.',
         )
       }
-      return scheduler.run('exclusive', async (lease) => {
+      return await scheduler.run('exclusive', async (lease) => {
         assertHealthy()
         return fn(lease.session)
       })
@@ -759,14 +752,14 @@ export function createStoreExecutor<TClient>(
     async outsideTransaction(fn) {
       assertHealthy()
       const scope = currentScope()
-      if (scope.kind !== 'transaction') return read(fn)
+      if (scope.kind !== 'transaction') return await read(fn)
       // The context is only a permission to look outside a transaction that is
       // still open. A continuation the body left in flight carries the scope
       // with it, so without this it would resume after the commit and read the
       // committed view successfully — the token rule with a hole in it.
       assertAddressable(scope.frame)
       const caller = scope.frame
-      return scheduler.detachedRead(async (session) => {
+      return await scheduler.detachedRead(async (session) => {
         const frame = createFrame({
           lane: 'read',
           lease: detachedLease(session),
@@ -800,7 +793,11 @@ export function createStoreExecutor<TClient>(
     async effectsSettled() {
       await Promise.all([...runners].map((runner) => runner.effectsSettled()))
     },
-    close: () => scheduler.close(),
+    close: async () => await scheduler.close(),
   }
   return root
+}
+
+function isQueryClient(client: unknown): client is QueryClient {
+  return typeof client === 'object' && client !== null && 'writeAll' in client && 'batch' in client
 }

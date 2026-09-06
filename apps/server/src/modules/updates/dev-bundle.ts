@@ -1953,7 +1953,7 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * that enrolls today is served by the next build rather than by the next restart.
    * Defaults to this host's own.
    */
-  fleetPlatforms?: () => readonly string[]
+  fleetPlatforms?: () => Promise<readonly string[]> | readonly string[]
   /** Product version and source commit captured by the server producing this proposal. */
   proposalRunningVersion?: string
   proposalRunningSha?: string
@@ -2202,7 +2202,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       //
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
-      const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
+      const platforms = devBuildPlatforms(await deps.fleetPlatforms?.())
       const liveRoot = deps.root ?? SOURCE_ROOT
       const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
         // The clients are no longer built here. The release child owns them: it builds

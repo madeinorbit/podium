@@ -67,7 +67,7 @@ describe('issues.* subtree scope (P1a)', () => {
   let B: { id: string; title: string }
 
   beforeEach(async () => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,
@@ -254,15 +254,15 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', async () => {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
-    const i = registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
-    registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
-    const wt = registry.issues.get(i.id)!.worktreePath as string
+    const i = await registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
+    await registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const wt = (await registry.issues.get(i.id))!.worktreePath as string
 
-    const { sessionId: sid } = registry.modules.sessions.createSession({
+    const { sessionId: sid } = await registry.modules.sessions.createSession({
       cwd: wt,
       agentKind: 'shell',
     })
@@ -275,7 +275,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
     })
 
-    const { sessionId: sid2 } = registry.modules.sessions.createSession({
+    const { sessionId: sid2 } = await registry.modules.sessions.createSession({
       cwd: '/unowned',
       agentKind: 'shell',
     })
@@ -381,7 +381,7 @@ describe('issues.mail* (agent mail #103)', () => {
   let B: { id: string; seq: number }
 
   beforeEach(async () => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,
@@ -435,7 +435,7 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('mailInbox / mailPending with no id resolve to the caller bound issue', async () => {
-    registry.issues.sendMail(asIssueId(A.id), 'operator', 'for A')
+    await registry.issues.sendMail(asIssueId(A.id), 'operator', 'for A')
     const c = scopedToA()
     expect(await c.issues.mailPending()).toMatchObject({ unread: 1 })
     const inbox = await c.issues.mailInbox()
@@ -445,7 +445,7 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('a PEEK at another mailbox (operator or other agent) does not consume unread', async () => {
-    registry.issues.sendMail(asIssueId(A.id), 'operator', 'for A')
+    await registry.issues.sendMail(asIssueId(A.id), 'operator', 'for A')
     // operator peek
     const opInbox = await callerWith(OPERATOR).issues.mailInbox({ id: A.id })
     expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
@@ -469,8 +469,8 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
     const op = callerWith(OPERATOR)
-    const mine = registry.issues.sendMail(asIssueId(A.id), 'operator', 'mine')
-    const theirs = registry.issues.sendMail(asIssueId(B.id), 'operator', 'theirs')
+    const mine = await registry.issues.sendMail(asIssueId(A.id), 'operator', 'mine')
+    const theirs = await registry.issues.sendMail(asIssueId(B.id), 'operator', 'theirs')
     const c = scopedToA()
     const r = await c.issues.mailClaim({ messageId: mine.id })
     expect(r.claimed).toBe(true)
@@ -492,7 +492,7 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('second claim on the same message loses', async () => {
     const op = callerWith(OPERATOR)
-    const m = registry.issues.sendMail(asIssueId(A.id), 'operator', 'race')
+    const m = await registry.issues.sendMail(asIssueId(A.id), 'operator', 'race')
     expect((await op.issues.mailClaim({ messageId: m.id })).claimed).toBe(true)
     const again = await scopedToA().issues.mailClaim({ messageId: m.id })
     expect(again.claimed).toBe(false)
@@ -507,8 +507,8 @@ describe('issues router create/list/update', () => {
   afterEach(() => {
     for (const r of registries.splice(0)) r.dispose()
   })
-  const caller = () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const caller = async () => {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // OPERATOR clears every issues.* gate so these create/update flows aren't blocked.
     return appRouter.createCaller({
@@ -521,14 +521,14 @@ describe('issues router create/list/update', () => {
   }
 
   it('creates and lists', async () => {
-    const c = caller()
+    const c = await caller()
     const created = await c.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     expect(created.seq).toBe(1)
     expect((await c.issues.list({ repoPath: '/r' })).length).toBe(1)
   })
 
   it('updates stage locally (never takes the forwarded `{ queued: true }` branch, P7b)', async () => {
-    const c = caller()
+    const c = await caller()
     const created = await c.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const moved = await c.issues.update({ id: created.id, patch: { stage: 'in_progress' } })
     if ('queued' in moved) throw new Error('local update unexpectedly queued')
@@ -545,7 +545,7 @@ describe('issues.subscription* authz (Phase B)', () => {
   let B: { id: string; seq: number }
 
   beforeEach(async () => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const setup = appRouter.createCaller({
       registry,
@@ -703,8 +703,8 @@ describe('issues.* on an issue that does not exist (POD-1926)', () => {
   const registries: SessionRegistry[] = []
   let registry: SessionRegistry
 
-  beforeEach(() => {
-    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  beforeEach(async () => {
+    registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
   })
 

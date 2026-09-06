@@ -100,7 +100,7 @@ import type { ServerMessage } from '@podium/protocol'
 // read a report on a checkout whose server does not construct.
 import type { SessionRegistry } from '../apps/server/src/relay'
 import type { SessionStore } from '../apps/server/src/store'
-import type { LegacyHandleHolder } from '../apps/server/src/store/executor'
+import type { StatementProbeHolder } from '../apps/server/src/store/executor'
 
 const SESSION_COUNT = Number(process.env.HOTPATH_SESSIONS ?? 50)
 const ISSUE_COUNT = Number(process.env.HOTPATH_ISSUES ?? 30)
@@ -135,19 +135,17 @@ export interface QueryProbe {
 export type QueryProbeFactory = (store: unknown) => Promise<QueryProbe>
 
 /**
- * The executor's statement seam. Two feeds, one probe: the driver session for a
- * converted repository, and the raw handle for one that is not converted yet
- * (`legacy-handle-probe.ts`, deleted with the executor's `legacy` field by
- * POD-3326). Today every repository is on the second feed, which is why this
- * measures the same thing the old `prepare` patch did while being immune to the
- * cache that will defeat that patch.
+ * The executor's statement seam. Observation is driver-only; the connection is
+ * merely the stable key used to attach this probe after the store has booted.
+ * That keeps the measurement immune to the prepared-statement cache and lets a
+ * later driver expose the same attachment without adding another execution feed.
  */
 export const executionSeamQueryProbe: QueryProbeFactory = async (store) => {
-  const { probeLegacyStatements } = await import('../apps/server/src/store/executor')
+  const { probeStatements } = await import('../apps/server/src/store/executor')
   let counts = new Map<string, number>()
   /** Never reset: the cache is a property of the CONNECTION, not of a window. */
   const everSeen = new Set<string>()
-  const detach = probeLegacyStatements(store as LegacyHandleHolder, (observation) => {
+  const detach = probeStatements(store as StatementProbeHolder, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
     everSeen.add(observation.sql)
   })
@@ -237,7 +235,7 @@ const bindFrame = (sessionId: SessionId, cwd: string) => ({
 async function buildFixture(): Promise<Fixture> {
   const { SessionRegistry } = await import('../apps/server/src/relay')
   const { SessionStore } = await import('../apps/server/src/store')
-  const store = new SessionStore(':memory:')
+  const store = await SessionStore.open(':memory:')
   for (const [id, name] of [
     ['m1', 'one'],
     ['m2', 'two'],

@@ -14,14 +14,14 @@ import { lockRegistry } from './registry'
  * status but never write).
  */
 
-const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 afterAll(() => registry.dispose())
 
-const dispatch = (
+const dispatch = async (
   caller: Parameters<SessionRegistry['modules']['lockCommands']['dispatch']>[0],
   proc: string,
   input: unknown,
-) => registry.modules.lockCommands.dispatch(caller, proc, input)
+) => await registry.modules.lockCommands.dispatch(caller, proc, input)
 
 describe('lock registry', () => {
   it('defines exactly the canonical LOCK_COMMAND_NAMES', () => {
@@ -166,8 +166,8 @@ describe('lock registry', () => {
     )
   })
 
-  it('unknown procs return undefined (relay "no such procedure" shape)', () => {
-    expect(dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
+  it('unknown procs return undefined (relay "no such procedure" shape)', async () => {
+    expect(await dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
   })
 
   it('invalid input fails zod validation with the shared schema', async () => {

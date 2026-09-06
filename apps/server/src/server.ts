@@ -72,7 +72,7 @@ import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
   createDaemonAcceptor,
-  receiveDaemonFrame,
+  prepareDaemonFrame,
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
@@ -556,7 +556,7 @@ export async function startServer(
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
-  const store = new SessionStore(undefined, asMachineId(hostMachineId))
+  const store = await SessionStore.open(undefined, asMachineId(hostMachineId))
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
   // hash in auth.json is the operator's REAL password and wins, so it is moved into the
@@ -566,8 +566,8 @@ export async function startServer(
   await applyEnvFirstAdminPassword({ users: store.users })
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
-  const credentialsRequired = (): boolean =>
-    !loadConfig().auth?.openMode && store.users.hasPerUserCredentials()
+  const credentialsRequired = async (): Promise<boolean> =>
+    !loadConfig().auth?.openMode && await store.users.hasPerUserCredentials()
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -597,7 +597,7 @@ export async function startServer(
   const lakeEnabled =
     (opts.transcriptLake ??
       resolveTranscriptLake(
-        store.settings.getSettings().transcripts.mirror,
+        (await store.settings.getSettings()).transcripts.mirror,
         config,
         process.env,
       )) === 'on'
@@ -628,7 +628,7 @@ export async function startServer(
   // `tsgo`, which does not report this family; `tsc --noEmit` in apps/server
   // does. That difference is why the same tree was honestly reported as both
   // clean and broken by different readers (POD-1858, POD-1862).
-  const registry: SessionRegistry = SessionRegistry.create(store, undefined, {
+  const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
@@ -680,7 +680,7 @@ export async function startServer(
     // now resolves auth from the DAEMON host (its ANTHROPIC_API_KEY, else its
     // Claude Code login) rather than the server's `apiKeys.anthropic` secret —
     // which is also the auth the agents on that machine actually run under.
-    modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
+    modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
@@ -695,7 +695,7 @@ export async function startServer(
   // structural guard against the regression where data vanished because no daemon ever
   // registered. The same-host daemon then authenticates through the normal hello path
   // (wsServer) presenting this same id.
-  registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
+  await registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -706,22 +706,32 @@ export async function startServer(
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
-  reportParkedUpstreamMutations(store.sync, store.events)
+  await reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
   // without a restart when it is.
+  let telemetryMachineCount = (await registry.modules.machines.listMachines()).length
+  const refreshTelemetryMachineCount = (): void => {
+    void registry.modules.machines
+      .listMachines()
+      .then((rows) => {
+        telemetryMachineCount = rows.length
+      })
+      .catch(() => {})
+  }
+  registry.modules.bus.on('machine.metadataChanged', refreshTelemetryMachineCount)
   const telemetry = wireTelemetry({
     bus: registry.modules.bus,
-    machineCount: () => registry.modules.machines.listMachines().length,
+    machineCount: () => telemetryMachineCount,
   })
   const repos = new RepoRegistry(registry, store)
   // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
   // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
   const repoDiscovery = new MachineRepoDiscovery({
-    listRepos: () => store.repos.listRepos(),
-    addRepo: (path, machineId, originUrl) => store.repos.addRepo(path, machineId, originUrl),
-    removeRepo: (path, machineId) => store.repos.removeRepo(path, machineId),
+    listRepos: async () => await store.repos.listRepos(),
+    addRepo: async (path, machineId, originUrl) => await store.repos.addRepo(path, machineId, originUrl),
+    removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
     // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
     // browseDirs answers from that daemon's own filesystem, and a directory that is
     // gone comes back without a listing. Any failure to answer is treated as "cannot
@@ -730,14 +740,14 @@ export async function startServer(
       const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
       return Boolean(res.listing)
     },
-    scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
-    machineName: (id) => registry.modules.machines.machineName(id),
+    scanRepos: async (roots, opts, machineId) => await registry.modules.rpc.scanRepos(roots, opts, machineId),
+    machineName: async (id) => await registry.modules.machines.machineName(id),
     localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
-  const superagent = SuperagentService.create(registry.modules, repos, store)
+  const superagent = await SuperagentService.create(registry.modules, repos, store)
   // Its turn reaper is a periodic write; the registry's dispose is what stops it
   // before `store.close()` on every close path (POD-2772).
   registry.adoptSuperagent(superagent)
@@ -749,13 +759,13 @@ export async function startServer(
     // Outbound routing is derived from the authenticated binding table, never
     // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.
     routing: {
-      chatIdForUser: (userId) => {
-        const routes = store.telegramBindings.listForUser(userId)
+      chatIdForUser: async (userId) => {
+        const routes = await store.telegramBindings.listForUser(userId)
         return routes.length === 1 ? routes[0]?.chatId : undefined
       },
       // POD-419: the bot token is server-only material; the chat id stays routing.
     },
-    telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
+    telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
     sessions: registry.modules.sessions,
@@ -764,9 +774,9 @@ export async function startServer(
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
-      getSuperagentThread: (threadId) => store.superagent.getSuperagentThread(threadId),
-      readTranscript: (input) =>
-        registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
+      getSuperagentThread: async (threadId) => await store.superagent.getSuperagentThread(threadId),
+      readTranscript: async (input) =>
+        await registry.modules.rpc.readTranscript(input, { kind: 'system', id: 'answer-delivery' }),
     },
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
     // The binding table, read live per message: an inbound chat resolves to the
@@ -819,29 +829,30 @@ export async function startServer(
             pendingCoordinatorVersion = version
           },
         })
-  const devPublisher = wireDevBundlePublisher({
+  const devPublisher = await wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
-    hasRemoteUpdateConsumers: () =>
-      store.machines
-        .listMachines()
+    hasRemoteUpdateConsumers: async () =>
+      (await store.machines
+        .listMachines())
         .some((machine) => isRemoteUpdateConsumer(machine, hostMachineId)),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
-    fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
+    fleetPlatforms: async () => fleetHeadlessPlatforms(await store.machines.listMachines()),
     // A proposal answers what THIS running server would change by building HEAD.
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
     ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     artifactToken: devArtifactToken,
-    setTarget: (target) => registry.modules.updates.setTarget(target),
-    setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
+    setTarget: async (target) => await registry.modules.updates.setTargetFromProducer(target),
+    setTargetUnavailable: async (reason) =>
+      await registry.modules.updates.setTargetUnavailable('dev', reason),
     // The publish handoff (spec §6 step 4). Publisher and updater share this
     // process on a source host, so "go and pull what I just wrote" is a call.
-    refreshDevTarget: () => registry.modules.updates.refreshTarget('dev'),
+    refreshDevTarget: async () => await registry.modules.updates.refreshTarget('dev'),
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })
@@ -877,8 +888,8 @@ export async function startServer(
            * to fire the bridge, which is why the gate row flipped run to run.
            */
           updates: {
-            onStatus: (machineId, status) => {
-              registry.modules.updates.onStatus(machineId, status)
+            onStatus: async (machineId, status) => {
+              await registry.modules.updates.onStatus(machineId, status)
               registry.modules.updateFleetBridge?.onFleetChanged()
             },
           },
@@ -937,7 +948,7 @@ export async function startServer(
    * precede `serveNative` below, so no client can observe a stale operation this
    * boot was going to correct.
    */
-  const updateOperationBoot = () =>
+  const updateOperationBoot = async () =>
     updateOperationContext({
       updates: registry.modules.updates,
       operations: registry.modules.operations,
@@ -945,7 +956,7 @@ export async function startServer(
       // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
       // literal here also decided which channel a resumed operation was read
       // back against.
-      channel: registry.modules.updates.operationChannel(hostMachineId),
+      channel: await registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       sourceDigest: serverBuildSourceDigest,
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
@@ -953,8 +964,8 @@ export async function startServer(
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
-      prepareVerifiedDatabaseSnapshot: (from, target) =>
-        registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
+      prepareVerifiedDatabaseSnapshot: async (from, target) =>
+        await registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
@@ -982,13 +993,13 @@ export async function startServer(
   // when rollback was refused. Cleared afterwards: the note is about THIS boot.
   const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
-    () => ({
+    async () => ({
       appVersion,
       servedWebDigest: websiteDigestReader(
         () => servedWebSourceDigest(desktopWebDir()),
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
-      machineDirectory: registry.modules.updates.fleet(),
+      machineDirectory: await registry.modules.updates.fleet(),
       ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),
@@ -1076,24 +1087,24 @@ export async function startServer(
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
     // than by a constant that stood for it.
-    authenticateToken: (token) => store.machines.getMachineByToken(hostMachineId, token),
+    authenticateToken: async (token) => await store.machines.getMachineByToken(hostMachineId, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
       // Read per handshake, never captured: a settings flip must reach the next
       // lease, not wait for a server restart (POD-564).
-      worktreeGcPolicy: () => store.settings.getSettings().worktreeGc,
-      liveSessionIds: () =>
+      worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
+      liveSessionIds: async () =>
         new Set(
-          registry.modules.sessions
-            .listSessions(undefined, 'steward')
+          (await registry.modules.sessions
+            .listSessions(undefined, 'steward'))
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
-      stewardTick: () => registry.runStewardTick(),
-      connectScan: (machineId) => {
-        void repoDiscovery.scan(machineId, { deep: false })
+      stewardTick: async () => await registry.runStewardTick(),
+      connectScan: async (machineId) => {
+        void await repoDiscovery.scan(machineId, { deep: false })
       },
       localMachineId: asMachineId(hostMachineId),
     }),
@@ -1111,12 +1122,12 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const requestPrincipal = (headers: ClientCredentialHeaders) => {
+  const requestPrincipal = async (headers: ClientCredentialHeaders) => {
     const userId =
-      requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader) ??
-      (!credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
+      (await requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader)) ??
+      (!await credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
     if (userId === undefined) return undefined
-    const account = store.users.get(userId)
+    const account = await store.users.get(userId)
     return account ? userCommandPrincipal(userId, account.role) : undefined
   }
   const guard = clientAuthGuard({
@@ -1153,8 +1164,8 @@ export async function startServer(
     // login screen loops forever against a server that just accepted the
     // password. It buys nothing else: every data-plane call is still 503 at the
     // readiness boundary, whoever is holding the cookie.
-    resolveUserId: (headers) =>
-      controlPlaneAvailable(readiness()) ? requestPrincipal(headers)?.user : undefined,
+    resolveUserId: async (headers) =>
+      controlPlaneAvailable(readiness()) ? (await requestPrincipal(headers))?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
@@ -1191,9 +1202,9 @@ export async function startServer(
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
-    readAsset: (a) => registry.modules.rpc.readAsset(a),
-    allowsRoot: (root, machineId) =>
-      repos.inferFromPath(root, machineId ?? registry.modules.machines.defaultMachine()) !==
+    readAsset: async (a) => await registry.modules.rpc.readAsset(a),
+    allowsRoot: async (root, machineId) =>
+      await repos.inferFromPath(root, machineId ?? await registry.modules.machines.defaultMachine()) !==
       undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
@@ -1213,8 +1224,8 @@ export async function startServer(
   registerMcpRoute(
     app,
     {
-      mcpToolSpecs: (threadId) => superagent.mcpToolSpecs(threadId),
-      callMcpTool: (name, args, threadId) => superagent.callMcpTool(name, args, threadId),
+      mcpToolSpecs: async (threadId) => await superagent.mcpToolSpecs(threadId),
+      callMcpTool: async (name, args, threadId) => await superagent.callMcpTool(name, args, threadId),
     },
     mcpToken,
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
@@ -1226,8 +1237,8 @@ export async function startServer(
     // A host-local first run must remain possible when PODIUM_PASSWORD already
     // provisioned a credential. Login itself is not a bootstrap surface, so the
     // exact setup allowlist bypasses the ordinary login guard only while blocked.
-    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return next()
-    return guard(c, next)
+    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return await next()
+    return await guard(c, next)
   })
   app.use(
     '/trpc/*',
@@ -1248,12 +1259,12 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: (_request, hono) => {
+      createContext: async (_request, hono) => {
         const bootstrapAccount = isHostSetupBootstrap(readiness(), hono.req.path, hono.req.raw)
-          ? store.users.get(FIRST_ADMIN_USER_ID)
+          ? await store.users.get(FIRST_ADMIN_USER_ID)
           : undefined
         const principal =
-          requestPrincipal({
+          await requestPrincipal({
             cookieHeader: hono.req.header('cookie'),
             authorizationHeader: hono.req.header('authorization'),
           }) ??
@@ -1380,7 +1391,7 @@ export async function startServer(
 
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
-  if (!isLoopbackHost(host) && !credentialsRequired()) {
+  if (!isLoopbackHost(host) && !await credentialsRequired()) {
     log.warn(
       'server is network-reachable with NO login required — anyone who can reach this host can control your agents and shell; set a password in setup, or bind to 127.0.0.1',
       { host },
@@ -1388,7 +1399,7 @@ export async function startServer(
   }
 
   const requestedPort = opts.port ?? 0
-  return new Promise<ServerHandle>((resolve, reject) => {
+  return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
     const failListen = (err: unknown): void => {
       if (settled) return
@@ -1413,9 +1424,9 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        validateClientCredential: (credentialId) =>
-          maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
-        principalForClient: (request) => {
+        maintainClientCredential: async (credentialId) =>
+          (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
+        principalForClient: async (request) => {
           if (
             request.headers.has('authorization') &&
             !isSecureRequest(
@@ -1430,10 +1441,10 @@ export async function startServer(
             cookieHeader: request.headers.get('cookie') ?? undefined,
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
-          const credential = resolveClientCredential(store.auth, headers)
-          const principal = requestPrincipal(headers)
+          const credential = await resolveClientCredential(store.auth, headers)
+          const principal = await requestPrincipal(headers)
           if (!principal) return undefined
-          const userRole = store.users.roleOf(principal.user)
+          const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined
           return {
             userId: principal.user,
@@ -1458,13 +1469,13 @@ export async function startServer(
         async fetch(request, nativeServer) {
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade = ws.handleRequest(request, nativeServer as never)
+          const upgrade = await ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
           else headers.delete('x-podium-peer-address')
           const observedRequest = new Request(request, { headers })
-          return compressHttpResponse(request, await app.fetch(observedRequest))
+          return await compressHttpResponse(request, await app.fetch(observedRequest))
         },
       })
     } catch (err) {
@@ -1497,9 +1508,9 @@ export async function startServer(
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
     // also the seam for per-agent capabilities later: pass a constrained capability
     // instead of OPERATOR.
-    issueTools.setClientResolver((threadId) => {
-      const ownerUserId = superagent.threadOwner(threadId)
-      const account = ownerUserId ? store.users.get(ownerUserId) : undefined
+    issueTools.setClientResolver(async (threadId) => {
+      const ownerUserId = await superagent.threadOwner(threadId)
+      const account = ownerUserId ? await store.users.get(ownerUserId) : undefined
       if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
       return registry.issueCommands.asIssueTrpc(
         userCommandPrincipal(ownerUserId, account.role).capability,
@@ -1513,10 +1524,10 @@ export async function startServer(
     superagent.setIssueTools(issueTools)
     // The harness agent runs on the same host (single-machine), so loopback
     // reaches this MCP route. Now that the port is known, point it there.
-    superagent.setMcpEndpoint(
+    await superagent.setMcpEndpoint(
       `http://127.0.0.1:${server.port}/mcp`,
       mcpToken,
-      superagent.mcpToolSpecs().map((s) => s.name),
+      (await superagent.mcpToolSpecs()).map((s) => s.name),
     )
     // Server-side stall reporter (POD-600): a lightweight analog of the
     // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
@@ -1607,12 +1618,12 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: ({ hello, deliver, deliverInput }) => {
+      attach: async ({ hello, deliver, deliverInput }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
         })
-        const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
+        const { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
           const reply =
             outcome.kind === 'rejected'
@@ -1697,13 +1708,13 @@ export async function startServer(
       },
     }
     void refreshTargetsOnBoot({
-      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+      refresh: async (channel) => await registry.modules.updates.refreshTarget(channel),
     }).then(() => {
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
       const targetRefresh = startTargetRefresh({
-        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+        refresh: async (channel) => await registry.modules.updates.refreshTarget(channel),
         operationActive: (channel) => registry.modules.updates.operationActive(channel),
         schedule: timerSchedule,
       })
@@ -1721,9 +1732,9 @@ export async function startServer(
         // late write against a closed DB would throw), dirty activity
         // timestamps flush while the DB is open, registry.dispose() stops the
         // periodic flush timer, and only then does the store close.
-        close: () =>
-          closeServerFast({
-            closeWebSockets: () => ws.close(),
+        close: async () =>
+          await closeServerFast({
+            closeWebSockets: async () => await ws.close(),
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],
@@ -1745,9 +1756,9 @@ export async function startServer(
               // Release the per-origin client log descriptors. The sink writes
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.
-              ['logs.close', () => registry.modules.logs.close()],
+              ['logs.close', async () => await registry.modules.logs.close()],
               // The same, for the per-machine fleet descriptors (POD-3156).
-              ['fleetLogs.close', () => registry.modules.fleetLogs.close()],
+              ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
               [
                 'janitorHost.close',
                 () => {

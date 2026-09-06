@@ -132,7 +132,7 @@ class IssueService {
     write: () => Promise<T>,
   ): Promise<{ issues: IssueRow[]; result: T }> {
     if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
-    return this.executor.transact(async () => {
+    return await this.executor.transact(async () => {
       const rows: IssueRow[] = []
       for (const entry of entries) {
         const row = await this.repository.row(entry.id)
@@ -231,12 +231,12 @@ async function fixture(): Promise<Fixture> {
   const issues = new IssueService(h.executor, issueRepository)
   // The narrowing `relay.ts` does: lambdas, not the service, not the store.
   const shipping = new ShippingService({
-    repository: { record: (upper, lower) => edges.record(upper, lower) },
-    issues: { shippingCommitMany: (entries, write) => issues.shippingCommitMany(entries, write) },
+    repository: { record: async (upper, lower) => await edges.record(upper, lower) },
+    issues: { shippingCommitMany: async (entries, write) => await issues.shippingCommitMany(entries, write) },
     // The ledger opens its own span, as the real one does: the branch matters
     // because it is the SAME closure, run under a different owner's unit of work.
     ledger: {
-      commit: ({ write }) => h.executor.transact(async () => ({ result: await write() })),
+      commit: async ({ write }) => await h.executor.transact(async () => ({ result: await write() })),
     },
   })
   for (const id of ['i1', 'i2']) {
@@ -328,14 +328,14 @@ describe('the cross-service span', () => {
     const parked = barrier()
     const observed: (string | undefined)[] = []
 
-    const span = issues.shippingCommitMany(
+    const span = await issues.shippingCommitMany(
       [{ id: 'i1', mutation: { expectedStage: 'shipping', needsHuman: true, nextStage: 'done' } }],
       async () => {
         await parked.wait()
         return 'ok'
       },
     )
-    const read = h.executor.read(async () => {
+    const read = await h.executor.read(async () => {
       observed.push((await reader.row('i1'))?.stage)
     })
 

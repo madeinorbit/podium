@@ -63,7 +63,7 @@ export interface RuntimeEventGatePorts {
     | 'saveRuntimeEventProjectionCursor'
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
-  persist(sessionId: SessionId, additionalWrite: () => void): void
+  persist(sessionId: SessionId, additionalWrite: () => void | Promise<void>): Promise<void>
   /** {@link persist} with the session's own durable write applied to the draft
    *  the commit persists [POD-3330]. The transaction body is handed that same
    *  draft, because the state projection inside it writes the session too — and
@@ -71,8 +71,8 @@ export interface RuntimeEventGatePorts {
   write(
     sessionId: SessionId,
     mutate: (draft: SessionDurableState) => void,
-    additionalWrite: (draft: SessionDurableState) => void,
-  ): void
+    additionalWrite: (draft: SessionDurableState) => void | Promise<void>,
+  ): Promise<void>
   /** Apply the normalized state event atomically with its runtime-event row. */
   state?(input: {
     sessionId: SessionId
@@ -153,10 +153,11 @@ function turnEpochMatches(event: RuntimeEvent): boolean {
  */
 export class RuntimeEventGate {
   constructor(private readonly ports: RuntimeEventGatePorts) {}
+  private readonly readySessions = new Set<SessionId>()
   private projectionDrain: Promise<void> | undefined
   private projectionRequested = false
 
-  record(sessionId: SessionId, event: RuntimeEvent): RuntimeEventGateResult {
+  async record(sessionId: SessionId, event: RuntimeEvent): Promise<RuntimeEventGateResult> {
     if (isRuntimeFineEvent(event)) return { kind: 'fine-live-only' }
     const session = this.ports.session(sessionId)
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
@@ -167,7 +168,8 @@ export class RuntimeEventGate {
       return { kind: 'rejected', reason: 'turn-epoch-mismatch' }
     }
 
-    const current = this.ports.events.runtimeEventCheckpoint(sessionId)
+    const current = await this.ports.events.runtimeEventCheckpoint(sessionId)
+    if (current) this.readySessions.add(sessionId)
     // A brand-new generation-one stream can have an empty bootstrap snapshot.
     // Its first event is live; replacement generations still need bootstrap.
     if (!current && event.provenance !== 'bootstrap' && event.observerGeneration !== 1) {
@@ -178,15 +180,15 @@ export class RuntimeEventGate {
       if (decision.kind === 'rejected') return decision
       if (decision.kind === 'duplicate') {
         if (decision.rebaseGeneration) {
-          this.ports.persist(sessionId, () => {
-            this.ports.events.saveRuntimeEventCheckpoint({
+          await this.ports.persist(sessionId, async () => {
+            await this.ports.events.saveRuntimeEventCheckpoint({
               ...current,
               observerGeneration: event.observerGeneration,
               updatedAt: new Date(this.ports.now()).toISOString(),
             })
           })
         }
-        this.scheduleBoardProjection()
+        await this.scheduleBoardProjection()
         return { kind: 'duplicate' }
       }
     }
@@ -205,7 +207,7 @@ export class RuntimeEventGate {
     // They used to be assigned onto the live session in the two statements
     // above this one, where a durable failure left them standing and a
     // concurrent writer could pick them up and commit them.
-    this.ports.write(
+    await this.ports.write(
       sessionId,
       (draft) => {
         session.recordRuntimeActivity(event.at, draft)
@@ -221,7 +223,7 @@ export class RuntimeEventGate {
         if (event.t === 'process' && event.ev.ev === 'oomKilled')
           session.recordOomKill(event.at, draft)
       },
-      (draft) => {
+      async (draft) => {
         if (event.t === 'state') {
           stateProjection = this.ports.state?.({
             sessionId,
@@ -230,7 +232,7 @@ export class RuntimeEventGate {
             draft,
           })
         }
-        eventId = this.ports.events.appendEvent(
+        eventId = await this.ports.events.appendEvent(
           {
             ts: event.at,
             kind: RUNTIME_EVENT_LOG_KIND,
@@ -239,29 +241,42 @@ export class RuntimeEventGate {
           },
           { announce: false },
         )
-        this.ports.events.saveRuntimeEventCheckpoint(next)
+        await this.ports.events.saveRuntimeEventCheckpoint(next)
       },
     )
-    this.ports.events.announceEvent(eventId)
+    this.readySessions.add(sessionId)
+    await this.ports.events.announceEvent(eventId)
     if (stateProjection) {
       this.ports.stateChanged?.({ sessionId, ...stateProjection })
     }
-    this.scheduleBoardProjection()
+    await this.scheduleBoardProjection()
     return { kind: 'accepted', eventId }
   }
 
-  ready(sessionId: SessionId): boolean {
-    return this.ports.events.runtimeEventCheckpoint(sessionId) !== null
+  async hydrateReady(sessionIds: Iterable<SessionId>): Promise<void> {
+    const resolved = await Promise.all(
+      [...sessionIds].map(async (sessionId) => ({
+        sessionId,
+        ready: (await this.ports.events.runtimeEventCheckpoint(sessionId)) !== null,
+      })),
+    )
+    for (const item of resolved) {
+      if (item.ready) this.readySessions.add(item.sessionId)
+    }
   }
 
-  recent(sessionId: SessionId): readonly RuntimeEvent[] {
-    return this.ports.events.listRuntimeEvents(sessionId)
+  ready(sessionId: SessionId): boolean {
+    return this.readySessions.has(sessionId)
+  }
+
+  async recent(sessionId: SessionId): Promise<readonly RuntimeEvent[]> {
+    return await this.ports.events.listRuntimeEvents(sessionId)
   }
 
   /** Drain committed coarse events through the board's durable oplog cursor.
    * Concurrent deliveries share one drain, and the cursor moves only after the
    * complete asynchronous board effect resolves. */
-  replayBoardProjection(): Promise<void> {
+  async replayBoardProjection(): Promise<void> {
     this.projectionRequested = true
     if (this.projectionDrain) return this.projectionDrain
     const drain = this.runBoardProjection()
@@ -282,20 +297,20 @@ export class RuntimeEventGate {
     }
   }
 
-  private scheduleBoardProjection(): void {
+  private async scheduleBoardProjection(): Promise<void> {
     void this.replayBoardProjection().catch((err) => {
       log.warn('runtime board projection paused before cursor advance', { err })
     })
   }
 
   private async drainBoardProjection(): Promise<void> {
-    let cursor = this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
+    let cursor = await this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
     for (;;) {
-      const batch = this.ports.events.listRuntimeEventsAfter(cursor, 128)
+      const batch = await this.ports.events.listRuntimeEventsAfter(cursor, 128)
       if (batch.length === 0) return
       for (const record of batch) {
         await this.projectBoard(record)
-        this.ports.events.saveRuntimeEventProjectionCursor(
+        await this.ports.events.saveRuntimeEventProjectionCursor(
           BOARD_PROJECTOR,
           record.id,
           new Date(this.ports.now()).toISOString(),

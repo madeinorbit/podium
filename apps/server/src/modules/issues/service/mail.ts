@@ -17,10 +17,10 @@ export class IssueCommentsMailModule {
     private readonly reports: () => Pick<IssueReportsModule, 'comments' | 'get'>,
   ) {}
 
-  comments(
+  async comments(
     ...args: Parameters<IssueReportsModule['comments']>
-  ): ReturnType<IssueReportsModule['comments']> {
-    return this.reports().comments(...args)
+  ): Promise<Awaited<ReturnType<IssueReportsModule['comments']>>> {
+    return await this.reports().comments(...args)
   }
   /**
    * Comments inherit their issue aggregate's owner and grants; actor and
@@ -36,12 +36,12 @@ export class IssueCommentsMailModule {
    * compile error, and `addComment-principal.test.ts` beside this file fails
    * the BUILD (not just the run) if a default comes back.
    */
-  addComment(id: string, author: string, body: string, principal: CommandPrincipal): IssueWire {
-    const issueId = this.store.resolveRef(id)
-    const row = this.store.draftOrThrow(issueId)
+  async addComment(id: string, author: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+    const issueId = await this.store.resolveRef(id)
+    const row = await this.store.draftOrThrow(issueId)
     const attribution = attributionOf(principal)
-    return this.store.persistWith(row, () =>
-      this.store.deps.store.issues.addIssueComment({
+    return await this.store.persistWith(row, async () =>
+      await this.store.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
         issueId,
         author,
@@ -58,9 +58,9 @@ export class IssueCommentsMailModule {
   /** Create a mail message on the target issue, then fire the delivery hook
    *  (send-time nudge). Delivery failures never fail the send — the message is
    *  durable and will surface via prime / inbox regardless. */
-  sendMail(targetIssueId: IssueId, fromAuthor: string, body: string): IssueMessageRow {
-    const id = this.store.resolveRef(targetIssueId)
-    const row = this.store.rowOrThrow(id)
+  async sendMail(targetIssueId: IssueId, fromAuthor: string, body: string): Promise<IssueMessageRow> {
+    const id = await this.store.resolveRef(targetIssueId)
+    const row = await this.store.rowOrThrow(id)
     const message: IssueMessageRow = {
       id: `msg_${randomUUID()}`,
       issueId: id,
@@ -71,8 +71,8 @@ export class IssueCommentsMailModule {
       claimedBy: null,
       claimedAt: null,
     }
-    this.store.deps.funnel.run({
-      write: () => this.store.deps.store.issues.addIssueMessage(message),
+    await this.store.deps.funnel.run({
+      write: async () => await this.store.deps.store.issues.addIssueMessage(message),
     })
     // THE ROW IS DURABLE, THE NUDGE IS AN EXTERNAL EFFECT [POD-3260, spec §3.3].
     // The two halves of a send have different contracts and always did; what was
@@ -100,27 +100,27 @@ export class IssueCommentsMailModule {
    *  leaves every peer's unread status intact. The shared delivery ledger still
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
-  mailInbox(
+  async mailInbox(
     issueId: IssueId,
     opts?: { markRead?: boolean; sessionId?: SessionId },
-  ): Array<IssueMessageRow & { wasUnread: boolean }> {
-    const id = this.store.resolveRef(issueId)
-    this.store.rowOrThrow(id)
+  ): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
+    const id = await this.store.resolveRef(issueId)
+    await this.store.rowOrThrow(id)
     // markRead only when the RECIPIENT reads its own mailbox; a peek at another
     // issue's inbox (operator, other agents — reads are scope-free) must not
     // consume unread status or it silently suppresses stop-hook/prime delivery.
     const markRead = opts?.markRead !== false
     const reader = opts?.sessionId
-    const messages = this.store.deps.store.issues.listIssueMessages(id)
+    const messages = await this.store.deps.store.issues.listIssueMessages(id)
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
     // Per-reader unread [POD-1379]: what THIS session has not yet been shown,
     // whatever a peer on the same shared issue mailbox already did to the row.
     const ids = messages.map((m) => m.id)
     const seen = reader
-      ? this.store.deps.store.messages.readReceipts(reader, ids)
+      ? await this.store.deps.store.messages.readReceipts(reader, ids)
       : new Set<string>()
     const mine = reader
-      ? this.store.deps.store.messages.selfSentIds(reader, ids)
+      ? await this.store.deps.store.messages.selfSentIds(reader, ids)
       : new Set<string>()
     const wasUnread = (m: IssueMessageRow): boolean =>
       reader ? !seen.has(m.id) && !mine.has(m.id) : m.status === 'unread'
@@ -129,13 +129,13 @@ export class IssueCommentsMailModule {
     // the write, and re-reading an inbox must stay free.
     const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
     if (markRead && (unreadIds.length || newReceipts.length)) {
-      this.store.deps.funnel.run({
-        write: () => {
+      await this.store.deps.funnel.run({
+        write: async () => {
           const at = this.store.now()
           if (unreadIds.length) {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
             // delivery state, `read_at` is a fact about THIS reader.
-            this.store.deps.store.issues.markIssueMessagesRead(
+            await this.store.deps.store.issues.markIssueMessagesRead(
               this.store.broadcastViewer(),
               id,
               unreadIds,
@@ -152,11 +152,11 @@ export class IssueCommentsMailModule {
             // when it was overwhelmingly the pull path working. A readerless peek
             // (operator/UI) still has nobody to name and stays null.
             for (const mid of unreadIds)
-              this.store.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
+              await this.store.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
           }
           if (reader)
             for (const mid of newReceipts)
-              this.store.deps.store.messages.recordRead(mid, reader, at)
+              await this.store.deps.store.messages.recordRead(mid, reader, at)
         },
       })
     }
@@ -174,14 +174,14 @@ export class IssueCommentsMailModule {
    *  winner. Delivery never depends on it [spec:SP-b11e]: an unclaimed message still
    *  reaches every session on the issue exactly once. Claiming does prove the
    *  claimer has the message, so it records that reader's receipt [POD-1379]. */
-  mailClaim(
+  async mailClaim(
     messageId: string,
     claimedBy: string,
     opts?: { sessionId?: SessionId },
-  ): { claimed: boolean; message: IssueMessageRow } {
-    const claimed = this.store.deps.funnel.run({
-      write: () => {
-        const won = this.store.deps.store.issues.claimIssueMessage(
+  ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
+    const claimed = await this.store.deps.funnel.run({
+      write: async () => {
+        const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,
           claimedBy,
           this.store.now(),
@@ -190,18 +190,18 @@ export class IssueCommentsMailModule {
         // The claimer demonstrably has the message, so it is the reader the
         // ledger names [POD-1420]; absent a session id there is nobody to name.
         if (won)
-          this.store.deps.store.messages.markDeliveredByPull(
+          await this.store.deps.store.messages.markDeliveredByPull(
             messageId,
             opts?.sessionId ?? null,
             this.store.now(),
           )
         if (opts?.sessionId) {
-          this.store.deps.store.messages.recordRead(messageId, opts.sessionId, this.store.now())
+          await this.store.deps.store.messages.recordRead(messageId, opts.sessionId, this.store.now())
         }
         return won
       },
     })
-    const message = this.store.deps.store.issues.getIssueMessage(messageId)
+    const message = await this.store.deps.store.issues.getIssueMessage(messageId)
     if (!message) throw new Error(`unknown mail message ${messageId}`)
     return { claimed, message }
   }
@@ -217,17 +217,17 @@ export class IssueCommentsMailModule {
    *  rows only: a dual-written twin that has left `queued` must not resurrect
    *  the nag when the mirror lags. `senders` lets the stop-hook render the
    *  coalesced pointer ("N messages from X, Y"). */
-  mailPending(
+  async mailPending(
     issueId: IssueId,
     opts?: { sessionId?: SessionId },
-  ): { unread: number; senders: string[] } {
-    const id = this.store.resolveRef(issueId)
-    this.store.rowOrThrow(id)
-    return countContextAwarePendingMail(
+  ): Promise<{ unread: number; senders: string[] }> {
+    const id = await this.store.resolveRef(issueId)
+    await this.store.rowOrThrow(id)
+    return await countContextAwarePendingMail(
       this.store.deps.store,
       id,
-      (fromIssue) => {
-        const issue = this.reports().get(fromIssue)
+      async (fromIssue) => {
+        const issue = await this.reports().get(fromIssue)
         return issue ? `issue:#${issue.seq}` : fromIssue
       },
       opts?.sessionId,
@@ -235,7 +235,7 @@ export class IssueCommentsMailModule {
   }
 
   /** The issue a mail message belongs to (router scope enforcement for mailClaim). */
-  mailMessage(messageId: string): IssueMessageRow | null {
-    return this.store.deps.store.issues.getIssueMessage(messageId)
+  async mailMessage(messageId: string): Promise<IssueMessageRow | null> {
+    return await this.store.deps.store.issues.getIssueMessage(messageId)
   }
 }

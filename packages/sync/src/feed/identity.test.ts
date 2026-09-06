@@ -27,8 +27,8 @@ function memoryStore(seed: FeedIdentity | null = null): FeedIdentityStore & {
   let held = seed
   let writes = 0
   return {
-    readIdentity: () => held,
-    writeIdentity: (identity) => {
+    readIdentity: async () => held,
+    writeIdentity: async (identity) => {
       held = identity
       writes += 1
     },
@@ -83,10 +83,11 @@ describe('assertOpaqueEpoch — D1 refuses a counter, and only a counter', () =>
 })
 
 describe('FeedIdentityRegistry — minting, persistence, and surviving a restart', () => {
-  it('mints on first use and PERSISTS, so a second registry over the same store agrees', () => {
+  it('mints on first use and PERSISTS, so a second registry over the same store agrees', async () => {
     const store = memoryStore()
     const first = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
 
+    await first.resolve()
     const minted = first.current()
     expect(minted.feedId).toBe(ULID_A)
     expect(minted.epoch).toBe(ULID_B)
@@ -98,6 +99,7 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     // assertion would catch it. That is the point of using a distinct mint here
     // rather than the same one.
     const afterRestart = new FeedIdentityRegistry(store, mintSequence(ULID_C, ULID_C))
+    await afterRestart.resolve()
     expect(afterRestart.current()).toEqual(minted)
     expect(store.writes).toBe(1)
   })
@@ -109,12 +111,30 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
     expect(store.writes).toBe(0)
   })
 
-  it('bump() keeps feedId, changes epoch, and persists — the same feed, a new generation', () => {
+  it('current() fails closed until the explicit resolve step completes', () => {
+    const store = memoryStore()
+    const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
+    expect(() => registry.current()).toThrow(/unresolved/)
+    expect(store.writes).toBe(0)
+  })
+
+  it('resolve() is idempotent', async () => {
+    const store = memoryStore()
+    const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B))
+    const [first, second] = await Promise.all([registry.resolve(), registry.resolve()])
+    expect(second).toEqual(first)
+    expect(store.writes).toBe(1)
+    expect(await registry.resolve()).toEqual(first)
+    expect(store.writes).toBe(1)
+  })
+
+  it('bump() keeps feedId, changes epoch, and persists — the same feed, a new generation', async () => {
     const store = memoryStore()
     const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B, ULID_C))
 
+    await registry.resolve()
     const before = registry.current()
-    const after = registry.bump('restore')
+    const after = await registry.bump('restore')
 
     expect(after.feedId).toBe(before.feedId)
     expect(after.epoch).not.toBe(before.epoch)
@@ -122,33 +142,35 @@ describe('FeedIdentityRegistry — minting, persistence, and surviving a restart
 
     // And it survives the restart too, or a bump would be forgotten on reboot —
     // which is the same silent failure as never bumping.
-    expect(new FeedIdentityRegistry(store, mintSequence(ULID_A)).current()).toEqual(after)
+    const restarted = new FeedIdentityRegistry(store, mintSequence(ULID_A))
+    await restarted.resolve()
+    expect(restarted.current()).toEqual(after)
   })
 
-  it('REFUSES a bump that mints the epoch it is replacing — a frozen mint is a silent no-op', () => {
+  it('REFUSES a bump that mints the epoch it is replacing — a frozen mint is a silent no-op', async () => {
     // The counterfactual the accepting case above cannot supply: a mint that has
     // been stubbed or memoised upstream. Without this guard `bump()` returns
     // successfully, persists an unchanged epoch, and every replica keeps applying
     // across a discontinuity with nothing to compare that differs.
     const store = memoryStore()
     const registry = new FeedIdentityRegistry(store, mintSequence(ULID_A, ULID_B, ULID_B))
-    registry.current()
-    expect(() => registry.bump('seq-discontinuity')).toThrow(/not producing fresh values/)
+    await registry.resolve()
+    await expect(registry.bump('seq-discontinuity')).rejects.toThrow(/not producing fresh values/)
   })
 
-  it('REFUSES a counter mint at the moment it is wired, not at the restore that breaks', () => {
+  it('REFUSES a counter mint at the moment it is wired, not at the restore that breaks', async () => {
     const store = memoryStore()
     const counter = (() => {
       let n = 0
       return () => String(++n)
     })()
-    expect(() => new FeedIdentityRegistry(store, counter).current()).toThrow(/COUNTER/)
+    await expect(new FeedIdentityRegistry(store, counter).resolve()).rejects.toThrow(/COUNTER/)
     // Nothing was persisted: a refused mint must not leave a half-created feed.
     expect(store.peek()).toBeNull()
   })
 
-  it('REFUSES a persisted counter epoch on read, so a bad old row cannot be trusted forward', () => {
+  it('REFUSES a persisted counter epoch on read, so a bad old row cannot be trusted forward', async () => {
     const store = memoryStore({ feedId: ULID_A, epoch: '7' })
-    expect(() => new FeedIdentityRegistry(store, mintSequence(ULID_B)).current()).toThrow(/COUNTER/)
+    await expect(new FeedIdentityRegistry(store, mintSequence(ULID_B)).resolve()).rejects.toThrow(/COUNTER/)
   })
 })

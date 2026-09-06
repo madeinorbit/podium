@@ -64,7 +64,7 @@ class FakeSocket extends EventEmitter {
 
 describe('queue-drain abandonment across a daemon disconnect', () => {
   it('replays after reconnect until the durable row is terminal and acknowledged', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const outbox = createQueueDrainOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket()]
@@ -128,7 +128,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       sockets[0]?.message(helloOk)
       await started
 
-      const { sessionId } = registry.modules.sessions.createSession({
+      const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/repo',
       })
@@ -140,7 +140,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
         agentKind: 'claude-code',
         geometry: { cols: 80, rows: 24 },
       })
-      const sent = registry.modules.messages.send(
+      const sent = await registry.modules.messages.send(
         {
           kind: 'superagent',
           attribution: {
@@ -167,14 +167,14 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
         reason: 'teardown',
       })
       expect(outbox.pending()).toHaveLength(1)
-      expect(registry.sessionStore.messages.getMessage(sent.message.id)?.status).toBe('queued')
+      expect((await registry.sessionStore.messages.getMessage(sent.message.id))?.status).toBe('queued')
 
       if (!retry) throw new Error('disconnect did not schedule reconnect')
       retry()
       sockets[1]?.emit('open')
       sockets[1]?.message(helloOk)
 
-      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'dead_letter',
         deliveryDeferredReason: 'teardown',
       })

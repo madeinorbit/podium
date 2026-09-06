@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type AgentKind,
@@ -162,9 +163,9 @@ export interface MachinesDeps {
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
    */
-  targetVersion?: (machineId: MachineId) => string | undefined
+  targetVersion?: (machineId: MachineId) => Promise<string | undefined>
   /** Actionable reason the selected authority has no trusted target. */
-  targetUnavailableReason?: (machineId: MachineId) => string | undefined
+  targetUnavailableReason?: (machineId: MachineId) => Promise<string | undefined>
   /**
    * The instance's fleet default update channel — what a machine with no pin of
    * its own follows (POD-1882). Injected rather than read from config here so the
@@ -197,15 +198,17 @@ export interface MachinesDeps {
    * and owner reconcile: an unresolvable owner lands the machine in quarantine
    * (D19.4b), never auto-assigned to the first admin.
    */
-  userExists?(userId: UserId): boolean
+  userExists?(userId: UserId): boolean | Promise<boolean>
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
+  /** Awaited derived-state work that must complete before inventory observers run. */
+  onInventoryRecorded?(): Promise<void>
   /** Compatibility-only for isolated fixtures without a bus. */
   sessionsChangedForMachine?(machineId: MachineId): void
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
-  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): MachineListing[]
+  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): Promise<MachineListing[]>
 }
 
 /**
@@ -213,6 +216,8 @@ export interface MachinesDeps {
  * daemon sockets + offline queueing, pairing/auth, the machines table admin, and
  * machine routing/selection (name cache, online set, repo affinity).
  */
+const log = createLogger('server:machines')
+
 export class MachinesService {
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
@@ -267,12 +272,10 @@ export class MachinesService {
       invalidateMachineCache: () => {
         this.invalidateMachineCache()
       },
-      broadcastMachines: () => {
-        this.broadcastMachines()
+      broadcastMachines: async () => {
+        await this.broadcastMachines()
       },
     }
-    // Ledger-wins owner projection before any use/manage decision can run (D19.4d).
-    if (this.deps.enrollment) this.reconcileOwnersFromLedger()
   }
 
   /** Deployment label supplied by the composition root. */
@@ -294,7 +297,7 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): void {
+  async attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): Promise<void> {
     this.daemons.set(machineId, transport)
     // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
     // beside `daemons` and cleared with it: the question "does the daemon
@@ -314,7 +317,7 @@ export class MachinesService {
     // fact is. This is the one place every enrolment path converges on (pair and
     // hello both end here), which is why it is stamped here rather than in the
     // handshake, where a second path could be added without one.
-    this.recordComponent(machineId, 'daemon')
+    await this.recordComponent(machineId, 'daemon')
   }
 
   /**
@@ -325,10 +328,10 @@ export class MachinesService {
    * without it a reconnect storm would broadcast the whole fleet projection once
    * per socket for a fact that did not change.
    */
-  recordComponent(machineId: MachineId, component: MachineComponent): void {
-    if (!this.deps.store.machines.addMachineComponent(machineId, component)) return
+  async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
+    if (!await this.deps.store.machines.addMachineComponent(machineId, component)) return
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Register the parent-backed update participant for this host. A daemon socket may
@@ -486,65 +489,65 @@ export class MachinesService {
    * two disjoint guards (POD-1125 row-exists refusal before redeem; POD-1114's
    * D19.4 verdict when the row is absent).
    */
-  authenticateDaemon(
+  async authenticateDaemon(
     frame: DaemonHandshake,
   ):
-    | { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
-    | { ok: false; reason: string } {
-    return credentials.authenticateDaemon(this.enrollmentHost, frame)
+    Promise<| { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
+    | { ok: false; reason: string }> {
+    return await credentials.authenticateDaemon(this.enrollmentHost, frame)
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).
    *  See {@link credentials.reconcileOwnersFromLedger}. */
-  reconcileOwnersFromLedger(): void {
-    credentials.reconcileOwnersFromLedger(this.enrollmentHost)
+  async reconcileOwnersFromLedger(): Promise<void> {
+    await credentials.reconcileOwnersFromLedger(this.enrollmentHost)
   }
 
   /** Transfer ownership, ledger append first (D19.4d).
    *  See {@link credentials.transferOwnership}. */
-  transferOwnership(
+  async transferOwnership(
     machineId: MachineId,
     newOwnerUserId: UserId,
     opts: { skipRowUpdate?: boolean; txnId?: string } = {},
-  ): void {
-    credentials.transferOwnership(this.enrollmentHost, machineId, newOwnerUserId, opts)
+  ): Promise<void> {
+    await credentials.transferOwnership(this.enrollmentHost, machineId, newOwnerUserId, opts)
   }
 
   /** Owner-only ownership transfer (POD-1480) — the product surface behind
    *  `machines.transferOwnership`. See {@link credentials.transferMachineOwnership}. */
-  transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, currentOwner: UserId): void {
-    credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, currentOwner)
+  async transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, currentOwner: UserId): Promise<void> {
+    await credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, currentOwner)
   }
 
   /** Give an owner to a machine that has none (POD-1494) — the product surface
    *  behind `machines.adopt`. See {@link credentials.adoptMachine}. */
-  adoptMachine(id: MachineId, newOwnerUserId: UserId): void {
-    credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
+  async adoptMachine(id: MachineId, newOwnerUserId: UserId): Promise<void> {
+    await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
   }
 
   /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
    *  See {@link credentials.effectiveOwner}. */
-  effectiveOwner(machineId: MachineId): UserId | null | undefined {
-    return credentials.effectiveOwner(this.enrollmentHost, machineId)
+  async effectiveOwner(machineId: MachineId): Promise<UserId | null | undefined> {
+    return await credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
-  private machineRecords(): MachineRecord[] {
+  private async machineRecords(): Promise<MachineRecord[]> {
     if (!this.machineRecordsCache) {
-      this.machineRecordsCache = this.deps.store.machines.listMachines()
+      this.machineRecordsCache = await this.deps.store.machines.listMachines()
       this.machineNameCache = new Map(this.machineRecordsCache.map((m) => [m.id, m.name]))
     }
     return this.machineRecordsCache
   }
 
   /** Resolve the native login identity available on the machine that will run a session. */
-  nativeAccountIdForMachine(
+  async nativeAccountIdForMachine(
     machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
-  ): AccountId {
+  ): Promise<AccountId> {
     const unsuffixed = 'native:' + agentKind
     if (accountId !== unsuffixed) return accountId
-    const identity = this.machineRecords()
+    const identity = (await this.machineRecords())
       .find((machine) => machine.id === machineId)
       ?.inventory?.agents.find((agent) => agent.kind === agentKind)?.login.identity
     return identity?.fingerprint
@@ -558,8 +561,8 @@ export class MachinesService {
 
   /** Display name for a machineId (the machines table); falls back to the id.
    *  Served from the cache — ZERO SQL on the listSessions hot path. */
-  machineName(id: string): string {
-    if (!this.machineRecordsCache) this.machineRecords()
+  async machineName(id: string): Promise<string> {
+    if (!this.machineRecordsCache) await this.machineRecords()
     return this.machineNameCache.get(id) ?? id
   }
 
@@ -583,7 +586,7 @@ export class MachinesService {
    * before routing (`requireAgent`, `requireMachineForRepo`, the fleet authz layer)
    * gets to make that decision against a machine that actually exists.
    */
-  defaultMachine(): MachineId {
+  async defaultMachine(): Promise<MachineId> {
     const online = this.onlineMachineIds()
     if (online[0] !== undefined) return online[0]
     // NOTHING IS ONLINE. The old answer was always this host — and on a
@@ -596,7 +599,7 @@ export class MachinesService {
     // The host stays the last resort rather than a refusal, because the
     // boot-before-daemon case is real and must keep queueing: at boot this
     // host's own daemon is precisely the one about to attach.
-    const durable = this.machineRecords().find((m) => m.components?.includes('daemon'))
+    const durable = (await this.machineRecords()).find((m) => m.components?.includes('daemon'))
     return durable?.id ?? this.deps.hostMachineId
   }
 
@@ -606,9 +609,9 @@ export class MachinesService {
    * online machine, else this host. For a single connected daemon this always
    * returns that one machine — single-machine behavior is unchanged.
    */
-  resolveMachine(requested: string | undefined, cwd: string): MachineId {
+  async resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId> {
     if (requested && this.daemons.has(requested)) return asMachineId(requested)
-    return this.pickMachineForRepo(undefined, cwd)
+    return await this.pickMachineForRepo(undefined, cwd)
   }
 
   /**
@@ -622,36 +625,39 @@ export class MachinesService {
    * daemon attaches under that same id. What is gone is the branch that let the
    * PLACEHOLDER through unchecked.
    */
-  resolveMachineForAgent(
+  async resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
-  ): MachineId {
+  ): Promise<MachineId> {
     if (requested) {
       const requestedMachineId = asMachineId(requested)
-      this.requireAgent(requestedMachineId, agentKind, use)
+      await this.requireAgent(requestedMachineId, agentKind, use)
       return requestedMachineId
     }
 
-    const legacy = this.resolveMachine(undefined, cwd)
+    const legacy = await this.resolveMachine(undefined, cwd)
     // IMPLICIT placement is a surface too: readiness §3.1.4 M5 says the spawn
     // path must not OFFER a machine the principal cannot use, and an implicit
     // pick offers one without asking. Decorated rows make the existing
     // capability predicate refuse them for us, in the same branch as offline.
-    const machines = this.listMachines(use)
+    const machines = await this.listMachines(use)
     const selected = machines.find((machine) => machine.id === legacy)
     if (selected && agentCapabilityRejectionForSelection(selected, agentKind) === undefined)
       return legacy
 
     // Prefer another capable ONLINE machine that actually owns this cwd. This
     // keeps implicit routing useful without ever launching against a foreign path.
-    const byRepo = machines.find(
-      (machine) =>
-        agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
-        this.deps.store.repos
-          .listRepos(machine.id)
-          .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
+    // Repo ownership may disappear; keep these reads local to this placement,
+    // never reuse a positive on a later request. Missing rows cannot match.
+    const reposByMachine = new Map(await Promise.all(machines.map(async (machine) =>
+      [machine.id, await this.deps.store.repos.listRepos(machine.id)] as const,
+    )))
+    const byRepo = machines.find((machine) =>
+      this.daemons.has(machine.id) &&
+      agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
+      reposByMachine.get(machine.id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
     )
     if (byRepo) return byRepo.id
 
@@ -660,13 +666,13 @@ export class MachinesService {
     // inventory, lack of the requested harness is authoritative and actionable.
     if (!machines.some((machine) => machine.online && machine.inventory !== undefined))
       return legacy
-    this.requireAgent(legacy, agentKind, use)
+    await this.requireAgent(legacy, agentKind, use)
     return legacy
   }
 
   /** Throw a human-readable reason when a machine cannot run an agent. */
-  requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): void {
-    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+  async requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): Promise<void> {
+    const machine = (await this.listMachines(use)).find((candidate) => candidate.id === machineId)
     if (!machine)
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
     const rejection = agentCapabilityRejection(machine, agentKind)
@@ -727,13 +733,13 @@ export class MachinesService {
    *
    * `action` is the verb phrase for the refusal — "host repositories".
    */
-  requireCapability(
+  async requireCapability(
     machineId: MachineId,
     requirement: MachineRequirement,
     action: string,
     use?: MachineUseResolver,
-  ): void {
-    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+  ): Promise<void> {
+    const machine = (await this.listMachines(use)).find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = machineRejection(machine, requirement)
     if (rejection === undefined) return
@@ -742,12 +748,12 @@ export class MachinesService {
 
   /** The verdict {@link requireCapability} would throw on, without throwing —
    *  for callers that report rather than refuse (fleet panels, `machine show`). */
-  capabilityRejection(
+  async capabilityRejection(
     machineId: MachineId,
     requirement: MachineRequirement,
     use?: MachineUseResolver,
-  ): MachineRejection | undefined {
-    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+  ): Promise<MachineRejection | undefined> {
+    const machine = (await this.listMachines(use)).find((candidate) => candidate.id === machineId)
     if (!machine) return 'no-daemon'
     return machineRejection(machine, requirement)
   }
@@ -761,8 +767,8 @@ export class MachinesService {
    * ALREADY has, so nothing guarded putting a repo there in the first place, and
    * the repo screen happily offered the server-only coordinator.
    */
-  requireRepoHost(machineId: MachineId, use?: MachineUseResolver): void {
-    this.requireCapability(machineId, HOST_REPOS, 'host repositories', use)
+  async requireRepoHost(machineId: MachineId, use?: MachineUseResolver): Promise<void> {
+    await this.requireCapability(machineId, HOST_REPOS, 'host repositories', use)
   }
 
   /**
@@ -778,8 +784,8 @@ export class MachinesService {
    * checks. Everything that then ACTS on the repo still goes through the live
    * check in {@link requireMachineForRepo}.
    */
-  requireRepoHostStructure(machineId: MachineId): void {
-    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+  async requireRepoHostStructure(machineId: MachineId): Promise<void> {
+    const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = structuralEligibility(machine, HOST_REPOS)
     if (rejection === undefined) return
@@ -793,15 +799,15 @@ export class MachinesService {
    * machine reconnects; a machine without the repo fails later with raw git-speak.
    * Throwing here gives the caller an actionable message instead.
    */
-  requireMachineForRepo(machineId: MachineId, repoPath: string): void {
-    const name = this.machineName(machineId)
+  async requireMachineForRepo(machineId: MachineId, repoPath: string): Promise<void> {
+    const name = await this.machineName(machineId)
     // STRUCTURAL FIRST (POD-2700 §1.4). A machine that runs no daemon is not
     // "offline": telling its user to bring the daemon online is advice that can
     // never be taken, and following it is what left the operator stuck. The
     // ordering — unauthorized, then structural, then live — is the canonical one
     // and it lives in the shared predicate; here it is spelled out because this
     // function predates the seam and guards the hottest path.
-    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     if (machine && structuralEligibility(machine, HOST_REPOS) === 'no-daemon') {
       throw new Error(machineRejectionMessage(name, 'no-daemon', 'host repositories'))
     }
@@ -810,8 +816,8 @@ export class MachinesService {
         `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
       )
     }
-    const hasRepo = this.deps.store.repos
-      .listRepos(machineId)
+    const hasRepo = (await this.deps.store.repos
+      .listRepos(machineId))
       .some((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
     if (!hasRepo) {
       throw new Error(
@@ -832,13 +838,18 @@ export class MachinesService {
    * boot-before-daemon arm names the host whose daemon is precisely the one about
    * to attach and drain the queue.
    */
-  pickMachineForRepo(_originUrl: string | undefined, cwd: string): MachineId {
-    const byRepo = this.onlineMachineIds().find((id) =>
-      this.deps.store.repos
-        .listRepos(id)
-        .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
+  async pickMachineForRepo(_originUrl: string | undefined, cwd: string): Promise<MachineId> {
+    const online = this.onlineMachineIds()
+    // A removed repo would make a retained positive unsafe. Resolve per pick;
+    // absent repos and machines that disconnected during the read do not match.
+    const reposByMachine = new Map(await Promise.all(online.map(async (id) =>
+      [id, await this.deps.store.repos.listRepos(id)] as const,
+    )))
+    const byRepo = online.find((id) =>
+      this.daemons.has(id) &&
+      reposByMachine.get(id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
     )
-    return byRepo ?? this.defaultMachine()
+    return byRepo ?? await this.defaultMachine()
   }
 
   /**
@@ -868,23 +879,30 @@ export class MachinesService {
    * This is the answer every update path wants — nothing downstream should have
    * to remember that a missing pin means "ask the instance".
    */
-  updateChannel(machineId: MachineId): UpdateChannel | undefined {
-    const machine = this.machineRecords().find((candidate) => candidate.id === machineId)
+  async updateChannel(machineId: MachineId): Promise<UpdateChannel | undefined> {
+    const machine = (await this.machineRecords()).find((candidate) => candidate.id === machineId)
     if (!machine) return undefined
     return resolveMachineChannel(machine.updateChannelOverride, this.fleetChannel())
   }
 
-  listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
-    return this.machineRecords().map((m) => {
+  async listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): Promise<MachineListing[]> {
+    // A SEQUENTIAL LOOP, NOT `.map`. Both target lookups resolve the machine's
+    // channel durably now, and an async `.map` callback would build an array of
+    // PROMISES rather than of listings. The per-machine try/catch is the reason
+    // this is a loop rather than one Promise.all up front: a machine whose
+    // target cannot be resolved must degrade to `null` on its own row without
+    // taking the rest of the fleet's listing with it.
+    const listings: MachineListing[] = []
+    for (const m of await this.machineRecords()) {
       let target: string | undefined
       let targetUnavailableReason: string | undefined
       try {
-        target = this.deps.targetVersion?.(m.id)
-        targetUnavailableReason = this.deps.targetUnavailableReason?.(m.id)
+        target = await this.deps.targetVersion?.(m.id)
+        targetUnavailableReason = await this.deps.targetUnavailableReason?.(m.id)
       } catch {
         target = undefined
       }
-      return {
+      listings.push({
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
         // omitted means NOT evaluated, and never "yes" by default.
@@ -915,13 +933,14 @@ export class MachinesService {
         // A durable snapshot remains useful while OFFLINE, but it is not evidence
         // about a newly attached daemon until that connection reports once.
         ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
-      }
-    })
+      })
+    }
+    return listings
   }
 
   /** Current login condition for a session's machine and harness. */
-  agentLoginCondition(machineId: MachineId, agentKind: AgentKind): 'logged-out' | undefined {
-    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+  async agentLoginCondition(machineId: MachineId, agentKind: AgentKind): Promise<'logged-out' | undefined> {
+    const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     return machine ? agentLoginCondition(machine, agentKind) : undefined
   }
 
@@ -934,15 +953,16 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every write to the table invalidates.
    */
-  ownershipRows(): { id: MachineId; name: string; ownerUserId: UserId | null }[] {
+  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
-    return this.machineRecords().map((m) => ({
+    return await Promise.all((await this.machineRecords()).map(async (m) => ({
       id: m.id,
       name: m.name,
       ownerUserId:
-        this.effectiveOwner(m.id) ?? (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
-    }))
+        (await this.effectiveOwner(m.id)) ??
+        (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
+    })))
   }
 
   /**
@@ -954,26 +974,27 @@ export class MachinesService {
    * the exact failure ADR 9 D2 rule 4 forbids — a revoked share that keeps
    * working until somebody remembers to invalidate.
    */
-  grantsForMachine(machineId: MachineId): { grantee: string; verb: string }[] {
-    return this.deps.store.grants.listForResource('machine', machineId)
+  async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string }[]> {
+    return await this.deps.store.grants.listForResource('machine', machineId)
   }
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
-  recordInventory(machineId: MachineId, inventory: Inventory): void {
-    this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+  async recordInventory(machineId: MachineId, inventory: Inventory): Promise<void> {
+    await this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
+    await this.deps.onInventoryRecorded?.()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Persist a daemon's advisory build report and offered delivery capabilities. */
-  setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void {
-    this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
+  async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
+    await this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Route a daemon-local warning with machine scope supplied by the transport. */
@@ -985,12 +1006,12 @@ export class MachinesService {
     this.deps.bus?.emit('machine.diagnostic', { machineId, ...detail })
   }
 
-  renameMachine(id: MachineId, name: string): void {
-    this.deps.store.machines.renameMachine(id, name)
+  async renameMachine(id: MachineId, name: string): Promise<void> {
+    await this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -999,30 +1020,30 @@ export class MachinesService {
    * cached projection is wrong for all of them at once — invalidate and push,
    * exactly as a per-machine change does for one.
    */
-  refreshFleetChannel(): void {
+  async refreshFleetChannel(): Promise<void> {
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /** Persist the selected source independently for every joined machine.
    *  `null` removes the pin and hands the machine back to the fleet default. */
-  setUpdateChannel(id: MachineId, channel: UpdateChannel | null): void {
-    const machine = this.deps.store.machines.getMachine(id)
+  async setUpdateChannel(id: MachineId, channel: UpdateChannel | null): Promise<void> {
+    const machine = await this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
-    this.deps.store.machines.setUpdateChannel(id, channel)
+    await this.deps.store.machines.setUpdateChannel(id, channel)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
-  shareMachine(
+  async shareMachine(
     id: MachineId,
     grantee: string,
     verb: MachineVerb,
     attribution: { actor: string; onBehalfOf: string },
-  ): void {
-    const machine = this.deps.store.machines.getMachine(id)
+  ): Promise<void> {
+    const machine = await this.deps.store.machines.getMachine(id)
     if (!machine?.ownerUserId || machine.ownerUserId !== attribution.onBehalfOf) {
       throw new Error('only the machine owner may change sharing')
     }
@@ -1034,7 +1055,7 @@ export class MachinesService {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    this.deps.store.grants.upsert({
+    await this.deps.store.grants.upsert({
       resourceKind: 'machine',
       resourceId: id,
       grantee,
@@ -1046,16 +1067,16 @@ export class MachinesService {
       actorId,
       onBehalfOf: attribution.onBehalfOf,
     })
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
-  unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): void {
-    const machine = this.deps.store.machines.getMachine(id)
+  async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): Promise<void> {
+    const machine = await this.deps.store.machines.getMachine(id)
     if (!machine?.ownerUserId || machine.ownerUserId !== owner) {
       throw new Error('only the machine owner may change sharing')
     }
-    this.deps.store.grants.remove('machine', id, grantee, verb)
-    this.broadcastMachines()
+    await this.deps.store.grants.remove('machine', id, grantee, verb)
+    await this.broadcastMachines()
   }
 
   /**
@@ -1066,10 +1087,10 @@ export class MachinesService {
    * `opts.skipRowDelete` is the crash-injection seam mirroring transfer's
    * `skipRowUpdate`; production callers never pass it.
    */
-  revokeMachine(
+  async revokeMachine(
     id: MachineId,
     opts: { by?: string | null; skipRowDelete?: boolean; txnId?: string } = {},
-  ): void {
+  ): Promise<void> {
     const ledger = this.deps.enrollment
     if (ledger) {
       // Serial at revoke: cover the latest enrollment serial so that token is denied.
@@ -1088,14 +1109,14 @@ export class MachinesService {
     // The grant edges die WITH the machine (POD-1079). A daemon keeps its
     // machineId across a revoke/re-pair, so an edge that outlived the row would
     // silently re-share a machine its owner had already un-shared.
-    this.deps.store.grants.removeAllForResource('machine', id)
-    this.deps.store.machines.deleteMachine(id)
+    await this.deps.store.grants.removeAllForResource('machine', id)
+    await this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
     this.updateParticipants.delete(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -1120,9 +1141,9 @@ export class MachinesService {
    * edges forward rather than inserting a rival. Idempotent. Tests omit `secret`
    * (a random throwaway — they attach via the registry without authenticating).
    */
-  ensureHostMachine(hostname: string, secret: string = randomUUID()): string {
+  async ensureHostMachine(hostname: string, secret: string = randomUUID()): Promise<string> {
     const id = this.deps.hostMachineId
-    this.deps.store.machines.upsertMachine({
+    await this.deps.store.machines.upsertMachine({
       id,
       name: hostname,
       hostname,
@@ -1143,7 +1164,7 @@ export class MachinesService {
     // permanently offline. On the ordinary single-box install the same row also
     // gains `daemon` when the local daemon attaches; the two writers are additive
     // precisely so neither erases the other.
-    this.recordComponent(id, 'server')
+    await this.recordComponent(id, 'server')
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw
     // id). Same seam a rename uses — the derived field has one way to be refreshed,
@@ -1153,14 +1174,42 @@ export class MachinesService {
     return id
   }
 
-  broadcastMachines(): void {
-    // Classified live-only (@podium/protocol message-class): re-served in full on attach.
-    for (const c of this.deps.clients()) {
+  /**
+   * The fan-out for a caller that cannot yield (rule 51b): a socket attach/detach
+   * and the deps bridge below hand this over and move on. Nothing waits for a
+   * live-only push to land — but the rejection still has to go somewhere, or a
+   * failed projection read is an unhandled rejection with no machine on it.
+   */
+  scheduleBroadcastMachines(): void {
+    void this.broadcastMachines().catch((err: unknown) => {
+      log.warn('machines broadcast failed', { err })
+    })
+  }
+
+  async broadcastMachines(): Promise<void> {
+    // Resolve every authorization projection once for this pass. A failed
+    // projection is omitted rather than replaced with stale visibility.
+    const resolved = await Promise.all(
+      [...this.deps.clients()].map(async (client) => {
+        try {
+          return {
+            client,
+            machines: await this.deps.machinesForPrincipal(client.principal, this),
+          }
+        } catch {
+          return undefined
+        }
+      }),
+    )
+    // Classified live-only (@podium/protocol message-class): the fan-out itself
+    // remains one synchronous pass after all principal-scoped reads settle.
+    for (const item of resolved) {
+      if (item === undefined) continue
       const msg: LiveServerMessage = {
         type: 'machinesChanged',
-        machines: this.deps.machinesForPrincipal(c.principal, this),
+        machines: item.machines,
       }
-      c.send(msg)
+      item.client.send(msg)
     }
   }
 }

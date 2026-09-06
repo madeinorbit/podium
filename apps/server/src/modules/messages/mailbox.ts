@@ -36,7 +36,7 @@ import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '
 import type { MessagesRepository } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import type {
   MessageSender,
   MessageSendInput,
@@ -84,25 +84,25 @@ export interface MessageMailboxDeps {
   >
   issues: Pick<IssueService, 'resolveRef' | 'has'>
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
-  listSessions(): SessionMeta[]
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   now(): string
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void | Promise<void>
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(
     from: MessageSender,
     input: MessageSendInput,
     opts?: MessageSendOptions,
-  ): MessageSendResult
-  cancelQueuedInput(message: MessageRow): void
+  ): MessageSendResult | Promise<MessageSendResult>
+  cancelQueuedInput(message: MessageRow): void | Promise<void>
   /** The transition ledger — a read is a status transition like any other. */
-  emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void
+  emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
   /** The rendered sender label, for a reminder's render-ready row. */
-  fromLabel(message: MessageRow): string
+  fromLabel(message: MessageRow): string | Promise<string>
 }
 
 export class MessageMailbox {
@@ -112,10 +112,10 @@ export class MessageMailbox {
    *  sender is reached at its session when that session still exists, else at
    *  its issue; superagent/operator/system replies queue as operator rows (the
    *  superagent thread/UI inbox picks them up — stage 6). */
-  replyTarget(original: MessageRow): { kind: 'issue' | 'session' | 'operator'; id?: string } {
+  async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     if (original.fromKind === 'agent') {
       const fromSession = original.fromSession ? asSessionId(original.fromSession) : undefined
-      const known = fromSession ? findSessionById(this.deps, fromSession) !== undefined : false
+      const known = fromSession ? await findSessionByIdAsync(this.deps, fromSession) !== undefined : false
       if (original.fromSession && known) {
         return { kind: 'session', id: original.fromSession }
       }
@@ -123,7 +123,7 @@ export class MessageMailbox {
       // held `issue:#N` in from_issue; anything that doesn't resolve to a real
       // issue must NOT reach the issue_messages mirror's FK — fall through.
       if (original.fromIssue) {
-        const id = this.resolveIssueIdSafe(original.fromIssue)
+        const id = await this.resolveIssueIdSafe(original.fromIssue)
         if (id) return { kind: 'issue', id }
       }
       if (original.fromSession) return { kind: 'session', id: original.fromSession }
@@ -134,12 +134,12 @@ export class MessageMailbox {
   /** Resolve an issue ref/id to a VERIFIED existing issue id, or null. Accepts
    *  a legacy `issue:#N` sender ref (#463) as well as `#N` / `iss_…`; an
    *  ambiguous or unknown ref returns null instead of throwing. */
-  private resolveIssueIdSafe(ref: string): string | null {
+  private async resolveIssueIdSafe(ref: string): Promise<string | null> {
     const issues = this.deps.issues
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
-      const id = issues.resolveRef(bare)
-      return issues.has(id) ? id : null
+      const id = await issues.resolveRef(bare)
+      return await issues.has(id) ? id : null
     } catch {
       return null
     }
@@ -153,7 +153,7 @@ export class MessageMailbox {
    *  the reply lands in the requester's mailbox and surfaces at its next natural
    *  stop — it is NEVER pushed as a next-turn that starts a fresh turn (an ack is
    *  never itself ackable, and every ack used to burn a recipient turn). */
-  sendReply(
+  async sendReply(
     from: MessageSender,
     input: {
       inReplyTo: string
@@ -162,11 +162,11 @@ export class MessageMailbox {
       urgency?: MessageUrgency
       lifecycle?: MessageLifecycle
     },
-  ): MessageSendResult {
-    const original = this.deps.messages.getMessage(input.inReplyTo)
+  ): Promise<MessageSendResult> {
+    const original = await this.deps.messages.getMessage(input.inReplyTo)
     if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
-    return this.deps.send(from, {
-      to: this.replyTarget(original),
+    return await this.deps.send(from, {
+      to: await this.replyTarget(original),
       body: input.body,
       kind: input.kind ?? 'ack',
       inReplyTo: original.id,
@@ -177,15 +177,15 @@ export class MessageMailbox {
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
-  deliveredUnacked(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
+  async deliveredUnacked(sessionId: SessionId): Promise<MessageRow[]> {
+    return await this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
   }
 
   /** The messages that would produce a settle notice for `sessionId` right now
    *  (#468): asked-for-something + not-already-notified. The relay guard uses it
    *  to skip the git-log stitch work when nothing is notifiable. */
-  settleNotifiable(sessionId: SessionId): MessageRow[] {
-    return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
+  async settleNotifiable(sessionId: SessionId): Promise<MessageRow[]> {
+    return await this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
   }
 
   /**
@@ -196,12 +196,12 @@ export class MessageMailbox {
    * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
    * render-ready rows for the daemon's block reason.
    */
-  pendingReminders(sessionId: SessionId): { id: string; from: string; body: string }[] {
+  async pendingReminders(sessionId: SessionId): Promise<{ id: string; from: string; body: string }[]> {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
-    for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (!this.deps.messages.markReminded(m.id, at)) continue
-      out.push({ id: m.id, from: this.deps.fromLabel(m), body: m.body })
+    for (const m of await this.deps.messages.listDeliveredUnacked(sessionId, at)) {
+      if (!await this.deps.messages.markReminded(m.id, at)) continue
+      out.push({ id: m.id, from: await this.deps.fromLabel(m), body: m.body })
     }
     return out
   }
@@ -217,7 +217,7 @@ export class MessageMailbox {
    * `kind:'notification'` and can never stamp acked_by, so it never masks its own
    * target's unanswered state. System clamps (next-turn/wait) apply.
    */
-  systemAckFallback(
+  async systemAckFallback(
     sessionId: SessionId,
     context: {
       outcome: string
@@ -230,7 +230,7 @@ export class MessageMailbox {
       /** Fact claimed by the steward for this notification emission. */
       notificationFact?: { factKey: string; target: string }
     },
-  ): void {
+  ): Promise<void> {
     // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
     // and have not already produced a settle notice. The store gates it (an ordinary
     // message owes no reply) and the once-per-message rule (a prior notification is
@@ -238,7 +238,7 @@ export class MessageMailbox {
     // carries its own in_reply_to marker; a group notice referencing only the latest
     // would leave the others unmarked and re-fire them on the next settle (the loop
     // that sent one message 7 notices in 33 minutes).
-    const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
+    const rows = await this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
     if (rows.length === 0) return
     const stitch = [
       context.issueSeq != null
@@ -250,10 +250,10 @@ export class MessageMailbox {
         : null,
     ].filter(Boolean)
     for (const m of rows) {
-      this.deps.send(
+      await this.deps.send(
         { kind: 'system', name: 'steward' },
         {
-          to: this.replyTarget(m),
+          to: await this.replyTarget(m),
           kind: 'notification',
           inReplyTo: m.id,
           // System caps are next-turn/wait; ask for the cap so a settle notice
@@ -272,14 +272,14 @@ export class MessageMailbox {
   }
 
   /** Message lookup for the read surfaces (gate/CLI). */
-  message(id: string): MessageRow | null {
-    return this.deps.messages.getMessage(id)
+  async message(id: string): Promise<MessageRow | null> {
+    return await this.deps.messages.getMessage(id)
   }
 
   /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
    *  a pure read (never consumes queued status). */
-  ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
-    return this.deps.messages.listLedger(q)
+  async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+    return await this.deps.messages.listLedger(q)
   }
 
   /**
@@ -296,8 +296,8 @@ export class MessageMailbox {
     const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
     const deadline = Date.now() + opts.timeoutMs
     for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
-      if (m?.ackedBy) return this.deps.messages.getMessage(m.ackedBy)
+      const m = await this.deps.messages.getMessage(messageId)
+      if (m?.ackedBy) return await this.deps.messages.getMessage(m.ackedBy)
       if (Date.now() >= deadline) return null
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
     }
@@ -330,7 +330,7 @@ export class MessageMailbox {
     const now = opts.now ?? (() => Date.now())
     const deadline = now() + opts.timeoutMs
     for (;;) {
-      const m = this.deps.messages.getMessage(messageId)
+      const m = await this.deps.messages.getMessage(messageId)
       if (m && m.status !== 'queued') return m
       if (now() >= deadline) return m ?? null
       await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
@@ -351,14 +351,14 @@ export class MessageMailbox {
     input: MessageSendInput,
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<MessageSendResult> {
-    const r = this.deps.send(from, input, { awaitReceipt: true })
+    const r = await this.deps.send(from, input, { awaitReceipt: true })
     const disposition = await this.blockForDelivery(r, opts)
     if (disposition !== 'dead_letter') return { ...r, disposition }
 
     // A late contract refusal corrects the durable row after the synchronous
     // send result was built. Project that existing terminal state back through
     // the blocking caller, instead of leaving the original optimistic `ok`.
-    const final = this.deps.messages.getMessage(r.message.id)
+    const final = await this.deps.messages.getMessage(r.message.id)
     const reason =
       r.reason ??
       (final?.deliveryDeferredReason
@@ -393,7 +393,7 @@ export class MessageMailbox {
     // the honest `accepted` now instead of blocking the whole budget for a
     // confirmation that provably cannot arrive.
     if (!r.ok) {
-      return this.deps.messages.getMessage(r.message.id)?.status === 'dead_letter'
+      return (await this.deps.messages.getMessage(r.message.id))?.status === 'dead_letter'
         ? 'dead_letter'
         : 'accepted'
     }
@@ -417,13 +417,15 @@ export class MessageMailbox {
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */
-  inbox(
+  async inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
-  ): MessageRow[] {
-    const rows = principals.flatMap((p) =>
-      this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
-    )
+  ): Promise<MessageRow[]> {
+    const rows = (await Promise.all(
+      principals.map(async (p) =>
+        await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
+      ),
+    )).flat()
     rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     return rows.slice(-(opts?.limit ?? 50))
   }
@@ -436,24 +438,27 @@ export class MessageMailbox {
    * counts stop nagging on either surface. A row already pushed (delivered) is
    * still promoted to read when the recipient opens it.
    */
-  readInbox(
+  async readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
-  ): MessageRow[] {
-    const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
+  ): Promise<MessageRow[]> {
+    const rows = await this.inbox(
+      principals,
+      opts?.limit !== undefined ? { limit: opts.limit } : {},
+    )
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
-    return rows.map((m) => {
+    return await Promise.all(rows.map(async (m) => {
       // Per-READER receipt first [POD-1379]: this session has now been shown the
       // row whatever a peer on the same issue mailbox already did to the shared
       // delivery ledger — otherwise a message a peer consumed keeps nagging.
-      if (opts.consume) this.deps.messages.recordRead(m.id, opts.consume, at)
+      if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
       if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
-      if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
-      this.retireNotificationFact(m, at)
+      if (!await this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
+      await this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
+          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
         } catch {}
       }
       const read = {
@@ -462,55 +467,55 @@ export class MessageMailbox {
         readAt: at,
         deliveredTo: m.deliveredTo ?? opts.consume ?? null,
       }
-      this.deps.emitTransition(read, 'message.read')
+      await this.deps.emitTransition(read, 'message.read')
       return read
-    })
+    }))
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
    * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
-  dismiss(messageId: string, consume: string | null): MessageRow {
-    const message = this.deps.messages.getMessage(messageId)
+  async dismiss(messageId: string, consume: string | null): Promise<MessageRow> {
+    const message = await this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
     const at = this.deps.now()
     // Clearing it is seeing it, for this reader [POD-1379].
-    if (consume) this.deps.messages.recordRead(message.id, asSessionId(consume), at)
+    if (consume) await this.deps.messages.recordRead(message.id, asSessionId(consume), at)
     if (message.status === 'queued' || message.status === 'delivered') {
-      this.deps.messages.markRead(message.id, consume, at)
+      await this.deps.messages.markRead(message.id, consume, at)
       if (message.toKind === 'issue' && message.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
+          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
         } catch {}
       }
     }
-    const dismissed = this.deps.messages.getMessage(messageId) ?? message
+    const dismissed = await this.deps.messages.getMessage(messageId) ?? message
     if (dismissed.status === 'read' && message.status !== 'read') {
-      this.deps.emitTransition(dismissed, 'message.read')
+      await this.deps.emitTransition(dismissed, 'message.read')
     }
-    this.retireNotificationFact(message, at)
+    await this.retireNotificationFact(message, at)
     return dismissed
   }
 
   /** Sender-side retraction while delivery is still pending. The session inbox
    * performs one final status check at drain time, so this durable transition is
    * also the cancellation token for the queued PTY input. */
-  cancel(messageId: string): MessageRow {
-    const message = this.deps.messages.getMessage(messageId)
+  async cancel(messageId: string): Promise<MessageRow> {
+    const message = await this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
-    if (message.status !== 'queued' || !this.deps.messages.markCancelled(message.id)) {
+    if (message.status !== 'queued' || !await this.deps.messages.markCancelled(message.id)) {
       throw new Error('message is no longer queued')
     }
-    const cancelled = this.deps.messages.getMessage(message.id) ?? {
+    const cancelled = await this.deps.messages.getMessage(message.id) ?? {
       ...message,
       status: 'cancelled' as const,
     }
-    this.deps.cancelQueuedInput(message)
-    this.deps.emitTransition(cancelled, 'message.cancelled')
+    await this.deps.cancelQueuedInput(message)
+    await this.deps.emitTransition(cancelled, 'message.cancelled')
     return cancelled
   }
 
-  private retireNotificationFact(message: MessageRow, at: string): void {
+  private async retireNotificationFact(message: MessageRow, at: string): Promise<void> {
     if (!message.factKey || !message.factTarget) return
-    this.deps.notificationArbiter.retire(message.factKey, message.factTarget, at)
+    await this.deps.notificationArbiter.retire(message.factKey, message.factTarget, at)
   }
 }

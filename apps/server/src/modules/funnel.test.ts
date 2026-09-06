@@ -32,7 +32,7 @@ async function makeFunnel() {
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,
-    transact: (fn) => store.transact(fn),
+    transact: async (fn) => await store.transact(fn),
   })
   // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
   const funnel = new WriteFunnel({
@@ -109,9 +109,9 @@ describe('WriteFunnel.run ordering', () => {
   it('runs authorize → write and returns the write result', async () => {
     const { funnel } = await makeFunnel()
     const order: string[] = []
-    const result = funnel.run({
-      authorize: () => order.push('authorize'),
-      write: () => {
+    const result = await funnel.run({
+      authorize: async () => void order.push('authorize'),
+      write: async () => {
         order.push('write')
         return 42
       },
@@ -123,14 +123,14 @@ describe('WriteFunnel.run ordering', () => {
   it('authorize rejecting stops the write', async () => {
     const { funnel } = await makeFunnel()
     const write = vi.fn()
-    expect(() =>
+    await expect(
       funnel.run({
         authorize: () => {
           throw new Error('forbidden')
         },
         write,
       }),
-    ).toThrow('forbidden')
+    ).rejects.toThrow('forbidden')
     expect(write).not.toHaveBeenCalled()
   })
 })
@@ -138,18 +138,18 @@ describe('WriteFunnel.run ordering', () => {
 describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
   it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
     const { funnel, ledger } = await makeFunnel()
-    ledger.commit({
-      write: () => {},
+    await ledger.commit({
+      write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
     })
-    const cursor = funnel.cursor()
-    ledger.commit({
-      write: () => {},
+    const cursor = await funnel.cursor()
+    await ledger.commit({
+      write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
     })
-    const changes = funnel.changesSince(cursor)
+    const changes = await funnel.changesSince(cursor)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
-    expect(funnel.cursor()).toBe(2)
+    expect(await funnel.cursor()).toBe(2)
   })
 })
 
@@ -172,7 +172,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     // And nothing reaches the edge without an append behind it.
     funnel.flushDeltas()
     expect(serving.published).toEqual([])
-    expect(funnel.cursor()).toBe(0)
+    expect(await funnel.cursor()).toBe(0)
   })
 
   it('bridges Authority appends onto the bus AND into the delivery pipe', () => {
@@ -318,12 +318,12 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       if (reentered) return
       reentered = true
       ledger.commit({
-        write: () => {},
+        write: async () => {},
         changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
       })
     })
-    ledger.commit({
-      write: () => {},
+    await ledger.commit({
+      write: async () => {},
       changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
     })
     funnel.flushDeltas()

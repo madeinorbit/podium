@@ -62,7 +62,6 @@ export {
 } from './errors'
 export {
   createStoreExecutor,
-  legacyHandle,
   postCommit,
   type RootStoreExecutor,
   type StoreContext,
@@ -84,11 +83,6 @@ export {
   renderFinding,
   type WriteEvidence,
 } from './intent-audit'
-export {
-  type LegacyHandleHolder,
-  observeLegacyHandle,
-  probeLegacyStatements,
-} from './legacy-handle-probe'
 export {
   type PostCommitRegistrar,
   PostCommitRegistry,
@@ -120,17 +114,17 @@ export {
   VersionedMutex,
 } from './state-models'
 export {
+  installQueryAttributionProbe,
   instrumentDriver,
+  probeStatements,
   queryAttributionProbe,
   type StatementObservation,
   type StatementProbe,
+  type StatementProbeHolder,
   StatementProbeHub,
+  statementProbeHubFor,
 } from './statement-probe'
 export {
   afterCommit,
   followUpAfterCommit,
-  restoreSpanEffectSinks,
-  runSynchronousSpan,
-  type SpanEffectSinks,
-  setSpanEffectSinks,
 } from './synchronous-span'

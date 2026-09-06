@@ -41,7 +41,7 @@ describe('layoutAuthzFailure reads the contract floor LIVE', () => {
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called', async () => {
     const db = openMigratedTestDatabase()
-    const stage = createBunStoreExecutor({ database: db }).syncQueries
+    const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
     const repo = new UserLayoutRepository(stage)
     const service = new LayoutService({ layout: repo })
@@ -52,12 +52,12 @@ describe('a refused principal does not write', () => {
     if (refusal) {
       // no write
     } else {
-      service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
+      await service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
     }
     expect(await repo.getSnapshot(FIRST_ADMIN_USER_ID)).toEqual({})
     // Positive control: the same service DOES write when the gate would pass.
     expect(layoutAuthzFailure('layout.set', deps('member'))).toBeUndefined()
-    service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
+    await service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
     expect(await repo.getSnapshot(FIRST_ADMIN_USER_ID)).toEqual({ dockTab: 'files' })
     db.close?.()
   })

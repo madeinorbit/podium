@@ -21,7 +21,7 @@ import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import { sanitizeForInjection } from '../sessions/paste'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
@@ -150,11 +150,11 @@ export function renderEnvelope(
  */
 export interface MessageRenderDeps {
   issues: Pick<IssueService, 'getMeta' | 'niceRef'>
-  listSessions(): SessionMeta[]
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
-  machineName?(id: string): string
+  machineName?(id: string): string | Promise<string>
 }
 
 export class MessageRenderer {
@@ -181,9 +181,9 @@ export class MessageRenderer {
   /** The exact text the receiver sees: enveloped for every principal EXCEPT the
    *  operator — only the human's own words land unwrapped. Oversized
    *  issue-addressed bodies render as an inbox pointer instead of inline. */
-  renderFor(message: MessageRow, receiverSessionId?: SessionId): string {
+  async renderFor(message: MessageRow, receiverSessionId?: SessionId): Promise<string> {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
-      return this.pointerText([message])
+      return await this.pointerText([message])
     }
     // Operator bodies are UNWRAPPED and rendered verbatim: the human's own words
     // land as their own words, with no envelope and no id around them.
@@ -208,7 +208,7 @@ export class MessageRenderer {
     // bytes — the injection point strips this body like any other.
     if (message.fromKind === 'operator') {
       if (message.kind !== 'question') return message.body
-      return renderEnvelope(message, 'the operator', this.toLabel(message))
+      return renderEnvelope(message, 'the operator', await this.toLabel(message))
     }
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
@@ -220,16 +220,16 @@ export class MessageRenderer {
     // human, who has no turn to close and no offer to preserve.
     return renderEnvelope(
       { ...message, body },
-      this.fromLabel(message),
-      this.toLabel(message),
-      this.crossMachineNote(message, receiverSessionId),
+      await this.fromLabel(message),
+      await this.toLabel(message),
+      await this.crossMachineNote(message, receiverSessionId),
       { turnClose: message.toKind !== 'operator' },
     )
   }
 
   /** The coalesced pointer rendering (also used for oversized bodies). */
-  pointerText(rows: MessageRow[]): string {
-    const senders = [...new Set(rows.map((m) => this.fromLabel(m)))]
+  async pointerText(rows: MessageRow[]): Promise<string> {
+    const senders = [...new Set(await Promise.all(rows.map(async (m) => await this.fromLabel(m))))]
     // The pointer path leads to the same interrupted-turn problem the envelope's
     // TURN_CLOSE_RULE covers [POD-604] — reading the inbox is still a turn that
     // buries the summary the human was coming back to. Said in one line here
@@ -246,25 +246,28 @@ export class MessageRenderer {
    *  DIFFERENT machine than the receiver, say so and how to inspect its working
    *  state — built only from what podium already knows (session machineIds),
    *  zero storage. */
-  private crossMachineNote(message: MessageRow, receiverSessionId?: SessionId): string | undefined {
+  private async crossMachineNote(
+    message: MessageRow,
+    receiverSessionId?: SessionId,
+  ): Promise<string | undefined> {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const find = (id: SessionId) => findSessionById(this.deps, id)
-    const senderMachine = find(message.fromSession)?.machineId
-    const receiverMachine = find(receiverSessionId)?.machineId
+    const find = async (id: SessionId) => await findSessionByIdAsync(this.deps, id)
+    const senderMachine = (await find(message.fromSession))?.machineId
+    const receiverMachine = (await find(receiverSessionId))?.machineId
     if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
-    const name = this.deps.machineName?.(senderMachine) ?? senderMachine
+    const name = (await this.deps.machineName?.(senderMachine)) ?? senderMachine
     return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`
   }
 
-  fromLabel(message: MessageRow): string {
+  async fromLabel(message: MessageRow): Promise<string> {
     if (message.fromKind === 'agent') {
       if (message.fromIssue) {
         // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
         // and the reference form agents are told to use; `#seq` only before a
         // repo prefix exists (niceRef's own fallback).
         const issues = this.deps.issues
-        const issue = issues.getMeta(message.fromIssue)
-        return issue ? `issue:${issues.niceRef(issue)}` : message.fromIssue
+        const issue = await issues.getMeta(message.fromIssue)
+        return issue ? `issue:${await issues.niceRef(issue)}` : message.fromIssue
       }
       if (message.fromSession) return `session:${message.fromSession}`
       return 'agent'
@@ -274,11 +277,11 @@ export class MessageRenderer {
     return message.fromKind // superagent
   }
 
-  private toLabel(message: MessageRow): string {
+  private async toLabel(message: MessageRow): Promise<string> {
     if (message.toKind === 'issue') {
       const issues = this.deps.issues
-      const issue = issues.getMeta(message.toId ?? '')
-      return issue ? `your issue ${issues.niceRef(issue)}` : `your issue ${message.toId}`
+      const issue = await issues.getMeta(message.toId ?? '')
+      return issue ? `your issue ${await issues.niceRef(issue)}` : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
     return 'the operator'

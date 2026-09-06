@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import { currentTransaction } from '../executor/sync-drizzle'
 
 /** Stable Podium identities and the machine-native artifacts that evidence them.
  * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
  * selected registry ids flow from the schema without re-entry casts. */
 export class ConversationRegistryRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -23,12 +24,12 @@ export class ConversationRegistryRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
-  repairSubagentSegmentPaths(): void {
-    this.db
+  async repairSubagentSegmentPaths(): Promise<void> {
+    await this.db
       .update(conversationSegments)
       .set({ path: null })
       .where(
@@ -43,8 +44,8 @@ export class ConversationRegistryRepository {
       .run()
   }
 
-  podiumId(machineId: MachineId, nativeId: string): ConversationId | undefined {
-    const row = this.db
+  async podiumId(machineId: MachineId, nativeId: string): Promise<ConversationId | undefined> {
+    const row = await this.db
       .select({ podiumId: conversationSegments.podiumId })
       .from(conversationSegments)
       .where(this.segment(machineId, nativeId))
@@ -60,16 +61,16 @@ export class ConversationRegistryRepository {
    * touched in one pass, and because the 500-row chunking keeps it under
    * SQLite's variable limit on a box with a thousand active transcripts.
    */
-  segmentsByPaths(
+  async segmentsByPaths(
     machineId: MachineId,
     paths: readonly string[],
-  ): Map<string, { machineId: MachineId; nativeId: string; podiumId: ConversationId }> {
+  ): Promise<Map<string, { machineId: MachineId; nativeId: string; podiumId: ConversationId }>> {
     const out = new Map<
       string,
       { machineId: MachineId; nativeId: string; podiumId: ConversationId }
     >()
     for (const chunk of chunks(paths)) {
-      const rows = this.db
+      const rows = await this.db
         .select({
           machineId: conversationSegments.machineId,
           nativeId: conversationSegments.nativeId,
@@ -109,10 +110,10 @@ export class ConversationRegistryRepository {
    * harvest finds that session. Fully populated on this machine: every one of
    * the 282 `subagents/` segments carries a parent.
    */
-  parentPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, ConversationId> {
+  async parentPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, ConversationId>> {
     const out = new Map<ConversationId, ConversationId>()
     for (const chunk of chunks(podiumIds)) {
-      const rows = this.db
+      const rows = await this.db
         .select({
           podiumId: conversationIdentities.podiumId,
           parentPodiumId: conversationIdentities.parentPodiumId,
@@ -134,10 +135,10 @@ export class ConversationRegistryRepository {
   }
 
   /** The native ids evidencing each of these conversations, earliest segment first. */
-  nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, string[]> {
+  async nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, string[]>> {
     const out = new Map<ConversationId, string[]>()
     for (const chunk of chunks(podiumIds)) {
-      const rows = this.db
+      const rows = await this.db
         .select({
           podiumId: conversationSegments.podiumId,
           nativeId: conversationSegments.nativeId,
@@ -162,10 +163,10 @@ export class ConversationRegistryRepository {
    * rather than one per session, which on the biggest epic on this machine is 67
    * round trips saved from a panel's first paint.
    */
-  pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Map<string, string> {
+  async pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     for (const chunk of chunks(nativeIds)) {
-      const rows = this.db
+      const rows = await this.db
         .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
         .from(conversationSegments)
         .where(
@@ -181,8 +182,8 @@ export class ConversationRegistryRepository {
     return out
   }
 
-  segmentPath(machineId: MachineId, nativeId: string): string | undefined {
-    const row = this.db
+  async segmentPath(machineId: MachineId, nativeId: string): Promise<string | undefined> {
+    const row = await this.db
       .select({ path: conversationSegments.path })
       .from(conversationSegments)
       .where(this.segment(machineId, nativeId))
@@ -190,18 +191,18 @@ export class ConversationRegistryRepository {
     return row?.path ?? undefined
   }
 
-  ensure(opts: {
+  async ensure(opts: {
     machineId: MachineId
     nativeId: string
     providerId: string
     parentPodiumId?: ConversationId
     path?: string
     sizeBytes?: number
-  }): ConversationId {
-    const existing = this.podiumId(opts.machineId, opts.nativeId)
+  }): Promise<ConversationId> {
+    const existing = await this.podiumId(opts.machineId, opts.nativeId)
     if (existing !== undefined) {
       if (opts.parentPodiumId) {
-        this.db
+        await this.db
           .update(conversationIdentities)
           .set({ parentPodiumId: opts.parentPodiumId })
           .where(
@@ -221,7 +222,7 @@ export class ConversationRegistryRepository {
         // the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
         // against the value the SET would assign makes the no-op write vanish
         // while a real change still lands.
-        this.db
+        await this.db
           .update(conversationSegments)
           .set({
             path: sql`COALESCE(${path}, ${conversationSegments.path})`,
@@ -240,11 +241,11 @@ export class ConversationRegistryRepository {
     }
     const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
-    this.db
+    ;await (this.db
       .insert(conversationIdentities)
-      .values({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now })
+      .values({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now }))
       .run()
-    this.db
+    ;await (this.db
       .insert(conversationSegments)
       .values({
         machineId: opts.machineId,
@@ -256,31 +257,31 @@ export class ConversationRegistryRepository {
         seqInConv: 1,
         linkedBy: 'discovery',
         createdAt: now,
-      })
+      }))
       .run()
     return podiumId
   }
 
-  linkSegment(opts: {
+  async linkSegment(opts: {
     machineId: MachineId
     newNativeId: string
     priorNativeId: string
     providerId: string
-  }): ConversationId {
-    const already = this.podiumId(opts.machineId, opts.newNativeId)
+  }): Promise<ConversationId> {
+    const already = await this.podiumId(opts.machineId, opts.newNativeId)
     if (already !== undefined) return already
-    const podiumId = this.ensure({
+    const podiumId = await this.ensure({
       machineId: opts.machineId,
       nativeId: opts.priorNativeId,
       providerId: opts.providerId,
     })
-    const highest = this.db
+    const highest = await this.db
       .select({ m: max(conversationSegments.seqInConv) })
       .from(conversationSegments)
       .where(eq(conversationSegments.podiumId, podiumId))
       .get()
     const nextSeq = (highest?.m ?? 0) + 1
-    this.db
+    ;await (this.db
       .insert(conversationSegments)
       .values({
         machineId: opts.machineId,
@@ -291,19 +292,19 @@ export class ConversationRegistryRepository {
         seqInConv: nextSeq,
         linkedBy: 'live-roll',
         createdAt: new Date().toISOString(),
-      })
+      }))
       .run()
     return podiumId
   }
 
-  podiumIds(machineId: MachineId, nativeIds: string[]): Map<string, ConversationId> {
+  async podiumIds(machineId: MachineId, nativeIds: string[]): Promise<Map<string, ConversationId>> {
     const out = new Map<string, ConversationId>()
     // ONE STATEMENT PER NATIVE ID, exactly as before. Batching this is a
     // behaviour question rather than a rewrite — the caller's map is keyed by
     // the ids it asked for and a missing row must stay missing — so it is left
     // for the read-scope work (B0.6) rather than decided in a conversion.
     for (const nativeId of nativeIds) {
-      const row = this.db
+      const row = await this.db
         .select({ podiumId: conversationSegments.podiumId })
         .from(conversationSegments)
         .where(this.segment(machineId, nativeId))
@@ -313,13 +314,13 @@ export class ConversationRegistryRepository {
     return out
   }
 
-  siblingSegments(
+  async siblingSegments(
     machineId: MachineId,
     nativeId: string,
-  ): { machineId: MachineId; nativeId: string }[] {
-    const podiumId = this.podiumId(machineId, nativeId)
+  ): Promise<{ machineId: MachineId; nativeId: string }[]> {
+    const podiumId = await this.podiumId(machineId, nativeId)
     if (!podiumId) return []
-    return this.db
+    return await this.db
       .select({
         machineId: conversationSegments.machineId,
         nativeId: conversationSegments.nativeId,

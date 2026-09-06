@@ -40,9 +40,18 @@ const log = createLogger('server:migrations')
 /** The slice of `UsersRepository` this file needs — narrow so a test can pass a fake and so
  *  nothing here can reach a repository method that mints accounts. */
 export interface FirstAdminCredentialStore {
-  get(userId: UserId): { role: string } | undefined
-  credentialFor(userId: UserId): { source: string; passwordHash: string | null } | undefined
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
+  get(userId: UserId): { role: string } | undefined | Promise<{ role: string } | undefined>
+  credentialFor(
+    userId: UserId,
+  ):
+    | { source: string; passwordHash: string | null }
+    | undefined
+    | Promise<{ source: string; passwordHash: string | null } | undefined>
+  setPasswordHash(
+    userId: UserId,
+    passwordHash: string,
+    updatedAt: string,
+  ): void | Promise<void>
 }
 
 export interface RetireInstancePasswordResult {
@@ -81,7 +90,7 @@ export async function retireInstancePassword(
   // recognise (the POD-1075 migration inserts this row unconditionally, on fresh installs
   // too). Leave the file: the instance keeps booting, and the next boot on a fixed build
   // migrates. Deleting here would strand the hash with nothing holding it.
-  if (!users.get(FIRST_ADMIN_USER_ID)) {
+  if (!(await users.get(FIRST_ADMIN_USER_ID))) {
     warn(
       '[podium] the login password in auth.json could not be migrated: no first-admin account. ' +
         'auth.json is left in place and the next boot will retry.',
@@ -93,19 +102,19 @@ export async function retireInstancePassword(
   // after upgrading. Their row wins; the file is stale and goes. NOT a silent overwrite:
   // clobbering the newer credential with the older file is the one way this function could
   // change someone's working password out from under them.
-  const existing = users.credentialFor(FIRST_ADMIN_USER_ID)
+  const existing = await users.credentialFor(FIRST_ADMIN_USER_ID)
   if (existing?.source === 'per-user-scrypt' && existing.passwordHash) {
     deleteLegacyInstancePasswordFile(authDir)
     return { outcome: 'nothing-to-migrate' }
   }
 
   const updatedAt = (opts.now?.() ?? new Date()).toISOString()
-  users.setPasswordHash(FIRST_ADMIN_USER_ID, legacyHash, updatedAt)
+  await users.setPasswordHash(FIRST_ADMIN_USER_ID, legacyHash, updatedAt)
 
   // THE RE-READ. Not a formality: it goes back to the database rather than trusting the
   // write's return, because what must be true before the file goes is that a LOGIN would
   // now succeed — and a login reads this row through exactly this call.
-  const written = users.credentialFor(FIRST_ADMIN_USER_ID)
+  const written = await users.credentialFor(FIRST_ADMIN_USER_ID)
   if (written?.source !== 'per-user-scrypt' || written.passwordHash !== legacyHash) {
     warn(
       '[podium] the login password in auth.json was NOT migrated: the credential did not read ' +
@@ -135,12 +144,12 @@ export async function applyEnvFirstAdminPassword(opts: {
   const env = opts.env ?? process.env
   const pw = env.PODIUM_PASSWORD
   if (!pw?.trim()) return { applied: false }
-  if (!opts.users.get(FIRST_ADMIN_USER_ID)) return { applied: false }
+  if (!(await opts.users.get(FIRST_ADMIN_USER_ID))) return { applied: false }
 
-  const existing = opts.users.credentialFor(FIRST_ADMIN_USER_ID)
+  const existing = await opts.users.credentialFor(FIRST_ADMIN_USER_ID)
   if (existing?.source === 'per-user-scrypt' && existing.passwordHash) return { applied: false }
 
   const updatedAt = (opts.now?.() ?? new Date()).toISOString()
-  opts.users.setPasswordHash(FIRST_ADMIN_USER_ID, await hashPassword(pw), updatedAt)
+  await opts.users.setPasswordHash(FIRST_ADMIN_USER_ID, await hashPassword(pw), updatedAt)
   return { applied: true }
 }

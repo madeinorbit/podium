@@ -17,8 +17,8 @@ describe('SessionRegistry conversation registry', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  function makeRegistry(): SessionRegistry {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  async function makeRegistry(): Promise<SessionRegistry> {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
@@ -29,11 +29,11 @@ describe('SessionRegistry conversation registry', () => {
   ): ConversationSummaryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 
-  it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {
-    const registry = makeRegistry()
+  it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     for (const conversationId of ['parent-1', 'sub-1']) {
-      const { sessionId } = registry.modules.sessions.createSession({
+      const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/owned/' + conversationId,
       })
@@ -89,11 +89,11 @@ describe('SessionRegistry conversation registry', () => {
     expect(again?.podiumId).toBe(parent?.podiumId)
   })
 
-  it('transcriptRead carries the recorded segment path as pathHint', () => {
-    const registry = makeRegistry()
+  it('transcriptRead carries the recorded segment path as pathHint', async () => {
+    const registry = await makeRegistry()
     const daemon: unknown[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
@@ -110,7 +110,7 @@ describe('SessionRegistry conversation registry', () => {
       ],
       diagnostics: [],
     })
-    void registry.modules.rpc.readTranscript(
+    void await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
@@ -122,10 +122,10 @@ describe('SessionRegistry conversation registry', () => {
     expect(read.pathHint).toBe('/home/u/.claude/projects/-original-spot/native-x.jsonl')
   })
 
-  it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
-    const registry = makeRegistry()
+  it('sessionResumeRef stamps the session and a roll keeps the same identity', async () => {
+    const registry = await makeRegistry()
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -135,7 +135,7 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
     })
-    const meta1 = registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta1 = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     const podiumId = meta1?.conversationPodiumId
     expect(podiumId).toMatch(/^conv_/)
 
@@ -145,7 +145,7 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },
     })
-    const meta2 = registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const meta2 = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta2?.conversationPodiumId).toBe(podiumId)
     expect(meta2?.resume?.value).toBe('native-rolled')
   })

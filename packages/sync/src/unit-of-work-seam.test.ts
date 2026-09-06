@@ -169,7 +169,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
     const w = await wired()
     const id = await w.enqueue('POD-1')
 
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(0, 1, [upsertChange(1, 'issue', 'POD-1', { closed: true }, { mutationId: id })]),
     )
     await w.replica.settled()
@@ -193,7 +193,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
 
     // Refuse at the serialized commit point, after both regions have staged.
     w.store.cache.failNextPrepare = 'durable write denied'
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(0, 1, [upsertChange(1, 'issue', 'POD-1', { closed: true }, { mutationId: id })]),
     )
     // SURFACED, not swallowed. The refusal arrives on the unit of work the Replica
@@ -215,7 +215,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
     const before = w.store.transactions
     const outboxWritesBefore = w.outboxStore.writes
 
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(0, 1, [upsertChange(1, 'issue', 'POD-1', { closed: true }, { mutationId: id })]),
     )
     await w.replica.settled()
@@ -263,7 +263,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
 
     // A frame carrying NO provenance: nothing to retire, so exactly one region is
     // touched and D10 clause 2 permits an autocommit. This is the arm that exists.
-    w.replica.receive(deltaFrame(0, 1, [upsertChange(1, 'issue', 'OTHER', { n: 1 })]))
+    await w.replica.receive(deltaFrame(0, 1, [upsertChange(1, 'issue', 'OTHER', { n: 1 })]))
     await w.replica.settled()
     expect(w.store.transactions - before).toBe(1)
     // …and the overlay was never handed a batch, which is WHY it was single-region.
@@ -274,7 +274,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
 
     // COUNTERFACTUAL, same replica: add provenance and the commit leaves that arm.
     const id = await w.enqueue('POD-2')
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(1, 2, [upsertChange(2, 'issue', 'POD-2', { closed: true }, { mutationId: id })]),
     )
     await w.replica.settled()
@@ -317,7 +317,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
     // source, so a future parameter cannot slip in unnoticed.
     const w = await wired()
     const id = await w.enqueue('POD-1')
-    w.replica.receive(
+    await w.replica.receive(
       deltaFrame(0, 1, [upsertChange(1, 'issue', 'POD-1', { closed: true }, { mutationId: id })], {
         feedId: FEED_ID,
         epoch: EPOCH,

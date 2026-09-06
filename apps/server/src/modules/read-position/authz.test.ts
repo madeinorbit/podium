@@ -81,11 +81,11 @@ describe('a refused principal does not write', () => {
     const refusal = readPositionAuthzFailure('readPosition.advance', deps(undefined))
     expect(refusal).toBeDefined()
     // Mimic the trpc order: refuse BEFORE the handler.
-    if (!refusal) service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
+    if (!refusal) await service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
     expect(await repo.getSnapshot(ALICE)).toEqual({})
 
     expect(readPositionAuthzFailure('readPosition.advance', deps('member'))).toBeUndefined()
-    service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
+    await service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
     expect(await repo.getSnapshot(ALICE)).toEqual({ issueEvents: { lastEventId: 4, seenAt: null } })
     // …and it wrote for the ACTOR only.
     expect(await repo.getSnapshot(BOB)).toEqual({})

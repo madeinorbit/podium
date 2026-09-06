@@ -6,12 +6,12 @@ import type { CreateIssueInput } from '../issues/service'
 export type MachineDiagnostic = EventMap['machine.diagnostic']
 
 export interface MachineDiagnosticRouterDeps {
-  recipients(machineId: MachineId): UserId[]
-  repoPath(machineId: MachineId): string | undefined
-  issueExists(id: IssueId): boolean
-  createIssue(input: CreateIssueInput): void
-  sendMail(issueId: IssueId, body: string): void
-  notify(userId: UserId, notice: { title: string; body: string }): void
+  recipients(machineId: MachineId): UserId[] | Promise<UserId[]>
+  repoPath(machineId: MachineId): string | undefined | Promise<string | undefined>
+  issueExists(id: IssueId): boolean | Promise<boolean>
+  createIssue(input: CreateIssueInput): void | Promise<unknown>
+  sendMail(issueId: IssueId, body: string): void | Promise<unknown>
+  notify(userId: UserId, notice: { title: string; body: string }): void | Promise<unknown>
   warn(message: string): void
 }
 
@@ -31,23 +31,23 @@ const issueIdFor = (recipient: UserId, diagnostic: MachineDiagnostic): IssueId =
  * Turn a transport-scoped machine warning into one durable, personal attention
  * item per owner/admin. Deterministic ids make daemon restarts idempotent.
  */
-export function routeMachineDiagnostic(
+export async function routeMachineDiagnostic(
   diagnostic: MachineDiagnostic,
   deps: MachineDiagnosticRouterDeps,
-): void {
-  const recipients = [...new Set(deps.recipients(diagnostic.machineId))]
-  const repoPath = deps.repoPath(diagnostic.machineId)
+): Promise<void> {
+  const recipients = [...new Set(await deps.recipients(diagnostic.machineId))]
+  const repoPath = await deps.repoPath(diagnostic.machineId)
   for (const recipient of recipients) {
     const issueId = issueIdFor(recipient, diagnostic)
-    if (deps.issueExists(issueId)) continue
-    deps.notify(recipient, { title: diagnostic.title, body: diagnostic.body })
+    if (await deps.issueExists(issueId)) continue
+    await deps.notify(recipient, { title: diagnostic.title, body: diagnostic.body })
     if (!repoPath) {
       deps.warn(
         `[podium] cannot create diagnostic issue for ${diagnostic.machineId}: no repository is registered`,
       )
       continue
     }
-    deps.createIssue({
+    await deps.createIssue({
       id: issueId,
       repoPath,
       title: diagnostic.title,
@@ -69,6 +69,6 @@ export function routeMachineDiagnostic(
       createdByActor: 'system:machine-diagnostic',
       createdByOnBehalfOf: null,
     })
-    deps.sendMail(issueId, diagnostic.body)
+    await deps.sendMail(issueId, diagnostic.body)
   }
 }

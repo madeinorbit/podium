@@ -215,12 +215,12 @@ function holdsTarget(human: UserId, target: AuthTarget): boolean {
  * re-authorized by the identical code that authorized the online one, rather than
  * by a replay path with its own weaker checks.
  */
-export function renameOnTargetPath(
+export async function renameOnTargetPath(
   deps: RenameTargetDeps,
   rawInput: unknown,
   principal: CommandPrincipal,
   transport: RenameTransport = 'trpc',
-): RenameDispatch {
+): Promise<RenameDispatch> {
   // 1. EXPOSURE, before anything reads the input (ADR 3 D3, default-closed).
   if (!sessionRenameContract.exposure.includes(transport as never)) {
     return { outcome: 'not-exposed' }
@@ -242,7 +242,7 @@ export function renameOnTargetPath(
   //    grant was revoked is refused above rather than served from the cache
   //    (ADR 3 D8). That ordering is the property `rename-offline.test.ts` pins and
   //    a mutant reversing it kills.
-  const applied = deps.mutations.apply(input.mutationId, sessionRenameContract.name, () =>
+  const applied = await deps.mutations.apply(input.mutationId, sessionRenameContract.name, () =>
     applyRename(deps, input, principal),
   )
   return applied.outcome === 'replayed'

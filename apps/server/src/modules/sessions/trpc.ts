@@ -179,8 +179,8 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
   if (!contract) throw new Error(`sessionStateProcedure: no contract named ${name}`)
   return t.procedure
     .input(sessionStateInputs[name])
-    .mutation(({ ctx, input }): SessionStateOutputs[N] => {
-      const result = sessionStateRegistryFor(ctx).execute(
+    .mutation(async ({ ctx, input }): Promise<SessionStateOutputs[N]> => {
+      const result = await sessionStateRegistryFor(ctx).execute(
         name,
         input,
         sessionStatePrincipal(ctx),
@@ -253,13 +253,13 @@ export function sessionStatePrincipal(ctx: Context) {
 function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionStateInputs['sessions.rename'])
-    .mutation(({ ctx, input }): void => {
+    .mutation(async ({ ctx, input }): Promise<void> => {
       const modules = familyState(ctx).modules
-      const dispatch = dispatchRename(
+      const dispatch = await dispatchRename(
         {
           sessions: modules.sessions,
           mutations: modules.mutations,
-          principal: sessionCommandCtx(modules, ctx.capability).principal,
+          principal: (await sessionCommandCtx(modules, ctx.capability)).principal,
           legacyPrincipal: sessionStatePrincipal(ctx),
           // The rollback envelope, built lazily — the target path is the default.
           legacyRegistry: () => sessionStateRegistryFor(ctx),
@@ -310,9 +310,9 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
   const built = t.procedure
     .input(schema)
-    .mutation(({ ctx, input }): unknown =>
-      dispatchSessionCommand(
-        sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
+    .mutation(async ({ ctx, input }): Promise<unknown> =>
+      await dispatchSessionCommand(
+        await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
         key,
         input,
       ),

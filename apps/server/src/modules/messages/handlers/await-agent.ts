@@ -20,7 +20,7 @@ import type { awaitAgentContract, ContractInput } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
-import { findSessionById } from '../../sessions/session-by-id'
+import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { MailHandlerContext } from './context'
 
 export async function awaitAgentHandler(
@@ -31,11 +31,11 @@ export async function awaitAgentHandler(
   // The parent relationship (spawnedBy provenance) is sufficient authority to
   // await its own child — even across issue scopes (it already crossed them,
   // confirmed, at spawn time). Everyone else passes the session-target gate.
-  const child = findSessionById(deps, input.sessionId)
+  const child = await findSessionByIdAsync(deps, input.sessionId)
   const isParent =
     caller.capability.actorSessionId !== undefined &&
     isSpawnedBy(child?.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
-  if (!isParent) access.assertSessionTargetAccess(caller, input.sessionId, 'agent.await')
+  if (!isParent) await access.assertSessionTargetAccess(caller, input.sessionId, 'agent.await')
   const svc = deps.messages
   const timeoutMs = (input.timeoutSeconds ?? 30) * 1000
   const pollMs = deps.awaitPollMs ?? 500
@@ -48,7 +48,7 @@ export async function awaitAgentHandler(
   const waitStart = deps.now?.() ?? new Date().toISOString()
   // biome-ignore lint/nursery/noConstantCondition: loop exits via return
   for (;;) {
-    const s = findSessionById(deps, input.sessionId)
+    const s = await findSessionByIdAsync(deps, input.sessionId)
     if (!s) {
       return finishAwait(ctx, isParent, caller, input.sessionId, {
         done: true,
@@ -59,8 +59,7 @@ export async function awaitAgentHandler(
     // Rich agent ack first (it carries WHAT the child did): the child's most
     // recent ack addressed back to this caller since the wait began. Wins over
     // exit/settle classification — reported-then-exited is acked, not gone.
-    const ack = svc
-      .inbox(principals, { limit: 50 })
+    const ack = (await svc.inbox(principals, { limit: 50 }))
       .filter(
         (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
       )
@@ -69,7 +68,7 @@ export async function awaitAgentHandler(
       return finishAwait(ctx, isParent, caller, input.sessionId, {
         done: true,
         result: 'acked',
-        ack: access.wire(ack),
+        ack: await access.wire(ack),
         snapshot: snap(s),
       })
     }

@@ -126,7 +126,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // would model a replacement machine and invalidate every durable binding.
       const hostMachineId = asMachineId(randomUUID())
       let store = await openTestStore(dbPath, hostMachineId)
-      let registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
+      let registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
       const attach = () =>
@@ -134,7 +134,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           controls.push(msg),
         )
       attach()
-      registry.modules.settings.setSettingsFor(
+      await registry.modules.settings.setSettingsFor(
         FIRST_ADMIN_USER_ID,
         normalizeSettings({
           notifications: {
@@ -149,7 +149,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // The bot token is a server-owned secret and the blob write refuses one
       // (POD-420): configuring it is `setSecret`'s job, which is the only path
       // authorized to write credential material.
-      registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
+      await registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
       // Outbound routing is usable only after the same owner's chat has passed
       // the binding ceremony; a preference string alone is intentionally inert.
       await store.telegramBindings.upsert({
@@ -164,12 +164,12 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       attachTestClient(registry.clientGateway, (message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)
-      registry.modules.sessions.createSession({
+      await registry.modules.sessions.createSession({
         sessionId: asSessionId(parentId),
         agentKind: 'claude-code',
         cwd: join(root, 'parent'),
       })
-      registry.modules.sessions.createSession({
+      await registry.modules.sessions.createSession({
         sessionId: childId,
         agentKind: provider,
         cwd: join(root, 'child'),
@@ -273,7 +273,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           registry.dispose()
           store.close()
           store = await openTestStore(dbPath, hostMachineId)
-          registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
+          registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()
@@ -465,7 +465,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           outputCount: (candidate?.facts.outputCount ?? 0) + 2,
         },
       })
-      expect(registry.modules.sessions.hasValidTerminalProof(childId)).toBe(true)
+      expect(await registry.modules.sessions.hasValidTerminalProof(childId)).toBe(true)
       expect((await store.observationCheckpoints.get(childId))?.checkpoint).toEqual(checkpoint)
 
       registry.dispose()

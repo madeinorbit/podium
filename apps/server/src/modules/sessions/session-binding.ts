@@ -42,7 +42,7 @@ export class SessionBindingReceipts {
 
   constructor(private readonly deps: SessionBindingReceiptsDeps) {}
 
-  observeResumeRef(machineId: MachineId, message: ResumeObservation): void {
+  async observeResumeRef(machineId: MachineId, message: ResumeObservation): Promise<void> {
     const session = this.deps.session(message.sessionId)
     if (!session) return
     // A daemon may bind only sessions owned by its authenticated machine.
@@ -128,13 +128,13 @@ export class SessionBindingReceipts {
       // conversation identity, so they are the kind of work rule 26 says a draft
       // may not be held across; the values they return are what the write needs.
       const conversationPodiumId = prior
-        ? this.deps.memory.linkConversationSegment({
+        ? await this.deps.memory.linkConversationSegment({
             machineId: session.machineId,
             newNativeId: message.resume.value,
             priorNativeId: prior,
             providerId: session.agentKind,
           })
-        : this.deps.memory.ensureConversationIdentity({
+        : await this.deps.memory.ensureConversationIdentity({
             machineId: session.machineId,
             nativeId: message.resume.value,
             providerId: session.agentKind,

@@ -22,8 +22,8 @@ export function operationProcedures() {
     /** The one live operation, or null. Null is the ordinary answer. */
     active: t.procedure
       .input(z.object({ group: z.string().optional() }).optional())
-      .query(({ ctx, input }) => {
-        const row = operationsModule(ctx).engine.active(input?.group)
+      .query(async ({ ctx, input }) => {
+        const row = await operationsModule(ctx).engine.active(input?.group)
         return row ? (JSON.parse(row.payload) as unknown) : null
       }),
 
@@ -37,9 +37,9 @@ export function operationProcedures() {
           })
           .optional(),
       )
-      .query(({ ctx, input }) =>
-        operationsModule(ctx)
-          .engine.history(input?.kind, input?.limit)
+      .query(async ({ ctx, input }) =>
+        (await operationsModule(ctx)
+          .engine.history(input?.kind, input?.limit))
           .map((row) => JSON.parse(row.payload) as unknown),
       ),
 
@@ -51,6 +51,6 @@ export function operationProcedures() {
      */
     cancel: t.procedure
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => operationsModule(ctx).engine.cancel(input.id)),
+      .mutation(async ({ ctx, input }) => await operationsModule(ctx).engine.cancel(input.id)),
   }
 }

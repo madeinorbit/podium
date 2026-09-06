@@ -69,7 +69,7 @@ export const SEARCH_QUERIES = {
       text: z.string().min(1).max(256),
       limit: z.number().int().positive().max(100).optional(),
     }),
-    (s, input) => s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
+    async (s, input) => await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 
@@ -115,12 +115,12 @@ const repoOp = (op: GitPanelOp) => {
       z.ZodTypeDef,
       { machineId?: MachineId | undefined; root: string; path?: string; sha?: string }
     >,
-    (s, input) => {
-      assertAllowedRoot(fileState(s), input.root)
+    async (s, input) => {
+      await assertAllowedRoot(fileState(s), input.root)
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string
-      return s.modules.rpc.repoOp(
+      return await s.modules.rpc.repoOp(
         op,
         input.root,
         needs.length > 0 ? args : undefined,
@@ -170,7 +170,7 @@ export const USAGE_QUERIES = {
         // last window's numbers as current and keeps a transcript that has
         // since fallen out of the window contributing to "attributed".
         const foldSinceMs = sourcesSinceMs ?? sinceMs
-        new CostService(s.store).ingest(s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
+        await new CostService(s.store).ingest(await s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
       } catch (err) {
         log.warn('cost fold failed — usage buckets unaffected', { err })
       }
@@ -192,14 +192,14 @@ export const COST_QUERIES = {
    *  TOKENS, NEVER DOLLARS — the one price table lives in client-core and the
    *  server does not import it. A pure DB read: it opens no transcript, so a
    *  panel can call it on first paint. */
-  task: q(z.object({ issueId: IssueIdField }), (s, input) =>
-    new CostService(s.store).task(input.issueId),
+  task: q(z.object({ issueId: IssueIdField }), async (s, input) =>
+    await new CostService(s.store).task(input.issueId),
   ),
   /** Every task with a stored figure — the sheet's ranked table, and the cohort
    *  the "×median" rate is computed against. OWN cost per task, not rolled up:
    *  a rolled-up parent beside its own children counts the same money twice
    *  down one column. */
-  tasks: q(noInput, (s) => new CostService(s.store).tasks()),
+  tasks: q(noInput, async (s) => await new CostService(s.store).tasks()),
 } as const
 
 export const QUOTA_QUERIES = {
@@ -217,7 +217,7 @@ export const QUOTA_QUERIES = {
    *  Best-effort: a failed fold never fails the read. */
   summary: q(noInput, async (s) => {
     const machines = await s.modules.rpc.agentQuotaAll()
-    recordQuotaSamples(s.store.quotaHistory, machines)
+    await recordQuotaSamples(s.store.quotaHistory, machines)
     return machines
   }),
   /** The window ledger: one entry per run of a plan window, oldest first, over
@@ -225,17 +225,17 @@ export const QUOTA_QUERIES = {
    *  reset — the whole point of the series. See `viewmodels/quota-history`. */
   history: q(
     z.object({ days: z.number().int().positive().max(365).optional() }).optional(),
-    (s, input) => {
+    async (s, input) => {
       const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
       const now = Date.now()
-      return s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
+      return await s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
     },
   ),
 } as const
 
 export const FEATURE_QUERIES = {
   /** Experimental feature flags [spec:SP-f4b9] — same auth as settings.get. */
-  state: q(noInput, (s) => getFeatureStates(s.modules.settings.getSettings(), loadConfig())),
+  state: q(noInput, async (s) => getFeatureStates(await s.modules.settings.getSettings(), loadConfig())),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -246,9 +246,9 @@ export const FEATURE_QUERIES = {
  *  hand-written because a read writes nothing. */
 export const SUPERAGENT_QUERIES = {
   /** The global orchestrator thread plus per-session 'btw' threads. */
-  listThreads: q(noInput, (s) => s.superagent.listThreads(asUserId(s.caller.userId))),
-  history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), (s, input) =>
-    s.superagent.history(asUserId(s.caller.userId), input.threadId),
+  listThreads: q(noInput, async (s) => await s.superagent.listThreads(asUserId(s.caller.userId))),
+  history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), async (s, input) =>
+    await s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
 } as const
 
@@ -275,19 +275,19 @@ export const SETTINGS_QUERIES = {
    * names. The caller's identity is already on `FamilyState` for exactly this
    * class of read.
    */
-  get: q(noInput, (s) => s.modules.settings.getSettingsFor(asUserId(s.caller.userId))),
+  get: q(noInput, async (s) => await s.modules.settings.getSettingsFor(asUserId(s.caller.userId))),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed
  *  hand-written for the same reason. */
 export const AUTOMATION_QUERIES = {
-  list: q(noInput, (s) => s.modules.automations.listForUser(asUserId(s.caller.userId))),
+  list: q(noInput, async (s) => await s.modules.automations.listForUser(asUserId(s.caller.userId))),
   runs: q(
     z.object({
       automationId: z.string().min(1).pipe(AutomationIdField),
       limit: z.number().int().optional(),
     }),
-    (s, input) =>
-      s.modules.automations.runsForUser(asUserId(s.caller.userId), input.automationId, input.limit),
+    async (s, input) =>
+      await s.modules.automations.runsForUser(asUserId(s.caller.userId), input.automationId, input.limit),
   ),
 } as const

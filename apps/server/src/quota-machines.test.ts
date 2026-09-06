@@ -48,7 +48,7 @@ async function regWithTwoDaemons() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
   reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
@@ -65,7 +65,7 @@ const reqId = (msgs: ControlMessage[], type: string): string => {
 describe('SessionRegistry.agentQuotaAll()', () => {
   it('fans out to every online daemon, tagging each reply with machineId + machineName', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
-    const p = reg.modules.rpc.agentQuotaAll()
+    const p = await reg.modules.rpc.agentQuotaAll()
 
     reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
@@ -94,7 +94,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('agentQuota(refresh, machineId) sends the request to only that machine', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
-    void reg.modules.rpc.agentQuota(false, asMachineId('m2'))
+    void await reg.modules.rpc.agentQuota(false, asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'agentQuotaRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'agentQuotaRequest')).toBe(false)
   })
@@ -108,11 +108,11 @@ describe('SessionRegistry.agentQuotaAll()', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
-    const p = reg.modules.rpc.agentQuotaAll()
+    const p = await reg.modules.rpc.agentQuotaAll()
     reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(out, 'agentQuotaRequest'),
@@ -129,7 +129,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('returns [] when no daemon is online', async () => {
     const store = await openTestStore(':memory:')
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(await reg.modules.rpc.agentQuotaAll()).toEqual([])
   })
 })
@@ -137,7 +137,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 describe('SessionRegistry.memoryBreakdown(roots, machineId)', () => {
   it('routes the breakdown request to the requested machine', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
-    void reg.modules.hosts.memoryBreakdown(['/x'], asMachineId('m2'))
+    void await reg.modules.hosts.memoryBreakdown(['/x'], asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(false)
   })

@@ -87,7 +87,7 @@ export class TranscriptIndexer {
   }
 
   /** Mirror hook: new bytes landed in the lake for this segment. */
-  onBytes(machineId: MachineId, nativeId: string, lakePath: string): void {
+  async onBytes(machineId: MachineId, nativeId: string, lakePath: string): Promise<void> {
     if (this.stopped) return
     const key = machineScopedKey(machineId, nativeId)
     const active = this.running.get(key)
@@ -97,24 +97,24 @@ export class TranscriptIndexer {
       return
     }
     this.running.set(key, { rerun: false, lakePath })
-    void this.run(key, machineId, nativeId)
+    void await this.run(key, machineId, nativeId)
   }
 
   /** Mirror hook: the lake copy was truncated for a re-mirror — the indexed
    *  content is invalid. Synchronous, so an in-flight run's cursor check below
    *  observes the reset before it can append stale rows. */
-  onTruncate(machineId: MachineId, nativeId: string): void {
+  async onTruncate(machineId: MachineId, nativeId: string): Promise<void> {
     this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
-    this.deps.index.drop(machineId, nativeId)
+    await this.deps.index.drop(machineId, nativeId)
   }
 
   /** A new file incarnation keeps the retired lake bytes readable, but the
    *  current file starts at byte zero. FTS rows are rebuilt from the current
    *  incarnation today because the index is still keyed by native id; transcript
    *  history itself remains lossless in the lake chain. */
-  onIncarnation(machineId: MachineId, nativeId: string): void {
+  async onIncarnation(machineId: MachineId, nativeId: string): Promise<void> {
     this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
-    this.deps.index.drop(machineId, nativeId)
+    await this.deps.index.drop(machineId, nativeId)
   }
 
   /**
@@ -124,7 +124,7 @@ export class TranscriptIndexer {
    * whatever a budget-stopped earlier pass left behind. Cheap no-op when nothing
    * is behind; single-flight per machine.
    */
-  backfillMachine(machineId: MachineId, lakePathFor: (nativeId: string) => string): void {
+  async backfillMachine(machineId: MachineId, lakePathFor: (nativeId: string) => string): Promise<void> {
     if (this.stopped) return
     if (this.backfilling.has(machineId)) return
     // Unavailable for either of two reasons: this SQLite build has no FTS5, or
@@ -136,8 +136,8 @@ export class TranscriptIndexer {
     // where the last attempt left it — that gap is a partial trailing line the
     // indexer already proved it cannot consume (newline-less lake tail); reading
     // it again every sweep is pure waste. Either cursor moving re-qualifies it.
-    const behind = this.deps.index
-      .segmentsToIndex(machineId)
+    const behind = (await this.deps.index
+      .segmentsToIndex(machineId))
       .filter(
         (s) =>
           this.lastBackfillGap.get(machineScopedKey(machineId, s.nativeId)) !==
@@ -145,7 +145,7 @@ export class TranscriptIndexer {
       )
     if (behind.length === 0) return
     this.backfilling.add(machineId)
-    void this.backfill(
+    void await this.backfill(
       machineId,
       behind.map((s) => s.nativeId),
       lakePathFor,
@@ -168,7 +168,7 @@ export class TranscriptIndexer {
         const key = machineScopedKey(machineId, nativeId)
         // A live onBytes run is already catching this segment up — skip it here.
         if (this.running.has(key)) continue
-        const indexedBefore = this.deps.index.indexedCursor(machineId, nativeId)
+        const indexedBefore = await this.deps.index.indexedCursor(machineId, nativeId)
         this.running.set(key, { rerun: false, lakePath: lakePathFor(nativeId) })
         await this.run(key, machineId, nativeId, pass)
         // Unchanged-gap bookkeeping: a ZERO-progress attempt proves the remaining
@@ -176,10 +176,10 @@ export class TranscriptIndexer {
         // the pair so the next sweep skips it until a cursor moves. An attempt
         // that DID progress must not record (a budget stop mid-file leaves a
         // perfectly drainable gap; the next sweep resumes it).
-        if (this.deps.index.indexedCursor(machineId, nativeId) === indexedBefore) {
+        if (await this.deps.index.indexedCursor(machineId, nativeId) === indexedBefore) {
           this.lastBackfillGap.set(
             key,
-            `${this.deps.mirror.mirrorCursor(machineId, nativeId)}:${indexedBefore}`,
+            `${await this.deps.mirror.mirrorCursor(machineId, nativeId)}:${indexedBefore}`,
           )
         } else {
           this.lastBackfillGap.delete(key)
@@ -243,8 +243,8 @@ export class TranscriptIndexer {
         }
         if (pass) pass.remainingBytes -= consumed
         const behind =
-          this.deps.index.indexedCursor(machineId, nativeId) <
-          this.deps.mirror.mirrorCursor(machineId, nativeId)
+          await this.deps.index.indexedCursor(machineId, nativeId) <
+          await this.deps.mirror.mirrorCursor(machineId, nativeId)
         // consumed 0 with bytes still behind = only a partial trailing line so
         // far — nothing more to do until the mirror completes the record.
         if ((consumed === 0 || !behind) && !state.rerun) return
@@ -265,8 +265,8 @@ export class TranscriptIndexer {
     pruneMissingLake: boolean,
   ): Promise<number> {
     if (!this.deps.index.isAvailable) return 0
-    const from = this.deps.index.indexedCursor(machineId, nativeId)
-    const to = this.deps.mirror.mirrorCursor(machineId, nativeId)
+    const from = await this.deps.index.indexedCursor(machineId, nativeId)
+    const to = await this.deps.mirror.mirrorCursor(machineId, nativeId)
     if (to <= from) return 0
     let win = this.windowBytes
     let buf: Buffer
@@ -281,7 +281,7 @@ export class TranscriptIndexer {
         // Reset only if neither cursor moved while open() was failing; preserving
         // reported_bytes makes the mirror dirty so it can re-pull from byte zero.
         if (pruneMissingLake && isEnoent(err)) {
-          this.deps.index.resetMissingLake(machineId, nativeId, {
+          await this.deps.index.resetMissingLake(machineId, nativeId, {
             mirroredBytes: to,
             indexedBytes: from,
           })
@@ -303,8 +303,8 @@ export class TranscriptIndexer {
     // Optimistic-concurrency check: an onTruncate during the (async) read above
     // reset the cursor — these rows were computed from dead content, drop them.
     // No await between this check and the append, so the check can't go stale.
-    if (this.deps.index.indexedCursor(machineId, nativeId) !== from) return 0
-    this.deps.index.append(machineId, nativeId, rows, from + lastNl + 1)
+    if (await this.deps.index.indexedCursor(machineId, nativeId) !== from) return 0
+    await this.deps.index.append(machineId, nativeId, rows, from + lastNl + 1)
     return lastNl + 1
   }
 

@@ -16,7 +16,7 @@ let layout: UserLayoutRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   layout = new UserLayoutRepository(stage)
 })
@@ -34,7 +34,7 @@ describe('UserLayoutRepository', () => {
   })
 
   it('setMany is atomic on the closed set and refuses a free-form key', async () => {
-    expect(() => layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT)).toThrow(
+    await expect(layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT)).rejects.toThrow(
       /not a replicated layout key/,
     )
     expect(await layout.getSnapshot(ALICE)).toEqual({})
@@ -53,8 +53,8 @@ describe('UserLayoutRepository', () => {
     expect(await layout.keysFor(FIRST_ADMIN_USER_ID)).toEqual([])
   })
 
-  it('refuses device-local keys that must stay on the client', () => {
-    expect(() => layout.set(ALICE, 'view', 'workspace', AT)).toThrow(/not a replicated/)
-    expect(() => layout.set(ALICE, 'podium.view', 'workspace', AT)).toThrow(/not a replicated/)
+  it('refuses device-local keys that must stay on the client', async () => {
+    await expect(layout.set(ALICE, 'view', 'workspace', AT)).rejects.toThrow(/not a replicated/)
+    await expect(layout.set(ALICE, 'podium.view', 'workspace', AT)).rejects.toThrow(/not a replicated/)
   })
 })

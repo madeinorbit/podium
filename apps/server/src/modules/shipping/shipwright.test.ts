@@ -137,13 +137,13 @@ describe('bounded shipwright patch contract', () => {
         operation: 'validate',
       },
     }
-    const ref = registry.materialize({
+    const ref = await registry.materialize({
       ...input,
       sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
       content: 'bounded evidence',
     } as never)
     expect(
-      registry.materialize({
+      await registry.materialize({
         ...input,
         sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
         content: 'bounded evidence',
@@ -154,15 +154,15 @@ describe('bounded shipwright patch contract', () => {
     const restartedStore = await openTestStore(dbPath)
     const restarted = new ShippingEvidenceRegistry(restartedStore.shipping)
     expect(
-      restarted.resolve({
+      await restarted.resolve({
         ...input,
         sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
       } as never),
     ).toBe(ref)
-    expect(restarted.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
+    expect(await restarted.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
       'bounded',
     )
-    expect(() =>
+    await expect(
       restarted.read(
         {
           ...input,
@@ -172,14 +172,14 @@ describe('bounded shipwright patch contract', () => {
         ref,
         100,
       ),
-    ).toThrow(/custody mismatch/)
-    expect(() =>
+    ).rejects.toThrow(/custody mismatch/)
+    await expect(
       restarted.materialize({
         ...input,
         sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
         content: 'changed evidence',
       } as never),
-    ).toThrow(/immutable collision/)
+    ).rejects.toThrow(/immutable collision/)
     restartedStore.close()
     rmSync(root, { recursive: true, force: true })
   })

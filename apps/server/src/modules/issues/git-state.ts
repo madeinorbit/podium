@@ -121,23 +121,23 @@ export async function probeGitState(
   target: GitProbeTarget,
   nowIso: string,
 ): Promise<IssueGitState> {
-  const op = (
+  const op = async (
     name: string,
     args?: Record<string, string>,
   ): Promise<{ ok: boolean; output: string }> =>
     io.repoOp(name, target.cwd, args, target.machineId).catch(() => ({ ok: false, output: '' }))
 
   const [status, head, unpushedRes, aheadRes, refCommitsRes] = await Promise.all([
-    op('statusProbe'),
-    op('logHead'),
+    await op('statusProbe'),
+    await op('logHead'),
     // No upstream configured → rev-list fails → counter absent, never zero-lies.
-    op('revListCount', { from: '@{u}', to: 'HEAD' }),
+    await op('revListCount', { from: '@{u}', to: 'HEAD' }),
     target.shared
-      ? Promise.resolve({ ok: false, output: '' })
-      : op('revListCount', { from: target.parentBranch, to: 'HEAD' }),
+      ? await Promise.resolve({ ok: false, output: '' })
+      : await op('revListCount', { from: target.parentBranch, to: 'HEAD' }),
     target.shared && target.refsPattern
-      ? op('logIssueCommits', { grep: target.refsPattern })
-      : Promise.resolve({ ok: false, output: '' }),
+      ? await op('logIssueCommits', { grep: target.refsPattern })
+      : await Promise.resolve({ ok: false, output: '' }),
   ])
 
   const { branch, dirtyPaths } = parsePorcelainStatus(status.output)

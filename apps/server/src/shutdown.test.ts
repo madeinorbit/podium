@@ -186,8 +186,8 @@ describe('closeServerFast', () => {
         bootTimeoutMs: null,
         closeTimeoutMs: 50,
         start: async () => ({
-          close: () =>
-            closeServerFast({
+          close: async () =>
+            await closeServerFast({
               closeWebSockets: () => Promise.resolve(),
               server: { close: vi.fn() } as never, // callback never fires, no force-close
               persist: [['store.close', persisted]],

@@ -15,30 +15,33 @@ const log = createLogger('sync:mirror')
 export interface MirrorStore {
   segmentsToMirror(
     machineId: MachineId,
-  ): { nativeId: string; path: string; mirroredBytes: number }[]
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]>
   segmentsToMirrorDirty(
     machineId: MachineId,
-  ): { nativeId: string; path: string; mirroredBytes: number }[]
-  setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void
-  mirrorCursor(machineId: MachineId, nativeId: string): number
-  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void
+  ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]>
+  setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void | Promise<void>
+  mirrorCursor(machineId: MachineId, nativeId: string): number | Promise<number>
+  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void | Promise<void>
   activeIncarnation(
     machineId: MachineId,
     nativeId: string,
-  ): { sequence: number; device: string; inode: string } | undefined
+  ):
+    | { sequence: number; device: string; inode: string }
+    | undefined
+    | Promise<{ sequence: number; device: string; inode: string } | undefined>
   startIncarnation(
     machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     at: string,
-  ): void
+  ): void | Promise<void>
   rotateIncarnation(
     machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     archivedBytes: number,
     at: string,
-  ): void
+  ): void | Promise<void>
 }
 
 /** One ranged read answered by the daemon (transcriptMirrorResult, decoded). */
@@ -61,15 +64,15 @@ export interface MirrorServiceOptions {
   passBudgetBytes?: number
   /** Fires after each chunk write + cursor advance — the transcript indexer's feed
    *  (docs/spec/search-v1.md §2.3). MirrorService itself stays indexing-free. */
-  onBytes?: (machineId: MachineId, nativeId: string, lakePath: string) => void
+  onBytes?: (machineId: MachineId, nativeId: string, lakePath: string) => void | Promise<void>
   /** Fires when a rewrite (source shrank) truncated the lake copy — the indexed
    *  content for the segment is invalid and must be dropped before the re-mirror. */
-  onTruncate?: (machineId: MachineId, nativeId: string) => void
+  onTruncate?: (machineId: MachineId, nativeId: string) => void | Promise<void>
   /** Fires when the same native id resolves to a different file identity. The
    *  predecessor lake file has already been archived and the current cursor
    *  reset; consumers must reset current-incarnation state without treating the
    *  predecessor bytes as invalid. */
-  onIncarnation?: (machineId: MachineId, nativeId: string) => void
+  onIncarnation?: (machineId: MachineId, nativeId: string) => void | Promise<void>
 }
 
 /**
@@ -135,9 +138,9 @@ export class MirrorService {
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
-  private readonly onBytes: (machineId: MachineId, nativeId: string, lakePath: string) => void
-  private readonly onTruncate: (machineId: MachineId, nativeId: string) => void
-  private readonly onIncarnation: (machineId: MachineId, nativeId: string) => void
+  private readonly onBytes: (machineId: MachineId, nativeId: string, lakePath: string) => void | Promise<void>
+  private readonly onTruncate: (machineId: MachineId, nativeId: string) => void | Promise<void>
+  private readonly onIncarnation: (machineId: MachineId, nativeId: string) => void | Promise<void>
 
   constructor(
     private readonly store: MirrorStore,
@@ -170,9 +173,9 @@ export class MirrorService {
    *  costs one daemon eof-check round trip PER SEGMENT (~1,150 reads ≈ 2s wall on
    *  the hot control channel per attach), which is exactly the regression the
    *  dirty set eliminates. */
-  enqueueMachine(machineId: MachineId): void {
-    for (const seg of this.store.segmentsToMirror(machineId)) {
-      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
+  async enqueueMachine(machineId: MachineId): Promise<void> {
+    for (const seg of await this.store.segmentsToMirror(machineId)) {
+      await this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
@@ -180,29 +183,29 @@ export class MirrorService {
    *  cursor, plus never-reported (NULL) rows which stay dirty until one pull
    *  records their observed size (upgrade path — the fleet converges, then a
    *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
-  enqueueDirty(machineId: MachineId): void {
-    for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
-      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
+  async enqueueDirty(machineId: MachineId): Promise<void> {
+    for (const seg of await this.store.segmentsToMirrorDirty(machineId)) {
+      await this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
-  enqueue(machineId: MachineId, nativeId: string, path: string): void {
-    this.enqueueSegment(machineId, nativeId, path, false)
+  async enqueue(machineId: MachineId, nativeId: string, path: string): Promise<void> {
+    await this.enqueueSegment(machineId, nativeId, path, false)
   }
 
   /** Sweep triggers carry a fresh source observation. If its segment is already
    *  being read, preserve that observation as one trailing pass; plain direct
    *  enqueues retain their strict duplicate-suppression contract. */
-  private enqueueForSweep(machineId: MachineId, nativeId: string, path: string): void {
-    this.enqueueSegment(machineId, nativeId, path, true)
+  private async enqueueForSweep(machineId: MachineId, nativeId: string, path: string): Promise<void> {
+    await this.enqueueSegment(machineId, nativeId, path, true)
   }
 
-  private enqueueSegment(
+  private async enqueueSegment(
     machineId: MachineId,
     nativeId: string,
     path: string,
     retriggerInFlight: boolean,
-  ): void {
+  ): Promise<void> {
     const key = machineScopedKey(machineId, nativeId)
     if (this.queued.has(key)) {
       if (retriggerInFlight && this.inFlight.has(key)) {
@@ -222,7 +225,7 @@ export class MirrorService {
       this.queues.set(machineId, queue)
     }
     queue.push({ nativeId, path })
-    if (!this.paused) void this.drain(machineId)
+    if (!this.paused) void await this.drain(machineId)
   }
 
   /**
@@ -242,11 +245,11 @@ export class MirrorService {
   }
 
   /** Lift a reversible pause and restart every preserved machine queue. */
-  resume(): void {
+  async resume(): Promise<void> {
     if (this.stopped || !this.paused) return
     this.paused = false
     for (const [machineId, queue] of this.queues) {
-      if (queue.length > 0) void this.drain(machineId)
+      if (queue.length > 0) void await this.drain(machineId)
     }
   }
 
@@ -317,10 +320,10 @@ export class MirrorService {
             // without this it would retry every backoff window forever. Mark it
             // converged; if the file ever reappears, the scan reports a fresh
             // size and it turns dirty again.
-            this.store.setReportedBytes(
+            await this.store.setReportedBytes(
               machineId,
               item.nativeId,
-              this.store.mirrorCursor(machineId, item.nativeId),
+              await this.store.mirrorCursor(machineId, item.nativeId),
             )
             log.info('source gone — the lake copy is now the only copy', {
               machineId,
@@ -363,7 +366,7 @@ export class MirrorService {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
-      if (restart) void this.drain(machineId)
+      if (restart) void await this.drain(machineId)
     }
   }
 
@@ -382,7 +385,7 @@ export class MirrorService {
     path: string,
     pass: { remainingBytes: number },
   ): Promise<boolean> {
-    let cursor = this.store.mirrorCursor(machineId, nativeId)
+    let cursor = await this.store.mirrorCursor(machineId, nativeId)
     // Ops-event guard: if the lake file is SHORTER than the cursor (lake wiped or
     // partially restored while the DB kept its cursors), fall back to what is
     // actually on disk — truncate(cursor) on a shorter file would silently EXTEND
@@ -392,7 +395,7 @@ export class MirrorService {
     if (this.paused) return false
     if (lakeSize < cursor) {
       cursor = lakeSize
-      this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
+      await this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
     }
     for (;;) {
       if (this.paused) return false
@@ -413,11 +416,13 @@ export class MirrorService {
         res.device !== undefined && res.inode !== undefined
           ? { device: res.device, inode: res.inode }
           : undefined
-      const active = identity ? this.store.activeIncarnation(machineId, nativeId) : undefined
+      const active = identity
+        ? await this.store.activeIncarnation(machineId, nativeId)
+        : undefined
       if (identity && !active) {
         // Rolling-upgrade adoption: the canonical lake and its cursor predate
         // file-identity replies. Attach identity without disturbing either.
-        this.store.startIncarnation(machineId, nativeId, identity, this.nowIso())
+        await this.store.startIncarnation(machineId, nativeId, identity, this.nowIso())
       } else if (
         identity &&
         active &&
@@ -434,8 +439,14 @@ export class MirrorService {
           archivedPath,
           await this.lakeSize(machineId, nativeId),
         )
-        this.store.rotateIncarnation(machineId, nativeId, identity, archivedBytes, this.nowIso())
-        this.onIncarnation(machineId, nativeId)
+        await this.store.rotateIncarnation(
+          machineId,
+          nativeId,
+          identity,
+          archivedBytes,
+          this.nowIso(),
+        )
+        await this.onIncarnation(machineId, nativeId)
         cursor = 0
         continue
       }
@@ -444,13 +455,13 @@ export class MirrorService {
         // correctness: drop our copy and re-pull from zero (spec §2.3). Everything
         // indexed off the old copy is invalid too — signal BEFORE the re-pull so
         // the reindex starts from a clean slate as chunks arrive.
-        this.onTruncate(machineId, nativeId)
+        await this.onTruncate(machineId, nativeId)
         await this.writeAt(machineId, nativeId, 0, Buffer.alloc(0))
         // Disposal may close the store while the filesystem mutation is
         // outstanding. The lake can be repaired from its persisted cursor on
         // the next start; touching the closed store here cannot be repaired.
         if (this.stopped) return true
-        this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
+        await this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
         cursor = 0
         if (this.paused) return false
         continue
@@ -465,8 +476,8 @@ export class MirrorService {
         // it must not advance cursors or notify the indexer after that boundary.
         if (this.stopped) return true
         cursor += bytes.length
-        this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
-        this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
+        await this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
+        await this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
         pass.remainingBytes -= bytes.length
         // A pause may have arrived while writeAt was awaiting the filesystem.
         // Cursor and lake are consistent now; stop before another read/write.
@@ -491,7 +502,7 @@ export class MirrorService {
         // read was still in flight. Its trailing pass owns convergence; do not
         // erase that observation with this response's stale EOF size.
         if (!this.retriggered.has(machineScopedKey(machineId, nativeId))) {
-          this.store.setReportedBytes(machineId, nativeId, cursor)
+          await this.store.setReportedBytes(machineId, nativeId, cursor)
         }
         return true
       }

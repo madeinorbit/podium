@@ -26,13 +26,13 @@ export interface LayoutServiceDeps {
 export class LayoutService {
   constructor(private readonly deps: LayoutServiceDeps) {}
 
-  getSnapshot(userId: UserId): LayoutSnapshot {
-    return this.deps.layout.getSnapshot(userId)
+  async getSnapshot(userId: UserId): Promise<LayoutSnapshot> {
+    return await this.deps.layout.getSnapshot(userId)
   }
 
-  set(userId: UserId, values: Record<string, unknown>, now: string): LayoutSnapshot {
-    this.deps.layout.setMany(userId, values, now)
-    this.publish(
+  async set(userId: UserId, values: Record<string, unknown>, now: string): Promise<LayoutSnapshot> {
+    await this.deps.layout.setMany(userId, values, now)
+    await this.publish(
       Object.entries(values).map(([key, value]) => ({
         userId,
         key,
@@ -40,13 +40,13 @@ export class LayoutService {
         op: 'upsert' as const,
       })),
     )
-    return this.deps.layout.getSnapshot(userId)
+    return await this.deps.layout.getSnapshot(userId)
   }
 
-  clear(userId: UserId, keys: readonly string[]): LayoutSnapshot {
-    this.deps.layout.clearMany(userId, keys)
-    this.publish(keys.map((key) => ({ userId, key, op: 'remove' as const })))
-    return this.deps.layout.getSnapshot(userId)
+  async clear(userId: UserId, keys: readonly string[]): Promise<LayoutSnapshot> {
+    await this.deps.layout.clearMany(userId, keys)
+    await this.publish(keys.map((key) => ({ userId, key, op: 'remove' as const })))
+    return await this.deps.layout.getSnapshot(userId)
   }
 
   /**
@@ -58,12 +58,12 @@ export class LayoutService {
     // SQL via a dedicated path when wired — for now capture is driven by writes.
   }
 
-  private publish(
+  private async publish(
     rows: ReadonlyArray<
       | { userId: UserId; key: string; value: unknown; op: 'upsert' }
       | { userId: UserId; key: string; op: 'remove' }
     >,
-  ): void {
+  ): Promise<void> {
     const ledger = this.deps.ledger
     if (!ledger || rows.length === 0) return
     const specs: EntityChangeSpec[] = rows.map((row) => {
@@ -74,6 +74,6 @@ export class LayoutService {
       const value: LayoutWire = { userId: row.userId, key: row.key, value: row.value }
       return { entity: 'userLayout', id, op: 'upsert', value }
     })
-    ledger.capture(specs)
+    await ledger.capture(specs)
   }
 }

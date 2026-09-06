@@ -125,7 +125,7 @@ export interface RestoreOptions {
  * The re-mint (4) precedes the move (5): the database is never live with a stale
  * epoch, not even for a moment. A crash before (5) leaves the target untouched.
  */
-export function restoreDatabase(opts: RestoreOptions): RestoreReport {
+export async function restoreDatabase(opts: RestoreOptions): Promise<RestoreReport> {
   const { backupPath, dbPath } = opts
   const freeBytes = opts.freeBytes ?? freeDiskBytes
 
@@ -166,7 +166,7 @@ export function restoreDatabase(opts: RestoreOptions): RestoreReport {
     // THE re-mint, on the copy, before it is anywhere near live.
     const db = openDatabase(tmpPath)
     try {
-      const minted = remintRestoredEpoch(db, opts.mint)
+      const minted = await remintRestoredEpoch(db, opts.mint)
       // Fold the WAL back into the main file so what gets renamed into place is
       // one self-contained database and the sidecars we drop below are inert.
       db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
@@ -236,10 +236,10 @@ function hasTable(db: ReturnType<typeof openDatabase>, name: string): boolean {
  * Schema creation belongs to the migrator; the restore path only re-mints what
  * the migrator has already built.
  */
-function remintRestoredEpoch(
+async function remintRestoredEpoch(
   db: ReturnType<typeof openDatabase>,
   mint: (() => string) | undefined,
-): { feedId: string | null; previousEpoch: string | null; epoch: string | null } {
+): Promise<{ feedId: string | null; previousEpoch: string | null; epoch: string | null }> {
   if (!hasTable(db, 'feed_identity')) {
     return { feedId: null, previousEpoch: null, epoch: null }
   }
@@ -261,13 +261,14 @@ function remintRestoredEpoch(
   const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
   const registry = new FeedIdentityRegistry(
     {
-      readIdentity: () => repo.readFeedIdentity(),
-      writeIdentity: (identity) => repo.writeFeedIdentity(identity, Date.now()),
+      readIdentity: async () => await repo.readFeedIdentity(),
+      writeIdentity: async (identity) => await repo.writeFeedIdentity(identity, Date.now()),
     },
     mint ?? (() => randomUUID()),
   )
+  await registry.resolve()
   const previous = registry.current()
-  const next = registry.bump('restore')
+  const next = await registry.bump('restore')
   return { feedId: next.feedId, previousEpoch: previous.epoch, epoch: next.epoch }
 }
 
@@ -350,7 +351,7 @@ function removeDbFiles(path: string): void {
 }
 
 /** `restore <backup> [--db <path>]`. Returns a process exit code. */
-export function restoreCliMain(argv: string[], stdout: (s: string) => void = console.log): number {
+export async function restoreCliMain(argv: string[], stdout: (s: string) => void = console.log): Promise<number> {
   // One left-to-right pass, so a flag's VALUE can never be mistaken for the
   // positional. (The tempting `args.find((a, i) => i !== args.indexOf('--db') + 1)`
   // is wrong precisely when --db is absent: indexOf returns -1, so it excludes
@@ -395,7 +396,7 @@ export function restoreCliMain(argv: string[], stdout: (s: string) => void = con
     )
     return 2
   }
-  const r = restoreDatabase({ backupPath, dbPath })
+  const r = await restoreDatabase({ backupPath, dbPath })
   const identity =
     r.epoch === null
       ? '  feed    (this backup predates feed identity — the next boot mints a fresh\n' +

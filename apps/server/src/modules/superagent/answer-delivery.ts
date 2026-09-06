@@ -24,7 +24,7 @@ export interface AnswerTargetSession {
 }
 
 export interface AnswerDeliveryDeps {
-  getSession(sessionId: SessionId): AnswerTargetSession | undefined
+  getSession(sessionId: SessionId): AnswerTargetSession | undefined | Promise<AnswerTargetSession | undefined>
   sessions: {
     answerAskUserQuestion(input: {
       sessionId: SessionId
@@ -34,13 +34,13 @@ export interface AnswerDeliveryDeps {
     }): {
       ok: boolean
       reason?: string
-    }
+    } | Promise<{ ok: boolean; reason?: string }>
     resumeAndSend(input: {
       sessionId: SessionId
       text: string
       principal: InboxPrincipalReference
       allowErrored?: boolean
-    }): { ok: boolean; reason?: string }
+    }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
     /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
      *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
      *  behaviour they were written to pin. */
@@ -52,7 +52,7 @@ export interface AnswerDeliveryDeps {
         principal: InboxPrincipalReference
         allowErrored?: boolean
       },
-    ): { ok: boolean; reason?: string }
+    ): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
   }
   rpc: {
     readTranscript(input: {
@@ -83,7 +83,7 @@ export async function deliverAnswerToSession(
   },
 ): Promise<AnswerDeliveryResult> {
   const { sessionId, answer } = input
-  const session = deps.getSession(sessionId)
+  const session = await deps.getSession(sessionId)
   if (!session) return { ok: false, message: 'unknown session' }
   // Gate on a LIVE pending menu before touching the PTY: the claude-code
   // classifier resolves an unresolved AskUserQuestion as needs_user with
@@ -106,7 +106,7 @@ export async function deliverAnswerToSession(
     // between two different actions, not two deliveries. What the migration
     // removes is the readiness guess INSIDE the send it falls back to.
     const send = deps.sessions.receiptSend
-    const r = send
+    const r = await (send
       ? send('wake', {
           sessionId,
           text: answer,
@@ -118,7 +118,7 @@ export async function deliverAnswerToSession(
           text: answer,
           principal: input.principal,
           ...(input.allowErrored ? { allowErrored: true } : {}),
-        })
+        }))
     return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
   }
   // The live prompt's options live in the transcript: the LAST
@@ -181,7 +181,7 @@ export async function deliverAnswerToSession(
       ...(previewLayout ? { previewLayout: true } : {}),
     })
   }
-  const r = deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
+  const r = await deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
   // A reason only ever accompanies the undeliverable-choice refusal; the older
   // not-live refusal is bare, and keeps its original wording.
   if (!r.ok) return { ok: false, message: `failed: ${r.reason ?? 'session not running'}` }

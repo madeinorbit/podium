@@ -13,7 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
-import { findSessionById } from './modules/sessions/session-by-id'
+import { findSessionByIdAsync } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
@@ -300,12 +300,12 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
-  listSessions: () => SessionMeta[]
+  listSessions: () => SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?: (sessionId: SessionId) => SessionMeta | undefined
+  sessionById?: (sessionId: SessionId) => SessionMeta | undefined | Promise<SessionMeta | undefined>
   sessionOwner?: (sessionId: SessionId) => UserId | undefined
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
    *  this is next-turn delivery; for parked/hibernated/exited sessions with a
@@ -328,8 +328,8 @@ export interface StewardDeps {
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
    *  composition root. Structurally typed (not the NotifyService type) so the
    *  steward's unit tests stay hermetic. Absent = notify is breadcrumb-only. */
-  notify?: (ownerUserId: UserId, notice: { title: string; body: string }) => void
-  getSettings: () => PodiumSettings
+  notify?: (ownerUserId: UserId, notice: { title: string; body: string }) => void | Promise<void>
+  getSettings: () => PodiumSettings | Promise<PodiumSettings>
   intervalMs?: number
   now?: () => string
 }
@@ -407,11 +407,11 @@ export class StewardService {
    * bound issue) means there is nothing to look up — never suppress on
    * missing information.
    */
-  private alreadyCommunicated(
+  private async alreadyCommunicated(
     subjectIssueId: IssueId | undefined,
     target: { sessionId?: SessionId; issueId?: IssueId },
     changeTs: string,
-  ): boolean {
+  ): Promise<boolean> {
     if (!subjectIssueId) return false
     const changeMs = Date.parse(changeTs)
     // Fail open: an unparseable timestamp means "since" is unknowable, so this
@@ -421,7 +421,7 @@ export class StewardService {
     const sinceIso = new Date(changeMs - StewardService.COMMUNICATED_GRACE_MS).toISOString()
     if (
       target.sessionId &&
-      this.deps.messages.alreadyCommunicated(
+      await this.deps.messages.alreadyCommunicated(
         subjectIssueId,
         { kind: 'session', id: target.sessionId },
         sinceIso,
@@ -431,7 +431,7 @@ export class StewardService {
     }
     if (
       target.issueId &&
-      this.deps.messages.alreadyCommunicated(
+      await this.deps.messages.alreadyCommunicated(
         subjectIssueId,
         { kind: 'issue', id: target.issueId },
         sinceIso,
@@ -460,15 +460,15 @@ export class StewardService {
    *    doesn't re-open history.
    *  - corrupt (non-numeric): a NaN cursor would match nothing and never be
    *    rewritten (permanent silent wedge) — log and re-seed to MAX(id). */
-  private resolveCursor(): number {
-    const raw = this.deps.store.getStewardState(CURSOR_KEY)
+  private async resolveCursor(): Promise<number> {
+    const raw = await this.deps.store.getStewardState(CURSOR_KEY)
     if (raw !== undefined) {
       const cursor = Number(raw)
       if (Number.isFinite(cursor)) return cursor
       log.warn('corrupt cursor — re-seeding to now', { cursor: raw })
     }
-    const seeded = this.deps.store.maxEventId()
-    this.deps.store.setStewardState(CURSOR_KEY, String(seeded))
+    const seeded = await this.deps.store.maxEventId()
+    await this.deps.store.setStewardState(CURSOR_KEY, String(seeded))
     return seeded
   }
 
@@ -495,9 +495,9 @@ export class StewardService {
   }
 
   private async runTick(options: StewardTickOptions): Promise<void> {
-    if (!this.deps.getSettings().steward?.enabled) return
+    if (!(await this.deps.getSettings()).steward?.enabled) return
     if (options.owner === 'janitor') {
-      const seededAt = this.deps.store.activateJanitorSteward()
+      const seededAt = await this.deps.store.activateJanitorSteward()
       if (seededAt !== undefined) {
         log.info('janitor steward ownership activated — seeded to current event head', {
           cursor: seededAt,
@@ -506,9 +506,9 @@ export class StewardService {
       }
     }
     // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
-    this.arbiter.retireExpired(this.now())
-    const cursor = this.resolveCursor()
-    const events = this.deps.store.listEventsSince(
+    await this.arbiter.retireExpired(this.now())
+    const cursor = await this.resolveCursor()
+    const events = await this.deps.store.listEventsSince(
       cursor,
       options.limit === undefined ? undefined : { limit: options.limit },
     )
@@ -535,18 +535,18 @@ export class StewardService {
           // key = sessionparentnudge:<group>:<childSessionId>; ids never contain ':'.
           const rest = key.slice('sessionparentnudge:'.length)
           const sep = rest.indexOf(':')
-          this.handleSessionParentNudge(asSessionId(rest.slice(sep + 1)), rest.slice(0, sep), batch)
+          await this.handleSessionParentNudge(asSessionId(rest.slice(sep + 1)), rest.slice(0, sep), batch)
         } else if (key.startsWith('parentnudge:')) {
           // key = parentnudge:<group>:<parentId>; ids never contain ':'.
           // ISSUE-parent edge (payload.parentId) — live/starting only, no wake.
           const rest = key.slice('parentnudge:'.length)
           const sep = rest.indexOf(':')
           await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
-        } else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
+        } else if (key.startsWith('needshuman:')) await this.handleNeedsHuman(batch)
         else if (key.startsWith('ackfallback:')) {
           // FACT-KEY PARSE, not an adapter cast: the arbiter fact key is
           // `ackfallback:<sessionId>` and the tail IS the session id (POD-362).
-          this.handleAckFallback(asSessionId(key.slice('ackfallback:'.length)), batch)
+          await this.handleAckFallback(asSessionId(key.slice('ackfallback:'.length)), batch)
         }
       } catch (err) {
         deliveryFailed = true
@@ -558,7 +558,7 @@ export class StewardService {
     // top without disturbing them. Dedup is per (subscription, event) via the store,
     // so a cursor-rewind replay re-matches but never re-delivers.
     try {
-      this.dispatchSubscriptions(events)
+      await this.dispatchSubscriptions(events)
     } catch (err) {
       deliveryFailed = true
       log.warn('subscription dispatch failed', { err })
@@ -568,16 +568,16 @@ export class StewardService {
     const closedIssues = new Set(
       events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
     )
-    for (const issueId of closedIssues) this.arbiter.retireByIssue(asIssueId(issueId))
+    for (const issueId of closedIssues) await this.arbiter.retireByIssue(asIssueId(issueId))
     // Condition-clear retirement (POD-890 / POD-908) [spec:SP-ba61]: when the
     // underlying condition ends, free the (fact,target) so a later genuine edge
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
-    this.retireClearedConditions(events)
+    await this.retireClearedConditions(events)
     if (deliveryFailed) {
       log.warn('holding the cursor — delivery failed; will retry the same window')
       return
     }
-    this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
+    await this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
   }
 
   /**
@@ -596,7 +596,7 @@ export class StewardService {
    * - issue needs_human cleared → `parentnudge:needs_human:<parentId>:<seq>`,
    *   `sub:issue.needs_human:<issueId>`
    */
-  private retireClearedConditions(events: StewardEvent[]): void {
+  private async retireClearedConditions(events: StewardEvent[]): Promise<void> {
     const lastPhaseBySession = new Map<SessionId, StewardEvent>()
     for (const e of events) {
       // `e.subject` is the event's subject id, untyped on StewardEvent; for a
@@ -608,7 +608,7 @@ export class StewardService {
       // Settled conditions that claim settle/sessionparent facts are idle and
       // errored. Any other phase means the session left that condition.
       if (phase && phase !== 'idle' && phase !== 'errored') {
-        this.retireSessionSettledFacts(sessionId)
+        await this.retireSessionSettledFacts(sessionId)
       }
     }
 
@@ -621,20 +621,20 @@ export class StewardService {
           seq?: number
         } | null
         if (p?.from === 'review' && p.to !== 'review') {
-          this.retireIssueReviewFacts(asIssueId(e.subject), p)
+          await this.retireIssueReviewFacts(asIssueId(e.subject), p)
         }
       } else if (e.kind === 'issue.needs_human_cleared') {
         const seq = (e.payload as { seq?: number } | null)?.seq
-        this.retireNeedsHumanFacts(asIssueId(e.subject), seq)
+        await this.retireNeedsHumanFacts(asIssueId(e.subject), seq)
       }
     }
   }
 
   /** Session left idle/errored — free ackfallback settle; NOT the parent-wake sticky. */
-  private retireSessionSettledFacts(sessionId: SessionId): void {
+  private async retireSessionSettledFacts(sessionId: SessionId): Promise<void> {
     const at = this.now()
     // Ack-fallback / settle fact (target is usually the session itself).
-    this.arbiter.retireFactKey(`settle:${sessionId}`, at)
+    await this.arbiter.retireFactKey(`settle:${sessionId}`, at)
     // sessionparentnudge:phase-reported:<sid> is deliberately NOT retired here
     // (POD-917/POD-923). Leave-idle re-arm let phantom idle-cycles (zombie /
     // grok cwd-watch, POD-920) re-wake the parent. The sticky survives across
@@ -642,27 +642,27 @@ export class StewardService {
     // awaitAgent observes settled → retireNotificationFact).
     // Legacy per-event settle instances (pre-POD-921 `…:<eventId>` keys). No
     // longer written; retired here to reap any that predate the deploy.
-    this.arbiter.retireFactKeyPrefix(`sessionparentnudge:settle:${sessionId}:`, at)
+    await this.arbiter.retireFactKeyPrefix(`sessionparentnudge:settle:${sessionId}:`, at)
   }
 
   /** Issue left review — free review parentnudge + stage_changed sub facts. */
-  private retireIssueReviewFacts(issueId: IssueId, p: { parentId?: string; seq?: number }): void {
+  private async retireIssueReviewFacts(issueId: IssueId, p: { parentId?: string; seq?: number }): Promise<void> {
     const at = this.now()
     if (p.parentId != null && p.seq != null) {
-      this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
+      await this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
     }
-    this.arbiter.retireFactKey(`sub:issue.stage_changed:review:${issueId}`, at)
-    this.arbiter.retireFactKey(`sub:issue.stage_changed:${issueId}`, at)
+    await this.arbiter.retireFactKey(`sub:issue.stage_changed:review:${issueId}`, at)
+    await this.arbiter.retireFactKey(`sub:issue.stage_changed:${issueId}`, at)
   }
 
   /** needs_human cleared — free needs_human parentnudge + sub facts. */
-  private retireNeedsHumanFacts(issueId: IssueId, seq: number | undefined): void {
+  private async retireNeedsHumanFacts(issueId: IssueId, seq: number | undefined): Promise<void> {
     const at = this.now()
-    const parentId = this.deps.issues.getMeta(issueId)?.parentId
+    const parentId = (await this.deps.issues.getMeta(issueId))?.parentId
     if (parentId != null && seq != null) {
-      this.arbiter.retireFactKey(`parentnudge:needs_human:${parentId}:${seq}`, at)
+      await this.arbiter.retireFactKey(`parentnudge:needs_human:${parentId}:${seq}`, at)
     }
-    this.arbiter.retireFactKey(`sub:issue.needs_human:${issueId}`, at)
+    await this.arbiter.retireFactKey(`sub:issue.needs_human:${issueId}`, at)
   }
 
   /**
@@ -671,10 +671,10 @@ export class StewardService {
    * fixed handlers — one bad subscription never stalls the queue or blocks the
    * cursor advance.
    */
-  private dispatchSubscriptions(events: StewardEvent[]): void {
-    const subs = this.deps.store.listEnabledSubscriptions()
+  private async dispatchSubscriptions(events: StewardEvent[]): Promise<void> {
+    const subs = await this.deps.store.listEnabledSubscriptions()
     if (subs.length === 0) return
-    const sessions = this.deps.listSessions()
+    const sessions = await this.deps.listSessions()
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
@@ -686,8 +686,8 @@ export class StewardService {
       for (const sub of subs) {
         if (!kinds.includes(sub.event)) continue
         try {
-          if (this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)) {
-            this.deliverSubscription(sub, e, sessions)
+          if (await this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)) {
+            await this.deliverSubscription(sub, e, sessions)
           }
         } catch (err) {
           log.warn('subscription failed', { err, subscriptionId: sub.id })
@@ -703,11 +703,11 @@ export class StewardService {
    *  - relationship source: resolved against the SUBSCRIBER's issue — 'my-children'
    *    (event issue's parent is the subscriber) / 'my-subtree' (subscriber is an
    *    ancestor). 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
-  private sourceMatches(
+  private async sourceMatches(
     sub: Subscription,
     ev: { isSession: boolean; subject: string; srcIssueId: IssueId | null },
     sessions: SessionMeta[],
-  ): boolean {
+  ): Promise<boolean> {
     if (sub.sourceKind === 'session') {
       return ev.isSession && sub.sourceRef === ev.subject
     }
@@ -719,10 +719,10 @@ export class StewardService {
     const anchor = this.subscriberIssueId(sub, sessions)
     if (!anchor) return false
     if (sub.sourceRef === 'my-children') {
-      return this.deps.issues.getMeta(ev.srcIssueId)?.parentId === anchor
+      return (await this.deps.issues.getMeta(ev.srcIssueId))?.parentId === anchor
     }
     if (sub.sourceRef === 'my-subtree') {
-      return this.deps.issues.ancestorIds(ev.srcIssueId).includes(anchor)
+      return (await this.deps.issues.ancestorIds(ev.srcIssueId)).includes(anchor)
     }
     // my-blockers / my-parent: not trivially resolvable at this layer yet.
     return false
@@ -742,9 +742,9 @@ export class StewardService {
    *  dedup and the event log are keyed on; the push is what the switch's label
    *  ("Send an external notification") has always promised.
    *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
-  private deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): void {
+  private async deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): Promise<void> {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
-    if (!this.deps.store.markDelivered(sub.id, e.id)) return
+    if (!await this.deps.store.markDelivered(sub.id, e.id)) return
     const factKey = `sub:${sub.event}:${e.subject}`
     const issueId = this.subscriberIssueId(sub, sessions)
     // The event's own issue, for the already-communicated check below — the
@@ -757,7 +757,7 @@ export class StewardService {
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
-      const candidates = this.subscriberNudgeTargets(sub, sessions).filter(
+      const candidates = (await this.subscriberNudgeTargets(sub, sessions)).filter(
         (s) =>
           (s.status === 'live' || s.status === 'starting') &&
           s.agentKind !== 'shell' &&
@@ -767,7 +767,7 @@ export class StewardService {
         sub.subscriberKind === 'issue'
           ? preferIssueCoordinator(
               candidates,
-              this.deps.issues.getMeta(sub.subscriberId)?.coordinatorSessionId,
+              (await this.deps.issues.getMeta(sub.subscriberId))?.coordinatorSessionId,
             )
           : candidates
       for (const s of targets) {
@@ -776,13 +776,13 @@ export class StewardService {
         // The external `notify` push below is scoped OUT deliberately: its
         // audience is a human off in the world, not an agent's transcript
         // context, so "already in context" doesn't apply to it.
-        if (this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
+        if (await this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
           continue
         }
-        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
+        if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
         // Durable delivery before claim [POD-925].
         this.deps.sendTextWhenReady(s.sessionId, text, asMutationId(factKey))
-        const claimed = this.arbiter.claim(factKey, s.sessionId, {
+        const claimed = await this.arbiter.claim(factKey, s.sessionId, {
           source: `subscription:${sub.id}`,
           issueId,
         })
@@ -796,12 +796,12 @@ export class StewardService {
     if (
       sub.deliverNotify &&
       (subscriberClaimed ||
-        this.arbiter.claim(factKey, sub.subscriberId, {
+        await this.arbiter.claim(factKey, sub.subscriberId, {
           source: `subscription:${sub.id}`,
           issueId,
         }))
     ) {
-      this.deps.store.appendEvent({
+      await this.deps.store.appendEvent({
         ts: this.now(),
         kind: 'steward.notify',
         subject: sub.subscriberId,
@@ -820,8 +820,8 @@ export class StewardService {
         const ownerUserId =
           sub.subscriberKind === 'session'
             ? this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
-            : this.deps.issues.getMeta(sub.subscriberId)?.ownerUserId
-        if (ownerUserId) this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
+            : (await this.deps.issues.getMeta(sub.subscriberId))?.ownerUserId
+        if (ownerUserId) await this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {
         log.warn('subscription notify failed', { err, subscriptionId: sub.id })
       }
@@ -831,11 +831,11 @@ export class StewardService {
   /** The sessions a subscriber's nudge reaches: the one session for a `session`
    *  subscriber, or the member sessions of an `issue` subscriber's worktree (same
    *  no-resurrect/no-shell filtering the caller applies). */
-  private subscriberNudgeTargets(sub: Subscription, sessions: SessionMeta[]): SessionMeta[] {
+  private async subscriberNudgeTargets(sub: Subscription, sessions: SessionMeta[]): Promise<SessionMeta[]> {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
-    const issue = this.deps.issues.getMeta(sub.subscriberId)
+    const issue = await this.deps.issues.getMeta(sub.subscriberId)
     if (!issue) return []
     return sessionsForIssue(issue.worktreePath, sessions, issue.id)
   }
@@ -850,22 +850,22 @@ export class StewardService {
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
       const causedBy = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
-      const dependent = this.deps.issues.getMeta(e.subject)
+      const dependent = await this.deps.issues.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
       // assumption: this read-then-write dedup is a cross-process race — fine
       // while live is one server; revisit for multi-server.
       const marker = `Unblocked by #${closedSeq}:`
       // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
-      const already = this.deps.issues
-        .comments(dependent.id)
+      const already = (await this.deps.issues
+        .comments(dependent.id))
         .some((c) => c.author === 'steward' && c.body.includes(marker))
-      const closed = this.deps.issues
-        .list(e.repoPath ?? dependent.repoPath)
+      const closed = (await this.deps.issues
+        .list(e.repoPath ?? dependent.repoPath))
         .find((w) => w.seq === closedSeq)
       if (!already) {
-        const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
-        this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note, this.principal)
+        const note = completionNote(closed, closed ? await this.deps.issues.comments(closed.id) : [])
+        await this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note, this.principal)
       }
       // Nudge only live/starting agent sessions: queueText would RESURRECT a
       // parked session with a resume ref (the steward must never respawn agents),
@@ -874,7 +874,7 @@ export class StewardService {
       // the note lives in the issue comment only.
       const candidates = sessionsForIssue(
         dependent.worktreePath,
-        this.deps.listSessions(),
+        await this.deps.listSessions(),
         dependent.id,
       ).filter(
         (s) =>
@@ -887,7 +887,7 @@ export class StewardService {
         // Already-communicated (§07b): the closer may have mailed the
         // dependent directly instead of relying on this nudge.
         if (
-          this.alreadyCommunicated(
+          await this.alreadyCommunicated(
             closed?.id,
             { sessionId: s.sessionId, issueId: dependent.id },
             e.ts,
@@ -898,13 +898,13 @@ export class StewardService {
         // Durable delivery BEFORE arbiter claim [POD-925]: claim-first suppressed
         // retry after a failed send and left no durable nudge on cursor rewind.
         const factKey = `unblock:${dependent.id}:${closedSeq}`
-        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
+        if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
           asMutationId(factKey),
         )
-        this.arbiter.claim(factKey, s.sessionId, {
+        await this.arbiter.claim(factKey, s.sessionId, {
           source: 'steward.unblock',
           issueId: dependent.id,
         })
@@ -940,16 +940,16 @@ export class StewardService {
    * this milestone exists to deliver). Every other nudge site targets sessions
    * already live/starting, where that risk doesn't exist.
    */
-  private handleSessionParentNudge(
+  private async handleSessionParentNudge(
     childSessionId: SessionId,
     group: string,
     batch: StewardEvent[],
-  ): void {
+  ): Promise<void> {
     const sub = SESSION_PARENT_SUBS[group]
     if (!sub) return
     const last = batch[batch.length - 1]
     if (!last) return
-    const sessions = this.deps.listSessions()
+    const sessions = await this.deps.listSessions()
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
@@ -982,9 +982,9 @@ export class StewardService {
     const label = firstLineCapped(rawLabel) || childSessionId
     // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
     // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
-    if (this.arbiter.isClaimed(factKey, parentId)) return
+    if (await this.arbiter.isClaimed(factKey, parentId)) return
     this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), asMutationId(factKey))
-    this.arbiter.claim(factKey, parentId, claimOpts)
+    await this.arbiter.claim(factKey, parentId, claimOpts)
   }
 
   /** A child event notifies its parent issue (default 'my-children' subscription):
@@ -1001,7 +1001,7 @@ export class StewardService {
   ): Promise<void> {
     const sub = CHILD_PARENT_SUBS[group]
     if (!sub) return
-    const parent = this.deps.issues.getMeta(parentId)
+    const parent = await this.deps.issues.getMeta(parentId)
     if (!parent) return
     let lastChildSeq: number | undefined
     // The event timestamp behind the coalesced nudge below, for the
@@ -1023,17 +1023,17 @@ export class StewardService {
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
       // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
-      const already = this.deps.issues
-        .comments(parent.id)
+      const already = (await this.deps.issues
+        .comments(parent.id))
         .some((c) => c.author === 'steward' && c.body.includes(marker))
       if (already) continue
-      const child = this.deps.issues
-        .list(e.repoPath ?? parent.repoPath)
+      const child = (await this.deps.issues
+        .list(e.repoPath ?? parent.repoPath))
         .find((w) => w.seq === childSeq)
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
-      const excerpt = sub.excerpt(e, child, child ? this.deps.issues.comments(child.id) : [])
-      this.deps.issues.addComment(
+      const excerpt = sub.excerpt(e, child, child ? await this.deps.issues.comments(child.id) : [])
+      await this.deps.issues.addComment(
         parent.id,
         'steward',
         excerpt ? `${marker} ${excerpt}` : marker,
@@ -1048,15 +1048,15 @@ export class StewardService {
     // Same target filter as unblock: no resurrect, no shells.
     if (lastChildSeq == null) return
     // Full wire is intentional: the nudge reports derived child completion counts.
-    const fresh = this.deps.issues.get(parentId)
+    const fresh = await this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
-    const lastChild = this.deps.issues.list(parent.repoPath).find((w) => w.seq === lastChildSeq)
+    const lastChild = (await this.deps.issues.list(parent.repoPath)).find((w) => w.seq === lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
-      this.deps.listSessions(),
+      await this.deps.listSessions(),
       parent.id,
     ).filter(
       (s) =>
@@ -1072,7 +1072,7 @@ export class StewardService {
       // handleSessionParentNudge note on why that path is scoped out).
       if (
         lastChangeTs != null &&
-        this.alreadyCommunicated(
+        await this.alreadyCommunicated(
           lastChild?.id,
           { sessionId: s.sessionId, issueId: parent.id },
           lastChangeTs,
@@ -1082,13 +1082,13 @@ export class StewardService {
       }
       // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
       const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
-      if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
+      if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
       this.deps.sendTextWhenReady(
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),
         asMutationId(factKey),
       )
-      this.arbiter.claim(factKey, s.sessionId, {
+      await this.arbiter.claim(factKey, s.sessionId, {
         source: 'steward.parent-nudge',
         issueId: parent.id,
       })
@@ -1101,14 +1101,14 @@ export class StewardService {
    *  itself queries delivered+unacked at call time, so an agent ack that landed
    *  first suppresses the notice (acked_by null-check), and a crash-replayed
    *  batch re-queries an empty set. */
-  private handleAckFallback(sessionId: SessionId, batch: StewardEvent[]): void {
+  private async handleAckFallback(sessionId: SessionId, batch: StewardEvent[]): Promise<void> {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
-    const issueId = findSessionById(this.deps, sessionId)?.issueId
+    const issueId = (await findSessionByIdAsync(this.deps, sessionId))?.issueId
     const factKey = `settle:${sessionId}`
     if (
-      !this.arbiter.claim(factKey, sessionId, {
+      !await this.arbiter.claim(factKey, sessionId, {
         source: 'steward.ack-fallback',
         issueId: issueId ?? undefined,
       })
@@ -1122,9 +1122,9 @@ export class StewardService {
   }
 
   /** P1: needs-human only leaves a breadcrumb in the log (briefs are P3). */
-  private handleNeedsHuman(batch: StewardEvent[]): void {
+  private async handleNeedsHuman(batch: StewardEvent[]): Promise<void> {
     const last = batch[batch.length - 1]!
-    this.deps.store.appendEvent({
+    await this.deps.store.appendEvent({
       ts: this.now(),
       kind: 'steward.observed',
       subject: last.subject,

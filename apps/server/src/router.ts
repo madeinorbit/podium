@@ -185,16 +185,16 @@ function mailContractFor(name: MailProcName, expected: 'read' | 'write'): AnyCom
 }
 
 function mailRun<Out>(name: MailProcName) {
-  return ({ ctx, input }: { ctx: Context; input: unknown }): Promise<Out> =>
+  return async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<Out> =>
     // Non-null asserted because the exposure check already proved the dispatcher
     // will not answer `undefined` for this name on this transport.
-    familyState(ctx).modules.messageGate.dispatch(
+    (await familyState(ctx).modules.messageGate.dispatch(
       ctx.capability,
       ctx.overrideScope,
       name,
       input,
       'trpc',
-    )! as Promise<Out>
+    ))! as Promise<Out>
 }
 
 /** A mail contract whose policy action is `write`, served as a tRPC mutation. */
@@ -353,8 +353,8 @@ export const appRouter = t.router({
      * `scripts/audit-settings-commands.ts`, so the exception is visible rather
      * than assumed.
      */
-    viewer: t.procedure.query(({ ctx }) => ({
-      permitted: settingsCommandsPermitted(settingsAuthzDeps(ctx)),
+    viewer: t.procedure.query(async ({ ctx }) => ({
+      permitted: settingsCommandsPermitted(await settingsAuthzDeps(ctx)),
     })),
     ...settingsFamily,
   }),
@@ -409,11 +409,11 @@ export const appRouter = t.router({
      * costs four lines. When POD-1075 lands a real principal this is where it
      * belongs.
      */
-    list: t.procedure.query(({ ctx }) =>
-      visibleMachinesFor(familyState(ctx).modules, ctx.capability),
+    list: t.procedure.query(async ({ ctx }) =>
+      await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
-    serverTransferStatus: t.procedure.query(({ ctx }) => serverTransferStatusQuery(ctx)),
+    serverTransferStatus: t.procedure.query(async ({ ctx }) => await serverTransferStatusQuery(ctx)),
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),

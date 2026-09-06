@@ -34,7 +34,7 @@ export interface EnrollmentHost {
   /** The row caches are derived from the machines table; every write here invalidates. */
   invalidateMachineCache(): void
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
-  broadcastMachines(): void
+  broadcastMachines(): Promise<void>
 }
 
 /** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */
@@ -65,11 +65,11 @@ export function sha256(s: string): string {
  * returning a boolean is sufficient. The client-facing reason is byte-identical
  * in every denial so none of this is an existence oracle.
  */
-export function authenticateDaemon(
+export async function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
 ):
-  | {
+  Promise<| {
       ok: true
       machineId: MachineId
       name: string
@@ -78,7 +78,7 @@ export function authenticateDaemon(
       updatePubkey?: string
       updateKeyRotations?: readonly UpdateKeyRotation[]
     }
-  | { ok: false; reason: string } {
+  | { ok: false; reason: string }> {
   const deps = host.deps
   if (frame.type === 'pair') {
     // No pairing manager = node role: this server is not a rendezvous point,
@@ -87,7 +87,7 @@ export function authenticateDaemon(
     // Existence check BEFORE redeem: a collision must not burn a single-use code.
     // The peer proposed this id; the directory decides, and an existing row is a
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
-    if (deps.store.machines.getMachine(frame.machineId)) {
+    if (await deps.store.machines.getMachine(frame.machineId)) {
       return { ok: false, reason: 'machine id already registered' }
     }
     const pairingGrant = deps.pairing.redeem(frame.code)
@@ -99,7 +99,7 @@ export function authenticateDaemon(
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId ?? null
     const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
-    deps.store.machines.upsertMachine({
+    await deps.store.machines.upsertMachine({
       id: frame.machineId,
       name,
       hostname: frame.hostname,
@@ -111,7 +111,7 @@ export function authenticateDaemon(
     })
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
-    deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
+    await deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
     host.invalidateMachineCache()
     return {
       ok: true,
@@ -123,17 +123,17 @@ export function authenticateDaemon(
       ...(updateKeyRotations === undefined ? {} : { updateKeyRotations }),
     }
   }
-  if (deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
+  if (await deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
     // Even with a live row, a ledger revoke that outranks the token must win
     // (crash-after-append / DB rollback of the tombstone — D19.4a / D19.4d).
     if (isTokenRevoked(host, frame.machineId, frame.token)) {
       logVerdict(host, 'revoked', frame.machineId)
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
-    deps.store.machines.touchMachine(frame.machineId, frame.hostname)
+    await deps.store.machines.touchMachine(frame.machineId, frame.hostname)
     host.invalidateMachineCache()
     const name =
-      deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
+      (await deps.store.machines.listMachines()).find((m) => m.id === frame.machineId)?.name ??
       frame.hostname
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
@@ -146,7 +146,7 @@ export function authenticateDaemon(
     }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
-  return helloMissingRow(host, frame)
+  return await helloMissingRow(host, frame)
 }
 
 /**
@@ -191,18 +191,18 @@ function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: strin
  * unverifiable → deny; revoked → deny permanently; else re-enrol per D19.4b.
  * The client-facing reason never carries the verdict (existence/deployment oracle).
  */
-function helloMissingRow(
+async function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
 ):
-  | {
+  Promise<| {
       ok: true
       machineId: MachineId
       name: string
       updatePubkey?: string
       updateKeyRotations?: readonly UpdateKeyRotation[]
     }
-  | { ok: false; reason: string } {
+  | { ok: false; reason: string }> {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
   const result = verdictForMissingRow(ledger, frame.token)
@@ -217,7 +217,7 @@ function helloMissingRow(
     return { ok: false, reason: HELLO_DENIED_REASON }
   }
   const name = frame.hostname
-  reEnrolMachine(host, {
+  await reEnrolMachine(host, {
     claims: result.claims,
     ownerUserId: result.ownerUserId,
     token: frame.token,
@@ -240,7 +240,7 @@ function helloMissingRow(
  * Recreate a machines row from a pairing-root-verifiable token (D19.4b).
  * MachineId preserved; owner from ledger (or quarantine); grants never restored.
  */
-function reEnrolMachine(
+async function reEnrolMachine(
   host: EnrollmentHost,
   input: {
     claims: PairingTokenClaims
@@ -249,9 +249,9 @@ function reEnrolMachine(
     name: string
     hostname: string
   },
-): void {
-  const resolvedOwner = resolveOwnerForRecovery(host, input.ownerUserId)
-  host.deps.store.machines.upsertMachine({
+): Promise<void> {
+  const resolvedOwner = await resolveOwnerForRecovery(host, input.ownerUserId)
+  await host.deps.store.machines.upsertMachine({
     id: input.claims.machineId,
     name: input.name,
     hostname: input.hostname,
@@ -260,10 +260,10 @@ function reEnrolMachine(
     ownerUserId: resolvedOwner,
   })
   // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.
-  host.deps.store.machines.setMachineOwner(input.claims.machineId, resolvedOwner)
+  await host.deps.store.machines.setMachineOwner(input.claims.machineId, resolvedOwner)
   // Grants are always dropped on recovery — the row was gone, so edge rows
   // referencing it should already be gone; belt-and-braces clear.
-  host.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
+  await host.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
   host.invalidateMachineCache()
 }
 
@@ -271,9 +271,12 @@ function reEnrolMachine(
  * Ledger owner → row owner. Unresolvable account → quarantine (`null`), never
  * first-admin auto-assign (D19.4b).
  */
-function resolveOwnerForRecovery(host: EnrollmentHost, recorded: UserId | null): UserId | null {
+async function resolveOwnerForRecovery(
+  host: EnrollmentHost,
+  recorded: UserId | null,
+): Promise<UserId | null> {
   if (recorded === null) return null
-  if (host.deps.userExists && !host.deps.userExists(recorded)) return null
+  if (host.deps.userExists && !await host.deps.userExists(recorded)) return null
   return recorded
 }
 
@@ -300,11 +303,11 @@ function logVerdict(
  * Also drops rows whose enrollment has been revoked at a serial that covers
  * the stored credential when we can tell — projection of the revoke append.
  */
-export function reconcileOwnersFromLedger(host: EnrollmentHost): void {
+export async function reconcileOwnersFromLedger(host: EnrollmentHost): Promise<void> {
   const ledger = host.deps.enrollment
   if (!ledger) return
   for (const machineId of ledger.enrolledMachineIds()) {
-    const row = host.deps.store.machines.getMachine(machineId)
+    const row = await host.deps.store.machines.getMachine(machineId)
     const revokedAt = ledger.revokeSerial(machineId)
     const lastSerial = ledger.nextSerial(machineId) - 1
     // A revoke at serial S covers every token with serial <= S. If the latest
@@ -312,17 +315,17 @@ export function reconcileOwnersFromLedger(host: EnrollmentHost): void {
     // stale projection — remove it (grants die with it).
     if (revokedAt !== undefined && lastSerial > 0 && revokedAt >= lastSerial) {
       if (row) {
-        host.deps.store.grants.removeAllForResource('machine', machineId)
-        host.deps.store.machines.deleteMachine(machineId)
+        await host.deps.store.grants.removeAllForResource('machine', machineId)
+        await host.deps.store.machines.deleteMachine(machineId)
       }
       continue
     }
     if (!row) continue
     const recorded = ledger.recordedOwner(machineId)
     if (recorded === undefined) continue
-    const resolved = resolveOwnerForRecovery(host, recorded)
+    const resolved = await resolveOwnerForRecovery(host, recorded)
     if (row.ownerUserId !== resolved) {
-      host.deps.store.machines.setMachineOwner(machineId, resolved)
+      await host.deps.store.machines.setMachineOwner(machineId, resolved)
     }
   }
   host.invalidateMachineCache()
@@ -340,15 +343,15 @@ export function reconcileOwnersFromLedger(host: EnrollmentHost): void {
  * `opts.skipRowUpdate` is the crash-injection seam for the required
  * regression sequence #5; production callers never pass it.
  */
-export function transferOwnership(
+export async function transferOwnership(
   host: EnrollmentHost,
   machineId: MachineId,
   newOwnerUserId: UserId,
   opts: { skipRowUpdate?: boolean; txnId?: string } = {},
-): void {
+): Promise<void> {
   const ledger = host.deps.enrollment
   if (!ledger) throw new Error('ownership transfer requires the enrollment ledger')
-  const row = host.deps.store.machines.getMachine(machineId)
+  const row = await host.deps.store.machines.getMachine(machineId)
   if (!row) throw new Error(`unknown machine '${machineId}'`)
   const txnId = opts.txnId ?? newLedgerTxnId()
   const appended = ledger.appendOwner({
@@ -363,9 +366,9 @@ export function transferOwnership(
     throw new Error('ownership transfer ledger append failed')
   }
   if (opts.skipRowUpdate) return
-  host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
+  await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
   host.invalidateMachineCache()
-  host.broadcastMachines()
+  await host.broadcastMachines()
 }
 
 /**
@@ -383,13 +386,13 @@ export function transferOwnership(
  *
  * `currentOwner` is the AUTHENTICATED human, never a payload field (ADR 3 D7).
  */
-export function transferMachineOwnership(
+export async function transferMachineOwnership(
   host: EnrollmentHost,
   id: MachineId,
   newOwnerUserId: UserId,
   currentOwner: UserId,
-): void {
-  const machine = host.deps.store.machines.getMachine(id)
+): Promise<void> {
+  const machine = await host.deps.store.machines.getMachine(id)
   if (!machine?.ownerUserId || machine.ownerUserId !== currentOwner) {
     throw new Error('only the machine owner may transfer ownership')
   }
@@ -400,7 +403,7 @@ export function transferMachineOwnership(
   //
   // `?.` — a deps bundle with no `userExists` resolves to `undefined`, which
   // is falsy and therefore REFUSES. Absent is the closed direction.
-  if (!host.deps.userExists?.(newOwnerUserId)) {
+  if (!await host.deps.userExists?.(newOwnerUserId)) {
     throw new Error(`unknown user: ${newOwnerUserId}`)
   }
   if (newOwnerUserId === currentOwner) {
@@ -412,8 +415,8 @@ export function transferMachineOwnership(
   // over would hand the incoming owner an audience they never approved, on
   // their hardware. Dropped BEFORE the ledger append, so a crash between the
   // two leaves the closed state and not the open one.
-  host.deps.store.grants.removeAllForResource('machine', id)
-  transferOwnership(host, id, newOwnerUserId)
+  await host.deps.store.grants.removeAllForResource('machine', id)
+  await transferOwnership(host, id, newOwnerUserId)
 }
 
 /**
@@ -435,8 +438,8 @@ export function transferMachineOwnership(
  * reachable from more than one transport must not depend on every one of them
  * remembering.
  */
-export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId): void {
-  const machine = host.deps.store.machines.getMachine(id)
+export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId): Promise<void> {
+  const machine = await host.deps.store.machines.getMachine(id)
   if (!machine) throw new Error(`unknown machine '${id}'`)
   // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
   // (D19.4d) and this is the one question adoption must not ask it: a row
@@ -448,7 +451,7 @@ export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId
   // `null` covers recorded-as-unowned AND quarantine (the recorded owner no
   // longer resolves, D19.4b); `undefined` is never-recorded. All three are
   // adoptable — see the contract for why quarantine is deliberately included.
-  const owner = effectiveOwner(host, id)
+  const owner = await effectiveOwner(host, id)
   if (owner !== null && owner !== undefined) {
     throw new Error('machine already has an owner — only its owner may transfer it')
   }
@@ -456,7 +459,7 @@ export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId
   // resolves to `undefined`, which REFUSES. Adopting to an unresolvable id
   // would append an owner the next `reconcileOwnersFromLedger` re-quarantines
   // — the machine would come out of adoption exactly as stuck as it went in.
-  if (!host.deps.userExists?.(newOwnerUserId)) {
+  if (!await host.deps.userExists?.(newOwnerUserId)) {
     throw new Error(`unknown user: ${newOwnerUserId}`)
   }
   // Grant edges should not survive an ownership change, and an unowned machine
@@ -465,8 +468,8 @@ export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId
   // anything), so an edge can sit here invisible and become live again the
   // instant an owner exists. Dropped BEFORE the append for the crash ordering
   // — the closed state is the safe one to be interrupted in.
-  host.deps.store.grants.removeAllForResource('machine', id)
-  transferOwnership(host, id, newOwnerUserId)
+  await host.deps.store.grants.removeAllForResource('machine', id)
+  await transferOwnership(host, id, newOwnerUserId)
 }
 
 /**
@@ -475,14 +478,14 @@ export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId
  * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
  * in sync, but a concurrent transfer can land between reconcile and check.
  */
-export function effectiveOwner(
+export async function effectiveOwner(
   host: EnrollmentHost,
   machineId: MachineId,
-): UserId | null | undefined {
+): Promise<UserId | null | undefined> {
   const ledger = host.deps.enrollment
   if (ledger) {
     const recorded = ledger.recordedOwner(machineId)
-    if (recorded !== undefined) return resolveOwnerForRecovery(host, recorded)
+    if (recorded !== undefined) return await resolveOwnerForRecovery(host, recorded)
   }
-  return host.deps.store.machines.getMachine(machineId)?.ownerUserId
+  return (await host.deps.store.machines.getMachine(machineId))?.ownerUserId
 }

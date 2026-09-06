@@ -31,7 +31,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { probeLegacyStatements } from './executor'
+import { probeStatements } from './executor'
 import { syncQueriesOver } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
@@ -58,32 +58,32 @@ const registryReads = (): number =>
 beforeEach(() => {
   rawDb = openMigratedTestDatabase()
   counts = new Map()
-  probeLegacyStatements({ db: rawDb }, (observation) => {
+  probeStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
   repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, HOST, new TableWrites())
 })
 
 describe('ReposRepository.invalidateRegistry', () => {
-  it('makes the next read go back to the database', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    repos.listRepos()
+  it('makes the next read go back to the database', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    await repos.listRepos()
     counts.clear()
 
     // The held read answers with no statement at all — the paired half, without
     // which the assertion after the drop is satisfied by a repository that never
     // caches.
-    repos.listRepos()
+    await repos.listRepos()
     expect(registryReads()).toBe(0)
 
-    repos.invalidateRegistry()
-    repos.listRepos()
+    await repos.invalidateRegistry()
+    await repos.listRepos()
     expect(registryReads()).toBe(1)
   })
 
-  it('is what lets a read see a write this repository never issued', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    expect(repos.listRepos().map((r) => r.path)).toEqual(['/home/u/alpha'])
+  it('is what lets a read see a write this repository never issued', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    expect((await repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/alpha'])
 
     // A writer that goes straight to the connection: the shape every statement
     // the query layer runs through the executor has, from this class's point of
@@ -95,56 +95,56 @@ describe('ReposRepository.invalidateRegistry', () => {
       )
       .run('machine-host', '/home/u/beta', null, 'beta', 'repo_beta', '2026-01-01T00:00:00.000Z')
 
-    expect(repos.listRepos().map((r) => r.path)).toEqual(['/home/u/alpha'])
+    expect((await repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/alpha'])
 
-    repos.invalidateRegistry()
+    await repos.invalidateRegistry()
 
-    expect(repos.listRepos().map((r) => r.path)).toEqual(['/home/u/alpha', '/home/u/beta'])
+    expect((await repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/alpha', '/home/u/beta'])
   })
 
-  it('drops the prefix half of the read as well as the rows', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    const repoId = repos.listRepos()[0]?.repoId
+  it('drops the prefix half of the read as well as the rows', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    const repoId = (await repos.listRepos())[0]?.repoId
     expect(repoId).not.toBeNull()
 
     rawDb
       .prepare('UPDATE repo_prefixes SET prefix = ? WHERE repo_id = ?')
       .run('ZZ', repoId as string)
 
-    expect(repos.listRepos()[0]?.prefix).toBe('AL')
+    expect((await repos.listRepos())[0]?.prefix).toBe('AL')
 
-    repos.invalidateRegistry()
+    await repos.invalidateRegistry()
 
     // Two reads are held behind one field; a conversion that re-reads the rows
     // and keeps the prefix map would pass every assertion above this one.
-    expect(repos.listRepos()[0]?.prefix).toBe('ZZ')
+    expect((await repos.listRepos())[0]?.prefix).toBe('ZZ')
   })
 
-  it('is safe with nothing held', () => {
-    repos.invalidateRegistry()
-    repos.invalidateRegistry()
+  it('is safe with nothing held', async () => {
+    await repos.invalidateRegistry()
+    await repos.invalidateRegistry()
 
-    expect(repos.listRepos()).toEqual([])
+    expect(await repos.listRepos()).toEqual([])
   })
 })
 
 describe('ReposRepository.repoIdResolver', () => {
-  it('resolves a path under a registered root to that root repo id', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    const alpha = repos.listRepos()[0]?.repoId
+  it('resolves a path under a registered root to that root repo id', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    const alpha = (await repos.listRepos())[0]?.repoId
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
 
     expect(resolve('/home/u/alpha')).toBe(alpha)
     expect(resolve('/home/u/alpha/src/deep/file')).toBe(alpha)
   })
 
-  it('gives the longest containing root, not the first one registered', () => {
-    repos.addRepo('/home/u', HOST, undefined, 'HU')
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    const byPath = new Map(repos.listRepos().map((r) => [r.path, r.repoId]))
+  it('gives the longest containing root, not the first one registered', async () => {
+    await repos.addRepo('/home/u', HOST, undefined, 'HU')
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    const byPath = new Map((await repos.listRepos()).map((r) => [r.path, r.repoId]))
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
 
     // Registration order puts the SHORTER root first, so a resolver that took
     // the first match would answer with /home/u here.
@@ -152,41 +152,41 @@ describe('ReposRepository.repoIdResolver', () => {
     expect(resolve('/home/u/other/src')).toBe(byPath.get('/home/u'))
   })
 
-  it('does not treat a sibling with a shared prefix as contained', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    const alpha = repos.listRepos()[0]?.repoId
+  it('does not treat a sibling with a shared prefix as contained', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    const alpha = (await repos.listRepos())[0]?.repoId
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
 
     // `/home/u/alphabet` starts with `/home/u/alpha` as a STRING and is a
     // different repo. The separator is what makes containment mean containment.
     expect(resolve('/home/u/alphabet')).not.toBe(alpha)
   })
 
-  it('falls back to the (host machine, path) derivation for an unclaimed path', () => {
-    const resolve = repos.repoIdResolver()
+  it('falls back to the (host machine, path) derivation for an unclaimed path', async () => {
+    const resolve = await repos.repoIdResolver()
 
     expect(resolve('/home/u/unregistered')).toBe(
       deriveRepoId({ machineId: HOST, path: '/home/u/unregistered' }),
     )
   })
 
-  it('normalizes a trailing slash on the path it is asked about', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    const alpha = repos.listRepos()[0]?.repoId
+  it('normalizes a trailing slash on the path it is asked about', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    const alpha = (await repos.listRepos())[0]?.repoId
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
 
     expect(resolve('/home/u/alpha/')).toBe(alpha)
     expect(resolve('/home/u/alpha/src/')).toBe(alpha)
   })
 
-  it('reads the registry once for the whole set', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-    repos.invalidateRegistry()
+  it('reads the registry once for the whole set', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+    await repos.invalidateRegistry()
     counts.clear()
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
     for (let i = 0; i < 25; i += 1) resolve(`/home/u/alpha/w${i}`)
 
     // One read for the resolver, none for the 25 resolutions — the property the
@@ -195,19 +195,19 @@ describe('ReposRepository.repoIdResolver', () => {
     expect(registryReads()).toBe(1)
   })
 
-  it('answers from the registry it was taken with, not from a later one', () => {
-    repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
+  it('answers from the registry it was taken with, not from a later one', async () => {
+    await repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
 
-    const resolve = repos.repoIdResolver()
+    const resolve = await repos.repoIdResolver()
     const before = resolve('/home/u/beta/src')
 
-    repos.addRepo('/home/u/beta', HOST, undefined, 'BE')
+    await repos.addRepo('/home/u/beta', HOST, undefined, 'BE')
 
     // The file says the returned function holds a SNAPSHOT and that a caller
     // must not keep one across a write. This pins that it really is a snapshot:
     // a resolver that re-read the registry per call would answer with beta's id
     // on the second call and nothing else in the suite would notice.
     expect(resolve('/home/u/beta/src')).toBe(before)
-    expect(repos.resolveRepoIdForPath('/home/u/beta/src')).not.toBe(before)
+    expect(await repos.resolveRepoIdForPath('/home/u/beta/src')).not.toBe(before)
   })
 })

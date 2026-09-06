@@ -51,19 +51,31 @@ function packHeadless(stage: string, version: string): Uint8Array {
   return new Uint8Array(readFileSync(tarball))
 }
 
-function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+function waitFor(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   return new Promise((resolve, reject) => {
+    // AWAITED, and the port says `Promise<boolean>` rather than
+    // `boolean | Promise<boolean>`. Every fact this polls for — the fleet's view
+    // of a machine, the machine directory — is a durable read now. A union port
+    // would keep the sync spelling legal at both ends, and a predicate returning
+    // an un-awaited promise polls a value that is ALWAYS truthy, so the helper
+    // would resolve on its first tick and the convergence it is named for would
+    // never actually be observed.
     const poll = (): void => {
-      if (predicate()) {
-        resolve()
-        return
-      }
-      if (Date.now() >= deadline) {
-        reject(new Error('timed out waiting for daemon grant convergence'))
-        return
-      }
-      setTimeout(poll, 20)
+      predicate().then(
+        (settled) => {
+          if (settled) {
+            resolve()
+            return
+          }
+          if (Date.now() >= deadline) {
+            reject(new Error('timed out waiting for daemon grant convergence'))
+            return
+          }
+          setTimeout(poll, 20)
+        },
+        (err: unknown) => reject(err instanceof Error ? err : new Error(String(err))),
+      )
     }
     poll()
   })
@@ -172,11 +184,9 @@ describe('daemon update grant over the live server socket', () => {
         },
       })
 
-      await waitFor(() =>
+      await waitFor(async () =>
         Boolean(
-          server?.registry.modules.machines
-            .listMachines()
-            .some(
+          (await server?.registry.modules.machines.listMachines())?.some(
               (machine) =>
                 machine.id === machineId && machine.online && machine.appVersion === fromVersion,
             ),
@@ -209,12 +219,12 @@ describe('daemon update grant over the live server socket', () => {
       const updates = server.registry.modules.updates
       server.registry.modules.machines.setUpdateChannel(machineId, 'dev')
       updates.setTarget(target)
-      expect(updates.tick()).toEqual([machineId])
+      expect(await updates.tick()).toEqual([machineId])
 
-      await waitFor(() => readFileSync(join(installDir, 'VERSION'), 'utf8').trim() === toVersion)
-      await waitFor(() => typeof markerAtRestart?.grantId === 'string')
+      await waitFor(async () => readFileSync(join(installDir, 'VERSION'), 'utf8').trim() === toVersion)
+      await waitFor(async () => typeof markerAtRestart?.grantId === 'string')
       await waitFor(
-        () => updates.fleet().find((machine) => machine.id === machineId)?.state === 'restarting',
+        async () => (await updates.fleet()).find((machine) => machine.id === machineId)?.state === 'restarting',
       )
 
       expect(markerAtRestart).toMatchObject({
@@ -222,7 +232,7 @@ describe('daemon update grant over the live server socket', () => {
         previousVersion: fromVersion,
         attempts: 1,
       })
-      expect(updates.fleet().find((machine) => machine.id === machineId)).toMatchObject({
+      expect((await updates.fleet()).find((machine) => machine.id === machineId)).toMatchObject({
         state: 'restarting',
         version: fromVersion,
       })

@@ -54,8 +54,8 @@ const DELIVERY_PRINCIPAL: InboxPrincipalReference = SYSTEM_INBOX_PRINCIPAL
 export const INTERACTION_COMMANDS_TRPC = {
   answer: {
     contract: INTERACTION_CONTRACTS.answer,
-    handler: ((svc, input) =>
-      svc.answer({
+    handler: (async (svc, input) =>
+      await svc.answer({
         id: input.id,
         ...(input.text !== undefined ? { text: input.text } : {}),
         // The contract's typed arm is a passthrough object (L1 must not depend

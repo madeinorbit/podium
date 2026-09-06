@@ -62,7 +62,7 @@ export interface LocalDaemonLink {
     deliver: (msg: ControlMessage) => void
     /** Optional during rolling compatibility; absent uses the legacy control frame. */
     deliverInput?: (input: DaemonPtyInputBatch) => void
-  }): LocalDaemonAttachment
+  }): Promise<LocalDaemonAttachment>
   /** All-in-one-only lifecycle control; remote daemon links never expose process memory. */
   attachPortableState?(control: LocalPortableStateControl): void
 }

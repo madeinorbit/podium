@@ -17,9 +17,9 @@ export interface SessionIssueWorkflowPort {
     principal: CommandPrincipal,
     options: { force: boolean },
   ): Promise<{ ok: boolean; output: string; worktreeFreed: boolean }>
-  rehome(issueId: IssueId, where: IssueRehomeTarget): IssueWire | null
+  rehome(issueId: IssueId, where: IssueRehomeTarget): Promise<IssueWire | null>
   recordSessionGitActivity?(
     sessionId: SessionId,
     input: { commits?: string[]; touched?: string[] },
-  ): void
+  ): void | Promise<void>
 }

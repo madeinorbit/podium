@@ -25,7 +25,7 @@ import { SessionStore } from '../../../../server/src/store'
 const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
 const machineId = asMachineId('shipping-recovery-machine')
-const store = new SessionStore(dbPath, machineId)
+const store = await SessionStore.open(dbPath, machineId)
 const ledger = new Ledger({
   repo: store.sync,
   now: Date.now,
@@ -33,8 +33,8 @@ const ledger = new Ledger({
 })
 const issues = IssueService.create({
   store,
-  listSessions: () => [],
-  getSettings: () =>
+  listSessions: async () => [],
+  getSettings: async () =>
     normalizeSettings({
       gitWorkflow: {
         defaultParentBranch: 'main',
@@ -43,7 +43,7 @@ const issues = IssueService.create({
       },
       sessionDefaults: { agent: 'codex' },
     }),
-  spawnSession: () => ({ sessionId: 'recovery-session' as never, machine: machineId }),
+  spawnSession: async () => ({ sessionId: 'recovery-session' as never, machine: machineId }),
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
   ledger,
@@ -52,7 +52,7 @@ const issues = IssueService.create({
     issuesChanged: (rows) => ({ rows: rows.map((issue) => ({ id: issue.id, value: issue })) }),
   },
 })
-issues.boot()
+await issues.boot()
 
 const daemonWorker = new URL('./daemon-rpc-worker.ts', import.meta.url).pathname
 const git = (...argv: string[]): string =>
@@ -74,8 +74,8 @@ replies.on('line', (line) => {
 })
 
 const issuePort = {
-  get(id: string): IssueWire {
-    const issue = issues.get(id)
+  async get(id: string): Promise<IssueWire> {
+    const issue = await issues.get(id)
     if (!issue) throw new Error(`unknown issue ${id}`)
     return issue
   },
@@ -101,7 +101,7 @@ const evidence: ShippingEvidencePort = {
   rootIntegrationReceipt: (rootIssueId, approvedHeadSha) =>
     store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
   // The compatibility recovery fixture has no accepted-review repository.
-  acceptedReviewEvidence: () => null,
+  acceptedReviewEvidence: async () => null,
 }
 const service = new ShippingService({
   repository: store.shipping,
@@ -113,8 +113,8 @@ const service = new ShippingService({
       actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }),
-    authorize: () => {},
-    reauthorize: () => {},
+    authorize: async () => {},
+    reauthorize: async () => {},
   },
   evidence,
   policy: recoveryPolicy,
@@ -141,13 +141,13 @@ const service = new ShippingService({
 })
 
 if (phase === 'crash') {
-  const created = issues.create({ repoPath, title: 'process recovery', startNow: false })
+  const created = await issues.create({ repoPath, title: 'process recovery', startNow: false })
   const started = await issues.start(created.id)
   if (!started.branch) throw new Error('started recovery issue has no branch')
   git('branch', started.branch, 'main')
-  issues.update(created.id, { stage: 'review', machineId })
+  await issues.update(created.id, { stage: 'review', machineId })
   const head = git('rev-parse', started.branch)
-  store.shipping.recordRootIntegrationReceipt({
+  await store.shipping.recordRootIntegrationReceipt({
     rootIssueId: created.id,
     approvedHeadSha: head,
     descendants: [],
@@ -171,9 +171,9 @@ if (phase === 'crash') {
 }
 
 await service.reconcile()
-const order = store.shipping.listOrders()[0]
+const order = (await store.shipping.listOrders())[0]
 if (!order) throw new Error('recovery database has no order')
-const issue = issuePort.get(order.issueId)
+const issue = await issuePort.get(order.issueId)
 const staleFacts = {
   jobId: `attempt:${order.id}:0:verify`,
   orderId: order.id,
@@ -205,9 +205,9 @@ const staleGeneration = await rpc.shippingJob(
 process.stdout.write(
   `${JSON.stringify({
     orderState: order.state,
-    issueStage: store.issues.getIssue(order.issueId)?.stage,
-    attempt: store.shipping.latestAttemptForOrder(order.id),
-    receipt: store.shipping.receiptForOrder(order.id),
+    issueStage: (await store.issues.getIssue(order.issueId))?.stage,
+    attempt: await store.shipping.latestAttemptForOrder(order.id),
+    receipt: await store.shipping.receiptForOrder(order.id),
     staleGeneration,
   })}\n`,
 )

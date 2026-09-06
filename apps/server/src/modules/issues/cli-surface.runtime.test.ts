@@ -40,8 +40,8 @@ import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
 
 const registries: SessionRegistry[] = []
-const fresh = (): SessionRegistry => {
-  const r = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+const fresh = async (): Promise<SessionRegistry> => {
+  const r = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(r)
   return r
 }
@@ -65,8 +65,8 @@ const parseArgs = (
 const CLI_EXPOSED = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
 
 describe('the real in-process client serves every cli/mcp-exposed contract', () => {
-  it('the instrument can say NO: the real object refuses a procedure that has no contract', () => {
-    const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
+  it('the instrument can say NO: the real object refuses a procedure that has no contract', async () => {
+    const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, unknown>
     // Derived from the contract table, so a name with no contract is genuinely absent.
     expect(issues.thisCommandHasNoContract).toBeUndefined()
@@ -78,8 +78,8 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
     )
   })
 
-  it('every cli/mcp-exposed contract has a live procedure on the real client', () => {
-    const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
+  it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
+    const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
     expect(CLI_EXPOSED).toHaveLength(67)
     for (const name of CLI_EXPOSED) {
@@ -116,9 +116,9 @@ describe('the podium issue CLI table renders over the real surface', () => {
   })
 
   it('READ verbs execute end to end against the real registry and return real data', async () => {
-    const reg = fresh()
+    const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const made = reg.issues.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
+    const made = await reg.issues.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
 
     // Pure reads only. `doctor`, `preflight`, `lint` and `orphans` shell out to git
     // and the filesystem; running them from a unit lane would be measuring this
@@ -143,7 +143,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
   })
 
   it('a WRITE path executes end to end: create → comment → label → close', async () => {
-    const reg = fresh()
+    const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
     const verb = (name: string) => {
       const c = ISSUE_COMMANDS.find((x) => x.name === name)
@@ -156,13 +156,13 @@ describe('the podium issue CLI table renders over the real surface', () => {
       client,
       parseArgs(createCmd, { repoPath: '/r', title: 'Written by the CLI table' }),
     )
-    const created = reg.issues.list('/r').find((i) => i.title === 'Written by the CLI table')
+    const created = (await reg.issues.list('/r')).find((i) => i.title === 'Written by the CLI table')
     expect(created, 'the CLI create really wrote a row').toBeDefined()
     const id = String(created?.seq)
 
     const commentCmd = verb('comment')
     await commentCmd?.run(client, parseArgs(commentCmd, { id, body: 'a real comment' }))
-    expect(reg.issues.comments(created?.id as string).map((c) => c.body)).toContain(
+    expect((await reg.issues.comments(created?.id as string)).map((c) => c.body)).toContain(
       'a real comment',
     )
 
@@ -171,18 +171,18 @@ describe('the podium issue CLI table renders over the real surface', () => {
     // The surface's own answer, and the row it wrote — both, because a rendering that
     // echoes its input would satisfy the first assertion alone.
     expect(labelled?.text).toContain('alpha, beta')
-    expect((reg.issues.get(created?.id as string) as { labels?: string[] })?.labels).toEqual([
+    expect((await reg.issues.get(created?.id as string) as { labels?: string[] })?.labels).toEqual([
       'alpha',
       'beta',
     ])
 
     const closeCmd = verb('close')
     await closeCmd?.run(client, parseArgs(closeCmd, { id }))
-    expect(reg.issues.getMeta(created?.id as string)?.stage).toBe('done')
+    expect((await reg.issues.getMeta(created?.id as string))?.stage).toBe('done')
   })
 
-  it('the side-effecting verbs are reachable, and are listed rather than silently skipped', () => {
-    const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
+  it('the side-effecting verbs are reachable, and are listed rather than silently skipped', async () => {
+    const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, unknown>
     for (const name of SIDE_EFFECTING) {
       expect(

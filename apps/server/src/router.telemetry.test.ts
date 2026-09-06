@@ -18,10 +18,10 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
-function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return appRouter.createCaller({
     registry,
     repos,
@@ -48,7 +48,7 @@ const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('telemetry.state', () => {
   it('reports absent tiers and no install id on a fresh box', async () => {
-    expect(await caller().telemetry.state()).toMatchObject({
+    expect(await (await caller()).telemetry.state()).toMatchObject({
       usage: 'absent',
       crash: 'absent',
       endpoint: 'https://pulse.meetpodium.com/v1/u',
@@ -57,40 +57,40 @@ describe('telemetry.state', () => {
 
   it('surfaces the kill switch so the UI can explain a disabled toggle', async () => {
     process.env.DO_NOT_TRACK = '1'
-    expect(await caller().telemetry.state()).toMatchObject({ suppressedBy: 'DO_NOT_TRACK' })
+    expect(await (await caller()).telemetry.state()).toMatchObject({ suppressedBy: 'DO_NOT_TRACK' })
   })
 })
 
 describe('telemetry.set', () => {
   it('writes config.json — the same switch as `podium telemetry`, not the settings blob', async () => {
-    await caller().telemetry.set({ usage: 'on' })
+    await (await caller()).telemetry.set({ usage: 'on' })
     expect(loadConfig().telemetry?.usage).toBe('on')
     expect(loadConfig().telemetry?.installId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('persists immediately — one tier at a time, no Save button to lose', async () => {
-    await caller().telemetry.set({ usage: 'on' })
-    await caller().telemetry.set({ crash: 'on' })
+    await (await caller()).telemetry.set({ usage: 'on' })
+    await (await caller()).telemetry.set({ crash: 'on' })
     expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'on' })
-    await caller().telemetry.set({ usage: 'off' })
+    await (await caller()).telemetry.set({ usage: 'off' })
     expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'on' })
   })
 
   it('rejects an empty call rather than silently doing nothing', async () => {
-    await expect(caller().telemetry.set({})).rejects.toThrow()
+    await expect((await caller()).telemetry.set({})).rejects.toThrow()
   })
 
   it('opting out never mints an id', async () => {
-    await caller().telemetry.set({ usage: 'off', crash: 'off' })
+    await (await caller()).telemetry.set({ usage: 'off', crash: 'off' })
     expect(loadConfig().telemetry?.installId).toBeUndefined()
   })
 })
 
 describe('telemetry.resetId', () => {
   it('mints a new id', async () => {
-    await caller().telemetry.set({ usage: 'on' })
+    await (await caller()).telemetry.set({ usage: 'on' })
     const before = loadConfig().telemetry?.installId
-    const state = await caller().telemetry.resetId()
+    const state = await (await caller()).telemetry.resetId()
     expect(state.installId).not.toBe(before)
     expect(loadConfig().telemetry?.installId).toBe(state.installId)
   })
@@ -99,12 +99,12 @@ describe('telemetry.resetId', () => {
 describe('telemetry.preview', () => {
   it('renders the REAL pending report when an emitter is wired', async () => {
     const report = { schema: 1, sessions: { codex: 2 } }
-    expect(await caller({ emitter: { buildUsageReport: () => report } }).telemetry.preview()).toBe(
+    expect(await (await caller({ emitter: { buildUsageReport: () => report } })).telemetry.preview()).toBe(
       report,
     )
   })
 
   it('is null with no emitter (nothing real to show yet)', async () => {
-    expect(await caller().telemetry.preview()).toBeNull()
+    expect(await (await caller()).telemetry.preview()).toBeNull()
   })
 })

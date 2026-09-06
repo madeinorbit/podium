@@ -31,7 +31,7 @@ import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { probeLegacyStatements } from './executor'
+import { probeStatements } from './executor'
 import { syncQueriesOver } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
@@ -63,7 +63,7 @@ const tableReads = (table: string): number =>
 beforeEach(async () => {
   rawDb = openMigratedTestDatabase()
   counts = new Map()
-  probeLegacyStatements({ db: rawDb }, (observation) => {
+  probeStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
   tableWrites = new TableWrites()
@@ -79,7 +79,8 @@ beforeEach(async () => {
 describe('repo reads under a projection pass', () => {
   it('resolves many paths without re-scanning repos per path', async () => {
     const paths = Array.from({ length: 50 }, (_, i) => `/home/u/alpha/.worktrees/w${i}`)
-    const ids = paths.map((p) => repos.resolveRepoIdForPath(p))
+    const ids: Array<string | undefined> = []
+    for (const path of paths) ids.push(await repos.resolveRepoIdForPath(path))
 
     // Correctness first: every worktree path resolves to alpha's stable repo id,
     // so a cache that answered with a wrong (or empty) list would fail here.
@@ -96,8 +97,8 @@ describe('repo reads under a projection pass', () => {
   })
 
   it('resolves prefixes for many paths without re-scanning repo_prefixes per path', () => {
-    const prefixes = Array.from({ length: 50 }, (_, i) =>
-      repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`),
+    const prefixes = Array.from({ length: 50 }, async (_, i) =>
+      await repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`),
     )
 
     expect(new Set(prefixes)).toEqual(new Set(['BE']))

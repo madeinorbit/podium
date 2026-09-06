@@ -56,7 +56,7 @@ function port() {
   return {
     rows,
     repo: {
-      append: (row: SettingsAuditRow): void => {
+      append: async (row: SettingsAuditRow): Promise<void> => {
         rows.push(row)
       },
     },
@@ -67,9 +67,9 @@ function port() {
 const SECRET = 'sk-ant-real-material-do-not-log'
 
 describe('the material never reaches the trail — and the removal is NAMED', () => {
-  it('redacts settings.setSecret.value and reports the path', () => {
+  it('redacts settings.setSecret.value and reports the path', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.setSecret',
       outcome: 'applied',
       principal: person,
@@ -88,9 +88,9 @@ describe('the material never reaches the trail — and the removal is NAMED', ()
     expect(row?.redactedPaths).toEqual(['value'])
   })
 
-  it('records the KEY that was rotated — secret identity is what the row is FOR', () => {
+  it('records the KEY that was rotated — secret identity is what the row is FOR', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.clearSecret',
       outcome: 'applied',
       principal: person,
@@ -101,9 +101,9 @@ describe('the material never reaches the trail — and the removal is NAMED', ()
     )
   })
 
-  it('FAILS CLOSED on a command no contract names', () => {
+  it('FAILS CLOSED on a command no contract names', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.smuggled',
       outcome: 'refused',
       principal: person,
@@ -116,12 +116,12 @@ describe('the material never reaches the trail — and the removal is NAMED', ()
 })
 
 describe('THE ERROR PATH — the place redaction is usually forgotten', () => {
-  it('redacts the refused input by the SAME rule as the applied one', () => {
+  it('redacts the refused input by the SAME rule as the applied one', async () => {
     // The classic split: careful on the success path (where you think about what
     // you store), raw on the failure path (where you think about what went
     // wrong). A `setSecret` refused below the floor still carries the material.
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.setSecret',
       outcome: 'refused',
       principal: person,
@@ -133,11 +133,11 @@ describe('THE ERROR PATH — the place redaction is usually forgotten', () => {
     expect(p.rows[0]?.redactedPaths).toEqual(['value'])
   })
 
-  it('replaces a MESSAGE that was built from the material', () => {
+  it('replaces a MESSAGE that was built from the material', async () => {
     // The half no path list can address. A declaration cannot redact a substring
     // of `Invalid value "sk-…"`, so the trail asks and replaces.
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.setSecret',
       outcome: 'refused',
       principal: person,
@@ -148,11 +148,11 @@ describe('THE ERROR PATH — the place redaction is usually forgotten', () => {
     expect((p.rows[0]?.detail as { error: string }).error).toBe(REDACTED_MESSAGE)
   })
 
-  it('KEEPS a message that names no material — the control', () => {
+  it('KEEPS a message that names no material — the control', async () => {
     // Without this the check is satisfied by replacing every message, which
     // destroys the diagnostic value of the trail while looking like security.
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.setSecret',
       outcome: 'refused',
       principal: person,
@@ -164,9 +164,9 @@ describe('THE ERROR PATH — the place redaction is usually forgotten', () => {
     )
   })
 
-  it('an APPLIED row carries no error key at all', () => {
+  it('an APPLIED row carries no error key at all', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.clearSecret',
       outcome: 'applied',
       principal: person,
@@ -200,9 +200,9 @@ describe('redactErrorMessage — the WIRE half of the error path', () => {
 })
 
 describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
-  it('an agent write records the SESSION as actor and the DELEGATING HUMAN as on-behalf-of', () => {
+  it('an agent write records the SESSION as actor and the DELEGATING HUMAN as on-behalf-of', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.setSecret',
       outcome: 'applied',
       principal: agent,
@@ -218,12 +218,12 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
     expect(row?.actorId).not.toBe(row?.onBehalfOf)
   })
 
-  it('a human write records the same person on both halves, and that is CORRECT', () => {
+  it('a human write records the same person on both halves, and that is CORRECT', async () => {
     // The control that stops the assertion above from becoming "they must always
     // differ". For a person acting directly the pair legitimately coincides —
     // which is exactly why a suite run only as a human cannot detect a collapse.
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.updatePersonal',
       outcome: 'applied',
       principal: person,
@@ -234,9 +234,9 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
     expect(p.rows[0]?.onBehalfOf).toBe(HUMAN)
   })
 
-  it('a SYSTEM write is attributed as system and is given NO human (ADR 9 D8 S5)', () => {
+  it('a SYSTEM write is attributed as system and is given NO human (ADR 9 D8 S5)', async () => {
     const p = port()
-    recordSettingsCommand(p, {
+    await recordSettingsCommand(p, {
       command: 'settings.updateInstance',
       outcome: 'applied',
       principal: systemPrincipal('boot-reconcile'),

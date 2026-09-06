@@ -159,21 +159,23 @@ export interface SessionCommandDeps {
       createdByActor: string
       createdByOnBehalfOf: import('@podium/model').UserId
     },
-  ): { id: IssueId }
+  ): { id: IssueId } | Promise<{ id: IssueId }>
   /** Persist user uploads on the draft issue before its agent can run prime. */
   attachDraftArtifacts(
     issueId: IssueId,
     artifacts: readonly DraftIssueArtifactInput[],
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
-  discardUnlaunchedDraft(issueId: IssueId): boolean
-  issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
+  discardUnlaunchedDraft(issueId: IssueId): boolean | Promise<boolean>
+  issueOwner(
+    issueId: IssueId,
+  ): import('@podium/model').UserId | undefined | Promise<import('@podium/model').UserId | undefined>
   /** The runtime-contract staging leg for live sessions. */
   stageAttachment(input: {
     sessionId: SessionId
     source: { bytes: Uint8Array; filename: string; mediaType: string }
   }): Promise<RuntimeAttachmentRef | Refusal>
-  runtimeContractActive(sessionId: SessionId): boolean
+  runtimeContractActive(sessionId: SessionId): boolean | Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -238,20 +240,20 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(
+  async target(
     sessionId: SessionId,
     proc: string,
-  ): (SessionTargetRow & { machineId?: MachineId }) | undefined {
-    const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
+  ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
+    const resolved = await resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
-    assertMayCommandSession(
+    await assertMayCommandSession(
       this.principal,
       resolved.session,
       proc,
       this.deps.access,
       this.overrideScope,
     )
-    const row = this.sessions.sessionById(resolved.session.sessionId)
+    const row = await this.sessions.sessionById(resolved.session.sessionId)
     // Commanding an existing session is execution on the machine it lives on.
     if (row?.machineId !== undefined) this.assertMachineUse(row.machineId)
     return row ?? resolved.session
@@ -527,7 +529,7 @@ const INTERRUPTED_SEND: SubstrateOutcome = {
 
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
-    const target = ctx.target(input.sessionId, proc)
+    const target = await ctx.target(input.sessionId, proc)
     if (!target) {
       // A relayed agent's absent target throws; an operator's dead-letters. Both
       // POD-379-pinned, and they differ because the TRANSPORTS differ — not because
@@ -565,7 +567,7 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
         ? 'wake'
         : lifecycle
-    return substrateSend(ctx, input, effectiveLifecycle)
+    return await substrateSend(ctx, input, effectiveLifecycle)
   }
 }
 
@@ -587,16 +589,18 @@ export const SESSION_COMMAND_HANDLERS = {
     const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(
       ctx.principal,
-      rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,
+      rest.issueId
+        ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) }
+        : undefined,
     )
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const createdDraftId =
       !rest.issueId && draftIssue
-        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
+        ? (await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
             ownerUserId: ownership.owner as import('@podium/model').UserId,
             createdByActor: attributionOf(ctx.principal).actor,
             createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
-          }).id
+          })).id
         : undefined
     const issueId = rest.issueId ?? createdDraftId
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
@@ -607,7 +611,7 @@ export const SESSION_COMMAND_HANDLERS = {
         if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
         await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
       }
-      return ctx.sessions.createSession({
+      return await ctx.sessions.createSession({
         ...rest,
         ...target,
         ...(issueId ? { issueId } : {}),
@@ -625,18 +629,18 @@ export const SESSION_COMMAND_HANDLERS = {
         },
       })
     } catch (error) {
-      if (createdDraftId) ctx.deps.discardUnlaunchedDraft(createdDraftId)
+      if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
       throw error
     }
   },
 
-  resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
+  resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
     const ownership = createdOwnership(ctx.principal, undefined)
     if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
     // here is the fresh-spawn fallback only.
-    return ctx.sessions.resumeSession({
+    return await ctx.sessions.resumeSession({
       ...input,
       resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
       use: ctx.machineUse,
@@ -645,30 +649,30 @@ export const SESSION_COMMAND_HANDLERS = {
     })
   },
 
-  kill: (ctx: SessionCommandCtx, input: TargetInput) => {
+  kill: async (ctx: SessionCommandCtx, input: TargetInput) => {
     // Absent ⇒ the pinned shape: kill neither throws nor tombstones.
-    if (!ctx.target(input.sessionId, 'sessions.kill')) return undefined
-    return ctx.sessions.killSession(input)
+    if (!await ctx.target(input.sessionId, 'sessions.kill')) return undefined
+    return await ctx.sessions.killSession(input)
   },
 
-  hibernate: (ctx: SessionCommandCtx, input: TargetInput) =>
-    ctx.target(input.sessionId, 'sessions.hibernate')
-      ? ctx.sessions.hibernateSession(input)
+  hibernate: async (ctx: SessionCommandCtx, input: TargetInput) =>
+    await ctx.target(input.sessionId, 'sessions.hibernate')
+      ? await ctx.sessions.hibernateSession(input)
       : { ok: false, reason: 'unknown session' },
 
-  interrupt: (ctx: SessionCommandCtx, input: InterruptInput) => {
-    if (!ctx.target(input.sessionId, 'sessions.interrupt')) {
+  interrupt: async (ctx: SessionCommandCtx, input: InterruptInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.interrupt')) {
       return { ok: false, reason: 'unknown session' }
     }
     const reserved = input.messageId
-      ? ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
+      ? (await ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
           ...INTERRUPTED_SEND,
-        })).outcome === 'applied'
+        }))).outcome === 'applied'
       : false
     // AWAITED: a server-family session's stop goes down the runtime contract and
     // answers asynchronously, so reading `.ok` off the return value would be
     // reading it off a Promise (POD-2792).
-    return Promise.resolve(
+    return await Promise.resolve(
       ctx.sessions.interruptTurn({
         sessionId: input.sessionId,
         ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
@@ -690,38 +694,38 @@ export const SESSION_COMMAND_HANDLERS = {
    * your next message", and whether the refusal means "pick another value" or
    * "this session cannot do this at all".
    */
-  configure: (
+  configure: async (
     ctx: SessionCommandCtx,
     input: { sessionId: SessionId; model?: string; effort?: string },
   ) => {
-    if (!ctx.target(input.sessionId, 'sessions.configure')) {
-      return Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
+    if (!await ctx.target(input.sessionId, 'sessions.configure')) {
+      return await Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
     }
-    return ctx.sessions.configureSession(input)
+    return await ctx.sessions.configureSession(input)
   },
 
-  resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>
-    ctx.target(input.sessionId, 'sessions.resurrect')
-      ? ctx.sessions.resurrectSession(input)
-      : Promise.resolve({ ok: false, reason: 'unknown session' }),
+  resurrect: async (ctx: SessionCommandCtx, input: TargetInput) =>
+    await ctx.target(input.sessionId, 'sessions.resurrect')
+      ? await ctx.sessions.resurrectSession(input)
+      : await Promise.resolve({ ok: false, reason: 'unknown session' }),
 
   sendText: sendHandler('wait', 'sessions.sendText'),
 
   resumeAndSend: sendHandler('wake', 'sessions.resumeAndSend'),
 
-  answerAskUserQuestion: (ctx: SessionCommandCtx, input: AnswerInput) => {
+  answerAskUserQuestion: async (ctx: SessionCommandCtx, input: AnswerInput) => {
     // WHICH HUMAN answered is the transport's answer: the contract's schema
     // carries no identity field, so there is nothing to ignore and nothing to
     // spoof. The pair comes from `ctx.principal`.
-    if (!ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
+    if (!await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
     return ctx.sessions.answerAskUserQuestion({
       ...input,
       principal: inboxPrincipalFromCommand(ctx.principal),
     })
   },
 
-  continue: (ctx: SessionCommandCtx, input: TargetInput) => {
-    if (!ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
+  continue: async (ctx: SessionCommandCtx, input: TargetInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
     return ctx.sessions.continueSession(input)
   },
 
@@ -732,13 +736,13 @@ export const SESSION_COMMAND_HANDLERS = {
    * visibility is real. The relay arm keeps its self-stop resolution and its throw;
    * see the contract.
    */
-  stop: (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
-    if (!ctx.target(input.sessionId, 'sessions.stop')) {
-      return Promise.resolve({ ok: false, reason: 'unknown session' })
+  stop: async (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
+    if (!await ctx.target(input.sessionId, 'sessions.stop')) {
+      return await Promise.resolve({ ok: false, reason: 'unknown session' })
     }
     // Thread the transport principal so free-worktree audit comments name the
     // caller rather than system:stop (POD-1344).
-    return ctx.sessions.stopSession({ ...input, principal: ctx.principal })
+    return await ctx.sessions.stopSession({ ...input, principal: ctx.principal })
   },
 
   /**
@@ -773,10 +777,10 @@ export const SESSION_COMMAND_HANDLERS = {
       machineId?: MachineId
     },
   ) => {
-    const row = ctx.sessions.sessionById(input.sessionId)
+    const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
-    if (ctx.deps.runtimeContractActive(input.sessionId)) {
+    if (await ctx.deps.runtimeContractActive(input.sessionId)) {
       const staged = await ctx.deps.stageAttachment({
         sessionId: input.sessionId,
         source: {
@@ -839,11 +843,11 @@ export type SessionCommandResult<K extends SessionCommandKey> = ReturnType<
  * with an undefined id runs the function and records nothing, which is what a
  * command that declares no idempotency key means.
  */
-export function dispatchSessionCommand<K extends SessionCommandKey>(
+export async function dispatchSessionCommand<K extends SessionCommandKey>(
   ctx: SessionCommandCtx,
   key: K,
   rawInput: unknown,
-): SessionCommandResult<K> {
+): Promise<Awaited<SessionCommandResult<K>>> {
   const contract = (sessionCommandPlane.defs as Record<string, CommandDef>)[key]
   if (!contract) throw new Error(`unknown session command '${key}'`)
   const handler = SESSION_COMMAND_HANDLERS[key] as (
@@ -865,11 +869,11 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
   // ledger's own documented no-dedup case — so this is behaviour-identical for the
   // six lifecycle commands and identical-by-construction for the three that do.
   const mutationId = (input as { mutationId?: unknown }).mutationId
-  return ctx.deps.mutations.once(
+  return await ctx.deps.mutations.once(
     typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
     name,
     () => handler(ctx, input),
-  ) as SessionCommandResult<K>
+  ) as Awaited<SessionCommandResult<K>>
 }
 
 /** Is this proc one of the migrated command-plane commands? */

@@ -16,18 +16,20 @@ export interface SessionInstructionContribution {
   content: string
   /** Runs only after the session row and spawn command exist. Providers use this
    * for side effects that must not survive a failed spawn preparation. */
-  afterSpawn?(): void
+  afterSpawn?(): void | Promise<void>
 }
 
 export interface SessionInstructionProvider {
   /** Stable attribution and de-duplication key carried to the daemon. */
   source: string
-  prepare(context: SessionInstructionContext): SessionInstructionContribution | null
+  prepare(
+    context: SessionInstructionContext,
+  ): SessionInstructionContribution | null | Promise<SessionInstructionContribution | null>
 }
 
 export interface PreparedSessionInstructions {
   instructions: AgentInstruction[]
-  commit(): void
+  commit(): Promise<void>
 }
 
 /** Composable preparation seam for non-user agent instructions. Features
@@ -45,22 +47,27 @@ export class SessionInstructionRegistry {
     this.providers.set(source, { ...provider, source })
   }
 
-  prepare(context: SessionInstructionContext): PreparedSessionInstructions {
-    const contributions = [...this.providers.values()].flatMap((provider) => {
-      const prepared = provider.prepare(context)
+  async prepare(context: SessionInstructionContext): Promise<PreparedSessionInstructions> {
+    const contributions: Array<{
+      provider: SessionInstructionProvider
+      prepared: SessionInstructionContribution
+      content: string
+    }> = []
+    for (const provider of this.providers.values()) {
+      const prepared = await provider.prepare(context)
       const content = prepared?.content.trim()
-      return prepared && content ? [{ provider, prepared, content }] : []
-    })
+      if (prepared && content) contributions.push({ provider, prepared, content })
+    }
     let committed = false
     return {
       instructions: contributions.map(({ provider, content }) => ({
         source: provider.source,
         content,
       })),
-      commit() {
+      async commit() {
         if (committed) return
         committed = true
-        for (const { prepared } of contributions) prepared.afterSpawn?.()
+        for (const { prepared } of contributions) await prepared.afterSpawn?.()
       },
     }
   }

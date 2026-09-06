@@ -90,8 +90,8 @@ const resolve = (p: HandoffPlacementPorts, machineId: string = TARGET) =>
   resolveHandoffPlacement(p, { sessionId: SESSION, machineId: asMachineId(machineId) }, caller())
 
 describe('handoff placement: what it resolves', () => {
-  it('carries the source repo, the machine pair and the target row forward', () => {
-    const placement = resolve(ports({}))
+  it('carries the source repo, the machine pair and the target row forward', async () => {
+    const placement = await resolve(ports({}))
     expect(placement.sourceRepo.repoId).toBe('repo-1')
     expect(placement.sourceMachineId).toBe(SOURCE)
     expect(placement.targetMachineId).toBe(TARGET)
@@ -99,11 +99,11 @@ describe('handoff placement: what it resolves', () => {
     expect(placement.agentKind).toBe('claude-code')
   })
 
-  it('picks the DEEPEST registered repo the session sits under, not the first', () => {
+  it('picks the DEEPEST registered repo the session sits under, not the first', async () => {
     // A nested checkout inside a registered parent: the session lives in the
     // inner one, and exporting it as the outer repo would carry the wrong repo
     // identity and the wrong tree.
-    const placement = resolve(
+    const placement = await resolve(
       ports({
         repos: [
           repo({ path: '/repo', repoId: asRepoId('outer') }),
@@ -114,17 +114,17 @@ describe('handoff placement: what it resolves', () => {
     expect(placement.sourceRepo.repoId).toBe('inner')
   })
 
-  it('ignores repos registered on another machine', () => {
-    expect(() => resolve(ports({ repos: [repo({ machineId: TARGET })] }))).toThrow(
+  it('ignores repos registered on another machine', async () => {
+    await expect(resolve(ports({ repos: [repo({ machineId: TARGET })] }))).rejects.toThrow(
       /source repository is not registered/,
     )
   })
 
-  it('[spec:SP-3f7a] anchors on the issue worktree when the session cwd drifted to the repo root', () => {
+  it('[spec:SP-3f7a] anchors on the issue worktree when the session cwd drifted to the repo root', async () => {
     // The daemon follows the shell, so a session that ran a command against the
     // main checkout is stamped at the repo root. Its issue's worktree is still
     // its home: the move is allowed and the worktree is offered as the fallback.
-    const placement = resolve(
+    const placement = await resolve(
       ports({
         session: makeSession({ cwd: '/repo', issueId: 'iss-1' }),
         issue: { machineId: SOURCE, worktreePath: '/repo/wt/feature', branch: 'feat' },
@@ -134,12 +134,12 @@ describe('handoff placement: what it resolves', () => {
     expect(placement.issue?.branch).toBe('feat')
   })
 
-  it('offers no fallback worktree when the issue is homed on a DIFFERENT machine', () => {
+  it('offers no fallback worktree when the issue is homed on a DIFFERENT machine', async () => {
     // The path deliberately sits UNDER the source repo, so the only thing that
     // can refuse it is the machine check. A worktree path outside the repo
     // would be rejected by the `startsWith` guard as well, and the case would
     // pass with the machine check deleted — it did, until this fixture changed.
-    const placement = resolve(
+    const placement = await resolve(
       ports({
         session: makeSession({ issueId: 'iss-1' }),
         issue: { machineId: TARGET, worktreePath: '/repo/wt/elsewhere', branch: 'feat' },
@@ -150,36 +150,36 @@ describe('handoff placement: what it resolves', () => {
 })
 
 describe('handoff placement: the refusals, all before anything moves', () => {
-  it('an absent session is the command`s pinned unknown-session throw', () => {
-    expect(() => resolve(ports({ session: undefined }))).toThrow('unknown session')
+  it('an absent session is the command`s pinned unknown-session throw', async () => {
+    await expect(resolve(ports({ session: undefined }))).rejects.toThrow('unknown session')
   })
 
-  it('a session with no resume ref cannot be placed — the conversation would not survive', () => {
+  it('a session with no resume ref cannot be placed — the conversation would not survive', async () => {
     const session = makeSession()
     session.resume = undefined
-    expect(() => resolve(ports({ session }))).toThrow('unknown session')
+    await expect(resolve(ports({ session }))).rejects.toThrow('unknown session')
   })
 
-  it('handing a session to the machine it is already on is refused', () => {
-    expect(() => resolve(ports({}), SOURCE)).toThrow('session is already on that machine')
+  it('handing a session to the machine it is already on is refused', async () => {
+    await expect(resolve(ports({}), SOURCE)).rejects.toThrow('session is already on that machine')
   })
 
-  it('an unregistered source repository names the machine and the anchors it tried', () => {
-    expect(() => resolve(ports({ repos: [] }))).toThrow(
+  it('an unregistered source repository names the machine and the anchors it tried', async () => {
+    await expect(resolve(ports({ repos: [] }))).rejects.toThrow(
       `source repository is not registered (machine=${SOURCE}, anchors=/repo/wt/feature)`,
     )
   })
 
-  it('a session sitting at the repo root with no issue worktree is refused', () => {
-    expect(() => resolve(ports({ session: makeSession({ cwd: '/repo' }) }))).toThrow(
+  it('a session sitting at the repo root with no issue worktree is refused', async () => {
+    await expect(resolve(ports({ session: makeSession({ cwd: '/repo' }) }))).rejects.toThrow(
       'only worktree sessions can be handed off',
     )
   })
 
-  it('an OFFLINE target is unreachable — a different answer from unauthorized (M5)', () => {
+  it('an OFFLINE target is unreachable — a different answer from unauthorized (M5)', async () => {
     let thrown: unknown
     try {
-      resolve(ports({ machines: [onlineTarget({ online: false })] }))
+      await resolve(ports({ machines: [onlineTarget({ online: false })] }))
     } catch (error) {
       thrown = error
     }
@@ -188,12 +188,12 @@ describe('handoff placement: the refusals, all before anything moves', () => {
     expect((thrown as HandoffRefusalError).refusal).toBe('unreachable')
   })
 
-  it('a target that does not exist answers the same way as one that is offline', () => {
-    expect(() => resolve(ports({ machines: [] }))).toThrow('target machine is offline')
+  it('a target that does not exist answers the same way as one that is offline', async () => {
+    await expect(resolve(ports({ machines: [] }))).rejects.toThrow('target machine is offline')
   })
 
-  it('a target without the harness installed is refused, naming the kind', () => {
-    expect(() =>
+  it('a target without the harness installed is refused, naming the kind', async () => {
+    await expect(
       resolve(
         ports({
           machines: [
@@ -205,13 +205,13 @@ describe('handoff placement: the refusals, all before anything moves', () => {
           ],
         }),
       ),
-    ).toThrow('target machine cannot run logged-in claude-code')
+    ).rejects.toThrow('target machine cannot run logged-in claude-code')
   })
 
-  it('a timed-out harness probe is retryable uncertainty, not absence', () => {
+  it('a timed-out harness probe is retryable uncertainty, not absence', async () => {
     let thrown: unknown
     try {
-      resolve(
+      await resolve(
         ports({
           machines: [
             onlineTarget({
@@ -239,14 +239,14 @@ describe('handoff placement: the refusals, all before anything moves', () => {
     expect((thrown as HandoffRefusalError).refusal).toBe('unreachable')
   })
 
-  it('missing target inventory is retryable uncertainty too', () => {
-    expect(() => resolve(ports({ machines: [onlineTarget({ inventory: undefined })] }))).toThrow(
+  it('missing target inventory is retryable uncertainty too', async () => {
+    await expect(resolve(ports({ machines: [onlineTarget({ inventory: undefined })] }))).rejects.toThrow(
       "could not determine whether claude-code is installed on target machine 'target box' (inventory not reported yet); retry shortly",
     )
   })
 
-  it('a target where the harness is LOGGED OUT is refused too — installed is not enough', () => {
-    expect(() =>
+  it('a target where the harness is LOGGED OUT is refused too — installed is not enough', async () => {
+    await expect(
       resolve(
         ports({
           machines: [
@@ -258,11 +258,11 @@ describe('handoff placement: the refusals, all before anything moves', () => {
           ],
         }),
       ),
-    ).toThrow('target machine cannot run logged-in claude-code')
+    ).rejects.toThrow('target machine cannot run logged-in claude-code')
   })
 
-  it('a system principal cannot place a handoff — a bundle needs a real owning human', () => {
-    expect(() =>
+  it('a system principal cannot place a handoff — a bundle needs a real owning human', async () => {
+    await expect(
       resolveHandoffPlacement(
         ports({}),
         { sessionId: SESSION, machineId: TARGET },
@@ -271,12 +271,12 @@ describe('handoff placement: the refusals, all before anything moves', () => {
           principal: { kind: 'system', job: 'steward' },
         },
       ),
-    ).toThrow('system principal cannot export a personal handoff bundle')
+    ).rejects.toThrow('system principal cannot export a personal handoff bundle')
   })
 
-  it('an agent principal places the move on behalf of its human, not itself', () => {
+  it('an agent principal places the move on behalf of its human, not itself', async () => {
     const human = asUserId(FIRST_ADMIN_USER_ID)
-    const placement = resolveHandoffPlacement(
+    const placement = await resolveHandoffPlacement(
       ports({}),
       { sessionId: SESSION, machineId: TARGET },
       {

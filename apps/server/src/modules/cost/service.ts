@@ -99,7 +99,7 @@ export class CostService {
    * key to store under, and the sheet already states the resulting gap once, in
    * its provenance bar. Returns how many rows were written, for the caller's log.
    */
-  ingest(machineId: MachineId, sources: readonly UsageSourceWire[], sinceMs: number): number {
+  async ingest(machineId: MachineId, sources: readonly UsageSourceWire[], sinceMs: number): Promise<number> {
     if (sources.length === 0) return 0
     const registry = this.store.conversations.registry
 
@@ -113,7 +113,7 @@ export class CostService {
         s.harness === 'grok' ? [s.path, join(dirname(s.path), 'summary.json')] : [s.path],
       )
     }
-    const segments = registry.segmentsByPaths(machineId, [...candidates.values()].flat())
+    const segments = await registry.segmentsByPaths(machineId, [...candidates.values()].flat())
 
     const resolved = new Map<
       string,
@@ -129,7 +129,7 @@ export class CostService {
       }
     }
 
-    const owners = this.resolveOwners([...resolved.values()])
+    const owners = await this.resolveOwners([...resolved.values()])
     const nowIso = new Date().toISOString()
     const records: TranscriptCostRecord[] = []
     for (const source of sources) {
@@ -151,7 +151,7 @@ export class CostService {
         windowSinceMs: sinceMs,
       })
     }
-    this.store.transcriptCosts.record(records, nowIso)
+    await this.store.transcriptCosts.record(records, nowIso)
     return records.length
   }
 
@@ -163,16 +163,16 @@ export class CostService {
    * edge to the session that spawned it — one batched round per hop, so a
    * thousand delegates cost four queries and not four thousand.
    */
-  private resolveOwners(
+  private async resolveOwners(
     segments: readonly { machineId: MachineId; nativeId: string; podiumId: ConversationId }[],
-  ): Map<string, SessionRow> {
+  ): Promise<Map<string, SessionRow>> {
     const registry = this.store.conversations.registry
     const out = new Map<string, SessionRow>()
     let open = segments.map((s) => ({ key: transcriptKey(s.machineId, s.nativeId), ...s }))
     let searchIds = open.map((s) => s.nativeId)
 
     for (let hop = 0; hop <= MAX_PARENT_HOPS && open.length > 0; hop += 1) {
-      const found = this.preferredSessionsByResumeValue(searchIds)
+      const found = await this.preferredSessionsByResumeValue(searchIds)
       const stillOpen: typeof open = []
       const climbing: ConversationId[] = []
       for (const entry of open) {
@@ -189,8 +189,8 @@ export class CostService {
 
       // Climb: each unresolved conversation becomes its parent, and the parent's
       // own segments supply the native ids the next round looks sessions up by.
-      const parents = registry.parentPodiumIds(climbing)
-      const nativeIds = registry.nativeIdsByPodiumIds([...new Set(parents.values())])
+      const parents = await registry.parentPodiumIds(climbing)
+      const nativeIds = await registry.nativeIdsByPodiumIds([...new Set(parents.values())])
       const next: typeof open = []
       const nextSearch: string[] = []
       for (const entry of open) {
@@ -221,9 +221,9 @@ export class CostService {
    * not, and among equals the most recently created wins, because that is the
    * row a resume produced. Ties fall back to the repository's own stable order.
    */
-  private preferredSessionsByResumeValue(resumeValues: string[]): Map<string, SessionRow> {
+  private async preferredSessionsByResumeValue(resumeValues: string[]): Promise<Map<string, SessionRow>> {
     const out = new Map<string, SessionRow>()
-    for (const [resumeValue, candidates] of this.store.sessions.listSessionsByResumeValues(
+    for (const [resumeValue, candidates] of await this.store.sessions.listSessionsByResumeValues(
       resumeValues,
     )) {
       let best = candidates[0]
@@ -249,9 +249,9 @@ export class CostService {
    * — see `TaskCostWire`. Both are DB reads over indexed columns; nothing here
    * opens a transcript.
    */
-  task(issueId: IssueId): TaskCostWire {
+  async task(issueId: IssueId): Promise<TaskCostWire> {
     const childrenByParent = new Map<string, string[]>()
-    for (const edge of this.store.issues.listIssueParentEdges()) {
+    for (const edge of await this.store.issues.listIssueParentEdges()) {
       if (!edge.parentId) continue
       const list = childrenByParent.get(edge.parentId)
       if (list) list.push(edge.id)
@@ -260,8 +260,8 @@ export class CostService {
     const descendants = descendantsOf(issueId, childrenByParent) as IssueId[]
     const scope = [issueId, ...descendants]
 
-    const costs = this.store.transcriptCosts.forIssues(scope)
-    const sessions = this.store.sessions.findSessionsByIssueIds(scope)
+    const costs = await this.store.transcriptCosts.forIssues(scope)
+    const sessions = await this.store.sessions.findSessionsByIssueIds(scope)
     const sessionById = new Map(sessions.map((s) => [s.id as string, s]))
 
     const ownCosts = costs.filter((c) => c.issueId === issueId)
@@ -279,7 +279,7 @@ export class CostService {
       costs.filter((c) => c.messages > 0 && c.sessionId).map((c) => c.sessionId as string),
     )
     const readSessions = new Set(costs.filter((c) => c.sessionId).map((c) => c.sessionId as string))
-    const recordedPaths = this.recordedTranscriptPaths(sessions)
+    const recordedPaths = await this.recordedTranscriptPaths(sessions)
     let pendingSessionCount = 0
     for (const session of sessions) {
       if (readSessions.has(session.id)) continue
@@ -334,8 +334,8 @@ export class CostService {
    * a rolled-up parent beside its own children would count the same money twice
    * down one column.
    */
-  tasks(): TaskCostRowWire[] {
-    const costs = this.store.transcriptCosts.allAttributed()
+  async tasks(): Promise<TaskCostRowWire[]> {
+    const costs = await this.store.transcriptCosts.allAttributed()
     const byIssue = new Map<string, typeof costs>()
     for (const cost of costs) {
       if (!cost.issueId) continue
@@ -343,11 +343,11 @@ export class CostService {
       if (list) list.push(cost)
       else byIssue.set(cost.issueId, [cost])
     }
-    const issues = this.store.issues.getIssues([...byIssue.keys()])
+    const issues = await this.store.issues.getIssues([...byIssue.keys()])
     // Sessions per task, in ONE query rather than one per row, so the sheet can
     // say which figures are floors for lack of a harvest as well as for harness.
     const sessionsByIssue = new Map<string, string[]>()
-    for (const session of this.store.sessions.findSessionsByIssueIds([
+    for (const session of await this.store.sessions.findSessionsByIssueIds([
       ...byIssue.keys(),
     ] as IssueId[])) {
       if (!session.issueId) continue
@@ -361,7 +361,7 @@ export class CostService {
     // epic's descendants once per level. The visited set is the cycle guard
     // `parent_id` does not have.
     const parentOf = new Map<string, string>()
-    for (const edge of this.store.issues.listIssueParentEdges()) {
+    for (const edge of await this.store.issues.listIssueParentEdges()) {
       if (edge.parentId) parentOf.set(edge.id, edge.parentId)
     }
     const rollupParts = new Map<string, CostModelTotalWire[][]>()
@@ -380,7 +380,7 @@ export class CostService {
     // A row written for an OLDER window is a file the latest walk skipped on
     // mtime — no activity in the current window, so its stored window fold
     // reads as zero rather than as last week's number.
-    const currentWindow = this.store.transcriptCosts.latestWindowSinceMs()
+    const currentWindow = await this.store.transcriptCosts.latestWindowSinceMs()
     const rows: TaskCostRowWire[] = []
     for (const [issueId, list] of byIssue) {
       const issue = issues.get(issueId)
@@ -405,7 +405,7 @@ export class CostService {
       const uncostedSessionCount = (sessionsByIssue.get(issueId) ?? []).filter(
         (id) => !read.has(id),
       ).length
-      const prefix = this.store.repos.prefixForPath(issue.repoPath)
+      const prefix = await this.store.repos.prefixForPath(issue.repoPath)
       rows.push({
         issueId: issueId as IssueId,
         seq: issue.seq,
@@ -447,7 +447,7 @@ export class CostService {
    * declared missing: claiming a remote transcript is gone because we cannot
    * reach it would be the same lie in the other direction.
    */
-  private recordedTranscriptPaths(sessions: readonly SessionRow[]): Set<string> {
+  private async recordedTranscriptPaths(sessions: readonly SessionRow[]): Promise<Set<string>> {
     const out = new Set<string>()
     const byMachine = new Map<MachineId, string[]>()
     for (const session of sessions) {
@@ -458,7 +458,7 @@ export class CostService {
     }
     const paths = new Map<string, string>()
     for (const [machine, nativeIds] of byMachine) {
-      for (const [nativeId, path] of this.store.conversations.registry.pathsByNativeIds(
+      for (const [nativeId, path] of await this.store.conversations.registry.pathsByNativeIds(
         machine,
         nativeIds,
       )) {

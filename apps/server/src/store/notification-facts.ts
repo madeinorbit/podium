@@ -1,7 +1,8 @@
 import type { IssueId } from '@podium/model'
 import { and, eq, gte, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm'
 import { notificationFacts } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -16,7 +17,7 @@ interface FactClaim {
 
 /** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
 export class NotificationFactsRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -31,21 +32,21 @@ export class NotificationFactsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncDrizzle {
-    return this.rootDb
+  private get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /**
    * Insert a new claim, or refresh a retired claim. The conflict guard is part of
    * the single write statement, so concurrent producers cannot both win.
    */
-  claim(fact: FactClaim): boolean {
+  async claim(fact: FactClaim): Promise<boolean> {
     // A WRITE THAT RETURNS ROWS, and the exact statement POD-3318 was found on:
     // drizzle emits `INSERT ... RETURNING` through the `all` decoder, so nothing
     // may read write intent off the method. `.returning()` on an insert IS the
     // declaration (spec rule 27a), and the terminal `.get()` only says how many
     // rows come back.
-    const row = this.db
+    const row = await (this.db
       .insert(notificationFacts)
       .values({
         factKey: fact.factKey,
@@ -55,7 +56,7 @@ export class NotificationFactsRepository {
         createdAt: fact.createdAt,
         expiresAt: fact.expiresAt,
         consumedAt: null,
-      })
+      }))
       .onConflictDoUpdate({
         target: [notificationFacts.factKey, notificationFacts.target],
         set: {
@@ -80,8 +81,8 @@ export class NotificationFactsRepository {
     return row !== undefined
   }
 
-  hasActive(factKey: string, target: string, now: string): boolean {
-    const row = this.db
+  async hasActive(factKey: string, target: string, now: string): Promise<boolean> {
+    const row = await this.db
       .select({ one: sql<number>`1` })
       .from(notificationFacts)
       .where(
@@ -96,8 +97,8 @@ export class NotificationFactsRepository {
     return row !== undefined
   }
 
-  retire(factKey: string, target: string, consumedAt: string): boolean {
-    const result = this.db
+  async retire(factKey: string, target: string, consumedAt: string): Promise<boolean> {
+    const result = await this.db
       .update(notificationFacts)
       .set({ consumedAt })
       .where(
@@ -112,8 +113,8 @@ export class NotificationFactsRepository {
   }
 
   /** Retire every live claim for an exact fact_key (all targets). */
-  retireFactKey(factKey: string, consumedAt: string): number {
-    const result = this.db
+  async retireFactKey(factKey: string, consumedAt: string): Promise<number> {
+    const result = await this.db
       .update(notificationFacts)
       .set({ consumedAt })
       .where(and(eq(notificationFacts.factKey, factKey), isNull(notificationFacts.consumedAt)))
@@ -125,8 +126,8 @@ export class NotificationFactsRepository {
    * Retire every live claim whose fact_key starts with `prefix` (all targets).
    * Fact keys use only alphanumerics and `:` / `-` — no LIKE wildcards.
    */
-  retireFactKeyPrefix(prefix: string, consumedAt: string): number {
-    const result = this.db
+  async retireFactKeyPrefix(prefix: string, consumedAt: string): Promise<number> {
+    const result = await this.db
       .update(notificationFacts)
       .set({ consumedAt })
       .where(
@@ -136,12 +137,12 @@ export class NotificationFactsRepository {
     return Number(result.changes)
   }
 
-  retireByIssue(issueId: IssueId): void {
-    this.db.delete(notificationFacts).where(eq(notificationFacts.issueId, issueId)).run()
+  async retireByIssue(issueId: IssueId): Promise<void> {
+    await this.db.delete(notificationFacts).where(eq(notificationFacts.issueId, issueId)).run()
   }
 
-  retireExpired(now: string): void {
-    this.db
+  async retireExpired(now: string): Promise<void> {
+    await this.db
       .delete(notificationFacts)
       .where(and(isNotNull(notificationFacts.expiresAt), lt(notificationFacts.expiresAt, now)))
       .run()
@@ -159,14 +160,14 @@ export class NotificationArbiter {
     private readonly defaultTtlMs = DEFAULT_TTL_MS,
   ) {}
 
-  claim(
+  async claim(
     factKey: string,
     target: string,
     opts: { source?: string; issueId?: IssueId; ttlMs?: number } = {},
-  ): boolean {
+  ): Promise<boolean> {
     const createdAt = this.now()
     const ttlMs = opts.ttlMs ?? this.defaultTtlMs
-    return this.facts.claim({
+    return await this.facts.claim({
       factKey,
       target,
       source: opts.source ?? null,
@@ -176,29 +177,29 @@ export class NotificationArbiter {
     })
   }
 
-  isClaimed(factKey: string, target: string): boolean {
-    return this.facts.hasActive(factKey, target, this.now())
+  async isClaimed(factKey: string, target: string): Promise<boolean> {
+    return await this.facts.hasActive(factKey, target, this.now())
   }
 
-  retire(factKey: string, target: string, at = this.now()): boolean {
-    return this.facts.retire(factKey, target, at)
+  async retire(factKey: string, target: string, at = this.now()): Promise<boolean> {
+    return await this.facts.retire(factKey, target, at)
   }
 
   /** Retire every live claim for an exact fact_key (all targets). */
-  retireFactKey(factKey: string, at = this.now()): number {
-    return this.facts.retireFactKey(factKey, at)
+  async retireFactKey(factKey: string, at = this.now()): Promise<number> {
+    return await this.facts.retireFactKey(factKey, at)
   }
 
   /** Retire every live claim whose fact_key starts with `prefix` (all targets). */
-  retireFactKeyPrefix(prefix: string, at = this.now()): number {
-    return this.facts.retireFactKeyPrefix(prefix, at)
+  async retireFactKeyPrefix(prefix: string, at = this.now()): Promise<number> {
+    return await this.facts.retireFactKeyPrefix(prefix, at)
   }
 
-  retireByIssue(issueId: IssueId): void {
-    this.facts.retireByIssue(issueId)
+  async retireByIssue(issueId: IssueId): Promise<void> {
+    await this.facts.retireByIssue(issueId)
   }
 
-  retireExpired(now = this.now()): void {
-    this.facts.retireExpired(now)
+  async retireExpired(now = this.now()): Promise<void> {
+    await this.facts.retireExpired(now)
   }
 }

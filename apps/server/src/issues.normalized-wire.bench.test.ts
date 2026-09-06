@@ -133,7 +133,7 @@ async function world() {
   for (let i = 0; i < ISSUE_COUNT; i++) await store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < SESSION_COUNT; i++) sessionIds.push(await seedSession(store, i))
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
 
   resetIssueWireBuildCount()

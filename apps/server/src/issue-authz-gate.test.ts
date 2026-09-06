@@ -11,7 +11,7 @@ import { OPERATOR } from './test-support/capabilities'
 // mirrors router-issues.test.ts and keeps the test off the heavy services.
 const registries: SessionRegistry[] = []
 
-function caller(rawCapability: Capability, shared?: SessionRegistry) {
+async function caller(rawCapability: Capability, shared?: SessionRegistry) {
   const capability: Capability =
     rawCapability.scope.kind === 'subtree'
       ? {
@@ -24,7 +24,7 @@ function caller(rawCapability: Capability, shared?: SessionRegistry) {
           actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
           onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
         }
-  const registry = shared ?? SessionRegistry.create(undefined, undefined, { instanceId: 'default' }) // in-memory :memory: store
+  const registry = shared ?? await SessionRegistry.create(undefined, undefined, { instanceId: 'default' }) // in-memory :memory: store
   if (!shared) registries.push(registry)
   return appRouter.createCaller({
     registry,
@@ -44,7 +44,7 @@ const worker: Capability = { role: 'worker', scope: { kind: 'all' } }
 
 describe('issues.* capability gate', () => {
   it('viewer may query but not mutate', async () => {
-    const c = caller(viewer)
+    const c = await caller(viewer)
     await expect(c.issues.list({})).resolves.toBeDefined() // read OK
     await expect(c.issues.create({ repoPath: '/r', title: 'x', startNow: false })).rejects.toThrow(
       /FORBIDDEN|not allowed/i,
@@ -52,7 +52,7 @@ describe('issues.* capability gate', () => {
   })
 
   it('worker may write (claim/update/create) but not manage (delete)', async () => {
-    const c = caller(worker)
+    const c = await caller(worker)
     // create is now a write-tier action (filing/decomposing is additive) — worker may create:
     const w = await c.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     expect(w.seq).toBe(1)
@@ -64,12 +64,12 @@ describe('issues.* capability gate', () => {
   })
 
   it('subtree-scoped worker may start a CHILD inside its subtree without --outside-scope; outside issues are scope-blocked', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // No daemon in this harness: a real repoOp would await a machine round-trip forever.
     // Failing it fast keeps the test on what it proves — the AUTHZ gate decision.
     registry.modules.rpc.repoOp = async () => ({ ok: false, output: 'no daemon in test harness' })
-    const op = caller(OPERATOR, registry)
+    const op = await caller(OPERATOR, registry)
     const epic = await op.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const child = await op.issues.create({
       repoPath: '/r',
@@ -79,7 +79,7 @@ describe('issues.* capability gate', () => {
     })
     const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
-    const scoped = caller({ role: 'worker', scope: { kind: 'subtree', rootId: epic.id } }, registry)
+    const scoped = await caller({ role: 'worker', scope: { kind: 'subtree', rootId: epic.id } }, registry)
     // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.
     // Past the gate, start hits real git plumbing ('/r' is not a repo) — any failure there
     // must NOT be an authz denial. (Mirrors the "passes the gate, then errors on other
@@ -95,11 +95,11 @@ describe('issues.* capability gate', () => {
   })
 
   it('operator (admin) may create AND delete', async () => {
-    const c = caller(OPERATOR)
+    const c = await caller(OPERATOR)
     const w = await c.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     expect(w.seq).toBe(1)
     // delete passes the gate, then errors on the unknown id (not FORBIDDEN):
-    await expect(caller(OPERATOR).issues.delete({ id: 'iss_missing' })).rejects.not.toThrow(
+    await expect((await caller(OPERATOR)).issues.delete({ id: 'iss_missing' })).rejects.not.toThrow(
       /FORBIDDEN|not allowed/i,
     )
   })

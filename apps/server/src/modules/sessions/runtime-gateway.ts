@@ -265,7 +265,7 @@ export class SessionRuntimeGateway {
     if (!machineId) {
       return { outcome: 'refused', refusal: { reason: 'not_running', detail: 'no machine' } }
     }
-    return this.ports.rpc.runtimeSend(input, machineId)
+    return await this.ports.rpc.runtimeSend(input, machineId)
   }
 
   async stageAttachment(input: {
@@ -292,7 +292,7 @@ export class SessionRuntimeGateway {
   }): Promise<InteractionAnswerOutcome> {
     const machineId = this.ports.machineOf(input.sessionId)
     if (!machineId) return { ok: false, reason: 'unknown-interaction' }
-    return this.ports.rpc.runtimeAnswer(input, machineId)
+    return await this.ports.rpc.runtimeAnswer(input, machineId)
   }
 
   /**
@@ -329,11 +329,11 @@ export class SessionRuntimeGateway {
 
   /** The daemon's `runtimeEvent` frames, already ownership-checked by the
    *  session lifecycle that routes them here. */
-  record(
+  async record(
     _machineId: MachineId,
     msg: { sessionId: SessionId; event: RuntimeEvent },
-  ): RuntimeEventGateResult {
-    const result = this.ports.events.record(msg.sessionId, msg.event)
+  ): Promise<RuntimeEventGateResult> {
+    const result = await this.ports.events.record(msg.sessionId, msg.event)
     if (result.kind === 'accepted' || result.kind === 'fine-live-only') {
       for (const listener of [...this.listeners]) listener(msg.sessionId, msg.event)
     }
@@ -358,17 +358,17 @@ export class SessionRuntimeGateway {
   }
 
   /** True only after this session has a committed coarse-event restart head. */
-  ready(sessionId: SessionId): boolean {
-    return this.ports.events.ready(sessionId)
+  async ready(sessionId: SessionId): Promise<boolean> {
+    return await this.ports.events.ready(sessionId)
   }
 
   /** Replay committed board inputs after a server crash or interrupted fan-out. */
-  replayBoardProjection(): Promise<void> {
-    return this.ports.events.replayBoardProjection()
+  async replayBoardProjection(): Promise<void> {
+    return await this.ports.events.replayBoardProjection()
   }
 
   /** Durable coarse events for diagnostics, newest last. */
-  recentEvents(sessionId: SessionId): readonly RuntimeEvent[] {
-    return this.ports.events.recent(sessionId)
+  async recentEvents(sessionId: SessionId): Promise<readonly RuntimeEvent[]> {
+    return await this.ports.events.recent(sessionId)
   }
 }

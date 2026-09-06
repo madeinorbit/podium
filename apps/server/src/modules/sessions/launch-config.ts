@@ -53,11 +53,11 @@ export interface LaunchModelDefaults {
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
-  modelDefaults(
+  async modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
-  ): LaunchModelDefaults {
-    const settings = this.ports.store.settings.getSettingsFor(this.ports.settingsViewer())
+  ): Promise<LaunchModelDefaults> {
+    const settings = await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer())
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
     const explicitModel = override?.model
@@ -94,21 +94,19 @@ export class SessionLaunchConfig {
    * Native accounts yield {} — the CLI uses its own login and the frame is
    * unchanged.
    */
-  accountEnv(
+  async accountEnv(
     agentKind: AgentKind,
-    // KEPT AS A DEFAULT PARAMETER, not rewritten to an `=== undefined` check
-    // inside the body. A default parameter is evaluated at CALL time, before the
-    // body runs, so the original performed this settings read even for 'shell'
-    // — which then returns {} and discards it. Moving the read inside the body
-    // would skip it for shell: almost certainly harmless, and still a behaviour
-    // change made silently during a move, which is the thing this decomposition
-    // is under instruction not to do.
-    accountId: AccountId = resolveRole(
-      this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
-      'coding',
-    ).accountId,
-  ): { env?: Record<string, string> } {
+    accountId?: AccountId,
+  ): Promise<{ env?: Record<string, string> }> {
+    // Resolve before the shell arm to preserve the old default-parameter timing:
+    // an omitted account still performs this live settings read for every call.
+    const selectedAccountId =
+      accountId ??
+      resolveRole(
+        await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+        'coding',
+      ).accountId
     if (agentKind === 'shell') return {}
-    return resolveAccountEnv(this.ports.store.accounts, accountId)
+    return await resolveAccountEnv(this.ports.store.accounts, selectedAccountId)
   }
 }

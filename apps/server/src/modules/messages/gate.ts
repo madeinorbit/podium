@@ -32,11 +32,11 @@ import type {
 } from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
-import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
+import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { IssueService } from '../issues/service'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   type MachineAccess,
   MailAccess,
@@ -51,12 +51,12 @@ import type { MessageDeliveryService } from './service'
 export interface MessageGateDeps {
   messages: MessageDeliveryService
   issues: IssueService
-  listSessions(): SessionMeta[]
+  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): SessionMeta | undefined
+  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
@@ -77,7 +77,7 @@ export interface MessageGateDeps {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-  }): {
+  }): Promise<{
     sessionId: SessionId
     agentId?: string
     harness?: string
@@ -86,7 +86,7 @@ export interface MessageGateDeps {
     machine?: string
     machineId?: MachineId
     accountId?: AccountId | null
-  }
+  }>
   /** Wait for the current daemon connection's first inventory before spawning. */
   awaitMachineInventory?(machineId: MachineId): Promise<void>
   /** Resolve a named workflow execution profile. When a run + step are present,
@@ -96,14 +96,14 @@ export interface MessageGateDeps {
     runId?: string
     stepId?: string
     caller?: MailCaller
-  }): {
+  }): Promise<{
     id: string
     accountId: AccountId
     machineId: MachineId | null
     harness: string
     model: string
     effort: string
-  }
+  }>
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
     ownerUserId: UserId
@@ -114,9 +114,9 @@ export interface MessageGateDeps {
     description?: string
     parentId?: IssueId
     origin: 'human' | 'agent'
-  }): { id: string }
+  }): Promise<{ id: string }>
   /** Durable ledger for spawn events (best-effort). */
-  appendEvent?(e: { ts: string; kind: string; subject: string; payload: unknown }): void
+  appendEvent?(e: { ts: string; kind: string; subject: string; payload: unknown }): Promise<void>
   /** await polling seam (tests inject a fake clock/sleep). */
   sleep?(ms: number): Promise<void>
   awaitPollMs?: number
@@ -175,22 +175,24 @@ export class MessageGate {
   /** The shared authz + projection arithmetic (L3), also handed to every joined
    *  handler so there is exactly ONE authz path rather than one per command. */
   private readonly access: MailAccess
-  private readonly principalForCapability?: (capability: Capability) => CommandPrincipal
-  private readonly policyFor?: (principal: CommandPrincipal) => {
-    ceiling: HumanCeiling
-    machines: MachineAccess
-  }
+  private readonly principalForCapability?: (
+    capability: Capability,
+  ) => CommandPrincipal | Promise<CommandPrincipal>
+  private readonly policyFor?: (principal: CommandPrincipal) =>
+    | { ceiling: HumanCeiling; machines: MachineAccess }
+    | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
 
   constructor(
     private readonly deps: MessageGateDeps,
     opts?: {
       ceiling?: HumanCeiling
       machines?: MachineAccess
-      principalForCapability?: (capability: Capability) => CommandPrincipal
-      policyFor?: (principal: CommandPrincipal) => {
-        ceiling: HumanCeiling
-        machines: MachineAccess
-      }
+      principalForCapability?: (
+        capability: Capability,
+      ) => CommandPrincipal | Promise<CommandPrincipal>
+      policyFor?: (principal: CommandPrincipal) =>
+        | { ceiling: HumanCeiling; machines: MachineAccess }
+        | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
     },
   ) {
     this.principalForCapability = opts?.principalForCapability
@@ -242,7 +244,7 @@ export class MessageGate {
    * itself up. A command whose contract does not name this transport is
    * indistinguishable from a command that does not exist.
    */
-  dispatch(
+  async dispatch(
     capability: Capability,
     overrideScope: boolean | undefined,
     proc: string,
@@ -250,10 +252,10 @@ export class MessageGate {
     transport: TransportTag = 'relay',
     deliveryMode?: MailDeliveryMode,
     correlationId?: string,
-  ): Promise<unknown> | undefined {
+  ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    return withReadScope(() =>
-      this.dispatchInScope(
+    return await withReadScope(async () =>
+      await this.dispatchInScope(
         capability,
         overrideScope,
         proc,
@@ -265,7 +267,7 @@ export class MessageGate {
     )
   }
 
-  private dispatchInScope(
+  private async dispatchInScope(
     capability: Capability,
     overrideScope: boolean | undefined,
     proc: string,
@@ -275,12 +277,19 @@ export class MessageGate {
     correlationId: string | undefined,
   ): Promise<unknown> {
     const principal =
-      this.principalForCapability?.(capability) ??
-      resolvePrincipal(capability, {
-        parentSessionOf: (sessionId) =>
-          spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
-      })
-    const policy = this.policyFor?.(principal)
+      (await this.principalForCapability?.(capability)) ??
+      // THE ASYNC TWIN, not a widened sync resolver. `resolvePrincipalAsync` is
+      // the existing sanctioned shape for a delegation walk whose parent lookup
+      // is a durable read; the composition root supplies
+      // `principalForCapability` and this fallback is what a fixture that does
+      // not gets. Using it here keeps `resolvePrincipal` — the synchronous
+      // delegation resolver — untouched, which is the boundary the ruling on
+      // rule 51 case 2 protects.
+      (await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy),
+      }))
+    const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
     const caller = {
       capability,
@@ -302,9 +311,9 @@ export class MessageGate {
     // later. Deferring it was a timing change nobody asked for, and the kind
     // that surfaces as a flake in someone else's suite six weeks on.
     try {
-      return Promise.resolve(dispatchMailCommand(proc as MailProcName, ctx, input))
+      return await Promise.resolve(await dispatchMailCommand(proc as MailProcName, ctx, input))
     } catch (error) {
-      return Promise.reject(error)
+      return await Promise.reject(error)
     }
   }
 }

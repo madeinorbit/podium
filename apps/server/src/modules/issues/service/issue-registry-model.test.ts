@@ -40,23 +40,23 @@ interface Harness {
    * written and the map has not moved yet, which is where a reader must still
    * see the committed value and where an eagerly installed draft would show.
    */
-  duringNextWrite(fn: () => void, when?: 'before' | 'after'): void
+  duringNextWrite(fn: () => Promise<void>, when?: 'before' | 'after'): void
   /** Make the next write span throw after its body has run. */
   failNextWrite(): void
 }
 
 const open = async (): Promise<Harness> => {
   const store = await openTestStore(':memory:')
-  let during: { fn: () => void; when: 'before' | 'after' } | null = null
+  let during: { fn: () => Promise<void>; when: 'before' | 'after' } | null = null
   let fail = false
-  const transact: LedgerDeps['transact'] = (fn) => {
+  const transact: LedgerDeps['transact'] = async (fn) => {
     const hook = during
     during = null
     const shouldFail = fail
     fail = false
-    if (hook?.when === 'before') hook.fn()
-    const result = fn()
-    if (hook?.when === 'after') hook.fn()
+    if (hook?.when === 'before') await hook.fn()
+    const result = await fn()
+    if (hook?.when === 'after') await hook.fn()
     if (shouldFail) throw new Error('commit failed')
     return result
   }
@@ -79,7 +79,7 @@ const open = async (): Promise<Harness> => {
   }
   return {
     store,
-    svc: IssueService.create(deps),
+    svc: await IssueService.create(deps),
     duringNextWrite: (fn, when = 'before') => {
       during = { fn, when }
     },
@@ -103,18 +103,20 @@ describe('draft-then-install: two updates to the same issue', () => {
     // told they succeeded.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'one', startNow: false })).id
 
     // The second update runs INSIDE the first one's write span, so it reads the
     // row at the revision the first update was cut from and commits first.
-    harness.duringNextWrite(() => {
-      svc.update(id, { title: 'from the inner write' })
+    harness.duringNextWrite(async () => {
+      await svc.update(id, { title: 'from the inner write' })
     })
-    expect(() => svc.update(id, { title: 'from the outer write' })).toThrow(StaleIssueRevisionError)
+    await expect(svc.update(id, { title: 'from the outer write' })).rejects.toThrow(
+      StaleIssueRevisionError,
+    )
 
     // The winner's row survives intact: the loser never touched it, and its
     // title is not half-applied over the winner's.
-    expect(svc.get(id)?.title).toBe('from the inner write')
+    expect((await svc.get(id))?.title).toBe('from the inner write')
   })
 
   it('leaves the map row untouched while a write is open, and after it fails', async () => {
@@ -124,19 +126,19 @@ describe('draft-then-install: two updates to the same issue', () => {
     // correct if you only look at the end state.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'settled', startNow: false }).id
-    const before = svc.get(id)
+    const id = (await svc.create({ repoPath: '/repo', title: 'settled', startNow: false })).id
+    const before = await svc.get(id)
 
     let observedDuringWrite: string | undefined
-    harness.duringNextWrite(() => {
-      observedDuringWrite = svc.get(id)?.title
+    harness.duringNextWrite(async () => {
+      observedDuringWrite = (await svc.get(id))?.title
     }, 'after')
     harness.failNextWrite()
-    expect(() => svc.update(id, { title: 'never committed' })).toThrow('commit failed')
+    await expect(svc.update(id, { title: 'never committed' })).rejects.toThrow('commit failed')
 
     expect(observedDuringWrite, 'no reader sees the uncommitted title').toBe('settled')
-    expect(svc.get(id)?.title).toBe('settled')
-    expect(svc.get(id)?.revision).toBe(before?.revision)
+    expect((await svc.get(id))?.title).toBe('settled')
+    expect((await svc.get(id))?.revision).toBe(before?.revision)
   })
 
   it('refuses the map-owned row outright rather than persisting it', async () => {
@@ -145,13 +147,13 @@ describe('draft-then-install: two updates to the same issue', () => {
     // working by accident for as long as the store stays synchronous.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'shared', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'shared', startNow: false })).id
     // The facade forwards `rows` and `persistRow` to the registry itself.
     const mapOwned = svc.rows.get(id)
     expect(mapOwned).toBeDefined()
     if (!mapOwned) throw new Error('unreachable')
     mapOwned.title = 'mutated in place'
-    expect(() => svc.persistRow(mapOwned)).toThrow(/mutated in place/)
+    await expect(svc.persistRow(mapOwned)).rejects.toThrow(/mutated in place/)
   })
 })
 
@@ -161,14 +163,14 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     // to put the pre-write field set back over the winner's committed row.
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'base', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'base', startNow: false })).id
 
-    harness.duringNextWrite(() => {
-      svc.update(id, { title: 'winner' })
+    harness.duringNextWrite(async () => {
+      await svc.update(id, { title: 'winner' })
     })
-    expect(() => svc.update(id, { title: 'loser' })).toThrow(StaleIssueRevisionError)
+    await expect(svc.update(id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
 
-    expect(svc.get(id)?.title).toBe('winner')
+    expect((await svc.get(id))?.title).toBe('winner')
   })
 })
 
@@ -176,16 +178,16 @@ describe('draft-then-install: an in-memory read while a write is open', () => {
   it('serves the committed row, never the draft', async () => {
     harness = await open()
     const { svc } = harness
-    const id = svc.create({ repoPath: '/repo', title: 'committed', startNow: false }).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'committed', startNow: false })).id
 
     const observed: (string | undefined)[] = []
-    harness.duringNextWrite(() => {
-      observed.push(svc.get(id)?.title)
-      observed.push(svc.list().find((issue) => issue.id === id)?.title)
+    harness.duringNextWrite(async () => {
+      observed.push((await svc.get(id))?.title)
+      observed.push((await svc.list()).find((issue) => issue.id === id)?.title)
     }, 'after')
-    svc.update(id, { title: 'in flight' })
+    await svc.update(id, { title: 'in flight' })
 
     expect(observed, 'both read paths see the committed value').toEqual(['committed', 'committed'])
-    expect(svc.get(id)?.title).toBe('in flight')
+    expect((await svc.get(id))?.title).toBe('in flight')
   })
 })

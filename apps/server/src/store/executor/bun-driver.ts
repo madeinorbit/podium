@@ -29,8 +29,12 @@ import type {
   StoreDriver,
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
-import { syncQueriesOver } from './sync-drizzle'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
+import {
+  installQueryAttributionProbe,
+  instrumentDriver,
+  statementProbeHubFor,
+} from './statement-probe'
 
 export interface BunDriverOptions {
   /** The shared connection. The scheduler's queue owns it. */
@@ -151,7 +155,7 @@ function session(
   /**
    * Names the savepoint a batch inside an open transaction takes as its own
    * boundary. Per session and monotonic, so it can never collide with the
-   * executor's `podium_sp_<depth>` frames or with another batch's.
+   * executor's `podium_nested_<depth>` frames or with another batch's.
    */
   let nextBatchBoundary = 1
   // Whether `begin` actually opened a transaction on this connection. `commit`
@@ -271,8 +275,7 @@ function session(
   }
 }
 
-export interface BunStoreExecutorOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'legacy'> {
+export interface BunStoreExecutorOptions extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
   /** The shared connection. Becomes both the driver's and the legacy handle. */
   database: SqlDatabase
   /** See {@link BunDriverOptions.openReader}. */
@@ -297,20 +300,17 @@ export function createBunStoreExecutor(
   options: BunStoreExecutorOptions,
 ): RootStoreExecutor<QueryClient> {
   const { database, openReader, onClose, ...executor } = options
+  const probes = statementProbeHubFor(database)
+  installQueryAttributionProbe(probes)
   return createStoreExecutor<QueryClient>({
-    driver: createBunSqliteDriver({
-      database,
-      ...(openReader ? { openReader } : {}),
-      ...(onClose ? { onClose } : {}),
-    }),
-    legacy: database,
-    // The synchronous query capability, built here because this is where the bun
-    // handle is known. Undefined on a non-bun handle, which the restore path and
-    // some fixtures use.
-    ...(() => {
-      const sync = syncQueriesOver(database)
-      return sync ? { syncQueries: sync } : {}
-    })(),
+    driver: instrumentDriver(
+      createBunSqliteDriver({
+        database,
+        ...(openReader ? { openReader } : {}),
+        ...(onClose ? { onClose } : {}),
+      }),
+      probes,
+    ),
     ...executor,
   })
 }

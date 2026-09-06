@@ -44,7 +44,8 @@ import {
   issueUserState,
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -94,13 +95,13 @@ export class IssuesRepository {
     readonly rows: Map<string, IssueRow | null>
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
     queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
-    private readonly resolveRepoIdForPath: (repoPath: string) => string,
+    private readonly resolveRepoIdForPath: (repoPath: string) => string | Promise<string>,
   ) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -114,8 +115,8 @@ export class IssuesRepository {
    * (rule 35) this resolves the ENCLOSING transaction on every access, and a
    * field frozen at construction could never do that. B1 changes this one line.
    */
-  protected get db(): SyncDrizzle {
-    return this.rootDb
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
   }
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
@@ -126,7 +127,7 @@ export class IssuesRepository {
    *  unless the enclosing method invalidates first — so a NEW write path is
    *  caught the day it is added. It also explains why the handle is not wrapped
    *  to do this automatically. */
-  private invalidateRowCache(): void {
+  private async invalidateRowCache(): Promise<void> {
     const held = currentReadScope().slot(this.rowCacheSlot)
     held.rows.clear()
     held.disabled = true
@@ -134,12 +135,12 @@ export class IssuesRepository {
 
   /** The current scope's cache, opened on first use and discarded when the
    *  scope ends. Undefined once a write in this scope has disabled caching. */
-  private frameRows(): Map<string, IssueRow | null> | undefined {
+  private async frameRows(): Promise<Map<string, IssueRow | null> | undefined> {
     const held = currentReadScope().slot(this.rowCacheSlot)
     return held.disabled ? undefined : held.rows
   }
 
-  upsertIssue(
+  async upsertIssue(
     row: IssueRow,
     /**
      * THE DURABLE HALF OF THE DRAFT MODEL [POD-3259, spec §3.6 model (b)].
@@ -161,8 +162,8 @@ export class IssuesRepository {
      * before the awaits arrive, not after.
      */
     opts?: { expectedRevision: number | null },
-  ): void {
-    this.invalidateRowCache()
+  ): Promise<void> {
+    await this.invalidateRowCache()
     if (
       !row.ownerUserId ||
       !row.visibility ||
@@ -208,7 +209,7 @@ export class IssuesRepository {
     // reconcile never reaches this method, so no revision burns on a no-op and
     // the ripple republishes under an unchanged revision — leaving in-flight
     // expectedRevision preconditions valid, which is the whole point of D3.
-    const current = this.db
+    const current = await this.db
       .select({ revision: issues.revision })
       .from(issues)
       .where(eq(issues.id, row.id))
@@ -233,7 +234,7 @@ export class IssuesRepository {
       createdByActor: row.createdByActor ?? row.ownerUserId,
       createdByOnBehalfOf: row.createdByOnBehalfOf,
       repoPath: row.repoPath,
-      repoId: row.repoId ?? (this.resolveRepoIdForPath(row.repoPath) as RepoId),
+      repoId: row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath)) as RepoId),
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -293,7 +294,7 @@ export class IssuesRepository {
       coordinatorSessionId: row.coordinatorSessionId ?? null,
       startedBySession: row.startedBySession ?? null,
     }
-    this.db
+    await this.db
       .insert(issues)
       .values(values)
       .onConflictDoUpdate({
@@ -362,25 +363,25 @@ export class IssuesRepository {
   /** Internal Shipping custody seam. Ordinary issue CRUD never calls this.
    * Callers bind it to ship-order create/settlement with SessionStore.transact;
    * the expected-stage predicate is the admission/settlement CAS. */
-  transitionShippingStage(
+  async transitionShippingStage(
     id: IssueId,
     expectedStage: Extract<IssueStage, 'review' | 'shipping'>,
     nextStage: Extract<IssueStage, 'shipping' | 'review' | 'done'>,
     updatedAt: string,
-  ): IssueRow {
+  ): Promise<IssueRow> {
     const legal =
       (expectedStage === 'review' && nextStage === 'shipping') ||
       (expectedStage === 'shipping' && (nextStage === 'review' || nextStage === 'done'))
     if (!legal) {
       throw new Error(`illegal shipping issue-stage transition ${expectedStage} → ${nextStage}`)
     }
-    this.invalidateRowCache()
+    await this.invalidateRowCache()
     // ONE statement, and it stays one: the fence (`stage = expectedStage` plus
     // `deleted_at IS NULL`) and the write are the compare-and-swap. Splitting the
     // read out would turn the CAS into a race. `revision` is bumped from its own
     // stored value, so the expression references the column rather than a bound
     // parameter.
-    const result = this.db
+    const result = await this.db
       .update(issues)
       .set({
         stage: nextStage,
@@ -392,14 +393,14 @@ export class IssuesRepository {
     if (result.changes !== 1) {
       throw new Error(`issue ${id} shipping stage fence failed: expected ${expectedStage}`)
     }
-    const row = this.getIssue(id)
+    const row = await this.getIssue(id)
     if (!row) throw new Error(`issue ${id} disappeared after shipping transition`)
     return row
   }
 
   /** Map the schema-inferred row into the domain row. Branded ids arrive from
    * the schema; the remaining mapping is semantic validation and quarantine. */
-  private mapIssueRow(r: typeof issues.$inferSelect): IssueRow {
+  private async mapIssueRow(r: typeof issues.$inferSelect): Promise<IssueRow> {
     return {
       id: r.id,
       ownerUserId: r.ownerUserId,
@@ -486,16 +487,16 @@ export class IssuesRepository {
     }
   }
 
-  getIssue(id: string): IssueRow | null {
-    const cache = this.frameRows()
+  async getIssue(id: string): Promise<IssueRow | null> {
+    const cache = await this.frameRows()
     const hit = cache?.get(id)
     if (hit !== undefined) return hit === null ? null : { ...hit }
-    const r = this.db
+    const r = await this.db
       .select()
       .from(issues)
       .where(eq(issues.id, asIssueId(id)))
       .get()
-    const mapped = r ? this.mapIssueRow(r) : null
+    const mapped = r ? await this.mapIssueRow(r) : null
     cache?.set(id, mapped)
     return mapped === null ? null : { ...mapped }
   }
@@ -519,14 +520,16 @@ export class IssuesRepository {
    * durable state without a snapshot (see its header); making it cheaper is not
    * a licence to make it stale.
    */
-  listIssueCwdRows(): {
-    id: IssueId
-    repoPath: string
-    worktreePath: string | null
-    deletedAt: string | null
-    archived: boolean
-  }[] {
-    const rows = this.db
+  async listIssueCwdRows(): Promise<
+    {
+      id: IssueId
+      repoPath: string
+      worktreePath: string | null
+      deletedAt: string | null
+      archived: boolean
+    }[]
+  > {
+    const rows = await this.db
       .select({
         id: issues.id,
         repoPath: issues.repoPath,
@@ -573,8 +576,8 @@ export class IssuesRepository {
    * count as closed: a session on a tombstoned issue is at least as reapable as
    * one on a done issue, and quarantining it would order it BELOW live work.
    */
-  closedIssueIds(): Set<string> {
-    const rows = this.db
+  async closedIssueIds(): Promise<Set<string>> {
+    const rows = await this.db
       .select({
         id: issues.id,
         stage: issues.stage,
@@ -610,14 +613,14 @@ export class IssuesRepository {
    * null already means. Mapping failures are quarantined the same way
    * `listIssueRows` quarantines them, so one corrupt row costs that row.
    */
-  getIssues(ids: readonly string[]): Map<string, IssueRow> {
+  async getIssues(ids: readonly string[]): Promise<Map<string, IssueRow>> {
     const out = new Map<string, IssueRow>()
     const unique = [...new Set(ids)]
     if (unique.length === 0) return out
     // Serve what this frame has already parsed, and ask SQLite only for the
     // rest. A miss recorded as null is an ANSWER ("no such issue"), the same
     // one the query would give, so it must not be re-asked either.
-    const cache = this.frameRows()
+    const cache = await this.frameRows()
     const wanted = cache === undefined ? unique : []
     if (cache !== undefined) {
       for (const id of unique) {
@@ -630,7 +633,7 @@ export class IssuesRepository {
     const CHUNK = 500
     for (let i = 0; i < wanted.length; i += CHUNK) {
       const chunk = wanted.slice(i, i + CHUNK)
-      const rows = this.db
+      const rows = await this.db
         .select()
         .from(issues)
         .where(inArray(issues.id, chunk.map(asIssueId)))
@@ -638,7 +641,7 @@ export class IssuesRepository {
       for (const r of rows) {
         try {
           if (typeof r.id !== 'string') continue
-          const mapped = this.mapIssueRow(r)
+          const mapped = await this.mapIssueRow(r)
           cache?.set(r.id, mapped)
           out.set(r.id, { ...mapped })
         } catch (err) {
@@ -669,11 +672,11 @@ export class IssuesRepository {
    * (with their JSON columns and per-row quarantine guard) to read one field is
    * how a panel read turns into a visible pause.
    */
-  listIssueParentEdges(): { id: IssueId; parentId: IssueId | null }[] {
+  async listIssueParentEdges(): Promise<{ id: IssueId; parentId: IssueId | null }[]> {
     // TOMBSTONES ARE NOT ANCESTORS. Issues are soft-deleted, so an unfiltered
     // walk folds a costed task's spend into a parent the operator deleted and
     // can see nowhere else in the app (POD-1858 review).
-    const rows = this.db
+    const rows = await this.db
       .select({ id: issues.id, parentId: issues.parentId })
       .from(issues)
       .where(isNull(issues.deletedAt))
@@ -681,25 +684,26 @@ export class IssuesRepository {
     return rows.map((r) => ({ id: r.id, parentId: r.parentId }))
   }
 
-  listIssueRows(repoPath?: string): IssueRow[] {
+  async listIssueRows(repoPath?: string): Promise<IssueRow[]> {
     // Repo-scoped reads key on the stable repo_id (issue #164): the given path
     // resolves to its logical repo, so two registered clones of one repository
     // (or an issue filed under a sub-path of the root) list together. The
     // NULL-repo_id fallback keeps legacy rows the boot heal hasn't stamped yet
     // visible under their exact path.
+    const repoId = repoPath ? await this.resolveRepoIdForPath(repoPath) : undefined
     const rows = repoPath
-      ? this.db
+      ? await this.db
           .select()
           .from(issues)
           .where(
             or(
-              eq(issues.repoId, this.resolveRepoIdForPath(repoPath) as RepoId),
+              eq(issues.repoId, repoId as RepoId),
               and(isNull(issues.repoId), eq(issues.repoPath, repoPath)),
             ),
           )
           .orderBy(asc(issues.seq))
           .all()
-      : this.db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).all()
+      : await this.db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).all()
     const out: IssueRow[] = []
     this.quarantinedRowCount = 0
     for (const r of rows) {
@@ -715,7 +719,7 @@ export class IssuesRepository {
         ) {
           throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
         }
-        out.push(this.mapIssueRow(r))
+        out.push(await this.mapIssueRow(r))
       } catch (err) {
         this.quarantinedRowCount += 1
         log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
@@ -724,7 +728,7 @@ export class IssuesRepository {
     return out
   }
 
-  deleteIssue(id: string): void {
+  async deleteIssue(id: string): Promise<void> {
     // Referential integrity is the ENGINE's job since migration 006 (#164):
     // child rows (labels/deps/comments/messages) go via ON DELETE CASCADE and
     // scalar back-references on OTHER rows (parent_id / superseded_by /
@@ -739,12 +743,12 @@ export class IssuesRepository {
     // here that points at an issue without a constraint must be scrubbed by hand
     // or it outlives the row, and the comment above will read as if it were
     // covered.
-    this.db
+    await this.db
       .delete(issueRefLetters)
       .where(eq(issueRefLetters.issueId, asIssueId(id)))
       .run()
-    this.invalidateRowCache()
-    this.db
+    await this.invalidateRowCache()
+    await this.db
       .delete(issues)
       .where(eq(issues.id, asIssueId(id)))
       .run()
@@ -754,8 +758,8 @@ export class IssuesRepository {
    *  rows a hard purge before {@link deleteIssue} scrubbed them left behind. The
    *  counter exists so a letter is never reused WITHIN an issue, so once the issue
    *  is deleted it protects nothing. Returns the number of rows dropped. */
-  pruneOrphanRefLetters(): number {
-    const result = this.db
+  async pruneOrphanRefLetters(): Promise<number> {
+    const result = await this.db
       .delete(issueRefLetters)
       .where(notInArray(issueRefLetters.issueId, this.db.select({ id: issues.id }).from(issues)))
       .run()
@@ -767,13 +771,13 @@ export class IssuesRepository {
    *  single seq sequence and two machines with different paths can no longer mint
    *  colliding numbers. Callers resolve the path to a repo_id (resolveRepoIdForPath)
    *  before allocating. UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
-  nextIssueSeq(repoId: RepoId): number {
-    const r = this.db
+  async nextIssueSeq(repoId: RepoId): Promise<number> {
+    const r = await this.db
       .select({ m: max(issues.seq) })
       .from(issues)
       .where(eq(issues.repoId, repoId))
       .get()
-    return (r?.m ?? 0) + 1
+    return Number(r?.m ?? 0) + 1
   }
 
   /**
@@ -789,8 +793,8 @@ export class IssuesRepository {
    * UNIQUE(repo_id, seq), so post-migration writes cannot recreate them — this heal
    * is defense in depth for databases restored from a pre-index build.
    */
-  renumberCollidingIssueSeqs(): number {
-    const rows = this.db
+  async renumberCollidingIssueSeqs(): Promise<number> {
+    const rows = await this.db
       .select({
         id: issues.id,
         repoId: issues.repoId,
@@ -802,7 +806,7 @@ export class IssuesRepository {
       .all()
     const byRepo = new Map<string, typeof rows>()
     for (const r of rows) {
-      const rid = r.repoId ?? this.resolveRepoIdForPath(r.repoPath)
+      const rid = r.repoId ?? (await this.resolveRepoIdForPath(r.repoPath))
       const g = byRepo.get(rid)
       if (g) g.push(r)
       else byRepo.set(rid, [r])
@@ -833,13 +837,13 @@ export class IssuesRepository {
       }
     }
     if (updates.length === 0) return 0
-    this.invalidateRowCache()
+    await this.invalidateRowCache()
     // The span covers the UPDATE loop only. The read and the planning above are
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
-    this.createOrJoinTransaction(() => {
+    await this.createOrJoinTransaction(async () => {
       for (const u of updates) {
-        this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).run()
+        await this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).run()
       }
     })
     return updates.length
@@ -851,12 +855,12 @@ export class IssuesRepository {
    *  upgrade merges two path-keyed buckets into one logical repo, any seq
    *  already taken in the target bucket is renumbered to the next free seq
    *  (oldest row first keeps its number), loudly logged. */
-  assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): void {
+  async assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): Promise<void> {
     // `LIKE ? || '/%'` matches at a PATH BOUNDARY: `/rootless` merely shares a
     // text prefix with `/root` and must not be swept in. The `rowid` tie-break is
     // load-bearing on equal `created_at`, and `rowid` is not a schema column, so
     // both stay as fragments.
-    const rows = this.db
+    const rows = await this.db
       .select({ id: issues.id, seq: issues.seq })
       .from(issues)
       .where(
@@ -868,24 +872,24 @@ export class IssuesRepository {
       .orderBy(asc(issues.createdAt), sql`rowid asc`)
       .all()
     if (rows.length === 0) return
-    const highest = this.db
+    const highest = await this.db
       .select({ m: max(issues.seq) })
       .from(issues)
       .where(eq(issues.repoId, repoId))
       .get()
     let next = (highest?.m ?? 0) + 1
-    const taken = (seq: number) =>
-      this.db
+    const taken = async (seq: number) =>
+      await this.db
         .select({ id: issues.id })
         .from(issues)
         .where(and(eq(issues.repoId, repoId), eq(issues.seq, seq)))
         .get()
-    this.invalidateRowCache()
+    await this.invalidateRowCache()
     for (const r of rows) {
       let seq = r.seq
-      const holder = taken(seq)
+      const holder = await taken(seq)
       if (holder && holder.id !== r.id) {
-        while (taken(next)) next += 1
+        while (await taken(next)) next += 1
         seq = next
         next += 1
         log.warn(
@@ -898,7 +902,7 @@ export class IssuesRepository {
           },
         )
       }
-      this.db.update(issues).set({ repoId, seq }).where(eq(issues.id, r.id)).run()
+      await this.db.update(issues).set({ repoId, seq }).where(eq(issues.id, r.id)).run()
     }
   }
 
@@ -909,15 +913,15 @@ export class IssuesRepository {
    * Transactional: the read-increment-return is atomic, so two concurrent
    * allocations can never mint the same `POD-13-A`.
    */
-  allocateSessionLetter(issueId: IssueId): string {
-    return this.createOrJoinTransaction(() => {
-      const row = this.db
+  async allocateSessionLetter(issueId: IssueId): Promise<string> {
+    return await this.createOrJoinTransaction(async () => {
+      const row = await this.db
         .select({ nextIndex: issueRefLetters.nextIndex })
         .from(issueRefLetters)
         .where(eq(issueRefLetters.issueId, issueId))
         .get()
       const index = row?.nextIndex ?? 0
-      this.db
+      await this.db
         .insert(issueRefLetters)
         .values({ issueId, nextIndex: index + 1 })
         .onConflictDoUpdate({
@@ -932,18 +936,18 @@ export class IssuesRepository {
   /** Issues carrying no repo_id — read by the facade's boot refusal. A live
    *  writer cannot produce one (`upsertIssue` resolves a repo_id before it
    *  inserts), so a non-zero answer means a database from before POD-1360. */
-  issuesMissingRepoId(): number {
-    const r = this.db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).get()
+  async issuesMissingRepoId(): Promise<number> {
+    const r = await this.db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).get()
     return r?.c ?? 0
   }
 
   // ---- labels ----
 
-  setIssueLabels(issueId: IssueId, labels: string[]): void {
+  async setIssueLabels(issueId: IssueId, labels: string[]): Promise<void> {
     const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
       l.trim(),
     )
-    this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+    await this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
     for (const l of clean) {
       // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec
       // rule 31). The two forms differ only where OR IGNORE suppresses
@@ -951,24 +955,25 @@ export class IssuesRepository {
       // key is suppressed by neither, measured on the shipped table. This one
       // has no CHECK, and both NOT NULL columns come from non-nullable sources:
       // `issueId` is required, and `clean` above admits only non-empty strings.
-      this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
+      await this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
     }
   }
 
-  getIssueLabels(issueId: IssueId): string[] {
-    return this.db
-      .select({ label: issueLabels.label })
-      .from(issueLabels)
-      .where(eq(issueLabels.issueId, issueId))
-      .orderBy(asc(issueLabels.label))
-      .all()
-      .map((r) => r.label)
+  async getIssueLabels(issueId: IssueId): Promise<string[]> {
+    return (
+      await this.db
+        .select({ label: issueLabels.label })
+        .from(issueLabels)
+        .where(eq(issueLabels.issueId, issueId))
+        .orderBy(asc(issueLabels.label))
+        .all()
+    ).map((r) => r.label)
   }
 
   /** Labels for every issue in one ordered read — list serializers use this to
    * avoid preparing and running one query per issue at live board sizes. */
-  listIssueLabelsByIssue(): Map<string, string[]> {
-    const rows = this.db
+  async listIssueLabelsByIssue(): Promise<Map<string, string[]>> {
+    const rows = await this.db
       .select({ issueId: issueLabels.issueId, label: issueLabels.label })
       .from(issueLabels)
       .orderBy(asc(issueLabels.issueId), asc(issueLabels.label))
@@ -982,36 +987,37 @@ export class IssuesRepository {
     return byIssue
   }
 
-  listAllLabels(): string[] {
-    return this.db
-      .selectDistinct({ label: issueLabels.label })
-      .from(issueLabels)
-      .orderBy(asc(issueLabels.label))
-      .all()
-      .map((r) => r.label)
+  async listAllLabels(): Promise<string[]> {
+    return (
+      await this.db
+        .selectDistinct({ label: issueLabels.label })
+        .from(issueLabels)
+        .orderBy(asc(issueLabels.label))
+        .all()
+    ).map((r) => r.label)
   }
 
   // ---- deps ----
 
-  addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): void {
+  async addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): Promise<void> {
     // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here for the
     // reason setIssueLabels states (spec rule 31). No CHECK on `issue_deps`, and
     // all three NOT NULL columns are non-nullable at every caller: `fromId` and
     // `toId` are required, and `type` has both a parameter default and a column
     // default of 'blocks', so an omitted value takes the same value either way.
-    this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
+    await this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
   }
 
-  removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): void {
+  async removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): Promise<void> {
     if (type) {
-      this.db
+      await this.db
         .delete(issueDeps)
         .where(
           and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId), eq(issueDeps.type, type)),
         )
         .run()
     } else {
-      this.db
+      await this.db
         .delete(issueDeps)
         .where(and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId)))
         .run()
@@ -1021,8 +1027,8 @@ export class IssuesRepository {
   /** SERIALIZATION EDGE: `to_id`/`from_id` come back untyped, so the row shape
    *  re-declares the id space they were stored under. `type` is a dep KIND, not
    *  an id, and stays a free string. */
-  listIssueDeps(fromId: IssueId): { toId: IssueId; type: string }[] {
-    return this.db
+  async listIssueDeps(fromId: IssueId): Promise<{ toId: IssueId; type: string }[]> {
+    return await this.db
       .select({ toId: issueDeps.toId, type: issueDeps.type })
       .from(issueDeps)
       .where(eq(issueDeps.fromId, fromId))
@@ -1034,16 +1040,16 @@ export class IssuesRepository {
    *  kind [POD-822]. Ordered so the row set is stable across calls — reconcile
    *  diffs by id, but a stable order keeps the change log's appends readable and
    *  the tests' expectations deterministic. */
-  listAllIssueDeps(): { fromId: IssueId; toId: IssueId; type: string }[] {
-    return this.db
+  async listAllIssueDeps(): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
+    return await this.db
       .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
       .from(issueDeps)
       .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
       .all()
   }
 
-  listDependents(toId: IssueId): { fromId: IssueId; type: string }[] {
-    return this.db
+  async listDependents(toId: IssueId): Promise<{ fromId: IssueId; type: string }[]> {
+    return await this.db
       .select({ fromId: issueDeps.fromId, type: issueDeps.type })
       .from(issueDeps)
       .where(eq(issueDeps.toId, toId))
@@ -1053,8 +1059,8 @@ export class IssuesRepository {
 
   // ---- comments ----
 
-  addIssueComment(c: IssueCommentRow): void {
-    this.db
+  async addIssueComment(c: IssueCommentRow): Promise<void> {
+    await this.db
       .insert(issueComments)
       .values({
         id: c.id,
@@ -1068,8 +1074,8 @@ export class IssuesRepository {
       .run()
   }
 
-  listIssueComments(issueId: IssueId): IssueCommentRow[] {
-    return this.db
+  async listIssueComments(issueId: IssueId): Promise<IssueCommentRow[]> {
+    return await this.db
       .select()
       .from(issueComments)
       .where(eq(issueComments.issueId, issueId))
@@ -1078,8 +1084,8 @@ export class IssuesRepository {
   }
 
   /** Comment count for ONE issue — the single-issue toWire path (#175). */
-  countIssueComments(issueId: IssueId): number {
-    const r = this.db
+  async countIssueComments(issueId: IssueId): Promise<number> {
+    const r = await this.db
       .select({ n: count() })
       .from(issueComments)
       .where(eq(issueComments.issueId, issueId))
@@ -1091,8 +1097,8 @@ export class IssuesRepository {
    *  share this map so N-issue toWire runs don't cost N comment queries (the
    *  same batching posture as the shared sessionList). Issues with no comments
    *  are simply absent (read as 0). */
-  countIssueCommentsByIssue(): Map<string, number> {
-    const rows = this.db
+  async countIssueCommentsByIssue(): Promise<Map<string, number>> {
+    const rows = await this.db
       .select({ issueId: issueComments.issueId, n: count() })
       .from(issueComments)
       .groupBy(issueComments.issueId)
@@ -1102,10 +1108,10 @@ export class IssuesRepository {
 
   /** Substring match over issue comment bodies — comments have no FTS (bounded
    *  volume), so LIKE is enough for the omni-search's comment source. */
-  searchIssueComments(
+  async searchIssueComments(
     query: string,
     limit: number | null = 30,
-  ): { issueId: IssueId; body: string; createdAt: string }[] {
+  ): Promise<{ issueId: IssueId; body: string; createdAt: string }[]> {
     const q = query.trim()
     if (!q) return []
     const escaped = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%'
@@ -1121,7 +1127,9 @@ export class IssuesRepository {
       .from(issueComments)
       .where(sql`${issueComments.body} LIKE ${escaped} ESCAPE '\\'`)
       .orderBy(desc(issueComments.createdAt))
-    return limit === null ? base.all() : base.limit(Math.min(200, Math.max(1, limit))).all()
+    return limit === null
+      ? await base.all()
+      : await base.limit(Math.min(200, Math.max(1, limit))).all()
   }
 
   // ---- issue mail (issue #103) ----
@@ -1130,7 +1138,7 @@ export class IssuesRepository {
    *  free TEXT column narrowed to the domain's union — a decision, not a driver
    *  artefact — and the projection drops `actor`/`on_behalf_of`, which the row
    *  type does not carry. */
-  private mapIssueMessage(r: {
+  private async mapIssueMessage(r: {
     id: string
     issueId: IssueId
     fromAuthor: string
@@ -1139,7 +1147,7 @@ export class IssuesRepository {
     status: string
     claimedBy: string | null
     claimedAt: string | null
-  }): IssueMessageRow {
+  }): Promise<IssueMessageRow> {
     return {
       id: r.id,
       issueId: r.issueId,
@@ -1152,8 +1160,8 @@ export class IssuesRepository {
     }
   }
 
-  addIssueMessage(m: IssueMessageRow): void {
-    this.db
+  async addIssueMessage(m: IssueMessageRow): Promise<void> {
+    await this.db
       .insert(issueMessages)
       .values({
         id: m.id,
@@ -1168,16 +1176,16 @@ export class IssuesRepository {
       .run()
   }
 
-  getIssueMessage(id: string): IssueMessageRow | null {
-    const r = this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
-    return r ? this.mapIssueMessage(r) : null
+  async getIssueMessage(id: string): Promise<IssueMessageRow | null> {
+    const r = await this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
+    return r ? await this.mapIssueMessage(r) : null
   }
 
-  listIssueMessages(
+  async listIssueMessages(
     issueId: IssueId,
     opts?: { status?: IssueMessageRow['status'] },
-  ): IssueMessageRow[] {
-    const rows = this.db
+  ): Promise<IssueMessageRow[]> {
+    const rows = await this.db
       .select()
       .from(issueMessages)
       .where(
@@ -1187,11 +1195,11 @@ export class IssuesRepository {
       )
       .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
       .all()
-    return rows.map((r) => this.mapIssueMessage(r))
+    return await Promise.all(rows.map(async (r) => await this.mapIssueMessage(r)))
   }
 
-  countUnreadIssueMessages(issueId: IssueId): number {
-    const r = this.db
+  async countUnreadIssueMessages(issueId: IssueId): Promise<number> {
+    const r = await this.db
       .select({ n: count() })
       .from(issueMessages)
       .where(and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, 'unread')))
@@ -1210,11 +1218,16 @@ export class IssuesRepository {
    * it is written for EVERY named message rather than only the unread ones: my
    * having read a message somebody else already claimed is still true.
    */
-  markIssueMessagesRead(userId: UserId, issueId: IssueId, ids: string[], readAt: string): void {
+  async markIssueMessagesRead(
+    userId: UserId,
+    issueId: IssueId,
+    ids: string[],
+    readAt: string,
+  ): Promise<void> {
     requireUserId(userId)
     for (const id of ids) {
       // Only `unread` flips, so a `claimed` message never regresses to `read`.
-      this.db
+      await this.db
         .update(issueMessages)
         .set({ status: 'read' })
         .where(
@@ -1226,7 +1239,7 @@ export class IssuesRepository {
         )
         .run()
       // Written for EVERY named message, not only the unread ones.
-      this.db
+      await this.db
         .insert(issueMessageUserState)
         .values({ userId, issueMessageId: id, readAt })
         .onConflictDoUpdate({
@@ -1238,9 +1251,9 @@ export class IssuesRepository {
   }
 
   /** One user's tracker-mail read markers, `issueMessageId → readAt`. */
-  listIssueMessageReadAt(userId: UserId): Record<string, string | null> {
+  async listIssueMessageReadAt(userId: UserId): Promise<Record<string, string | null>> {
     requireUserId(userId)
-    const rows = this.db
+    const rows = await this.db
       .select({
         issueMessageId: issueMessageUserState.issueMessageId,
         readAt: issueMessageUserState.readAt,
@@ -1263,9 +1276,9 @@ export class IssuesRepository {
    * all three markers null are deleted rather than kept (see {@link setIssueUserState}),
    * so absence is the only spelling.
    */
-  listIssueUserState(userId: UserId): Map<string, StoredIssueUserState> {
+  async listIssueUserState(userId: UserId): Promise<Map<string, StoredIssueUserState>> {
     requireUserId(userId)
-    const rows = this.db
+    const rows = await this.db
       .select({
         issueId: issueUserState.issueId,
         readAt: issueUserState.readAt,
@@ -1282,9 +1295,12 @@ export class IssuesRepository {
     return out
   }
 
-  getIssueUserState(userId: UserId, issueId: IssueId): StoredIssueUserState | undefined {
+  async getIssueUserState(
+    userId: UserId,
+    issueId: IssueId,
+  ): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
-    const r = this.db
+    const r = await this.db
       .select({
         readAt: issueUserState.readAt,
         tuckedAt: issueUserState.tuckedAt,
@@ -1304,10 +1320,14 @@ export class IssuesRepository {
    * A row whose three markers all end up null is DELETED, so the table holds only
    * issues a person has actually touched and "absent" keeps its single meaning.
    */
-  setIssueUserState(userId: UserId, issueId: IssueId, patch: Partial<StoredIssueUserState>): void {
+  async setIssueUserState(
+    userId: UserId,
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+  ): Promise<void> {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
-    const current = this.getIssueUserState(userId, issueId) ?? {
+    const current = (await this.getIssueUserState(userId, issueId)) ?? {
       readAt: null,
       tuckedAt: null,
       pinnedAt: null,
@@ -1318,13 +1338,13 @@ export class IssuesRepository {
       pinnedAt: patch.pinnedAt !== undefined ? patch.pinnedAt : current.pinnedAt,
     }
     if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
-      this.db
+      await this.db
         .delete(issueUserState)
         .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
         .run()
       return
     }
-    this.db
+    await this.db
       .insert(issueUserState)
       .values({
         userId,
@@ -1343,14 +1363,14 @@ export class IssuesRepository {
   /** Drop every user's per-user rows for an issue. Called from the issue's own
    *  purge path: the rows are not the issue's (they follow the USER), but a
    *  hard-deleted issue leaves them addressing nothing. */
-  purgeIssueUserState(issueId: IssueId): void {
-    this.db.delete(issueUserState).where(eq(issueUserState.issueId, issueId)).run()
+  async purgeIssueUserState(issueId: IssueId): Promise<void> {
+    await this.db.delete(issueUserState).where(eq(issueUserState.issueId, issueId)).run()
   }
 
   /** Atomic claim: exactly one caller wins; a second claim on the same message
    *  returns false. Single UPDATE guarded on status, so there is no read-then-write race. */
-  claimIssueMessage(id: string, claimedBy: string, claimedAt: string): boolean {
-    const r = this.db
+  async claimIssueMessage(id: string, claimedBy: string, claimedAt: string): Promise<boolean> {
+    const r = await this.db
       .update(issueMessages)
       .set({ status: 'claimed', claimedBy, claimedAt })
       .where(and(eq(issueMessages.id, id), ne(issueMessages.status, 'claimed')))
@@ -1358,17 +1378,17 @@ export class IssuesRepository {
     return r.changes === 1
   }
 
-  deleteIssueMessagesForIssue(issueId: IssueId): void {
-    this.db.delete(issueMessages).where(eq(issueMessages.issueId, issueId)).run()
+  async deleteIssueMessagesForIssue(issueId: IssueId): Promise<void> {
+    await this.db.delete(issueMessages).where(eq(issueMessages.issueId, issueId)).run()
   }
 
-  deleteIssueChildRows(issueId: IssueId): void {
-    this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
-    this.db
+  async deleteIssueChildRows(issueId: IssueId): Promise<void> {
+    await this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+    await this.db
       .delete(issueDeps)
       .where(or(eq(issueDeps.fromId, issueId), eq(issueDeps.toId, issueId)))
       .run()
-    this.db.delete(issueComments).where(eq(issueComments.issueId, issueId)).run()
-    this.deleteIssueMessagesForIssue(issueId)
+    await this.db.delete(issueComments).where(eq(issueComments.issueId, issueId)).run()
+    await this.deleteIssueMessagesForIssue(issueId)
   }
 }

@@ -56,12 +56,12 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   connect: {
     contract: ACCOUNT_CONTRACTS.connect,
-    handler: ((state, input) => {
+    handler: (async (state, input) => {
       // A Claude setup-token is its own account, distinct from an Anthropic API
       // key. Derived server-side, which is what makes the contract's
       // `callerSuppliedTargetId: false` true rather than aspirational.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
-      state.accounts.upsert({
+      await state.accounts.upsert({
         id: asAccountId(id),
         provider: input.provider,
         kind: input.kind,
@@ -76,8 +76,8 @@ export const ACCOUNT_COMMANDS_TRPC = {
   },
   disconnect: {
     contract: ACCOUNT_CONTRACTS.disconnect,
-    handler: ((state, input) => {
-      state.accounts.remove(input.id)
+    handler: (async (state, input) => {
+      await state.accounts.remove(input.id)
       return { ok: true as const }
     }) satisfies AccountHandler<
       z.infer<(typeof ACCOUNT_CONTRACTS)['disconnect']['input']>,

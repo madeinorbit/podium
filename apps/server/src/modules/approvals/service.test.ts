@@ -20,7 +20,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
   /** A service over the SAME durable store. Called twice, it models a server restart:
    *  the rows survive, every in-memory field (the stall clock) does not. */
   const build = () => {
-    const stage = createBunStoreExecutor({ database: db }).syncQueries
+    const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
     return new ApprovalService({
       store: new ApprovalsRepository(stage),
@@ -32,8 +32,12 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
-      logEvent: (kind, issueId) => events.push({ kind, issueId }),
-      notifyIssue: (_issueId, body) => mails.push(body),
+      logEvent: (kind, issueId) => {
+        events.push({ kind, issueId })
+      },
+      notifyIssue: (_issueId, body) => {
+        mails.push(body)
+      },
       ...(executeServerOp ? { executeServerOp } : {}),
     })
   }
@@ -44,39 +48,39 @@ const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
   svc.request({ op, sessionId: asSessionId('s1'), machineId: 'm1' })
 
 describe('ApprovalService', () => {
-  it('request files a pending row, logs, and broadcasts', () => {
+  it('request files a pending row, logs, and broadcasts', async () => {
     const { svc, broadcasts, events } = harness()
-    const r = req(svc)
+    const r = await req(svc)
     expect(r.status).toBe('pending')
     expect(r.message).toContain('awaiting the operator')
     expect(events).toEqual([{ kind: 'issue.approval_requested', issueId: 'iss_1' }])
     expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
-    expect(svc.listPending()).toHaveLength(1)
-    expect(svc.listPending()[0]).toMatchObject({
+    expect(await svc.listPending()).toHaveLength(1)
+    expect((await svc.listPending())[0]).toMatchObject({
       machineName: 'ludovico',
       issueSeq: 410,
       op: { kind: 'update' },
     })
   })
 
-  it('an identical pending op on the same machine is deduped, not stacked', () => {
+  it('an identical pending op on the same machine is deduped, not stacked', async () => {
     const { svc } = harness()
-    const a = req(svc)
-    const b = req(svc)
+    const a = await req(svc)
+    const b = await req(svc)
     expect(b.id).toBe(a.id)
-    expect(svc.listPending()).toHaveLength(1)
+    expect(await svc.listPending()).toHaveLength(1)
   })
 
-  it('rejects an op outside the closed catalog', () => {
+  it('rejects an op outside the closed catalog', async () => {
     const { svc } = harness()
-    expect(() => req(svc, { kind: 'rm-rf' })).toThrow()
-    expect(() => req(svc, { kind: 'set-server' })).toThrow() // missing target
+    await expect(req(svc, { kind: 'rm-rf' })).rejects.toThrow()
+    await expect(req(svc, { kind: 'set-server' })).rejects.toThrow() // missing target
   })
 
-  it('approve → executing + exec request to the owning daemon; result lands', () => {
+  it('approve → executing + exec request to the owning daemon; result lands', async () => {
     const { svc, sent, events } = harness()
-    const { id } = req(svc)
-    const w = svc.approve(id)
+    const { id } = await req(svc)
+    const w = await svc.approve(id)
     expect(w.status).toBe('executing')
     expect(sent).toEqual([
       {
@@ -84,14 +88,14 @@ describe('ApprovalService', () => {
         msg: { type: 'approvalExecRequest', requestId: id, op: { kind: 'update' } },
       },
     ])
-    svc.onExecResult({
+    await svc.onExecResult({
       type: 'approvalExecResult',
       requestId: id,
       ok: true,
       exitCode: 0,
       output: 'ok',
     })
-    expect(svc.get({ id }).status).toBe('succeeded')
+    expect((await svc.get({ id })).status).toBe('succeeded')
     expect(events.map((e) => e.kind)).toEqual([
       'issue.approval_requested',
       'issue.approval_approved',
@@ -99,22 +103,22 @@ describe('ApprovalService', () => {
     ])
   })
 
-  it('deny is terminal, mails the requesting issue, and double-decisions throw', () => {
+  it('deny is terminal, mails the requesting issue, and double-decisions throw', async () => {
     const { svc, sent, mails } = harness()
-    const { id } = req(svc)
-    expect(svc.deny(id).status).toBe('denied')
+    const { id } = await req(svc)
+    expect((await svc.deny(id)).status).toBe('denied')
     expect(mails).toEqual([expect.stringContaining('denied by the operator')])
-    expect(() => svc.approve(id)).toThrow(/not pending/)
+    await expect(svc.approve(id)).rejects.toThrow(/not pending/)
     expect(sent).toHaveLength(0)
   })
-  it('executes server-owned workflow approvals without forwarding them to a daemon', () => {
+  it('executes server-owned workflow approvals without forwarding them to a daemon', async () => {
     const executed: Array<{ op: ApprovalOp; sessionId: SessionId }> = []
     const { svc, sent, events } = harness((op, sessionId) => {
       executed.push({ op, sessionId })
       return 'published workflow revision wfr_1'
     })
-    const { id } = req(svc, { kind: 'workflow-publish', revisionId: 'wfr_1' })
-    const result = svc.approve(id)
+    const { id } = await req(svc, { kind: 'workflow-publish', revisionId: 'wfr_1' })
+    const result = await svc.approve(id)
     expect(result).toMatchObject({
       status: 'succeeded',
       resultText: 'published workflow revision wfr_1',
@@ -126,26 +130,26 @@ describe('ApprovalService', () => {
     expect(events.at(-1)?.kind).toBe('issue.approval_succeeded')
   })
 
-  it('no mail when the requesting CLI is still blocked on the decision (it reports itself)', () => {
+  it('no mail when the requesting CLI is still blocked on the decision (it reports itself)', async () => {
     const { svc, mails } = harness()
-    const { id } = req(svc)
-    svc.getFromAgent({ id }) // the blocked CLI polling — marks a live waiter
-    svc.deny(id)
+    const { id } = await req(svc)
+    await svc.getFromAgent({ id }) // the blocked CLI polling — marks a live waiter
+    await svc.deny(id)
     expect(mails).toEqual([]) // the command prints "denied" itself; no duplicate push
   })
 
-  it('failed execution records the output and mails the outcome', () => {
+  it('failed execution records the output and mails the outcome', async () => {
     const { svc, mails } = harness()
-    const { id } = req(svc)
-    svc.approve(id)
-    svc.onExecResult({
+    const { id } = await req(svc)
+    await svc.approve(id)
+    await svc.onExecResult({
       type: 'approvalExecResult',
       requestId: id,
       ok: false,
       exitCode: 1,
       output: 'signature verification failed',
     })
-    const w = svc.get({ id })
+    const w = await svc.get({ id })
     expect(w.status).toBe('failed')
     expect(w.resultText).toContain('signature')
     expect(mails.at(-1)).toContain('FAILED')
@@ -170,21 +174,21 @@ describe('ApprovalService', () => {
   describe('stalled executions (POD-2223)', () => {
     const t0 = 1_000_000
     /** Approve a channel op and hand it to the daemon, returning its row id. */
-    const approveChannelDev = (svc: ApprovalService) => {
-      const { id } = req(svc, { kind: 'channel', target: 'dev' })
-      svc.approve(id)
+    const approveChannelDev = async (svc: ApprovalService) => {
+      const { id } = await req(svc, { kind: 'channel', target: 'dev' })
+      await svc.approve(id)
       return id
     }
 
-    it('fails a row whose connected daemon never answered, saying what to do about it', () => {
+    it('fails a row whose connected daemon never answered, saying what to do about it', async () => {
       const { svc, mails, broadcasts, events } = harness()
-      const id = approveChannelDev(svc)
-      svc.sweepStalledExecutions(t0) // first sight starts the clock
+      const id = await approveChannelDev(svc)
+      await svc.sweepStalledExecutions(t0) // first sight starts the clock
 
-      expect(svc.get({ id }).status).toBe('executing')
-      svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
+      expect((await svc.get({ id })).status).toBe('executing')
+      await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
 
-      const w = svc.get({ id })
+      const w = await svc.get({ id })
       expect(w.status).toBe('failed')
       // The three things an operator can act on: which machine, the likely cause, and
       // that the outcome is UNKNOWN rather than known-not-to-have-happened.
@@ -198,101 +202,101 @@ describe('ApprovalService', () => {
       expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
     })
 
-    it('leaves a row alone until the deadline actually passes', () => {
+    it('leaves a row alone until the deadline actually passes', async () => {
       const { svc } = harness()
-      const id = approveChannelDev(svc)
-      svc.sweepStalledExecutions(t0)
-      svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS - 1)
-      expect(svc.get({ id }).status).toBe('executing')
+      const id = await approveChannelDev(svc)
+      await svc.sweepStalledExecutions(t0)
+      await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS - 1)
+      expect((await svc.get({ id })).status).toBe('executing')
     })
 
-    it('never fails a row on first sight, so a server restart is not a mass failure', () => {
+    it('never fails a row on first sight, so a server restart is not a mass failure', async () => {
       const { svc, restart } = harness()
-      const id = approveChannelDev(svc)
+      const id = await approveChannelDev(svc)
       // The clock lives in memory, so a restarted server meets rows that are old but
       // UNOBSERVED. Its first sweep, however late, must start their clocks rather than
       // fail every one of them at once.
       const afterRestart = restart()
-      afterRestart.sweepStalledExecutions(t0 + 60 * 60_000)
-      expect(afterRestart.get({ id }).status).toBe('executing')
+      await afterRestart.sweepStalledExecutions(t0 + 60 * 60_000)
+      expect((await afterRestart.get({ id })).status).toBe('executing')
       // And then hold to the same deadline from there.
-      afterRestart.sweepStalledExecutions(t0 + 60 * 60_000 + APPROVAL_EXEC_DEADLINE_MS)
-      expect(afterRestart.get({ id }).status).toBe('failed')
+      await afterRestart.sweepStalledExecutions(t0 + 60 * 60_000 + APPROVAL_EXEC_DEADLINE_MS)
+      expect((await afterRestart.get({ id })).status).toBe('failed')
     })
 
-    it('does not fail a row parked for an absent daemon, and restarts its clock on attach', () => {
+    it('does not fail a row parked for an absent daemon, and restarts its clock on attach', async () => {
       const { svc, daemon } = harness()
-      const id = approveChannelDev(svc)
-      svc.sweepStalledExecutions(t0)
+      const id = await approveChannelDev(svc)
+      await svc.sweepStalledExecutions(t0)
 
       // `toMachine` QUEUES for an offline machine: the frame is parked, not lost, so no
       // amount of waiting here is a stall.
       daemon.attached = false
-      svc.sweepStalledExecutions(t0 + 24 * 60 * 60_000)
-      expect(svc.get({ id }).status).toBe('executing')
+      await svc.sweepStalledExecutions(t0 + 24 * 60 * 60_000)
+      expect((await svc.get({ id })).status).toBe('executing')
 
       // Back on the wire a day later — the clock restarts from here, so the daemon gets
       // its full deadline to answer a frame it has only just received.
       daemon.attached = true
       const back = t0 + 24 * 60 * 60_000 + 60_000
-      svc.sweepStalledExecutions(back)
-      expect(svc.get({ id }).status).toBe('executing')
-      svc.sweepStalledExecutions(back + APPROVAL_EXEC_DEADLINE_MS)
-      expect(svc.get({ id }).status).toBe('failed')
+      await svc.sweepStalledExecutions(back)
+      expect((await svc.get({ id })).status).toBe('executing')
+      await svc.sweepStalledExecutions(back + APPROVAL_EXEC_DEADLINE_MS)
+      expect((await svc.get({ id })).status).toBe('failed')
     })
 
-    it('exempts stop, whose daemon kills itself before it can report', () => {
+    it('exempts stop, whose daemon kills itself before it can report', async () => {
       const { svc } = harness()
-      const { id } = req(svc, { kind: 'stop' })
-      svc.approve(id)
-      svc.sweepStalledExecutions(t0)
-      svc.sweepStalledExecutions(t0 + 10 * APPROVAL_EXEC_DEADLINE_MS)
+      const { id } = await req(svc, { kind: 'stop' })
+      await svc.approve(id)
+      await svc.sweepStalledExecutions(t0)
+      await svc.sweepStalledExecutions(t0 + 10 * APPROVAL_EXEC_DEADLINE_MS)
       // Still `executing`, which the service's own doc calls honest for this op.
-      expect(svc.get({ id }).status).toBe('executing')
+      expect((await svc.get({ id })).status).toBe('executing')
     })
 
-    it('lets a late result correct a row the deadline had already failed', () => {
+    it('lets a late result correct a row the deadline had already failed', async () => {
       const { svc, mails } = harness()
-      const id = approveChannelDev(svc)
-      svc.sweepStalledExecutions(t0)
-      svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
-      expect(svc.get({ id }).status).toBe('failed')
+      const id = await approveChannelDev(svc)
+      await svc.sweepStalledExecutions(t0)
+      await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
+      expect((await svc.get({ id })).status).toBe('failed')
 
       // The machine answers anyway. Being told "it failed" about an op that ran is worse
       // than being told nothing, so the record moves to what actually happened.
-      svc.onExecResult({
+      await svc.onExecResult({
         type: 'approvalExecResult',
         requestId: id,
         ok: true,
         exitCode: 0,
         output: 'channel set to dev',
       })
-      const w = svc.get({ id })
+      const w = await svc.get({ id })
       expect(w.status).toBe('succeeded')
       expect(w.resultText).toBe('channel set to dev')
       expect(mails.at(-1)).toMatch(/LATE/)
     })
 
-    it('does not re-open a row that reached a terminal state on its own', () => {
+    it('does not re-open a row that reached a terminal state on its own', async () => {
       const { svc } = harness()
-      const id = approveChannelDev(svc)
-      svc.onExecResult({
+      const id = await approveChannelDev(svc)
+      await svc.onExecResult({
         type: 'approvalExecResult',
         requestId: id,
         ok: false,
         exitCode: 1,
         output: 'no such channel',
       })
-      expect(svc.get({ id }).status).toBe('failed')
+      expect((await svc.get({ id })).status).toBe('failed')
       // A stray duplicate result must not move a settled row.
-      svc.onExecResult({
+      await svc.onExecResult({
         type: 'approvalExecResult',
         requestId: id,
         ok: true,
         exitCode: 0,
         output: 'surprise',
       })
-      expect(svc.get({ id }).resultText).toBe('no such channel')
+      expect((await svc.get({ id })).resultText).toBe('no such channel')
     })
   })
 })

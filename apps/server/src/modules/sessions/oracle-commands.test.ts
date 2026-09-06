@@ -37,7 +37,7 @@ const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
 
 const confirmUserTurn = (
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
   text: string,
 ): void =>
@@ -60,7 +60,7 @@ const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
 
 /** Bind a created session as a live agent with a known resume ref and phase. */
 function goLive(
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
@@ -137,7 +137,7 @@ describe('oracle: create', () => {
 
     expect(other).toContainEqual(expect.objectContaining({ type: 'spawn', sessionId }))
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(0)
-    expect(o.meta(sessionId).machineId).toBe('other')
+    expect((await o.meta(sessionId)).machineId).toBe('other')
   })
 })
 
@@ -155,7 +155,7 @@ describe('oracle: resume', () => {
     expect(o.daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, resume: RESUME }),
     )
-    expect(o.meta(sessionId).resume).toEqual(RESUME)
+    expect((await o.meta(sessionId)).resume).toEqual(RESUME)
   })
 
   it(`${MUST_NOT_CHANGE}: resuming an EXISTING row reuses it instead of minting a second session`, async () => {
@@ -175,7 +175,7 @@ describe('oracle: resume', () => {
     })
 
     expect(second.sessionId).toBe(first.sessionId)
-    expect(o.reg.modules.sessions.listSessions()).toHaveLength(1)
+    expect(await o.reg.modules.sessions.listSessions()).toHaveLength(1)
   })
 })
 
@@ -187,7 +187,7 @@ describe('oracle: hibernate', () => {
 
     expect(await o.call.sessions.hibernate({ sessionId })).toEqual({ ok: true })
 
-    expect(o.meta(sessionId).status).toBe('hibernated')
+    expect((await o.meta(sessionId)).status).toBe('hibernated')
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.status).toBe(
       'hibernated',
@@ -225,7 +225,7 @@ describe('oracle: hibernate', () => {
 
     expect(refused.ok).toBe(false)
     expect(refused.reason).toBe('no resume ref yet — the agent has not reported one')
-    expect(o.meta(sessionId).status).toBe('live')
+    expect((await o.meta(sessionId)).status).toBe('live')
   })
 
   it(`${MUST_NOT_CHANGE}: hibernate refuses a WORKING agent so an in-flight turn is never killed`, async () => {
@@ -237,7 +237,7 @@ describe('oracle: hibernate', () => {
       ok: false,
       reason: 'agent is working — let it reach idle first',
     })
-    expect(o.meta(sessionId).status).toBe('live')
+    expect((await o.meta(sessionId)).status).toBe('live')
   })
 })
 
@@ -251,7 +251,7 @@ describe('oracle: resurrect', () => {
 
     expect(await o.call.sessions.resurrect({ sessionId })).toEqual({ ok: true })
 
-    expect(o.meta(sessionId).status).toBe('starting')
+    expect((await o.meta(sessionId)).status).toBe('starting')
     expect(o.daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, resume: RESUME }),
     )
@@ -299,7 +299,7 @@ describe('oracle: resurrect', () => {
     })
 
     await expect(o.call.sessions.hibernate({ sessionId })).resolves.toEqual({ ok: true })
-    expect(o.meta(sessionId)).toMatchObject({ status: 'hibernated', resume })
+    expect(await o.meta(sessionId)).toMatchObject({ status: 'hibernated', resume })
     expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'hibernated',
     )
@@ -317,7 +317,7 @@ describe('oracle: resurrect', () => {
     // observation window from A7b, both the public projection and SQLite stay
     // `starting`; neither is painted live because resurrect accepted the wake.
     await Promise.resolve()
-    expect(o.meta(sessionId).status).toBe('starting')
+    expect((await o.meta(sessionId)).status).toBe('starting')
     expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'starting',
     )
@@ -327,7 +327,7 @@ describe('oracle: resurrect', () => {
       sessionId,
       message: 'session/load timed out',
     })
-    expect(o.meta(sessionId).status).toBe('exited')
+    expect((await o.meta(sessionId)).status).toBe('exited')
     expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'exited',
     )
@@ -348,7 +348,7 @@ describe('oracle: resurrect', () => {
       secondSpawn?.observationGeneration,
     )
     expect((await o.store.sessions.loadSessions()).map((row) => row.id)).toEqual([sessionId])
-    expect(o.meta(sessionId)).toMatchObject({ status: 'starting', resume })
+    expect(await o.meta(sessionId)).toMatchObject({ status: 'starting', resume })
 
     o.reg.gateway.routeDaemonFrame(machineId, {
       type: 'bind',
@@ -360,7 +360,7 @@ describe('oracle: resurrect', () => {
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    expect(o.meta(sessionId)).toMatchObject({
+    expect(await o.meta(sessionId)).toMatchObject({
       status: 'live',
       resume,
       driverId: 'grok-acp',
@@ -402,7 +402,7 @@ describe('oracle: kill', () => {
 
     await o.call.sessions.kill({ sessionId })
 
-    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
     expect(await o.store.sessions.loadSessions()).toEqual([])
     const tombstone = (await o.store.sessions.loadDeletedSessions()).find((r) => r.id === sessionId)
     expect(tombstone?.deletionSource).toBe('standalone')
@@ -456,8 +456,8 @@ describe('oracle: kill', () => {
         }),
     )
 
-    const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const first = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const second = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
 
     release({ ok: true, cwd: '/p' })
@@ -519,7 +519,7 @@ describe('oracle: sendText / resumeAndSend', () => {
    * assertion, because it is trusted.
    */
   const framesWhenTyped = async (
-    o: ReturnType<typeof makeOracle>,
+    o: Awaited<ReturnType<typeof makeOracle>>,
     what: string,
   ): Promise<ReturnType<typeof ptyFrames>> => {
     let snapshot: ReturnType<typeof ptyFrames> = []
@@ -600,7 +600,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
     o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
-    expect(o.meta(sessionId).controllerId).toBe(controllerId)
+    expect((await o.meta(sessionId)).controllerId).toBe(controllerId)
     o.daemon.length = 0
 
     expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)
@@ -627,7 +627,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       () => o.daemon.some((m) => m.type === 'spawn' && m.sessionId === sessionId),
       'the wake spawn to be dispatched',
     )
-    expect(o.meta(sessionId).status).toBe('starting')
+    expect((await o.meta(sessionId)).status).toBe('starting')
   })
 
   it('sendText after process-gone resurrects once and drains concurrent/replayed sends exactly once', async () => {
@@ -642,7 +642,7 @@ describe('oracle: sendText / resumeAndSend', () => {
         sessionId,
         code: 137,
       })
-      expect(o.meta(sessionId).status).toBe('exited')
+      expect((await o.meta(sessionId)).status).toBe('exited')
       o.daemon.length = 0
 
       const [first, second] = await Promise.all([
@@ -1084,7 +1084,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.markRead({ sessionId })
-    expect(o.meta(sessionId).readAt).not.toBeNull()
+    expect((await o.meta(sessionId)).readAt).not.toBeNull()
 
     expect(await o.call.sessions.stop({ sessionId })).toEqual({
       ok: true,
@@ -1125,6 +1125,6 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsAfterFirst)
     // The row survives — stop keeps the branch, the transcript and the session.
-    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
   })
 })

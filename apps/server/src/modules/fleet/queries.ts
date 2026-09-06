@@ -24,13 +24,13 @@ const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
 
 export const REPO_QUERIES = {
-  list: q(noInput, (s) => s.repos.list()),
+  list: q(noInput, async (s) => await s.repos.list()),
   /** Full registered-repo rows incl. the human-facing prefix (#474) — the web's
    *  source for the linkify prefix set and the prefix editor. */
-  listDetailed: q(noInput, (s) => s.store.repos.listRepos()),
+  listDetailed: q(noInput, async (s) => await s.store.repos.listRepos()),
   /** cwd → repo inference for the CLI: longest registered root containing `path`. */
-  inferFromPath: q(z.object({ path: z.string() }), (s, input) => ({
-    repoPath: s.repos.inferFromPath(input.path) ?? null,
+  inferFromPath: q(z.object({ path: z.string() }), async (s, input) => ({
+    repoPath: await s.repos.inferFromPath(input.path) ?? null,
   })),
   /**
    * Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
@@ -55,7 +55,7 @@ export const REPO_QUERIES = {
         // a queue and comes back "directory browse failed", which names neither
         // the machine nor the reason.
         try {
-          s.modules.machines.requireCapability(input.machineId, HOST_REPOS, 'browse directories')
+          await s.modules.machines.requireCapability(input.machineId, HOST_REPOS, 'browse directories')
         } catch (e) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
@@ -85,8 +85,8 @@ export const REPO_QUERIES = {
     },
   ),
   /** Live CLI/auth readiness. The response contains identity labels, never credentials. */
-  githubStatus: q(z.object({ machineId: MachineIdField }), (s, input) =>
-    s.modules.rpc.githubCli('status', input.machineId),
+  githubStatus: q(z.object({ machineId: MachineIdField }), async (s, input) =>
+    await s.modules.rpc.githubCli('status', input.machineId),
   ),
   /** Accessible repositories for the selected machine's current `gh` account. */
   githubList: q(z.object({ machineId: MachineIdField }), async (s, input) => {
@@ -95,8 +95,8 @@ export const REPO_QUERIES = {
   }),
 } as const
 
-export const serverTransferStatusQuery = (ctx: Context) =>
-  mods(ctx).serverTransfer.publicStatus(visibleMachinesFor(mods(ctx), ctx.capability))
+export const serverTransferStatusQuery = async (ctx: Context) =>
+  await mods(ctx).serverTransfer.publicStatus(await visibleMachinesFor(mods(ctx), ctx.capability))
 
 export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect

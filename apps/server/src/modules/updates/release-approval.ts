@@ -64,7 +64,7 @@ export function createReleaseApprovalFlow(deps: {
         approval = { approvedBy, approvedAt: now() }
         failure = undefined
         await deps.release(base)
-        return read()
+        return await read()
       } catch (error) {
         if (error instanceof ReleaseApprovalRefusal) throw error
         failure = {
@@ -72,7 +72,7 @@ export function createReleaseApprovalFlow(deps: {
             'Building and publishing this development release failed. Nothing was granted, so there is nothing to roll back.',
           logs: deps.failureLogs(error),
         }
-        return read()
+        return await read()
       } finally {
         inFlight = false
       }

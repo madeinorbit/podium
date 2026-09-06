@@ -79,7 +79,7 @@ export interface SuperagentTool {
 
 export interface SuperagentToolDeps {
   modules: RegistryModules
-  repos: { list(): string[] }
+  repos: { list(): Promise<string[]> }
   store: SessionStore
   /** How often wait_for_session re-checks the event log. */
   waitPollMs: number
@@ -92,12 +92,12 @@ export interface SuperagentToolDeps {
  * provenance to 'superagent:<threadId>' and attaches the concierge
  * confirmed-gate; identity-less callers fail closed on start-capable tools.
  */
-export function buildSuperagentTools(
+export async function buildSuperagentTools(
   deps: SuperagentToolDeps,
   linearKey: string,
   threadId?: ThreadId,
   opts?: { issueBelt?: boolean },
-): SuperagentTool[] {
+): Promise<SuperagentTool[]> {
   const { modules, repos, store, waitPollMs } = deps
   const sessions = modules.sessions
   const issues = modules.issues
@@ -108,12 +108,12 @@ export function buildSuperagentTools(
     ...(threadId ? { threadId: asThreadId(threadId) } : {}),
   })
   const ownerUserId = threadId
-    ? store.superagent.getSuperagentThread(asThreadId(threadId))?.ownerUserId
+    ? (await store.superagent.getSuperagentThread(asThreadId(threadId)))?.ownerUserId
     : undefined
   const memoryReader = ownerUserId
     ? { kind: 'agent' as const, id: threadId ?? 'superagent', onBehalfOf: ownerUserId }
     : undefined
-  const getSession = (id: string) => sessions.sessionById(id as SessionId)
+  const getSession = async (id: string) => await sessions.sessionById(id as SessionId)
   const tools: SuperagentTool[] = [
     {
       spec: {
@@ -127,11 +127,11 @@ export function buildSuperagentTools(
       },
       run: async () =>
         JSON.stringify(
-          sessions.listSessions(undefined, 'listAllTool').map((s) => {
+          (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
             // Reverse of issue_show's session list (issue #72): session cwd →
             // bound issue, via the same worktree-containment rule as authz scope.
             const issueId = issues.issueForCwd(s.cwd)
-            const issue = issueId ? issues.getMeta(issueId) : null
+            const issue = issueId ? await issues.getMeta(issueId) : null
             return {
               sessionId: s.sessionId,
               name: s.name ?? s.title,
@@ -157,7 +157,7 @@ export function buildSuperagentTools(
         parameters: { type: 'object', properties: {} },
       },
       run: async () => {
-        const r = await rpc.scanRepos(repos.list(), { includeHome: false, maxDepth: 0 })
+        const r = await rpc.scanRepos(await repos.list(), { includeHome: false, maxDepth: 0 })
         return JSON.stringify(
           r.repositories.map((repo) => ({
             path: repo.path,
@@ -212,7 +212,7 @@ export function buildSuperagentTools(
         const issueRef = str(args.issueId)
         if (!isAgentKind(agentKind)) return 'invalid agentKind'
         if (issueRef) {
-          const issue = issues.getMeta(issueRef)
+          const issue = await issues.getMeta(issueRef)
           if (!issue) return `unknown issue: ${issueRef}`
           if (issue.worktreePath) {
             cwd = issue.worktreePath // spawn alongside the issue's work
@@ -220,8 +220,8 @@ export function buildSuperagentTools(
             // Not started yet — issues.start owns the whole flow (worktree, branch,
             // agent spawn with the description as first prompt and caller provenance).
             const started = await issues.start(issue.id, agentKind, { spawnedBy })
-            const spawned = sessions
-              .listSessionsForIssue(started.worktreePath ?? null, issue.id)
+            const spawned = (await sessions
+              .listSessionsForIssue(started.worktreePath ?? null, issue.id))
               .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')
             return JSON.stringify({
               ...(spawned ? { sessionId: spawned.sessionId } : {}),
@@ -240,7 +240,7 @@ export function buildSuperagentTools(
         if (!cwd) return 'pass cwd or issueId (with issueId the cwd is derived from the issue)'
         const title = str(args.title)
         if (!ownerUserId) return 'unknown superagent thread'
-        const { sessionId } = sessions.createSession({
+        const { sessionId } = await sessions.createSession({
           agentKind,
           cwd,
           ...(title ? { title } : {}),
@@ -260,7 +260,7 @@ export function buildSuperagentTools(
           // the point here, and it is the one delivery that completes on the
           // server rather than in a daemon that may not have bound this session
           // yet — which is precisely the window a first message has to survive.
-          sessions.receiptSend('queue', { sessionId, text: first })
+          await sessions.receiptSend('queue', { sessionId, text: first })
         }
         return JSON.stringify({ sessionId, cwd, agentKind })
       },
@@ -279,7 +279,7 @@ export function buildSuperagentTools(
         // Unified substrate (#237) [spec:SP-34d7]: the superagent is its OWN
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
-        const r = modules.messages.send(
+        const r = await modules.messages.send(
           { kind: 'superagent' },
           {
             to: { kind: 'session', id: sessionIdArg(args.sessionId) },
@@ -313,7 +313,7 @@ export function buildSuperagentTools(
         // shared with the web-callable issues.answerQuestion. Menu-only here: no
         // textFallback — this tool's contract is the native menu or a refusal.
         const actorSessionId = threadId
-          ? store.superagent.getSuperagentThread(threadId)?.podiumSessionId
+          ? (await store.superagent.getSuperagentThread(threadId))?.podiumSessionId
           : undefined
         const principal = actorSessionId
           ? sessions.inboxPrincipalForSession(actorSessionId)
@@ -324,7 +324,7 @@ export function buildSuperagentTools(
             getSession,
             sessions,
             rpc: {
-              readTranscript: (input) => rpc.readTranscript(input, memoryReader),
+              readTranscript: async (input) => await rpc.readTranscript(input, memoryReader),
             },
           },
           {
@@ -361,7 +361,7 @@ export function buildSuperagentTools(
         // one it should not ask any more (is that process READY for bytes): the
         // first is a lifecycle fact no receipt can supply, the second is exactly
         // the prediction a receipt replaces.
-        const r = sessions.receiptSend('wake', {
+        const r = await sessions.receiptSend('wake', {
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
@@ -384,7 +384,7 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         const r = sessions.continueSession({ sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
       },
@@ -402,7 +402,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const r = sessions.hibernateSession({ sessionId: sessionIdArg(args.sessionId) })
+        const r = await sessions.hibernateSession({ sessionId: sessionIdArg(args.sessionId) })
         return r.ok ? 'hibernated' : `failed: ${r.reason ?? 'unknown'}`
       },
     },
@@ -427,7 +427,7 @@ export function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         const until = str(args.until) ?? ''
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         // null = until next message (SessionMeta.snoozedUntil semantics).
         const value = until === 'next-message' ? null : until
         if (value !== null && Number.isNaN(Date.parse(value))) {
@@ -453,7 +453,7 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
         sessions.clearSnooze(ownerUserId, sessionId)
         return 'snooze cleared'
@@ -471,7 +471,7 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         sessions.renameSession({
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
@@ -499,7 +499,7 @@ export function buildSuperagentTools(
         if (!parsed.success) {
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         sessions.setWorkState({ sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
@@ -527,12 +527,12 @@ export function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!getSession(sessionId)) return 'unknown session'
+        if (!await getSession(sessionId)) return 'unknown session'
         const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
         // Already settled? Answer from the current state without waiting — the
         // event log only carries TRANSITIONS, so an agent that finished before
         // this call would otherwise sit out the full timeout.
-        const cur = getSession(sessionId)?.agentState
+        const cur = (await getSession(sessionId))?.agentState
         if (
           cur &&
           (cur.phase === 'idle' ||
@@ -548,11 +548,11 @@ export function buildSuperagentTools(
         // Watch the durable event log from "now": session.phase rows are appended
         // on every real phase transition (subject = sessionId), so polling the
         // cursor catches the change even across a busy log. Never throws.
-        const since = store.events.maxEventId()
+        const since = await store.events.maxEventId()
         const deadline = Date.now() + timeoutS * 1000
         while (Date.now() < deadline) {
-          const evs = store.events
-            .listEventsSince(since, { kinds: ['session.phase'] })
+          const evs = (await store.events
+            .listEventsSince(since, { kinds: ['session.phase'] }))
             .filter((e) => e.subject === sessionId)
           const last = evs[evs.length - 1]
           if (last) {
@@ -564,7 +564,7 @@ export function buildSuperagentTools(
           }
           await sleep(Math.min(waitPollMs, Math.max(0, deadline - Date.now())))
         }
-        const phase = getSession(sessionId)?.agentState?.phase ?? 'unknown'
+        const phase = (await getSession(sessionId))?.agentState?.phase ?? 'unknown'
         return `timeout after ${timeoutS}s (session still ${phase})`
       },
     },
@@ -579,7 +579,7 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
+        await sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
     },
@@ -672,7 +672,7 @@ export function buildSuperagentTools(
         if (!question) return 'question is required'
         // Same substrate as podium session ask: a question message through the
         // one send path (clamps/cooldown apply), then a bounded ack wait.
-        const r = modules.messages.send(
+        const r = await modules.messages.send(
           { kind: 'superagent' },
           {
             to: { kind: 'session', id: sessionId },
@@ -687,7 +687,7 @@ export function buildSuperagentTools(
           timeoutMs,
           pollMs: waitPollMs,
         })
-        const s = getSession(sessionId)
+        const s = await getSession(sessionId)
         const snapshot = s
           ? { status: s.status, phase: s.agentState?.phase ?? 'unknown' }
           : { status: 'gone' }
@@ -723,7 +723,7 @@ export function buildSuperagentTools(
       run: async (args) => {
         if (!memoryReader) return 'unknown superagent thread'
         return JSON.stringify(
-          modules.memory.searchConversations(memoryReader, {
+          await modules.memory.searchConversations(memoryReader, {
             query: str(args.query) ?? '',
             ...(str(args.projectPath) ? { projectPath: str(args.projectPath) } : {}),
             limit: 15,
@@ -766,7 +766,7 @@ export function buildSuperagentTools(
         // A kind filter drops hits AFTER ranking, so over-fetch to keep the
         // filtered list full (memory search caps its own limit at 100).
         if (!memoryReader) return 'unknown superagent thread'
-        const raw = modules.memory.search(memoryReader, {
+        const raw = await modules.memory.search(memoryReader, {
           text: query,
           limit: kinds && kinds.length > 0 ? 100 : limit,
         })
@@ -774,9 +774,9 @@ export function buildSuperagentTools(
           kinds && kinds.length > 0 ? raw.filter((r) => kinds.includes(r.kind)) : raw
         ).slice(0, limit)
         if (results.length === 0) return '(no results)'
-        const lines = results.map((r) => {
+        const lines = results.map(async (r) => {
           // Issues read by display seq (what users and issue_* tools speak).
-          const seq = r.kind === 'issue' ? issues.getMeta(r.id)?.seq : undefined
+          const seq = r.kind === 'issue' ? (await issues.getMeta(r.id))?.seq : undefined
           const ref = seq !== undefined ? `#${seq}` : r.id
           return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
         })
@@ -907,15 +907,15 @@ export function buildSuperagentTools(
   // advertises them.
   if (opts?.issueBelt && deps.issueTools) {
     const issueProvider = deps.issueTools
-    for (const spec of issueProvider.mcpToolSpecs()) {
+    for (const spec of await issueProvider.mcpToolSpecs()) {
       tools.push({
         spec: {
           name: spec.name,
           description: spec.description,
           parameters: spec.inputSchema as Record<string, unknown>,
         },
-        run: (args) =>
-          issueProvider.callMcpTool(spec.name, args, threadId ? asThreadId(threadId) : undefined),
+        run: async (args) =>
+          await issueProvider.callMcpTool(spec.name, args, threadId ? asThreadId(threadId) : undefined),
       })
     }
   }
@@ -952,7 +952,7 @@ export function buildSuperagentTools(
         const needsConfirm = isCreate ? args.start === true : true
         if (needsConfirm && args.confirmed !== true) return NOT_CONFIRMED_MSG
         const { confirmed: _confirmed, ...rest } = args
-        return inner(rest)
+        return await inner(rest)
       }
     }
   }

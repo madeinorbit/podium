@@ -89,14 +89,16 @@ describe('a daemon reattach storm', () => {
     // attached before the fixture exists. This sink is superseded by the storm's
     // first round, which is exactly the reattach shape under test.
     handle.registry.gateway.attachDaemon(machineId, () => {})
-    sessionIds = Array.from(
-      { length: SESSIONS },
-      (_, i) =>
-        handle.registry.modules.sessions.createSession({
-          agentKind: 'shell',
-          cwd: `/repo/w${i}`,
-          machineId,
-        }).sessionId,
+    sessionIds = await Promise.all(
+      Array.from(
+        { length: SESSIONS },
+        async (_, i) =>
+          (await handle.registry.modules.sessions.createSession({
+            agentKind: 'shell',
+            cwd: `/repo/w${i}`,
+            machineId,
+          })).sessionId,
+      ),
     )
     handle.registry.modules.sessions.flushBroadcasts()
   })

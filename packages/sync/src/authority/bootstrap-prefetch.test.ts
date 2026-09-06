@@ -18,7 +18,7 @@ const issue = (seq: number, entityId: string): SequencedChange => ({
 })
 
 describe('bootstrap visibility prefetch gate', () => {
-  it('turns N distinct refs into one batch preparation and zero point reads', () => {
+  it('turns N distinct refs into one batch preparation and zero point reads', async () => {
     const pointReads: string[] = []
     const batches: string[][] = []
     const base: VisibilityStatePort = {
@@ -31,7 +31,7 @@ describe('bootstrap visibility prefetch gate', () => {
     }
     const state: VisibilityStatePort = {
       ...base,
-      forBootstrap: (refs: readonly EntityRef[]) => {
+      forBootstrap: async (refs: readonly EntityRef[]) => {
         batches.push([
           ...new Set(refs.filter((ref) => ref.entity === 'issue').map((ref) => ref.entityId)),
         ])
@@ -40,7 +40,7 @@ describe('bootstrap visibility prefetch gate', () => {
     }
     const policy = new GrantEdgeVisibilityPolicy(state, new NoDelegationsGranted())
 
-    const world = scopeBootstrap(
+    const world = await scopeBootstrap(
       { policy },
       DEVICE_GRADE_PRINCIPAL,
       [issue(1, 'issue-a'), issue(2, 'issue-b'), issue(3, 'issue-a')],

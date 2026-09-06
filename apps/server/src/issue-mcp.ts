@@ -46,11 +46,13 @@ const toolName = (c: IssueCommand): string => `issue_${c.name.replace(/-/g, '_')
 /** MCP tools for the native issue tracker, generated from the shared command registry. */
 export class IssueToolProvider implements McpToolProvider {
   private client: IssueTrpc | undefined
-  private clientForThread: ((threadId: ThreadId) => IssueTrpc) | undefined
+  private clientForThread:
+    | ((threadId: ThreadId) => Promise<IssueTrpc> | IssueTrpc)
+    | undefined
   setClient(client: IssueTrpc): void {
     this.client = client
   }
-  setClientResolver(resolve: (threadId: ThreadId) => IssueTrpc): void {
+  setClientResolver(resolve: (threadId: ThreadId) => Promise<IssueTrpc> | IssueTrpc): void {
     this.clientForThread = resolve
   }
   mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
@@ -67,7 +69,9 @@ export class IssueToolProvider implements McpToolProvider {
   ): Promise<string> {
     const cmd = ISSUE_COMMANDS.find((c) => toolName(c) === name)
     if (!cmd) throw new Error(`unknown issue tool: ${name}`)
-    const client = threadId ? (this.clientForThread?.(threadId) ?? this.client) : this.client
+    const client = threadId
+      ? ((await this.clientForThread?.(threadId)) ?? this.client)
+      : this.client
     if (!client) throw new Error('issue MCP requires an owned superagent thread')
     const parsed = cmd.args.safeParse(args)
     if (!parsed.success)
@@ -84,16 +88,24 @@ export class IssueToolProvider implements McpToolProvider {
 /** Fan one MCP surface out over several providers (superagent ⊕ issue tools). */
 export class CompositeMcpProvider implements McpToolProvider {
   constructor(private readonly providers: McpToolProvider[]) {}
-  mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
-    return this.providers.flatMap((p) => p.mcpToolSpecs())
+  async mcpToolSpecs(): Promise<
+    Array<{ name: string; description: string; inputSchema: unknown }>
+  > {
+    return (await Promise.all(this.providers.map(async (p) => await p.mcpToolSpecs()))).flat()
   }
   async callMcpTool(
     name: string,
     args: Record<string, unknown>,
     threadId?: ThreadId,
   ): Promise<string> {
-    const owner = this.providers.find((p) => p.mcpToolSpecs().some((s) => s.name === name))
+    let owner: McpToolProvider | undefined
+    for (const provider of this.providers) {
+      if ((await provider.mcpToolSpecs()).some((spec) => spec.name === name)) {
+        owner = provider
+        break
+      }
+    }
     if (!owner) throw new Error(`unknown tool: ${name}`)
-    return owner.callMcpTool(name, args, threadId)
+    return await owner.callMcpTool(name, args, threadId)
   }
 }

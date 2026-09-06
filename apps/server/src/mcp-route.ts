@@ -12,7 +12,9 @@ export interface McpToolProvider {
    *  args against the advertised schema can actually pass the flag. */
   mcpToolSpecs(
     threadId?: ThreadId,
-  ): Array<{ name: string; description: string; inputSchema: unknown }>
+  ):
+    | Promise<Array<{ name: string; description: string; inputSchema: unknown }>>
+    | Array<{ name: string; description: string; inputSchema: unknown }>
   /** `threadId` (when the transport resolved one) scopes the call to the
    *  superagent thread it runs for — gate + session provenance (issue #67). */
   callMcpTool(name: string, args: Record<string, unknown>, threadId?: ThreadId): Promise<string>
@@ -104,7 +106,11 @@ export function registerMcpRoute(
       // harness clients strip it and the gate can never be satisfied).
       const listThreadToken = c.req.header('x-podium-mcp-thread')
       const listThreadId = listThreadToken ? opts?.resolveThread?.(listThreadToken) : undefined
-      return c.json({ jsonrpc: '2.0', id, result: { tools: provider.mcpToolSpecs(listThreadId) } })
+      return c.json({
+        jsonrpc: '2.0',
+        id,
+        result: { tools: await provider.mcpToolSpecs(listThreadId) },
+      })
     }
     if (method === 'tools/call') {
       const name = body.params?.name

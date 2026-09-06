@@ -34,9 +34,9 @@ import { openTestStore } from './test-support/open-test-store'
  */
 async function fleet() {
   const store = await openTestStore(':memory:')
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   // The coordinator row, stamped `server` by boot exactly as production does.
-  const coordinator = asMachineId(registry.modules.machines.ensureHostMachine('source'))
+  const coordinator = asMachineId(await registry.modules.machines.ensureHostMachine('source'))
   await store.machines.upsertMachine({
     id: 'laptop',
     name: 'mango',
@@ -52,7 +52,7 @@ async function fleet() {
   registry.gateway.attachDaemon(laptop, laptopSocket)
   registry.modules.machines.invalidateMachineCache()
   const repos = new RepoRegistry(registry, store)
-  const superagent = SuperagentService.create(registry.modules, repos, store)
+  const superagent = await SuperagentService.create(registry.modules, repos, store)
   return {
     registry,
     repos,
@@ -92,7 +92,7 @@ describe('the component fact', () => {
     const { registry, coordinator } = await fleet()
     registry.gateway.attachDaemon(coordinator, () => {})
     registry.modules.machines.invalidateMachineCache()
-    const machine = registry.modules.machines.listMachines().find((m) => m.id === coordinator)
+    const machine = (await registry.modules.machines.listMachines()).find((m) => m.id === coordinator)
     expect(machine?.components).toEqual(['server', 'daemon'])
     // And it is then perfectly able to host a repo — the fact is about the box,
     // not about being the coordinator.
@@ -168,12 +168,12 @@ describe('offline is not incapable', () => {
     let offlineMessage = ''
     let incapableMessage = ''
     try {
-      machines.requireRepoHost(laptop)
+      await machines.requireRepoHost(laptop)
     } catch (e) {
       offlineMessage = e instanceof Error ? e.message : String(e)
     }
     try {
-      machines.requireRepoHost(coordinator)
+      await machines.requireRepoHost(coordinator)
     } catch (e) {
       incapableMessage = e instanceof Error ? e.message : String(e)
     }

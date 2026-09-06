@@ -173,14 +173,14 @@ export class TelegramChannel implements ChannelAdapter {
      *  getUpdates for its pairing window (concurrent polls 409). */
     private readonly paused: () => boolean = () => false,
     /** Live fail-closed chat binding predicate; absent preserves the legacy configured chat. */
-    private readonly acceptChat?: (chatId: string) => boolean,
+    private readonly acceptChat?: (chatId: string) => boolean | Promise<boolean>,
   ) {}
 
   private api(method: string): string {
     return `https://api.telegram.org/bot${this.config.botToken.trim()}/${method}`
   }
-  private accepts(chatId: string): boolean {
-    return this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim()
+  private async accepts(chatId: string): Promise<boolean> {
+    return await (this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim())
   }
 
   private async call(
@@ -205,7 +205,7 @@ export class TelegramChannel implements ChannelAdapter {
     throw err
   }
 
-  start(onMessage: (msg: InboundChatMessage) => void): void {
+  async start(onMessage: (msg: InboundChatMessage) => void): Promise<void> {
     if (!this.stopped) return
     this.stopped = false
     this.abort = new AbortController()
@@ -248,7 +248,7 @@ export class TelegramChannel implements ChannelAdapter {
         const { messages, callbacks, lastUpdateId } = parseTelegramUpdates(body.result)
         if (lastUpdateId !== undefined) this.offset = lastUpdateId + 1
         for (const msg of messages) {
-          if (!this.accepts(msg.chatId)) continue
+          if (!await this.accepts(msg.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,
@@ -260,7 +260,7 @@ export class TelegramChannel implements ChannelAdapter {
           })
         }
         for (const cb of callbacks) {
-          if (!this.accepts(cb.chatId)) continue
+          if (!await this.accepts(cb.chatId)) continue
           onMessage({
             source: {
               channel: this.channel,
@@ -339,17 +339,17 @@ export class TelegramChannel implements ChannelAdapter {
       const retryAfter = (err as { retryAfter?: number }).retryAfter
       if (!floodRetried && typeof retryAfter === 'number' && retryAfter <= 30) {
         await sleep(retryAfter * 1000)
-        return this.sendChunk(target, text, { floodRetried: true, plainFallback })
+        return await this.sendChunk(target, text, { floodRetried: true, plainFallback })
       }
       if (!plainFallback && isTelegramMarkdownParseError(err)) {
-        return this.sendChunk(target, stripTelegramMarkdownV2(text), { plainFallback: true })
+        return await this.sendChunk(target, stripTelegramMarkdownV2(text), { plainFallback: true })
       }
       throw err
     }
   }
 
-  sendTyping(target: ConversationRef): void {
-    this.call('sendChatAction', {
+  async sendTyping(target: ConversationRef): Promise<void> {
+    await this.call('sendChatAction', {
       chat_id: target.chatId,
       ...(target.threadRef ? { message_thread_id: Number(target.threadRef) } : {}),
       action: 'typing',

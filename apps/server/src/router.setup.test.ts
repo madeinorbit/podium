@@ -21,13 +21,13 @@ import { OPERATOR } from './test-support/capabilities'
  * on the calling account now, so a second `caller()` with its own store would be a different
  * instance and "keep the existing password" could not be expressed at all.
  */
-let harness: ReturnType<typeof makeHarness> | undefined
+let harness: Awaited<ReturnType<typeof makeHarness>> | undefined
 
-function makeHarness() {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function makeHarness() {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   return {
     users,
@@ -42,8 +42,8 @@ function makeHarness() {
   }
 }
 
-function caller() {
-  harness ??= makeHarness()
+async function caller() {
+  harness ??= await makeHarness()
   return harness.caller
 }
 
@@ -52,14 +52,14 @@ function caller() {
  * added, which the default harness deliberately leaves unset so `activate`
  * refuses rather than claiming a restart nothing performed.
  */
-function activationHarness(opts: {
+async function activationHarness(opts: {
   readiness: () => ServerReadiness
   requestCoordinatorRestart?: () => void
 }) {
-  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   return appRouter.createCaller({
     registry,
@@ -92,12 +92,12 @@ const READY: ServerReadiness = {
 
 /** The first admin's credential — what "a password is set" means after POD-1554. */
 async function credentialHash(): Promise<string> {
-  harness ??= makeHarness()
+  harness ??= await makeHarness()
   return (await harness.users.credentialFor(FIRST_ADMIN_USER_ID))?.passwordHash ?? ''
 }
 
 async function seedPassword(password: string): Promise<void> {
-  harness ??= makeHarness()
+  harness ??= await makeHarness()
   await harness.users.setPasswordHash(
     FIRST_ADMIN_USER_ID,
     await hashPassword(password),
@@ -128,18 +128,18 @@ describe('setup tRPC', () => {
   })
 
   it('lists network options', async () => {
-    expect((await caller().setup.options()).map((o) => o.id)).toContain('tailscale-funnel')
+    expect((await (await caller()).setup.options()).map((o) => o.id)).toContain('tailscale-funnel')
   })
   it('returns the funnel command', async () => {
     expect(
-      (await caller().setup.commandFor({ option: 'tailscale-funnel', port: 18787 })).command,
+      (await (await caller()).setup.commandFor({ option: 'tailscale-funnel', port: 18787 })).command,
     ).toBe('tailscale funnel 18787')
   })
   it('rejects a bad URL on complete', async () => {
-    await expect(caller().setup.complete({ publicUrl: 'nope' })).rejects.toThrow()
+    await expect((await caller()).setup.complete({ publicUrl: 'nope' })).rejects.toThrow()
   })
   it('persists a normalized publicUrl + all-in-one mode after open mode is acknowledged', async () => {
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net/',
       acknowledgeNoPassword: true,
     })
@@ -152,7 +152,7 @@ describe('setup tRPC', () => {
     // Every layered value carries the LAYER that answered (PDM-26), so a control
     // can render disabled and name the variable holding it rather than offering
     // a write the environment overrides.
-    expect(await caller().setup.info()).toEqual({
+    expect(await (await caller()).setup.info()).toEqual({
       mode: null,
       modeSource: 'default',
       publicUrl: null,
@@ -167,12 +167,12 @@ describe('setup tRPC', () => {
       serverUrl: null,
       appVersion,
     })
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net',
       networkOption: 'tailscale-serve',
       acknowledgeNoPassword: true,
     })
-    expect(await caller().setup.info()).toEqual({
+    expect(await (await caller()).setup.info()).toEqual({
       mode: 'all-in-one',
       modeSource: 'file',
       publicUrl: 'https://box.ts.net',
@@ -189,7 +189,7 @@ describe('setup tRPC', () => {
     })
   })
   it('complete with mode=server persists a reachable relay-only box', async () => {
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://relay.ts.net',
       mode: 'server',
       acknowledgeNoPassword: true,
@@ -198,22 +198,22 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
   })
   it('sets the login password when one is supplied (network-exposed install)', async () => {
-    await caller().setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
+    await (await caller()).setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
     expect(await verifyPasswordHash('launch-code', await credentialHash())).toBe(true)
   })
   it('rejects a reachable setup without password acknowledgement', async () => {
-    await expect(caller().setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
+    await expect((await caller()).setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
     expect(await credentialHash()).toBe('')
   })
   it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
     await seedPassword('already-set')
     // No password + no ack must NOT throw once one is already configured — it's "keep current".
-    await caller().setup.complete({ publicUrl: 'https://relay.ts.net' })
+    await (await caller()).setup.complete({ publicUrl: 'https://relay.ts.net' })
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
     expect(await verifyPasswordHash('already-set', await credentialHash())).toBe(true) // unchanged
   })
   it('leaves auth open when no password is explicitly acknowledged', async () => {
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
     })
@@ -227,24 +227,24 @@ describe('setup tRPC', () => {
    */
   it('join applies a pasted join code as a daemon config', async () => {
     const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
-    expect(await caller().setup.join({ code })).toEqual({ name: 'box' })
+    expect(await (await caller()).setup.join({ code })).toEqual({ name: 'box' })
     expect(loadConfig().mode).toBe('daemon')
     expect(loadConfig().serverUrl).toBe('wss://relay')
   })
   it('join rejects a malformed code', async () => {
-    await expect(caller().setup.join({ code: 'garbage!' })).rejects.toThrow()
+    await expect((await caller()).setup.join({ code: 'garbage!' })).rejects.toThrow()
   })
   it('connect persists client mode + server URL', async () => {
-    await caller().setup.connect({ mode: 'client', serverUrl: 'ws://host:18787' })
+    await (await caller()).setup.connect({ mode: 'client', serverUrl: 'ws://host:18787' })
     expect(loadConfig().mode).toBe('client')
     expect(loadConfig().serverUrl).toBe('ws://host:18787')
   })
   it('connect persists server-only mode', async () => {
-    await caller().setup.connect({ mode: 'server' })
+    await (await caller()).setup.connect({ mode: 'server' })
     expect(loadConfig().mode).toBe('server')
   })
   it('connect rejects client mode without a server URL', async () => {
-    await expect(caller().setup.connect({ mode: 'client' })).rejects.toThrow()
+    await expect((await caller()).setup.connect({ mode: 'client' })).rejects.toThrow()
   })
 
   /**
@@ -263,7 +263,7 @@ describe('setup tRPC', () => {
     it('join records the joined server’s app host', async () => {
       const fetchMock = remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
       const code = encodeJoin({ v: 1, serverUrl: 'wss://api.meetpodium.com', pairCode: 'P1' })
-      await caller().setup.join({ code })
+      await (await caller()).setup.join({ code })
       expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
       // Asked the server named in the TOKEN, over http(s), before writing anything.
       expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
@@ -273,23 +273,23 @@ describe('setup tRPC', () => {
 
     it('connect records it for a client pointed at an API-only server', async () => {
       remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
-      await caller().setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      await (await caller()).setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
       expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
     })
 
     it('leaves it unset when the remote serves its own UI', async () => {
       remoteAdvertises({ instanceId: 'i1' })
-      await caller().setup.connect({ mode: 'client', serverUrl: 'https://self.hosted' })
+      await (await caller()).setup.connect({ mode: 'client', serverUrl: 'https://self.hosted' })
       expect(loadConfig()).not.toHaveProperty('uiUrl')
     })
 
     it('does not ask on behalf of a local mode, and clears a stale answer', async () => {
       const fetchMock = remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
-      await caller().setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      await (await caller()).setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
       fetchMock.mockClear()
       // Going back to a local all-in-one: there is no remote to ask, and the
       // previous deployment's app host must not survive the switch.
-      await caller().setup.connect({ mode: 'all-in-one' })
+      await (await caller()).setup.connect({ mode: 'all-in-one' })
       expect(fetchMock).not.toHaveBeenCalled()
       expect(loadConfig()).not.toHaveProperty('uiUrl')
     })
@@ -297,13 +297,13 @@ describe('setup tRPC', () => {
     it('still joins when the remote cannot be reached', async () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'))
       const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
-      expect(await caller().setup.join({ code })).toEqual({ name: 'box' })
+      expect(await (await caller()).setup.join({ code })).toEqual({ name: 'box' })
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig()).not.toHaveProperty('uiUrl')
     })
   })
   it('reports the update channel (default stable)', async () => {
-    expect(await caller().setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
+    expect(await (await caller()).setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
   })
   it('reports the dev shell endpoint from the deployment public URL', async () => {
     saveConfig({
@@ -311,7 +311,7 @@ describe('setup tRPC', () => {
       updateChannel: 'dev',
       publicUrl: 'https://podium.test/',
     })
-    expect(await caller().setup.channel()).toMatchObject({
+    expect(await (await caller()).setup.channel()).toMatchObject({
       channel: 'dev',
       desktopUpdateEndpoint: 'https://podium.test/updates/feed/dev/latest.json',
     })
@@ -323,11 +323,11 @@ describe('setup tRPC', () => {
   it('sets the update channel and persists it', async () => {
     // POD-1882: the mutation answers with the EFFECTIVE fleet default, not a bare
     // string, so the caller learns whether the environment overrode the write.
-    expect(await caller().setup.setChannel({ channel: 'edge' })).toMatchObject({
+    expect(await (await caller()).setup.setChannel({ channel: 'edge' })).toMatchObject({
       channel: 'edge',
       envForced: false,
     })
-    expect(await caller().setup.channel()).toMatchObject({ channel: 'edge', envForced: false })
+    expect(await (await caller()).setup.channel()).toMatchObject({ channel: 'edge', envForced: false })
     expect(loadConfig().updateChannel).toBe('edge')
   })
 })
@@ -374,7 +374,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
     const readiness = readinessAsIfBootedNow()
     expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
 
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://sandbox.example.com',
       password: 'operator',
     })
@@ -391,7 +391,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
     // The back-fill is not deleted, only scoped. A box that has never chosen a
     // mode is choosing everything now, and the web setup cannot self-daemonize —
     // recording the choice for the next `podium` invocation is the whole point.
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
     })
@@ -403,7 +403,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
     // running process is all-in-one and the file now says server-only.
     saveConfig({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
     const readiness = readinessAsIfBootedNow()
-    await caller().setup.complete({
+    await (await caller()).setup.complete({
       publicUrl: 'https://box.ts.net',
       mode: 'server',
       acknowledgeNoPassword: true,
@@ -432,10 +432,10 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
 
   it('restarts the process when the instance is activation-pending', async () => {
     const restart = vi.fn()
-    const result = await activationHarness({
+    const result = await (await activationHarness({
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,
-    }).setup.activate()
+    })).setup.activate()
     expect(restart).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ state: 'restarting', stale: ['persistence'] })
   })
@@ -443,21 +443,21 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
   it('refuses on a healthy instance, so it never becomes a remote bounce lever', async () => {
     const restart = vi.fn()
     await expect(
-      activationHarness({
+      (await activationHarness({
         readiness: () => READY,
         requestCoordinatorRestart: restart,
-      }).setup.activate(),
+      })).setup.activate(),
     ).rejects.toThrow(/nothing to activate/i)
     expect(restart).not.toHaveBeenCalled()
   })
 
   it('says so, rather than pretending, when the installation cannot restart itself', async () => {
     await expect(
-      activationHarness({ readiness: () => pendingOn(['mode']) }).setup.activate(),
+      (await activationHarness({ readiness: () => pendingOn(['mode']) })).setup.activate(),
     ).rejects.toThrow(/cannot restart itself/i)
   })
 
-  it('refuses a member: a session must not let anyone drop everyone else transport', () => {
+  it('refuses a member: a session must not let anyone drop everyone else transport', async () => {
     // The contract's `admin` floor, enforced in the service the way this family
     // enforces everything (see `setLoginRequired`, which verifies the caller's own
     // credential rather than leaning on the router).
@@ -472,7 +472,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,
     })
-    expect(() => service.activate()).toThrow(/only an admin/i)
+    await expect(service.activate()).rejects.toThrow(/only an admin/i)
     expect(restart).not.toHaveBeenCalled()
   })
 })

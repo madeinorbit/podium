@@ -37,17 +37,17 @@ export const ACCOUNT_QUERIES = {
   // that predated that, so the derived form is repointed here rather than the
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
-  list: query(noInput, (state) =>
-    accountViews(
-      (provider) => state.settings.apiKeyFor(provider),
+  list: query(noInput, async (state) =>
+    await Promise.all((await accountViews(
+      async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
-      state.machines.listMachines(),
-    ).map((account) => {
+      await state.machines.listMachines(),
+    )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account
       const harness = account.harness as import('@podium/model').HarnessAgent
       const attempt = state.nativeLogin.attempt(harness)
-      const loginMachines = state.machineService
-        .listMachines()
+      const loginMachines = (await state.machineService
+        .listMachines())
         .filter(
           (machine) =>
             machine.online &&
@@ -60,7 +60,7 @@ export const ACCOUNT_QUERIES = {
         loginMachines,
         ...(attempt ? { loginAttempt: attempt } : {}),
       }
-    }),
+    })),
   ),
 } as const
 

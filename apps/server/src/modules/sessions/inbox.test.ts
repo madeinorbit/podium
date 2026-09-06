@@ -1002,14 +1002,14 @@ describe('SessionInbox authorization and identity', () => {
     { agentKind: 'grok' as const, key: '\x1b' },
     { agentKind: 'codex' as const, key: '\x1b' },
     { agentKind: 'shell' as const, key: '\x03' },
-  ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', ({
+  ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', async ({
     agentKind,
     key,
   }) => {
     const h = harness({ agentKind, phase: 'working' })
     const principal = agentPrincipal()
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1034,7 +1034,7 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toHaveLength(1)
   })
 
-  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', () => {
+  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
     h.inbox.queueText({
       sessionId: SID,
@@ -1043,7 +1043,7 @@ describe('SessionInbox authorization and identity', () => {
       principal: agentPrincipal(),
     })
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1055,7 +1055,7 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
-  it('cancels the named queued prompt without removing an earlier one', () => {
+  it('cancels the named queued prompt without removing an earlier one', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
     h.inbox.queueText({
       sessionId: SID,
@@ -1071,7 +1071,7 @@ describe('SessionInbox authorization and identity', () => {
     })
 
     expect(
-      h.inbox.interruptTurn({
+      await h.inbox.interruptTurn({
         sessionId: SID,
         sourceMessageId: 'message-cancel',
         principal: agentPrincipal(),
@@ -1087,10 +1087,10 @@ describe('SessionInbox authorization and identity', () => {
 
   // Esc is inert at an idle prompt, so it needs no guard — and gating it would
   // reintroduce the stale-phase hole the client just stopped relying on.
-  it('interrupts an idle Esc harness anyway', () => {
+  it('interrupts an idle Esc harness anyway', async () => {
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1109,7 +1109,7 @@ describe('SessionInbox authorization and identity', () => {
         .filter((text) => text === '\r'),
     ).toHaveLength(1)
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1127,7 +1127,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
     h.inbox.sendText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
@@ -1165,10 +1165,10 @@ describe('SessionInbox authorization and identity', () => {
     }
   })
 
-  it('refuses to interrupt a session that is not running', () => {
+  it('refuses to interrupt a session that is not running', async () => {
     const h = harness({ status: 'exited' })
 
-    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: false,
       reason: 'session not running',
     })

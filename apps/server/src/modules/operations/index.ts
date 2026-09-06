@@ -29,7 +29,7 @@ export interface OperationsModule {
 export function createOperations(deps: {
   store: OperationStore
   clock?: OperationClock
-  onChanged?: (row: OperationRow) => void
+  onChanged?: (row: OperationRow) => void | Promise<void>
 }): OperationsModule {
   const kinds = new OperationKindRegistry()
   const engine = new OperationEngine({

@@ -172,8 +172,8 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(Object.values(FLEET_CONTRACTS).some((c) => c.serverRole === 'core')).toBe(true)
   })
 
-  it('a daemon `pair` handshake is refused (no pairing manager injected)', () => {
-    const auth = handle.registry.modules.machines.authenticateDaemon({
+  it('a daemon `pair` handshake is refused (no pairing manager injected)', async () => {
+    const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code: 'ABCD-EFGH',
       machineId: asMachineId('joiner'),
@@ -182,10 +182,10 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(auth).toEqual({ ok: false, reason: 'pairing is disabled on this server' })
   })
 
-  it('the local daemon `hello` path is unaffected by the node role', () => {
+  it('the local daemon `hello` path is unaffected by the node role', async () => {
     // The split-mode daemon presents the id it read from `<stateDir>/machine.id` —
     // the same file this server read, hence the same value the service reports.
-    const auth = handle.registry.modules.machines.authenticateDaemon({
+    const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'hello',
       machineId: handle.registry.modules.machines.hostMachineId,
       token: handle.bootstrapToken,
@@ -200,7 +200,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       credential: { kind: 'daemonSecret', secret: handle.bootstrapToken },
       claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
     })
-    const attachment = handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
+    const attachment = await handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
     expect(attachment.established).toBe(true)
     if (!attachment.established) throw new Error('local daemon handshake failed')
 
@@ -255,7 +255,7 @@ describe('startServer default role keeps hub surfaces on', () => {
     })
     const { code } = await trpc.machines.pairingCode.mutate()
     expect(code.length).toBeGreaterThan(0)
-    const auth = handle.registry.modules.machines.authenticateDaemon({
+    const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code,
       machineId: asMachineId('joiner'),

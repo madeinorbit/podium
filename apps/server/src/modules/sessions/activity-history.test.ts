@@ -22,11 +22,11 @@ function rig(clock: { now: number } = { now: NOW }): {
   const bus = new EventBus()
   const rows: PodiumEventRecord[] = []
   const events = {
-    appendEvent(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
+    async appendEvent(input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null }) {
       rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
       return rows.length
     },
-    listKindSubjectSinceWithPrior(kind: string, subject: string, since: string) {
+    async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string) {
       const inWindow = rows.filter(
         (row) => row.kind === kind && row.subject === subject && row.ts >= since,
       )
@@ -83,7 +83,7 @@ describe('SessionActivityHistory', () => {
     history.dispose()
   })
 
-  it('answers per session, omitting sessions with no recorded history', () => {
+  it('answers per session, omitting sessions with no recorded history', async () => {
     const { bus, history } = rig()
     bus.emit('session.stateChanged', {
       sessionId: asSessionId('s1'),
@@ -91,14 +91,14 @@ describe('SessionActivityHistory', () => {
       next: state('working'),
     })
 
-    const result = history.history([asSessionId('s1'), asSessionId('unknown')])
+    const result = await history.history([asSessionId('s1'), asSessionId('unknown')])
     expect(Object.keys(result.sessions)).toEqual(['s1'])
     expect(result.sessions.s1).toEqual([{ at: new Date(NOW).toISOString(), phase: 'working' }])
     expect(result.sampledAt).toBe(new Date(NOW).toISOString())
     history.dispose()
   })
 
-  it('carries the pre-window phase in as the first sample', () => {
+  it('carries the pre-window phase in as the first sample', async () => {
     const clock = { now: NOW - SESSION_ACTIVITY_WINDOW_MS - 60_000 }
     const { bus, history } = rig(clock)
     const sessionId = asSessionId('s1')
@@ -106,7 +106,7 @@ describe('SessionActivityHistory', () => {
     clock.now = NOW
     bus.emit('session.stateChanged', { sessionId, prev: state('working'), next: state('idle') })
 
-    const samples = history.history([sessionId]).sessions.s1
+    const samples = (await history.history([sessionId])).sessions.s1
     expect(samples?.map((sample) => sample.phase)).toEqual(['working', 'idle'])
     history.dispose()
   })

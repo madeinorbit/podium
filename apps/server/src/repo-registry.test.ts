@@ -10,25 +10,25 @@ import { openTestStore } from './test-support/open-test-store'
 /** A RepoRegistry whose registry shares the given store and has one online machine,
  *  so single-machine add/remove attribute to that machine — preserving the original
  *  single-store behavior these tests assert. */
-function singleMachineRepos(store: SessionStore): RepoRegistry {
-  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return new RepoRegistry(registry, store)
 }
 
 describe('RepoRegistry', () => {
   it('starts empty, adds, dedupes, lists, removes', async () => {
-    const reg = singleMachineRepos(await openTestStore(':memory:'))
-    expect(reg.list()).toEqual([])
+    const reg = await singleMachineRepos(await openTestStore(':memory:'))
+    expect(await reg.list()).toEqual([])
     await reg.add('/home/u/src/app')
     await reg.add('/home/u/src/app') // dedupe
-    expect(reg.list()).toEqual(['/home/u/src/app'])
+    expect(await reg.list()).toEqual(['/home/u/src/app'])
     await reg.remove('/home/u/src/app')
-    expect(reg.list()).toEqual([])
+    expect(await reg.list()).toEqual([])
   })
 
   it('rejects non-absolute and empty paths', async () => {
-    const reg = singleMachineRepos(await openTestStore(':memory:'))
+    const reg = await singleMachineRepos(await openTestStore(':memory:'))
     await expect(reg.add('')).rejects.toThrow()
     await expect(reg.add('relative/path')).rejects.toThrow()
   })
@@ -36,21 +36,21 @@ describe('RepoRegistry', () => {
   it('persists across instances on the same db file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-reporeg-'))
     const file = join(dir, 'podium.db')
-    const a = singleMachineRepos(await openTestStore(file))
+    const a = await singleMachineRepos(await openTestStore(file))
     await a.add('/abs/one')
-    const b = singleMachineRepos(await openTestStore(file))
-    expect(b.list()).toEqual(['/abs/one'])
+    const b = await singleMachineRepos(await openTestStore(file))
+    expect(await b.list()).toEqual(['/abs/one'])
   })
 
   it('inferFromPath returns the longest matching registered root', async () => {
-    const repos = singleMachineRepos(await openTestStore(':memory:'))
+    const repos = await singleMachineRepos(await openTestStore(':memory:'))
     await repos.add('/a')
     await repos.add('/a/b')
-    expect(repos.inferFromPath('/a/b/x/y')).toBe('/a/b')
-    expect(repos.inferFromPath('/a/x')).toBe('/a')
-    expect(repos.inferFromPath('/a')).toBe('/a')
-    expect(repos.inferFromPath('/ab')).toBeUndefined()
-    expect(repos.inferFromPath('/elsewhere')).toBeUndefined()
+    expect(await repos.inferFromPath('/a/b/x/y')).toBe('/a/b')
+    expect(await repos.inferFromPath('/a/x')).toBe('/a')
+    expect(await repos.inferFromPath('/a')).toBe('/a')
+    expect(await repos.inferFromPath('/ab')).toBeUndefined()
+    expect(await repos.inferFromPath('/elsewhere')).toBeUndefined()
   })
 
   it('browses server-side directories from HOME by default', async () => {

@@ -122,10 +122,13 @@ export class IssueStore {
    * The fallback preserves lightweight test fixtures that do not wire the port;
    * the relay always supplies MachinesService.resolveMachine.
    */
-  resolveWorktreeMachine(machineId: MachineId | null | undefined, cwd: string): MachineId {
+  async resolveWorktreeMachine(
+    machineId: MachineId | null | undefined,
+    cwd: string,
+  ): Promise<MachineId> {
     return (
       machineId ??
-      this.deps.resolveMachine?.(undefined, cwd) ??
+      (await this.deps.resolveMachine?.(undefined, cwd)) ??
       this.deps.store.hostMachineId
     )
   }
@@ -155,11 +158,11 @@ export class IssueStore {
    * pass instead of before. A fixture that never wired the narrow port is slow,
    * not wrong.
    */
-  sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): SessionMeta[] {
+  async sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): Promise<SessionMeta[]> {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
     const narrow = this.deps.listSessionsForIssue
-    if (narrow) return narrow(row.worktreePath, row.id)
-    return sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    if (narrow) return await narrow(row.worktreePath, row.id)
+    return sessionsForIssue(row.worktreePath, await this.deps.listSessions(), row.id)
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
@@ -180,11 +183,11 @@ export class IssueStore {
    * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
    * POD-723's memo would otherwise serve the pre-change payload.
    */
-  writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): void {
+  async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
     const user = this.broadcastViewer()
-    this.deps.store.issues.setIssueUserState(user, issueId, patch)
+    await this.deps.store.issues.setIssueUserState(user, issueId, patch)
     const viewerState = this.requireHydrated().viewerState
-    const next = this.deps.store.issues.getIssueUserState(user, issueId)
+    const next = await this.deps.store.issues.getIssueUserState(user, issueId)
     if (next) viewerState.set(issueId, next)
     else viewerState.delete(issueId)
     this.bumpIssueInputs()
@@ -323,14 +326,14 @@ export class IssueStore {
   private readonly draftOrigins = new WeakMap<IssueRow, number | null>()
 
   /** A draft of the committed row for `id`, or undefined when there is none. */
-  draft(id: string): IssueRow | undefined {
-    const committed = this.rows.get(this.resolveRef(id))
+  async draft(id: string): Promise<IssueRow | undefined> {
+    const committed = this.rows.get(await this.resolveRef(id))
     return committed ? this.draftOf(committed) : undefined
   }
 
   /** {@link draft}, refusing an unknown issue the way {@link rowOrThrow} does. */
-  draftOrThrow(id: string): IssueRow {
-    const draft = this.draft(id)
+  async draftOrThrow(id: string): Promise<IssueRow> {
+    const draft = await this.draft(id)
     if (!draft) throw new IssueNotFound(id)
     return draft
   }
@@ -421,8 +424,8 @@ export class IssueStore {
   /** Explicit hydration, run by `IssueService.create` before any reader exists
    *  (POD-3256) — the same load the lazy path performs, done eagerly so boot
    *  surfaces load logs immediately. */
-  init(): this {
-    this.hydrate()
+  async init(): Promise<this> {
+    await this.hydrate()
     return this
   }
 
@@ -448,24 +451,24 @@ export class IssueStore {
 
   /** Clear and re-hydrate the in-memory row map from the store. Lets tests (and
    *  future external mutators) refresh `this.rows` after a direct store write. */
-  reload(): void {
-    this.hydrate()
+  async reload(): Promise<void> {
+    await this.hydrate()
   }
 
-  private hydrate(): void {
+  private async hydrate(): Promise<void> {
     // A wholesale reload replaces the committed truth, so the composed view
     // built over it is meaningless. Anything STAGED is dropped by the overlay
     // itself the next time it is read with no span open.
     this.composedRows = undefined
     const map = new Map<string, IssueRow>()
-    for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
+    for (const r of await this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
     // The per-user markers are re-read for the same reason the rows are re-read:
     // a test (or a future external mutator) that wrote them directly must not
     // keep serving a stale overlay. They are re-read HERE rather than on next
     // touch (POD-3256) — `issueOverlay` is called from the synchronous wire
     // serializer, so its read has to have happened already.
-    this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
+    this.viewerState = await this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     // Wholesale row replacement invalidates every cached wire, and dropping the
     // map also prunes entries for purged issues (bounds memory to live issues)
     // [POD-723].
@@ -540,21 +543,21 @@ export class IssueStore {
    *
    * Returns false for an issue this service does not hold.
    */
-  unreadFor(id: IssueId): boolean {
+  async unreadFor(id: IssueId): Promise<boolean> {
     const row = this.rows.get(id)
     if (row === undefined) return false
-    const sessions = this.sessionsFor(row)
+    const sessions = await this.sessionsFor(row)
     return this.computeUnread(row, sessions)
   }
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
-  computeBlocked(row: IssueRow, batch?: IssueWireBatch): boolean {
+  async computeBlocked(row: IssueRow, batch?: IssueWireBatch): Promise<boolean> {
     // With a batch this reads nothing: the outgoing deps for the whole set were
     // fetched once by {@link wireBatch}. Without one it is the single-row case
     // and asks for its own row's deps, as it always did (POD-3257).
     const outgoing = batch
       ? (batch.depsByFrom.get(row.id) ?? [])
-      : this.deps.store.issues.listIssueDeps(row.id)
+      : await this.deps.store.issues.listIssueDeps(row.id)
     const blocksTargets = outgoing
       .filter((d) => d.type === 'blocks')
       .map((d) => this.rows.get(d.toId))
@@ -581,7 +584,7 @@ export class IssueStore {
    *  side (`sessionId -> issueId`), which is where it is stored. `unreadFor`
    *  above is the one derivation that still joins the two, and it fetches its
    *  own list. */
-  toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): IssueWire {
+  async toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): Promise<IssueWire> {
     // Transitional builds remain observable; the D7.2 membership-scan counter
     // has no increment site after the old membership assembly is deleted.
     countIssueWireBuild()
@@ -594,7 +597,7 @@ export class IssueStore {
     const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
     const labels = batch
       ? (batch.labelsByIssue.get(row.id) ?? [])
-      : this.deps.store.issues.getIssueLabels(row.id)
+      : await this.deps.store.issues.getIssueLabels(row.id)
     const children = batch
       ? (batch.childrenByParent.get(row.id) ?? [])
       : [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
@@ -604,21 +607,21 @@ export class IssueStore {
     const deps = [
       ...(batch
         ? (batch.depsByFrom.get(row.id) ?? [])
-        : this.deps.store.issues.listIssueDeps(row.id)
+        : await this.deps.store.issues.listIssueDeps(row.id)
       ).map((d) => ({ id: d.toId, type: d.type })),
       ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
     ]
     const dependents = [
       ...(batch
         ? (batch.dependentsByTo.get(row.id) ?? [])
-        : this.deps.store.issues.listDependents(row.id)
+        : await this.deps.store.issues.listDependents(row.id)
       ).map((d) => ({ id: d.fromId, type: d.type })),
       ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
     ]
     const commentCount = commentCounts
       ? (commentCounts.get(row.id) ?? 0)
-      : this.deps.store.issues.countIssueComments(row.id)
-    const blocked = this.computeBlocked(row, batch)
+      : await this.deps.store.issues.countIssueComments(row.id)
+    const blocked = await this.computeBlocked(row, batch)
     const deferred = this.isDeferred(row)
     const ready =
       isIssueStage(row.stage) &&
@@ -628,7 +631,7 @@ export class IssueStore {
       !blocked
     let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
     if (prefix === undefined) {
-      prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+      prefix = await this.deps.store.repos.prefixForPath(row.repoPath)
       batch?.prefixesByRepoPath.set(row.repoPath, prefix)
     }
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
@@ -759,11 +762,11 @@ export class IssueStore {
    * bought for nobody — and handing the batch to more callers would have bought
    * it once per call.
    */
-  wireBatch(): IssueWireBatch {
-    const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
+  async wireBatch(): Promise<IssueWireBatch> {
+    const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
     const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
-    for (const dep of this.deps.store.issues.listAllIssueDeps()) {
+    for (const dep of await this.deps.store.issues.listAllIssueDeps()) {
       const outgoing = depsByFrom.get(dep.fromId)
       if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
       else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
@@ -787,29 +790,31 @@ export class IssueStore {
     }
   }
 
-  list(repoPath?: string): IssueWire[] {
-    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
-    const batch = this.wireBatch()
+  async list(repoPath?: string): Promise<IssueWire[]> {
+    const commentCounts = await this.deps.store.issues.countIssueCommentsByIssue()
+    const batch = await this.wireBatch()
     // Resolved once per repoPath (few repos) — it rides the memo key because
     // `displayRef` reads it and it changes out-of-band of any issue mutation.
     const prefixByPath = new Map<string, string>()
-    const prefixFor = (p: string): string => {
+    const prefixFor = async (p: string): Promise<string> => {
       let v = prefixByPath.get(p)
       if (v === undefined) {
-        v = this.deps.store.repos.prefixForPath(p) ?? ''
+        v = await this.deps.store.repos.prefixForPath(p) ?? ''
         prefixByPath.set(p, v)
       }
       return v
     }
-    const inScope = this.repoScopeFilter(repoPath)
-    return [...this.rows.values()]
+    const inScope = await this.repoScopeFilter(repoPath)
+    const rows = [...this.rows.values()]
       .filter((r) => inScope(r))
       .sort((a, b) => {
         const ga = a.repoId ?? a.repoPath
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWireMemo(r, commentCounts, batch, prefixFor(r.repoPath)))
+    return await Promise.all(
+      rows.map(async (r) => await this.toWireMemo(r, commentCounts, batch, await prefixFor(r.repoPath))),
+    )
   }
 
   /**
@@ -832,16 +837,16 @@ export class IssueStore {
    * Single-issue `toWire` callers deliberately bypass this — they always want a
    * fresh build.
    */
-  private toWireMemo(
+  private async toWireMemo(
     row: IssueRow,
     commentCounts: Map<string, number>,
     batch: IssueWireBatch,
     prefix: string,
-  ): IssueWire {
+  ): Promise<IssueWire> {
     const key = `${this.issueInputsGen}\u0000${prefix}`
     const cached = this.wireCache.get(row.id)
     if (cached && cached.key === key) return cached.wire
-    const wire = this.toWire(row, commentCounts, batch)
+    const wire = await this.toWire(row, commentCounts, batch)
     this.wireCache.set(row.id, { key, wire })
     return wire
   }
@@ -857,8 +862,8 @@ export class IssueStore {
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
    *  stable `repo_id` so every checkout of one origin unifies (#140); falls back to
    *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
-  inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
-    return this.repoScopeFilter(repoPath)(row)
+  async inRepoScope(row: IssueRow, repoPath: string | undefined): Promise<boolean> {
+    return (await this.repoScopeFilter(repoPath))(row)
   }
 
   /**
@@ -878,9 +883,9 @@ export class IssueStore {
    *
    * `inRepoScope` is the single-row case of this one, so the two cannot drift.
    */
-  repoScopeFilter(repoPath: string | undefined): (row: IssueRow) => boolean {
+  async repoScopeFilter(repoPath: string | undefined): Promise<(row: IssueRow) => boolean> {
     if (!repoPath) return () => true
-    const resolve = this.deps.store.repos.repoIdResolver()
+    const resolve = await this.deps.store.repos.repoIdResolver()
     const scope = resolve(repoPath)
     return (row: IssueRow) => (row.repoId ?? resolve(row.repoPath)) === scope
   }
@@ -904,7 +909,7 @@ export class IssueStore {
    *  error fires carrying the text the user actually typed. The brand asserts
    *  which id SPACE a value belongs to, never that the row exists — existence is
    *  the throw's job, not the type's. */
-  resolveRef(ref: string, scopeRepoPath?: string): IssueId {
+  async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
     if (ref.startsWith('iss_') || this.rows.has(ref)) return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
@@ -913,12 +918,12 @@ export class IssueStore {
     // CLI courtesy: `pod-13` reads as `POD-13` (prefixes are uppercase by grammar).
     const nice = parseIssueRef(ref.trim().toUpperCase())
     if (nice) {
-      const repo = this.deps.store.repos.repoForPrefix(nice.prefix)
+      const repo = await this.deps.store.repos.repoForPrefix(nice.prefix)
       if (repo) {
         // One registry read for the scan, not one per row (POD-3257): every row
         // without a stored repo_id used to re-resolve its path through the store
         // from inside the filter.
-        const resolve = this.deps.store.repos.repoIdResolver()
+        const resolve = await this.deps.store.repos.repoIdResolver()
         const repoId = repo.repoId ?? resolve(repo.path)
         const matches = [...this.rows.values()].filter(
           (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath)) === repoId,
@@ -949,7 +954,7 @@ export class IssueStore {
     const seq = Number(m[1])
     let matches = [...this.rows.values()].filter((r) => r.seq === seq)
     if (matches.length > 1 && scopeRepoPath) {
-      const inScope = this.repoScopeFilter(scopeRepoPath)
+      const inScope = await this.repoScopeFilter(scopeRepoPath)
       const scoped = matches.filter((r) => inScope(r))
       if (scoped.length > 0) matches = scoped
     }
@@ -963,8 +968,8 @@ export class IssueStore {
     return asIssueId(ref)
   }
 
-  allWire(): IssueWire[] {
-    return this.list()
+  async allWire(): Promise<IssueWire[]> {
+    return await this.list()
   }
 
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
@@ -972,15 +977,15 @@ export class IssueStore {
   /** The `issueProjection` change ONE issue's write declares.
    *  Returned as an array so a call site can spread it into its `changes()` and
    *  stay a single expression when the flag is off. */
-  projectionChanges(
+  async projectionChanges(
     row: IssueRow,
-  ): { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[] {
+  ): Promise<{ entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[]> {
     return [
       {
         entity: 'issueProjection',
         id: row.id,
         op: 'upsert',
-        value: issueRowToProjection(row, this.deps.store.issues.getIssueLabels(row.id)),
+        value: issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id)),
       },
     ]
   }
@@ -994,8 +999,8 @@ export class IssueStore {
    *  POD-1576, when the relay's write-less publish tail was its outside caller;
    *  {@link reconcileAndPublish} is the only caller left, so this is the
    *  service's own truth now and no publisher unions anything into it. */
-  allProjections(): { id: string; value: IssueProjection }[] | undefined {
-    const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
+  async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
+    const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
   }
 
@@ -1038,14 +1043,14 @@ export class IssueStore {
    *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
    *  from `issues`, so deleting an issue silently vaporises its edges, and only a
    *  full-truth diff can notice rows that left without anyone saying so. */
-  allDepProjections(): { id: string; value: IssueDepProjection }[] | undefined {
-    return issueDepProjectionRows(this.deps.store.issues.listAllIssueDeps())
+  async allDepProjections(): Promise<{ id: string; value: IssueDepProjection }[] | undefined> {
+    return issueDepProjectionRows(await this.deps.store.issues.listAllIssueDeps())
   }
 
   /** Full LOCAL repo truth for a reconcile. O(repos) — a handful of
    *  rows, deduped to the LOGICAL repo (several checkouts, one entity). */
-  allRepoProjections(): { id: string; value: RepoProjection }[] | undefined {
-    return repoProjectionRows(this.deps.store.repos.listRepos())
+  async allRepoProjections(): Promise<{ id: string; value: RepoProjection }[] | undefined> {
+    return repoProjectionRows(await this.deps.store.repos.listRepos())
   }
 
   /**
@@ -1066,11 +1071,11 @@ export class IssueStore {
    * this slice rejected — is what would make a prefix change O(repo's issues) on
    * the write path. The whole point of the repo entity is that this stays one row.
    */
-  publishRepos(): void {
-    const repos = this.allRepoProjections()
+  async publishRepos(): Promise<void> {
+    const repos = await this.allRepoProjections()
     if (!repos) return
     try {
-      this.deps.ledger.reconcile('repo', repos)
+      await this.deps.ledger.reconcile('repo', repos)
     } catch (err) {
       log.warn('repo projection publish failed', { err })
     }
@@ -1080,22 +1085,22 @@ export class IssueStore {
    *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
    *  truth in the same pass, so the legacy feed and the normalized feed can
    *  never disagree about which issues exist. */
-  reconcileAndPublish(spec: PublishSpec): void {
-    this.deps.ledger.reconcile('issue', spec.rows)
-    const projections = this.allProjections()
-    if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+  async reconcileAndPublish(spec: PublishSpec): Promise<void> {
+    await this.deps.ledger.reconcile('issue', spec.rows)
+    const projections = await this.allProjections()
+    if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
     // The edges reconcile on the same full-truth passes [POD-822], for the same
     // reason the projections do: this path exists to catch what no write
     // declared, and a CASCADE delete (an issue removed takes its edges with it)
     // is exactly that.
-    const depProjections = this.allDepProjections()
-    if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
+    const depProjections = await this.allDepProjections()
+    if (depProjections) await this.deps.ledger.reconcile('issueDep', depProjections)
   }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
-  emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
+  async emitEvent(kind: string, subject: string, payload: Record<string, unknown>): Promise<void> {
     try {
-      this.deps.store.events.appendEvent({
+      await this.deps.store.events.appendEvent({
         ts: this.now(),
         kind,
         subject,
@@ -1111,8 +1116,8 @@ export class IssueStore {
    *  toWire; mutations that change OTHER issues' derived wire data (closed flips
    *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
    *  membership changes) additionally call {@link broadcastList}. */
-  persist(row: IssueRow, opts?: { touch?: boolean }): IssueWire {
-    return this.persistWith(row, undefined, opts)
+  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueWire> {
+    return await this.persistWith(row, undefined, opts)
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
@@ -1120,9 +1125,9 @@ export class IssueStore {
    *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
-  persistWith(
+  async persistWith(
     row: IssueRow,
-    extraWrite?: () => void,
+    extraWrite?: () => unknown | Promise<unknown>,
     opts?: {
       touch?: boolean
       /**
@@ -1138,9 +1143,11 @@ export class IssueStore {
        * every replica, healed by nothing.
        */
       /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
-      extraChanges?: readonly EntityChangeSpec[] | (() => readonly EntityChangeSpec[])
+      extraChanges?:
+        | readonly EntityChangeSpec[]
+        | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
     },
-  ): IssueWire {
+  ): Promise<IssueWire> {
     // DRAFT-THEN-INSTALL (#247 rebuilt for the async store, POD-3259). `row` is
     // a DRAFT — a copy pinned to the revision it was cut from — never the
     // map-owned object, which is what {@link refuseMapOwnedRow} enforces. There
@@ -1166,13 +1173,21 @@ export class IssueStore {
     // NO try/catch: there is nothing to undo on a throw, which is the whole
     // point of the draft above. The commit stands unguarded and the caller sees
     // the ledger's own failure.
-    const wire = this.deps.ledger.commit({
-      write: () => {
-        extraWrite?.()
-        this.deps.store.issues.upsertIssue(row, pin === undefined ? undefined : { expectedRevision: pin })
+    let committedProjectionChanges: readonly EntityChangeSpec[] = []
+    let committedExtraChanges: readonly EntityChangeSpec[] = []
+    const wire = (await this.deps.ledger.commit({
+      write: async () => {
+        await extraWrite?.()
+        await this.deps.store.issues.upsertIssue(row, pin === undefined ? undefined : { expectedRevision: pin })
         // toWire never looks `row` itself up in the map (children/blocked scan
         // OTHER rows), so it is safe to serialize before the map install below.
-        return this.toWire(row)
+        const committedWire = await this.toWire(row)
+        committedProjectionChanges = await this.projectionChanges(row)
+        committedExtraChanges =
+          typeof opts?.extraChanges === 'function'
+            ? await opts.extraChanges()
+            : (opts?.extraChanges ?? [])
+        return committedWire
       },
       // Both kinds are declared by the SAME commit, so they land in one
       // transact span: a cap client and a legacy client can never observe an
@@ -1182,12 +1197,10 @@ export class IssueStore {
       // ordering `w` depends on), not from `w`.
       changes: (w) => [
         { entity: 'issue', id: row.id, op: 'upsert', value: w },
-        ...this.projectionChanges(row),
-        ...(typeof opts?.extraChanges === 'function'
-          ? opts.extraChanges()
-          : (opts?.extraChanges ?? [])),
+        ...committedProjectionChanges,
+        ...committedExtraChanges,
       ],
-    }).result
+    })).result
     // The commit changed an issue-side input feeding toWire (row / label / dep /
     // comment via extraWrite, or read state) — invalidate the wire memo
     // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
@@ -1210,17 +1223,21 @@ export class IssueStore {
    * shipping; also the seam a sort-scope compaction writes through, which is why
    * `touch` is an option — see {@link persist} for what `false` means, and
    * POD-1102 for why a scope repair must not mark a whole repo unread. */
-  persistManyWith<T>(
+  async persistManyWith<T>(
     rows: IssueRow[],
-    write: () => T,
-    extraChanges: (result: T) => readonly EntityChangeSpec[],
+    write: () => T | Promise<T>,
+    extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
     events: (result: T) => readonly {
       kind: string
       subject: string
       payload: Record<string, unknown>
-    }[] = () => [],
+    }[] | Promise<readonly {
+      kind: string
+      subject: string
+      payload: Record<string, unknown>
+    }[]> = () => [],
     opts?: { touch?: boolean },
-  ): { issues: IssueWire[]; result: T } {
+  ): Promise<{ issues: IssueWire[]; result: T }> {
     // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
     // row here is a draft pinned to the revision it was cut from, so the
     // backup-and-restore loop this replaced has nothing left to undo.
@@ -1239,14 +1256,16 @@ export class IssueStore {
     let result!: T
     let wires!: IssueWire[]
     let eventIds: number[] = []
+    let committedProjectionChanges: readonly EntityChangeSpec[][] = []
+    let committedExtraChanges: readonly EntityChangeSpec[] = []
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
-    const committed = this.deps.ledger.commit({
-      write: () => {
-        result = write()
+    const committed = (await this.deps.ledger.commit({
+      write: async () => {
+        result = await write()
         for (const row of rows) {
           const pin = pins.get(row.id)
-          this.deps.store.issues.upsertIssue(
+          await this.deps.store.issues.upsertIssue(
             row,
             pin === undefined ? undefined : { expectedRevision: pin },
           )
@@ -1256,10 +1275,13 @@ export class IssueStore {
         // never serve a projection from before the mutation it describes; the
         // threshold keeps the shipping paths (a few rows) off an
         // O(all issues) prefetch they would not amortize.
-        const batch = rows.length > 8 ? this.wireBatch() : undefined
-        wires = rows.map((row) => this.toWire(row, undefined, batch))
-        eventIds = events(result).map((event) =>
-          this.deps.store.events.appendEvent(
+        const batch = rows.length > 8 ? await this.wireBatch() : undefined
+        wires = await Promise.all(rows.map(async (row) => await this.toWire(row, undefined, batch)))
+        committedProjectionChanges = await Promise.all(rows.map(async (row) => await this.projectionChanges(row)))
+        committedExtraChanges = await extraChanges(result)
+        const committedEvents = await events(result)
+        eventIds = await Promise.all(committedEvents.map(async (event) =>
+          await this.deps.store.events.appendEvent(
             {
               ts: this.now(),
               kind: event.kind,
@@ -1272,7 +1294,7 @@ export class IssueStore {
             },
             { announce: false },
           ),
-        )
+        ))
         return { result, wires }
       },
       changes: ({ result: value, wires: committedWires }) => [
@@ -1283,11 +1305,11 @@ export class IssueStore {
             op: 'upsert' as const,
             value: committedWires[index]!,
           },
-          ...this.projectionChanges(row),
+          ...(committedProjectionChanges[index] ?? []),
         ]),
-        ...extraChanges(value),
+        ...committedExtraChanges,
       ],
-    }).result
+    })).result
     result = committed.result
     wires = committed.wires
     this.bumpIssueInputs()
@@ -1301,8 +1323,8 @@ export class IssueStore {
     // `appendEvent`'s own comment was written to prevent. Registered here
     // instead — after the row installs above, because the registry keeps the
     // order they were registered in.
-    afterCommit(() => {
-      for (const eventId of eventIds) this.deps.store.events.announceEvent(eventId)
+    afterCommit(async () => {
+      for (const eventId of eventIds) await this.deps.store.events.announceEvent(eventId)
     }, 'issue-persist-many-events')
     return { issues: wires, result }
   }
@@ -1318,37 +1340,37 @@ export class IssueStore {
    *  carries — local only, with no publisher-side union left since POD-309
    *  retired the hub mirror — so the change log records exactly what legacy
    *  clients see. */
-  broadcastList(): void {
+  async broadcastList(): Promise<void> {
     // Cross-issue derived ripples (a close flipping dependents' blocked/ready,
     // a re-parent moving childCount) change OTHER rows' wire output without a
     // write on them — bump BEFORE allWire so the memo rebuilds every row against
     // the new generation and no ripple is served from stale cache [POD-723].
     this.bumpIssueInputs()
-    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
+    await this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(await this.allWire()))
   }
 
   /** Cross-issue legacy fields still require a full-list transitional emit. */
-  broadcastListForDerivedRipple(): void {
-    this.broadcastList()
+  async broadcastListForDerivedRipple(): Promise<void> {
+    await this.broadcastList()
   }
 
   /** Publish one write-less derived issue update (for example ephemeral Git
    * state). Unlike broadcastList this does not rebuild every issue merely
    * because one row's computed field changed. The reconcile keeps delta clients
    * and the durable change log aligned with the legacy single-row snapshot. */
-  broadcastIssue(row: IssueRow): void {
+  async broadcastIssue(row: IssueRow): Promise<void> {
     // Same restoration as in persist: the write-less derived publish (git state)
     // changes a computed field with no row write behind it, so nothing else bumps
     // the generation and the next list() would serve the stale payload.
     this.bumpIssueInputs()
-    const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
+    const spec = this.deps.publishSpecs.issueUpdated(await this.toWire(row))
     // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
     // the entity kind and diffs removes against the whole baseline — fed a
     // single row it would journal a remove for every OTHER issue, which the
     // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
     // remove+upsert pairs per targeted git-state publish). capture dedups the
     // one row against the baseline and never diffs the list.
-    this.deps.ledger.capture(
+    await this.deps.ledger.capture(
       spec.rows.map((r) => ({
         entity: 'issue' as const,
         id: r.id,
@@ -1359,14 +1381,14 @@ export class IssueStore {
   }
 
   /** @internal */
-  rowOrThrow(id: string): IssueRow {
-    const r = this.rows.get(this.resolveRef(id))
+  async rowOrThrow(id: string): Promise<IssueRow> {
+    const r = this.rows.get(await this.resolveRef(id))
     if (!r) throw new IssueNotFound(id)
     return r
   }
   /** @internal */
-  persistRow(row: IssueRow): IssueWire {
-    return this.persist(row)
+  async persistRow(row: IssueRow): Promise<IssueWire> {
+    return await this.persist(row)
   }
   /** @internal */
   get d(): IssueDeps {

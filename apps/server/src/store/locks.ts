@@ -8,7 +8,8 @@
 import type { IssueId, RepoId, SessionId } from '@podium/model'
 import { and, asc, eq, lte, sql } from 'drizzle-orm'
 import { locks, lockWaiters } from '../migrations/schema'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
@@ -82,7 +83,7 @@ export interface LockWaiterRow {
 const asColumnSession = (key: LockSessionKey): SessionId => key as SessionId
 
 export class LocksRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -99,12 +100,12 @@ export class LocksRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
-  getLock(repoId: RepoId, name: string): LockRow | null {
+  async getLock(repoId: RepoId, name: string): Promise<LockRow | null> {
     return (
-      this.db
+      await this.db
         .select()
         .from(locks)
         .where(and(eq(locks.repoId, repoId), eq(locks.name, name)))
@@ -112,8 +113,8 @@ export class LocksRepository {
     )
   }
 
-  listLocks(repoId: RepoId): LockRow[] {
-    return this.db
+  async listLocks(repoId: RepoId): Promise<LockRow[]> {
+    return await this.db
       .select()
       .from(locks)
       .where(eq(locks.repoId, repoId))
@@ -122,9 +123,9 @@ export class LocksRepository {
   }
 
   /** Locks in `repoId` whose lease has expired at `nowIso` (lazy-expiry sweep). */
-  listExpiredLocks(repoId: RepoId, nowIso: string): LockRow[] {
+  async listExpiredLocks(repoId: RepoId, nowIso: string): Promise<LockRow[]> {
     // INCLUSIVE at the instant: a lease expiring exactly now is expired.
-    return this.db
+    return await this.db
       .select()
       .from(locks)
       .where(and(eq(locks.repoId, repoId), lte(locks.expiresAt, nowIso)))
@@ -132,11 +133,11 @@ export class LocksRepository {
   }
 
   /** Every lock a session currently holds (session-bound auto-release). */
-  listLocksHeldBySession(sessionId: LockSessionKey): LockRow[] {
+  async listLocksHeldBySession(sessionId: LockSessionKey): Promise<LockRow[]> {
     // EQUALITY, not `IS` — and unlike {@link renewLock} that is the point: a
     // NULL holder is the operator's lease, and the session-exit sweep must not
     // pick it up. The two predicates in this file differ on purpose.
-    return this.db
+    return await this.db
       .select()
       .from(locks)
       .where(eq(locks.holderSessionId, asColumnSession(sessionId)))
@@ -144,7 +145,7 @@ export class LocksRepository {
   }
 
   /** Write (insert or replace) the current lease for (repo_id, name). */
-  upsertLock(row: LockRow): void {
+  async upsertLock(row: LockRow): Promise<void> {
     const values = {
       repoId: row.repoId,
       name: row.name,
@@ -155,9 +156,9 @@ export class LocksRepository {
       acquiredAt: row.acquiredAt,
       expiresAt: row.expiresAt,
     }
-    this.db
+    ;await (this.db
       .insert(locks)
-      .values(values)
+      .values(values))
       .onConflictDoUpdate({
         target: [locks.repoId, locks.name],
         set: {
@@ -174,18 +175,18 @@ export class LocksRepository {
 
   /** Extend the current lease. Guarded on the holder session (atomic renew —
    *  same shape as claimIssueMessage): false when the caller no longer holds it. */
-  renewLock(
+  async renewLock(
     repoId: RepoId,
     name: string,
     holderSessionId: LockSessionKey | null,
     expiresAt: string,
-  ): boolean {
+  ): Promise<boolean> {
     // `IS`, NOT `eq`, and it is load-bearing: the operator's lease has a NULL
     // holder, `= NULL` matches no row, and an operator lock would then be
     // unrenewable and expire under its holder. A `sql` FRAGMENT rather than a
     // conditional `isNull`/`eq` so this stays ONE statement text — the branch
     // would put two entries in the statement cache for one call site.
-    const r = this.db
+    const r = await this.db
       .update(locks)
       .set({ expiresAt })
       .where(
@@ -199,16 +200,16 @@ export class LocksRepository {
     return r.changes === 1
   }
 
-  deleteLock(repoId: RepoId, name: string): void {
-    this.db
+  async deleteLock(repoId: RepoId, name: string): Promise<void> {
+    await this.db
       .delete(locks)
       .where(and(eq(locks.repoId, repoId), eq(locks.name, name)))
       .run()
   }
 
   /** FIFO queue for one lock, in grant order. */
-  listWaiters(repoId: RepoId, name: string): LockWaiterRow[] {
-    return this.db
+  async listWaiters(repoId: RepoId, name: string): Promise<LockWaiterRow[]> {
+    return await this.db
       .select()
       .from(lockWaiters)
       .where(and(eq(lockWaiters.repoId, repoId), eq(lockWaiters.name, name)))
@@ -219,8 +220,8 @@ export class LocksRepository {
   /** Enqueue a waiter. Idempotent per (repo_id, name, session_id): re-acquiring
    *  while queued updates the requested lease metadata in place, preserving
    *  the original row id, timestamp, and FIFO position. */
-  enqueueWaiter(w: Omit<LockWaiterRow, 'id'>): void {
-    this.db
+  async enqueueWaiter(w: Omit<LockWaiterRow, 'id'>): Promise<void> {
+    ;await (this.db
       .insert(lockWaiters)
       .values({
         repoId: w.repoId,
@@ -231,7 +232,7 @@ export class LocksRepository {
         ttlSeconds: w.ttlSeconds,
         note: w.note,
         enqueuedAt: w.enqueuedAt,
-      })
+      }))
       .onConflictDoUpdate({
         target: [lockWaiters.repoId, lockWaiters.name, lockWaiters.sessionId],
         // TWO COLUMNS AND ONLY TWO. `label`, `issue_id` and `enqueued_at` are
@@ -242,12 +243,12 @@ export class LocksRepository {
       .run()
   }
 
-  removeWaiter(id: number): void {
-    this.db.delete(lockWaiters).where(eq(lockWaiters.id, id)).run()
+  async removeWaiter(id: number): Promise<void> {
+    await this.db.delete(lockWaiters).where(eq(lockWaiters.id, id)).run()
   }
 
-  removeWaiterBySession(repoId: RepoId, name: string, sessionId: LockSessionKey): void {
-    this.db
+  async removeWaiterBySession(repoId: RepoId, name: string, sessionId: LockSessionKey): Promise<void> {
+    await this.db
       .delete(lockWaiters)
       .where(
         and(
@@ -260,8 +261,8 @@ export class LocksRepository {
   }
 
   /** Locks a session is queued on (session-exit queue pruning). */
-  listWaitsBySession(sessionId: SessionId): LockWaiterRow[] {
-    return this.db
+  async listWaitsBySession(sessionId: SessionId): Promise<LockWaiterRow[]> {
+    return await this.db
       .select()
       .from(lockWaiters)
       .where(eq(lockWaiters.sessionId, sessionId))

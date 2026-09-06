@@ -47,7 +47,9 @@ import { asIssueId, asSessionId, type IssueId, type SessionId, type MachineId } 
  * the user/grant tables (POD-1075 / POD-1079), never from this package.
  */
 export interface HumanCeiling {
-  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }): boolean
+  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }):
+    | boolean
+    | Promise<boolean>
 }
 
 /**
@@ -86,9 +88,9 @@ export interface AddressDeps {
   /** Resolve an issue ref to an id. Returns the ref unchanged when it names
    *  nothing — today's `IssueService.resolveRef` behaviour, deliberately not a
    *  throw (a throw here is what made the two failures distinguishable). */
-  resolveIssueRef(ref: string): string
+  resolveIssueRef(ref: string): string | Promise<string>
   /** Does the instance hold this issue at all? */
-  issueExists(id: string): boolean
+  issueExists(id: string): boolean | Promise<boolean>
   ceiling: HumanCeiling
 }
 
@@ -101,18 +103,18 @@ export interface AddressDeps {
  * check placed before the existence check would leak through timing on a large
  * grant table; placed after, both paths are one map lookup.
  */
-export function resolveAddress(ref: string, deps: AddressDeps): AddressResolution {
+export async function resolveAddress(ref: string, deps: AddressDeps): Promise<AddressResolution> {
   if (deps.isKnownSession(ref)) {
     // `isKnownSession` has just confirmed this ref names a live session, so the
     // brand is applied on the far side of the existence check, not before it.
     const sessionId = asSessionId(ref)
-    return deps.ceiling.canSee({ kind: 'session', id: sessionId })
+    return await deps.ceiling.canSee({ kind: 'session', id: sessionId })
       ? { kind: 'session', id: sessionId }
       : { kind: 'unresolvable' }
   }
   // `resolveIssueRef` is the ref-to-id port (IssueService.resolveRef behind it),
   // so its OUTPUT is the issue id — see the parse-boundary note on that method.
-  const id = asIssueId(deps.resolveIssueRef(ref))
+  const id = asIssueId(await deps.resolveIssueRef(ref))
   // ONE VALUE for both failures, which is what makes them indistinguishable by
   // CONSTRUCTION rather than by two branches producing similar-looking output.
   // An earlier shape here returned the caller's raw ref for the beyond-ceiling
@@ -122,8 +124,8 @@ export function resolveAddress(ref: string, deps: AddressDeps): AddressResolutio
   // real one, the scope gate found a real target, and the caller got a
   // confirm-required error naming an issue it may not see. Collapsing to a
   // single value removes the branch that could differ.
-  if (!deps.issueExists(id)) return { kind: 'unresolvable' }
-  if (!deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
+  if (!await deps.issueExists(id)) return { kind: 'unresolvable' }
+  if (!await deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
   return { kind: 'issue', id }
 }
 

@@ -55,7 +55,7 @@
 import { type AnyCommandContract, SETTINGS_CONTRACTS } from '@podium/commands'
 import { isAdminGrade, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import { spawnedByParentSessionId } from '@podium/model'
 import { type Context, mods } from '../../trpc'
 import { isSettingsCommand, type SettingsCommandName } from './registry'
@@ -156,19 +156,19 @@ export function settingsAuthzFailure(
  * ADR 9 D5 A1 and POD-352's exit item verbatim: there is no serialized
  * effective-capability snapshot, because there is nothing here to serialize.
  */
-export function settingsAuthzDeps(ctx: Context): SettingsAuthzDeps {
+export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = resolvePrincipal(ctx.capability, {
-    parentSessionOf: (sessionId) =>
+  const principal = await resolvePrincipalAsync(ctx.capability, {
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
   const user = onBehalfOfUser(principal)
   return {
     principal,
-    role: user === null ? undefined : ctx.registry.sessionStore.users.roleOf(user),
+    role: user === null ? undefined : await ctx.registry.sessionStore.users.roleOf(user),
   }
 }
 

@@ -19,9 +19,9 @@ import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId } from '@podium/model'
 import { z } from 'zod'
-import { resolvePrincipal } from '../../command-principal'
+import { resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
-import { findSessionById } from '../sessions/session-by-id'
+import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   commandAccess,
   type IssueCaller,
@@ -42,33 +42,33 @@ export class IssueCommandDispatcher {
 
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */
-  run<D extends AnyIssueCommandDef>(
+  async run<D extends AnyIssueCommandDef>(
     caller: IssueCaller,
     name: string,
     def: D,
     input: z.infer<D['input']>,
-  ): ReturnType<D['handler']> {
-    const execute = () =>
-      def.handler(
+  ): Promise<Awaited<ReturnType<D['handler']>>> {
+    const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
+      await def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),
         input,
-      ) as ReturnType<D['handler']>
-    if (def.conflict !== 'exp-rev') return execute()
+      ) as Awaited<ReturnType<D['handler']>>
+    if (def.conflict !== 'exp-rev') return await execute()
 
     const envelope = (input ?? {}) as { expectedRevision?: number }
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
-    if (ref == null) return execute()
-    const issue = this.deps.issues.reports.get(ref)
-    if (!issue) return execute()
+    if (ref == null) return await execute()
+    const issue = await this.deps.issues.reports.get(ref)
+    if (!issue) return await execute()
 
-    return this.deps.arbitration.run(
+    return await this.deps.arbitration.run(
       {
         command: `issues.${name}`,
         issueId: issue.id,
         ...(envelope.expectedRevision === undefined
           ? {}
           : { expectedRevision: envelope.expectedRevision }),
-        currentRevision: () => this.deps.issues.reports.get(issue.id)?.revision,
+        currentRevision: async () => (await this.deps.issues.reports.get(issue.id))?.revision,
       },
       execute,
     )
@@ -79,36 +79,36 @@ export class IssueCommandDispatcher {
    * exact pipeline the derived router applies. Returns undefined for an unknown
    * router/proc so callers can shape their own "no such procedure" reply.
    */
-  dispatch(
+  async dispatch(
     caller: IssueCaller,
     router: string,
     proc: string,
     rawInput: unknown,
-  ): Promise<unknown> | undefined {
+  ): Promise<unknown | undefined> {
     if (router === 'repos') {
       if (proc !== 'inferFromPath') return undefined
-      return Promise.resolve().then(() => {
-        const input = z.object({ path: z.string() }).parse(rawInput)
-        return { repoPath: this.deps.inferRepoFromPath(input.path) ?? null }
-      })
+      const input = z.object({ path: z.string() }).parse(rawInput)
+      return { repoPath: (await this.deps.inferRepoFromPath(input.path)) ?? null }
     }
     if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return undefined
     const effectiveCaller: IssueCaller = caller.principal
       ? caller
       : {
           ...caller,
-          principal: resolvePrincipal(caller.capability, {
-            parentSessionOf: (sessionId) =>
-              spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
+          principal: await resolvePrincipalAsync(caller.capability, {
+            parentSessionOf: async (sessionId) =>
+              spawnedByParentSessionId(
+                (await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy,
+              ),
           }),
         }
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
-    return Promise.resolve().then(() => {
-      guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
+    return await Promise.resolve().then(async () => {
+      await guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
-      return this.run(effectiveCaller, proc, def, input)
+      return await this.run(effectiveCaller, proc, def, input)
     })
   }
 
@@ -119,18 +119,13 @@ export class IssueCommandDispatcher {
    * compile-time hole, not a runtime maybe.
    */
   asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
-    const principal = resolvePrincipal(capability, {
-      parentSessionOf: (sessionId) =>
-        spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
-    })
     const caller: IssueCaller = {
       capability,
-      principal,
       ...(overrideScope ? { overrideScope } : {}),
     }
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
-      const call = (input?: unknown): Promise<unknown> => {
-        const result = this.dispatch(caller, router, name, input)
+      const call = async (input?: unknown): Promise<unknown> => {
+        const result = await this.dispatch(caller, router, name, input)
         if (result === undefined) throw new Error(`no such issue procedure: ${router}.${name}`)
         return result
       }

@@ -24,8 +24,8 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function makeRegistry(store?: SessionStore): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -45,8 +45,8 @@ describe('SessionStart: issue owner precedence', () => {
     expect(issueOwner).not.toBe(conflicting)
     expect(issueOwner).not.toBe(FIRST_ADMIN_USER_ID)
 
-    const { reg, daemon } = makeRegistry()
-    const issue = reg.issues.create({
+    const { reg, daemon } = await makeRegistry()
+    const issue = await reg.issues.create({
       repoPath: '/r',
       title: 'Owned issue',
       startNow: false,
@@ -54,7 +54,7 @@ describe('SessionStart: issue owner precedence', () => {
     })
     expect((await reg.sessionStore.issues.getIssue(issue.id))?.ownerUserId).toBe(issueOwner)
 
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -74,8 +74,8 @@ describe('SessionStart: issue owner precedence', () => {
 
 describe('SessionStart: creation-owned first prompt', () => {
   it('queues a non-argv OpenCode prompt and seeds a recoverable draft', async () => {
-    const { reg, daemon } = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/proj',
       initialPrompt: 'hello',
@@ -83,7 +83,7 @@ describe('SessionStart: creation-owned first prompt', () => {
 
     const queued = await reg.sessionStore.sync.listQueuedMessages(sessionId)
     expect(queued.map((row) => row.text)).toEqual(['hello'])
-    const session = reg.modules.sessions.listSessions().find((item) => item.sessionId === sessionId)
+    const session = (await reg.modules.sessions.listSessions()).find((item) => item.sessionId === sessionId)
     expect(session?.draftUpdatedAt).toBeDefined()
     // Non-empty draft writes are intentionally debounced; wait for the durable
     // composer record rather than coupling this launch test to that interval.
@@ -94,9 +94,9 @@ describe('SessionStart: creation-owned first prompt', () => {
 })
 
 describe('resolved runtime driver projection', () => {
-  it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', () => {
-    const { reg, daemon } = makeRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({
+  it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -113,8 +113,8 @@ describe('resolved runtime driver projection', () => {
       requestedDriverId: 'opencode-server',
     })
 
-    const degraded = reg.modules.sessions
-      .listSessions()
+    const degraded = (await reg.modules.sessions
+      .listSessions())
       .find((session) => session.sessionId === sessionId)
     expect(degraded).toMatchObject({
       status: 'live',
@@ -143,8 +143,8 @@ describe('resolved runtime driver projection', () => {
       driverId: 'codex-app-server',
     })
 
-    const recovered = reg.modules.sessions
-      .listSessions()
+    const recovered = (await reg.modules.sessions
+      .listSessions())
       .find((session) => session.sessionId === sessionId)
     expect(recovered).toMatchObject({
       status: 'live',
@@ -157,8 +157,8 @@ describe('resolved runtime driver projection', () => {
 describe('Claude SDK continuity projection', () => {
   it('carries the persisted selected driver and exact resume ref through reload and resurrection', async () => {
     const store = await openTestStore(':memory:')
-    const { reg, daemon } = makeRegistry(store)
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await makeRegistry(store)
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
       runtimeContract: 'claude-sdk',
@@ -197,7 +197,7 @@ describe('Claude SDK continuity projection', () => {
     ).toBe('claude-sdk')
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     reg.dispose()
-    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
@@ -211,7 +211,7 @@ describe('Claude SDK continuity projection', () => {
     expect(reattach).toMatchObject({ requestedDriverId: 'claude-sdk' })
 
     daemon.length = 0
-    expect(reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(await reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
       reloaded.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
@@ -228,8 +228,8 @@ describe('Claude SDK continuity projection', () => {
 describe('legacy selected-driver lifecycle compatibility', () => {
   it('reattaches a reloaded legacy headless row with its selected concrete driver', async () => {
     const store = await openTestStore(':memory:')
-    const first = makeRegistry(store)
-    const { sessionId } = first.reg.modules.sessions.createSession({
+    const first = await makeRegistry(store)
+    const { sessionId } = await first.reg.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/proj',
     })
@@ -245,7 +245,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
     first.reg.dispose()
 
-    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
@@ -258,8 +258,8 @@ describe('legacy selected-driver lifecycle compatibility', () => {
 
   it('revives a reloaded legacy headless row with its selected concrete driver', async () => {
     const store = await openTestStore(':memory:')
-    const { reg, daemon } = makeRegistry(store)
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await makeRegistry(store)
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/proj',
     })
@@ -285,7 +285,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
     })
     expect((await store.sessions.loadSessions()).at(-1)?.requestedDriverId).toBeNull()
-    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
       reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
@@ -300,8 +300,8 @@ describe('legacy selected-driver lifecycle compatibility', () => {
 
   it('lets explicit requested configuration override a degraded selected driver', async () => {
     const store = await openTestStore(':memory:')
-    const { reg, daemon } = makeRegistry(store)
-    const { sessionId } = reg.modules.sessions.createSession({
+    const { reg, daemon } = await makeRegistry(store)
+    const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/proj',
       runtimeContract: 'opencode-server',
@@ -327,7 +327,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
     })
-    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
       reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
@@ -342,8 +342,8 @@ describe('legacy selected-driver lifecycle compatibility', () => {
 
   it('does not turn a legacy selected terminal driver into an explicit request', async () => {
     const store = await openTestStore(':memory:')
-    const first = makeRegistry(store)
-    const { sessionId } = first.reg.modules.sessions.createSession({
+    const first = await makeRegistry(store)
+    const { sessionId } = await first.reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -355,7 +355,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
     first.reg.dispose()
 
-    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
@@ -371,9 +371,9 @@ describe('SessionStart: live session-id collision guard', () => {
   // Property is survival of the first live session, not merely that an error is thrown.
   it('refusing a live sessionId leaves the first session live and bound (not only throws)', async () => {
     const sessionId = asSessionId('client-supplied-id')
-    const { reg, daemon } = makeRegistry()
+    const { reg, daemon } = await makeRegistry()
 
-    reg.modules.sessions.createSession({
+    await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/proj',
       sessionId,
@@ -393,7 +393,7 @@ describe('SessionStart: live session-id collision guard', () => {
     const first = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(first).toBeDefined()
     const durableLabel = first!.durableLabel
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
     expect(spawns(daemon).filter((m) => m.sessionId === sessionId)).toHaveLength(1)
@@ -413,7 +413,7 @@ describe('SessionStart: live session-id collision guard', () => {
     expect(after[0]?.durableLabel).toBe(durableLabel)
     expect(after[0]?.cwd).toBe('/proj')
     expect(after[0]?.title).toBe('first')
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
     // No second spawn frame — an overwrite would re-fire spawn for the same id.

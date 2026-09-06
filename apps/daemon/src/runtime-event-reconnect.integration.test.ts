@@ -58,7 +58,7 @@ class FakeSocket extends EventEmitter {
 
 describe('coarse runtime events across a daemon disconnect', () => {
   it('retains a disconnected coarse event, replays it after reconnect, and retires it on commit ack', async () => {
-    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const runtimeOutbox = createRuntimeEventOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
@@ -126,7 +126,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
       sockets[0]?.message(helloOk)
       await started
 
-      const { sessionId } = registry.modules.sessions.createSession({
+      const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
       })
@@ -141,7 +141,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
         driverId: 'codex-app-server',
       })
       const at = new Date(
-        Date.parse(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? '') + 1_000,
+        Date.parse((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? '') + 1_000,
       ).toISOString()
 
       connection.send({
@@ -151,7 +151,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
         event: {
           t: 'state',
           change: { kind: 'activity' },
-          at: registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? at,
+          at: (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? at,
           provenance: 'bootstrap',
           cursor: { segmentId: 'segment', components: { seq: 1 } },
           observerGeneration: 1,
@@ -190,15 +190,15 @@ describe('coarse runtime events across a daemon disconnect', () => {
         },
       })
       expect(runtimeOutbox.pending()).toHaveLength(1)
-      expect(registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+      expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(1)
 
       if (!retry) throw new Error('disconnect did not schedule reconnect')
       retry()
       sockets[1]?.emit('open')
       sockets[1]?.message(helloOk)
 
-      expect(registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
-      expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(at)
+      expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+      expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(at)
       expect(runtimeOutbox.pending()).toEqual([])
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
@@ -241,7 +241,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
       sockets[2]?.message(helloOk)
 
       expect(runtimeOutbox.pending()).toEqual([])
-      expect(registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+      expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
       expect(receipts.slice(-2)).toEqual([
         {
           deliveryId: 'rejected-generation',

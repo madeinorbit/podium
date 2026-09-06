@@ -28,7 +28,7 @@ async function regWithTwoDaemons() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
@@ -42,8 +42,8 @@ describe('RepoRegistry.list(machineId)', () => {
     const { repos } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/b', asMachineId('m2'))
-    const m1Repos = repos.list(asMachineId('m1'))
-    const m2Repos = repos.list(asMachineId('m2'))
+    const m1Repos = await repos.list(asMachineId('m1'))
+    const m2Repos = await repos.list(asMachineId('m2'))
     expect(m1Repos).toContain('/a')
     expect(m1Repos).not.toContain('/b')
     expect(m2Repos).toContain('/b')
@@ -54,7 +54,7 @@ describe('RepoRegistry.list(machineId)', () => {
     const { repos } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/b', asMachineId('m2'))
-    const all = repos.list()
+    const all = await repos.list()
     expect(all).toContain('/a')
     expect(all).toContain('/b')
   })
@@ -64,8 +64,8 @@ describe('RepoRegistry.list(machineId)', () => {
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/a', asMachineId('m2')) // same path, different machine
     await repos.remove('/a', asMachineId('m1'))
-    expect(repos.list(asMachineId('m1'))).not.toContain('/a')
-    expect(repos.list(asMachineId('m2'))).toContain('/a')
+    expect(await repos.list(asMachineId('m1'))).not.toContain('/a')
+    expect(await repos.list(asMachineId('m2'))).toContain('/a')
   })
 })
 
@@ -76,7 +76,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     await repos.add('/b', asMachineId('m2'))
 
     // Fire the scan
-    const scanPromise = repos.scanReposAll()
+    const scanPromise = await repos.scanReposAll()
 
     // Each daemon receives a scanReposRequest; simulate their replies
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -114,7 +114,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     await store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
     await store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
 
-    const scanPromise = repos.scanReposAll()
+    const scanPromise = await repos.scanReposAll()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
     const m2Req = m2Out.find((m) => m.type === 'scanReposRequest')
     expect(m1Req).toBeDefined()
@@ -175,7 +175,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     // Rebinding and returning zero scan rows is the other half of the restart
     // race: it must enrich/fallback onto the same registered identity.
     reg.gateway.attachDaemon(machineId, (msg) => m1Out.push(msg))
-    const rebound = repos.scanReposAll()
+    const rebound = await repos.scanReposAll()
     const req = m1Out.findLast((m) => m.type === 'scanReposRequest')
     expect(req?.type).toBe('scanReposRequest')
     if (req?.type !== 'scanReposRequest') throw new Error('no rebound scan request')
@@ -229,13 +229,13 @@ describe('RepoRegistry.scanReposAll()', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
     await repos.add('/repo', asMachineId('m1'))
 
-    const scanPromise = repos.scanReposAll()
+    const scanPromise = await repos.scanReposAll()
 
     const req = m1Out.find((m) => m.type === 'scanReposRequest')
     expect(req).toBeDefined()

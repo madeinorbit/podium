@@ -30,68 +30,66 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
 
   async function build() {
     const store = await openTestStore(':memory:')
-    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, registry }
   }
 
-  const liveSessionIds = (registry: SessionRegistry) =>
-    registry.modules.sessions.listSessions().map((session) => session.sessionId)
+  const liveSessionIds = async (registry: SessionRegistry) =>
+    (await registry.modules.sessions.listSessions()).map((session) => session.sessionId)
 
   it('does not tear a session down for a kill the enclosing span rolled back (site 8)', async () => {
     const { store, registry } = await build()
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    expect(liveSessionIds(registry)).toContain(sessionId)
+    expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    expect(() =>
-      store.transact(() => {
-        registry.modules.sessions.killSession({ sessionId })
+    await expect(store.transact(async () => {
+        await registry.modules.sessions.killSession({ sessionId })
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     // The tombstone rolled back, so the session row is live again…
     expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
     // …and the runtime must never have been torn down. Read with nothing
     // reloaded in between: `state.loadFromStore()` here would hide the defect
     // by rebuilding the map from the database that just rolled back.
-    expect(liveSessionIds(registry)).toContain(sessionId)
+    expect(await liveSessionIds(registry)).toContain(sessionId)
   })
 
   it('still tears the session down when the enclosing span commits (site 8)', async () => {
     const { store, registry } = await build()
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
 
-    await store.transact(() => {
-      registry.modules.sessions.killSession({ sessionId })
+    await store.transact(async () => {
+      await registry.modules.sessions.killSession({ sessionId })
     })
 
-    expect(liveSessionIds(registry)).not.toContain(sessionId)
+    expect(await liveSessionIds(registry)).not.toContain(sessionId)
     expect((await store.sessions.loadSessions()).map((row) => row.id)).not.toContain(sessionId)
   })
 
   it('does not delete an issue in memory when the enclosing span rolls back (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
     })
 
-    expect(() =>
-      store.transact(() => {
-        registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await expect(store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
-    expect(registry.issues.get(issue.id)?.deletedAt).toBeFalsy()
+    expect((await registry.issues.get(issue.id))?.deletedAt).toBeFalsy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
   })
 
@@ -104,62 +102,60 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // issue, and that detaches the PTY and every client. It is the irreversible
     // half, and it was running for a delete the enclosing span could roll back.
     const { store, registry } = await build()
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,
     })
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
       issueId: issue.id,
     })
-    expect(liveSessionIds(registry)).toContain(sessionId)
+    expect(await liveSessionIds(registry)).toContain(sessionId)
 
-    expect(() =>
-      store.transact(() => {
-        registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await expect(store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
-    expect(liveSessionIds(registry)).toContain(sessionId)
+    expect(await liveSessionIds(registry)).toContain(sessionId)
   })
 
   it('still deletes when the enclosing span commits (site 6)', async () => {
     const { store, registry } = await build()
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'issue to delete',
       startNow: false,
     })
 
-    await store.transact(() => {
-      registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await store.transact(async () => {
+      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
     })
 
-    expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
+    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
   })
 
   it('does not restore an issue in memory when the enclosing span rolls back (site 7)', async () => {
     const { store, registry } = await build()
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'issue to restore',
       startNow: false,
     })
-    registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
-    expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
+    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
 
-    expect(() =>
-      store.transact(() => {
-        registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await expect(store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
-    expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
+    expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
   })
 
@@ -169,27 +165,26 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     // rolled-back restore left LIVE sessions in the map for rows the database
     // still holds tombstoned.
     const { store, registry } = await build()
-    const issue = registry.issues.create({
+    const issue = await registry.issues.create({
       repoPath: '/repo',
       title: 'issue with a session',
       startNow: false,
     })
-    const { sessionId } = registry.modules.sessions.createSession({
+    const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
       issueId: issue.id,
     })
-    registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
-    expect(liveSessionIds(registry)).not.toContain(sessionId)
+    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    expect(await liveSessionIds(registry)).not.toContain(sessionId)
 
-    expect(() =>
-      store.transact(() => {
-        registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await expect(store.transact(async () => {
+        await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
         throw new Error('enclosing span failed')
       }),
-    ).toThrow('enclosing span failed')
+    ).rejects.toThrow('enclosing span failed')
 
     expect((await store.sessions.loadSessions()).map((row) => row.id)).not.toContain(sessionId)
-    expect(liveSessionIds(registry)).not.toContain(sessionId)
+    expect(await liveSessionIds(registry)).not.toContain(sessionId)
   })
 })

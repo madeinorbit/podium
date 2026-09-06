@@ -31,7 +31,7 @@ import { type WorkflowActor, WorkflowsRepository } from './workflows'
 
 /** The Stage A seam the store asserts once; a test builds it the same way. */
 const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).syncQueries
+  const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }

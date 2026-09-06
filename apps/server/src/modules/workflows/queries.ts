@@ -74,19 +74,19 @@ export const WORKFLOW_QUERIES = {
       scope: WorkflowScope.optional(),
       scopeRef: z.string().optional(),
     }),
-    (service, input, caller) => service.list(input, caller),
+    async (service, input, caller) => await service.list(input, caller),
   ),
-  get: query(z.object({ id: z.string().min(1) }), (service, input, caller) =>
-    service.get(input, caller),
+  get: query(z.object({ id: z.string().min(1) }), async (service, input, caller) =>
+    await service.get(input, caller),
   ),
-  bindings: query(actorInput, (service, _input, caller) => service.bindings(caller)),
-  profiles: query(actorInput, (service, _input, caller) => service.profiles(caller)),
-  runs: query(z.object({ includeTerminal: z.boolean().optional() }), (service, input, caller) =>
-    service.runs(input, caller),
+  bindings: query(actorInput, async (service, _input, caller) => await service.bindings(caller)),
+  profiles: query(actorInput, async (service, _input, caller) => await service.profiles(caller)),
+  runs: query(z.object({ includeTerminal: z.boolean().optional() }), async (service, input, caller) =>
+    await service.runs(input, caller),
   ),
-  prime: query(actorInput, (service, _input, caller) => service.prime(caller)),
-  status: query(z.object({ runId: z.string().optional() }), (service, input, caller) =>
-    service.status(input, caller),
+  prime: query(actorInput, async (service, _input, caller) => await service.prime(caller)),
+  status: query(z.object({ runId: z.string().optional() }), async (service, input, caller) =>
+    await service.status(input, caller),
   ),
 } as const
 

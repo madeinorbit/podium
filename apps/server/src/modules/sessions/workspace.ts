@@ -40,16 +40,16 @@ export class SessionWorkspace {
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
+      : resolveRole(await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
           .harness
     // A freshly reconnected daemon temporarily hides its persisted inventory:
     // the old report belongs to the previous socket. Explicit placement can
     // afford to wait for this connection's report before the harness gate, and
     // must do so before ensureTargetRepo can clone anything onto the target.
     if (agentKind !== 'shell') await this.ports.machines.waitForInventory(input.machineId)
-    this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
-    const sourceRepo = this.ports.store.repos
-      .listRepos()
+    await this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
+    const sourceRepo = (await this.ports.store.repos
+      .listRepos())
       .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo || sourceRepo.machineId === input.machineId) {
@@ -79,8 +79,8 @@ export class SessionWorkspace {
    * not have to ask whether a move is needed.
    */
   async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string> {
-    const sourceRepo = this.ports.store.repos
-      .listRepos()
+    const sourceRepo = (await this.ports.store.repos
+      .listRepos())
       .filter((repo) => sourceRepoPath === repo.path || sourceRepoPath.startsWith(`${repo.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo) throw new Error(`no registered repository contains ${sourceRepoPath}`)
@@ -132,8 +132,8 @@ export class SessionWorkspace {
     baseCandidates?: string[]
   }): Promise<{ transferred: boolean; startPoint: string }> {
     const { rpc } = this.ports
-    const source = this.ports.store.repos
-      .listRepos()
+    const source = (await this.ports.store.repos
+      .listRepos())
       .find((repo) => repo.path === input.sourceRepoPath)
     if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
     const sourceRepoPath = source.path
@@ -186,13 +186,13 @@ export class SessionWorkspace {
       ...new Set([...(input.baseCandidates ?? []), 'main', 'origin/main', input.ref]),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
+      candidates.map(async (ref) =>
+        await rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
       ),
     )
     const targetVerified = await Promise.all(
-      verifiedBundleBases(sourceVerified).map((ref) =>
-        rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
+      verifiedBundleBases(sourceVerified).map(async (ref) =>
+        await rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
       ),
     )
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
@@ -296,13 +296,13 @@ export class SessionWorkspace {
    * repoId is NOT an identity: unidentified checkouts would all match each other, so
    * they match nothing here and the caller falls back to refusing.
    */
-  private repoOnMachineByIdentity<T extends { repoId: RepoId | null }>(
+  private async repoOnMachineByIdentity<T extends { repoId: RepoId | null }>(
     sourceRepo: T,
     targetMachineId: MachineId,
   ) {
     if (!sourceRepo.repoId) return undefined
-    return this.ports.store.repos
-      .listRepos(targetMachineId)
+    return (await this.ports.store.repos
+      .listRepos(targetMachineId))
       .find((repo) => repo.repoId === sourceRepo.repoId)
   }
 
@@ -317,13 +317,13 @@ export class SessionWorkspace {
    * actionable message. A resolver that clones on absence would make that refusal
    * impossible.
    */
-  findRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): string | null {
-    const source = this.ports.store.repos
-      .listRepos()
+  async findRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string | null> {
+    const source = (await this.ports.store.repos
+      .listRepos())
       .find((repo) => repo.path === sourceRepoPath)
     if (!source) return null
     if (source.machineId === targetMachineId) return source.path
-    return this.repoOnMachineByIdentity(source, targetMachineId)?.path ?? null
+    return (await this.repoOnMachineByIdentity(source, targetMachineId))?.path ?? null
   }
 
   async ensureTargetRepo(
@@ -345,7 +345,7 @@ export class SessionWorkspace {
     // ONE IDENTITY RULE, shared with findRepoOnMachine (POD-1571). Fork it and the
     // placement paths drift apart again — and a raw `repoId === repoId` here made
     // every UNIDENTIFIED checkout (null repoId) match every other one.
-    const existing = this.repoOnMachineByIdentity(sourceRepo, targetMachineId)
+    const existing = await this.repoOnMachineByIdentity(sourceRepo, targetMachineId)
     if (existing) return existing
     if (!sourceRepo.originUrl || !sourceRepo.repoId) {
       throw new Error('target machine lacks this repository and the source has no clone URL')
@@ -365,14 +365,14 @@ export class SessionWorkspace {
       targetMachineId,
     )
     if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
-    this.ports.store.repos.addRepo(
+    await this.ports.store.repos.addRepo(
       targetPath,
       targetMachineId,
       sourceRepo.originUrl,
       sourceRepo.prefix ?? undefined,
     )
-    const registered = this.ports.store.repos
-      .listRepos(targetMachineId)
+    const registered = (await this.ports.store.repos
+      .listRepos(targetMachineId))
       .find((repo) => repo.path === targetPath)
     if (!registered || registered.repoId !== sourceRepo.repoId) {
       throw new Error('cloned repository identity does not match the handoff source')
@@ -393,8 +393,8 @@ export class SessionWorkspace {
     if (!source) throw new Error('unknown source session')
     const caller = this.ports.getSession(input.callerSessionId)
     if (!caller) throw new Error('unknown calling session')
-    const sourceMachine = this.ports.machines
-      .listMachines()
+    const sourceMachine = (await this.ports.machines
+      .listMachines())
       .find((machine) => machine.id === source.machineId)
     if (source.machineId === caller.machineId) {
       return {
@@ -408,7 +408,7 @@ export class SessionWorkspace {
     }
     if (!sourceMachine?.online) throw new Error('source machine is offline')
 
-    const repos = this.ports.store.repos.listRepos()
+    const repos = await this.ports.store.repos.listRepos()
     const sourceRepo = repos
       .filter(
         (repo) =>
@@ -422,7 +422,7 @@ export class SessionWorkspace {
     )
     if (!fetcherRepo) throw new Error('this machine does not have the source repository')
 
-    const issue = source.issueId ? this.ports.issueAccess.getMeta(source.issueId) : undefined
+    const issue = source.issueId ? await this.ports.issueAccess.getMeta(source.issueId) : undefined
     const branch = issue?.branch ?? basename(source.cwd)
     const candidates = [
       ...new Set(
@@ -432,14 +432,14 @@ export class SessionWorkspace {
       ),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
+      candidates.map(async (ref) =>
+        await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
       ),
     )
     const sourceBaseShas = verifiedBundleBases(sourceVerified)
     const fetcherVerified = await Promise.all(
-      sourceBaseShas.map((ref) =>
-        this.ports.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
+      sourceBaseShas.map(async (ref) =>
+        await this.ports.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
       ),
     )
     const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)
@@ -499,8 +499,8 @@ export class SessionWorkspace {
   async cleanPeeks(input: { callerSessionId: SessionId }): Promise<{ removed: string[] }> {
     const caller = this.ports.getSession(input.callerSessionId)
     if (!caller) throw new Error('unknown calling session')
-    const repo = this.ports.store.repos
-      .listRepos()
+    const repo = (await this.ports.store.repos
+      .listRepos())
       .filter(
         (candidate) =>
           candidate.machineId === caller.machineId &&
@@ -513,15 +513,15 @@ export class SessionWorkspace {
     return { removed: result.removed ?? [] }
   }
 
-  ensureSessionWorktree(
+  async ensureSessionWorktree(
     session: Session,
     issues: SessionIssueWorkflowPort,
   ):
-    | { ok: boolean; reason?: string; cwd?: string }
-    | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
-    const issueId = session.issueId ?? this.ports.issueAccess.issueForCwd(session.cwd)
+    Promise<| { ok: boolean; reason?: string; cwd?: string }
+    | Promise<{ ok: boolean; reason?: string; cwd?: string }>> {
+    const issueId = session.issueId ?? await this.ports.issueAccess.issueForCwd(session.cwd)
     if (!issueId) return { ok: true, cwd: session.cwd }
-    const issue = this.ports.issueAccess.getMeta(issueId)
+    const issue = await this.ports.issueAccess.getMeta(issueId)
     if (!issue) return { ok: true, cwd: session.cwd }
     // A recorded path is only valid on the machine that hosts its repository.
     // Rows created before issue rehoming shipped can retain a source-machine cwd
@@ -540,7 +540,7 @@ export class SessionWorkspace {
     )
     const targetRepoPath =
       !machineMoved && assignedMachineId && issueMachineId && issue.repoPath
-        ? this.findRepoOnMachine(issue.repoPath, assignedMachineId)
+        ? await this.findRepoOnMachine(issue.repoPath, assignedMachineId)
         : null
     const repoPathMoved = Boolean(targetRepoPath && targetRepoPath !== issue.repoPath)
     const requestedMachineId = machineMoved || repoPathMoved ? assignedMachineId : undefined

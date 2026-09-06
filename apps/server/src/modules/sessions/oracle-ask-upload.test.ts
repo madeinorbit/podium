@@ -39,7 +39,7 @@ const AGENT_ONLY = willChange(
 /** Answer the daemon's image-upload round-trip with a scripted result. Returns
  *  the requests THAT machine received, so routing can be asserted per machine. */
 function answerUploads(
-  o: ReturnType<typeof makeOracle>,
+  o: Awaited<ReturnType<typeof makeOracle>>,
   reply: (msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>) => {
     path: string
     error?: string
@@ -81,7 +81,7 @@ function answerUploads(
 }
 
 /** A live idle claude-code session the seance can address. */
-function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
+function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string, cwd = '/p'): void {
   o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
@@ -142,9 +142,9 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
     const o = await makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
-    const target = o.reg.modules.sessions.createSession({
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const target = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -162,8 +162,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     // Wait on the question ROW appearing (predicate, never a sleep), then answer
     // it as the target agent would: a relayed messages.reply, which stamps the ack.
     let questionId = ''
-    await waitFor(() => {
-      const rows = o.store.messages.listLedger({ sessionId: target.sessionId })
+    await waitFor(async () => {
+      const rows = await o.store.messages.listLedger({ sessionId: target.sessionId })
       const q = rows.find((m) => m.kind === 'question')
       if (q) questionId = q.id
       return Boolean(q)
@@ -232,13 +232,13 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${AGENT_ONLY}: ask is NOT relay-reachable — the allowlist refuses it BEFORE the dispatch arm that implements it`, async () => {
     const o = await makeOracle()
-    const a = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
-    const agent = o.reg.modules.sessions.createSession({
+    const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
-    const peer = o.reg.modules.sessions.createSession({
+    const peer = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,
@@ -413,7 +413,7 @@ describe('oracle: sessions.uploadImage', () => {
     })
     // Placement first, routing second: if this ever fails, the fixture is wrong,
     // not the behaviour under test.
-    expect(o.meta(sessionId).machineId).toBe('other')
+    expect((await o.meta(sessionId)).machineId).toBe('other')
     otherSeen.length = 0
     o.daemon.length = 0
 
@@ -565,7 +565,7 @@ describe('oracle: sessions.uploadImage', () => {
       // (below) and would let a future "refuse immediately when offline" change
       // land while this test stayed green.
       o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-      expect(o.meta(sessionId).status).toBe('reconnecting')
+      expect((await o.meta(sessionId)).status).toBe('reconnecting')
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
       o.daemon.length = 0
 

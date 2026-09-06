@@ -14,7 +14,7 @@ import { TRPCError } from '@trpc/server'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
-  resolvePrincipal,
+  resolvePrincipalAsync,
 } from '../../command-principal'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
@@ -55,19 +55,19 @@ export function layoutAuthzFailure(name: string, deps: LayoutAuthzDeps): TRPCErr
 }
 
 /** Resolve principal + live role from a tRPC context (never from payload). */
-export function layoutAuthzDeps(ctx: Context): LayoutAuthzDeps {
+export async function layoutAuthzDeps(ctx: Context): Promise<LayoutAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = resolvePrincipal(ctx.capability, {
-    parentSessionOf: (sessionId) =>
+  const principal = await resolvePrincipalAsync(ctx.capability, {
+    parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
       // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
+      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
   const user = onBehalfOfUser(principal)
   return {
     principal,
-    role: user === null ? undefined : ctx.registry.sessionStore.users.roleOf(user),
+    role: user === null ? undefined : await ctx.registry.sessionStore.users.roleOf(user),
   }
 }
 

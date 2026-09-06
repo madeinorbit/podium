@@ -51,14 +51,14 @@ const forSessionInput = z.object({
 export const INTERACTION_QUERIES = {
   /** Every OPEN ask, optionally narrowed to one session — the enumeration §4
    *  promises, and the backing read for `podium interactions list`. */
-  list: query(listInput, (service, input) =>
-    service.listOpen(input?.sessionId ? asSessionId(input.sessionId) : undefined),
+  list: query(listInput, async (service, input) =>
+    await service.listOpen(input?.sessionId ? asSessionId(input.sessionId) : undefined),
   ),
   /** One session's asks including resolved ones — the audit read. This is where
    *  "who answered, with what, and how it was delivered" lives; the feed
    *  deliberately carries only the open set. */
-  forSession: query(forSessionInput, (service, input) =>
-    service.listForSession(asSessionId(input.sessionId), input.limit),
+  forSession: query(forSessionInput, async (service, input) =>
+    await service.listForSession(asSessionId(input.sessionId), input.limit),
   ),
 } as const
 

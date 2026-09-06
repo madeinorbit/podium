@@ -29,7 +29,7 @@ export interface SpawnOnWakeDeps {
     spawnedBy?: string
     machineId?: MachineId
     ownerUserId: UserId
-  }): { sessionId: SessionId }
+  }): { sessionId: SessionId } | Promise<{ sessionId: SessionId }>
 }
 
 /** Provenance for the spawned child, derived from the triggering message's
@@ -61,16 +61,16 @@ function spawnedByRefForMessage(m: MessageRow): SpawnedByRef {
 
 export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
   return {
-    spawn({ issueId, message }) {
+    async spawn({ issueId, message }) {
       if (!issueId) return { ok: false, reason: 'no target issue to spawn on' }
-      const issue = deps.issues.getMeta(issueId)
+      const issue = await deps.issues.getMeta(issueId)
       if (!issue) return { ok: false, reason: `unknown issue ${issueId}` }
       // Started issue: spawn alongside its work. Unstarted: the repo root —
       // starting the issue (worktree + branch) stays a deliberate action.
       const cwd = issue.worktreePath ?? issue.repoPath
       if (!cwd) return { ok: false, reason: 'issue has no working directory' }
       try {
-        const { sessionId } = deps.createSession({
+        const { sessionId } = await deps.createSession({
           cwd,
           agentKind: issue.defaultAgent as AgentKind, // safeParsed downstream ('auto' → role default)
           model: issue.defaultModel,

@@ -9,10 +9,11 @@ import type { SessionId } from '@podium/model'
 import { and, eq } from 'drizzle-orm'
 import { recapWatermarks } from '../migrations/schema'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
-import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { currentTransaction } from './executor/sync-drizzle'
 
 export class ReadWatermarksRepository {
-  private readonly rootDb: SyncDrizzle
+  private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
@@ -23,13 +24,13 @@ export class ReadWatermarksRepository {
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.rootDb
+    return currentTransaction() ?? this.rootDb
   }
 
   /** `null` and not `undefined` when absent: the caller distinguishes the two,
    *  and `read-watermarks.test.ts` pins it. */
-  getRecapWatermark(reader: ReaderRef, sessionId: SessionId): string | null {
-    const row = this.db
+  async getRecapWatermark(reader: ReaderRef, sessionId: SessionId): Promise<string | null> {
+    const row = await this.db
       .select({ watermark: recapWatermarks.watermark })
       .from(recapWatermarks)
       .where(and(eq(recapWatermarks.reader, reader), eq(recapWatermarks.sessionId, sessionId)))
@@ -47,10 +48,10 @@ export class ReadWatermarksRepository {
    * `DO UPDATE SET`; nothing reads it back through this repository, so its
    * golden test reads it off the table.
    */
-  setRecapWatermark(reader: ReaderRef, sessionId: SessionId, watermark: string, at: string): void {
-    this.db
+  async setRecapWatermark(reader: ReaderRef, sessionId: SessionId, watermark: string, at: string): Promise<void> {
+    ;await (this.db
       .insert(recapWatermarks)
-      .values({ reader, sessionId, watermark, updatedAt: at })
+      .values({ reader, sessionId, watermark, updatedAt: at }))
       .onConflictDoUpdate({
         target: [recapWatermarks.reader, recapWatermarks.sessionId],
         set: { watermark, updatedAt: at },

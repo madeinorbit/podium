@@ -98,7 +98,7 @@ export function adjacentRootsFor(knownPaths: string[], cap = 12): string[] {
 }
 
 export interface RepoDiscoveryDeps {
-  listRepos(): RepoRow[]
+  listRepos(): Promise<RepoRow[]> | RepoRow[]
   addRepo(path: string, machineId: MachineId, originUrl?: string): Promise<void> | void
   /** Deregister a path on a machine. Used ONLY by the moved-repo heal (POD-1498),
    *  and only after {@link RepoDiscoveryDeps.pathExists} says the path is gone. */
@@ -118,7 +118,7 @@ export interface RepoDiscoveryDeps {
     opts: { includeHome?: boolean; maxDepth?: number },
     machineId: MachineId,
   ): Promise<ScanReposResult>
-  machineName(machineId: MachineId): string
+  machineName(machineId: MachineId): Promise<string> | string
   localMachineId: MachineId
   log?: (message: string) => void
   now?: () => number
@@ -202,7 +202,7 @@ export class MachineRepoDiscovery {
       registeredHere.add(newPath)
       healed = true
       this.deps.log?.(
-        `repo moved on ${this.deps.machineName(machineId)}: ${rowPath} is gone, re-registered at ${newPath}`,
+        `repo moved on ${await this.deps.machineName(machineId)}: ${rowPath} is gone, re-registered at ${newPath}`,
       )
     }
     return healed
@@ -216,8 +216,8 @@ export class MachineRepoDiscovery {
     const last = this.lastConnectScanAt.get(machineId)
     if (last !== undefined && now - last < CONNECT_SCAN_MIN_INTERVAL_MS) return
     this.lastConnectScanAt.set(machineId, now)
-    setTimeout(() => {
-      this.scan(machineId, { deep: false }).catch((err) => {
+    setTimeout(async () => {
+      await this.scan(machineId, { deep: false }).catch((err) => {
         this.deps.log?.(
           `repo discovery for ${machineId} failed: ${err instanceof Error ? err.message : String(err)}`,
         )
@@ -235,7 +235,7 @@ export class MachineRepoDiscovery {
    *  [spec:SP-5eb6] — "scan here" — on top of the always-on tiers (probes of
    *  other machines' paths + the shallow walk around this machine's known repos,
    *  which is the "known repo locations" the user asked to always include). */
-  scan(
+  async scan(
     machineId: MachineId,
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
@@ -254,7 +254,7 @@ export class MachineRepoDiscovery {
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
     const startedAt = this.deps.now?.() ?? Date.now()
-    let rows = this.deps.listRepos()
+    let rows = await this.deps.listRepos()
     const diagnostics: GitDiscoveryDiagnosticWire[] = []
     const found = new Map<string, GitRepositoryWire>()
 
@@ -301,7 +301,7 @@ export class MachineRepoDiscovery {
     // Heal a moved repo BEFORE classifying (POD-1498): the stale row would otherwise
     // make originAlreadyRegisteredHere true and demote its own replacement to a candidate.
     if (await this.healMovedRepos(machineId, rows, found)) {
-      rows = this.deps.listRepos()
+      rows = await this.deps.listRepos()
     }
 
     // Classify + auto-register origin matches.
@@ -334,7 +334,11 @@ export class MachineRepoDiscovery {
       const elsewhere = (origin ? (byOrigin.get(origin) ?? []) : []).filter(
         (r) => r.machineId !== machineId,
       )
-      const alsoOn = [...new Set(elsewhere.map((r) => this.deps.machineName(r.machineId)))]
+      const alsoOn = [
+        ...new Set(
+          await Promise.all(elsewhere.map(async (r) => await this.deps.machineName(r.machineId))),
+        ),
+      ]
       const copiesHere = origin ? (foundByOrigin.get(origin) ?? 0) : 0
       // A copy of this origin is already registered on this machine (under any
       // path) — a second copy must never be auto-added next to it.
@@ -348,7 +352,7 @@ export class MachineRepoDiscovery {
         await this.deps.addRepo(path, machineId, repo.originUrl)
         status = 'auto-registered'
         this.deps.log?.(
-          `auto-registered ${path} on ${this.deps.machineName(machineId)} (same origin as ${alsoOn.join(', ')})`,
+          `auto-registered ${path} on ${await this.deps.machineName(machineId)} (same origin as ${alsoOn.join(', ')})`,
         )
       } else {
         status = 'candidate'
