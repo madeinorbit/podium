@@ -2258,7 +2258,7 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
       lost: false,
       expiresAt: Date.now() + 120_000,
       ttlMs: 120_000,
-      renew: () => {
+      renew: async () => {
         renews += 1
         if (!reentered) {
           reentered = true
@@ -2286,7 +2286,7 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
       lost: false,
       expiresAt: Date.now() + 120_000,
       ttlMs: 120_000,
-      renew: () => {
+      renew: async () => {
         renews += 1
         return true
       },
@@ -2306,7 +2306,10 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
       lost: false,
       expiresAt: Date.now() + 120_000,
       ttlMs: 120_000,
-      renew: () => {
+      // ASYNC, so the rejection can only be caught by awaiting the call. A
+      // synchronous `throw` here would be caught by the tick's `try` whether or
+      // not it awaited `renew`, which is exactly the blind spot POD-3488 was.
+      renew: async () => {
         renews += 1
         throw new Error('lock service is gone')
       },
@@ -2317,6 +2320,82 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
     expect(renews).toBe(1)
     expect(lease.lost).toBe(true)
     expect(lease.renewing).toBe(false)
+    service.dispose()
+  })
+})
+
+/**
+ * BOUNDARY LEASE RE-CHECK (POD-3488). `renewResourceLease` is what stands between
+ * a lost resource lease and a dispatch or a durable commit. Its refusal arm was
+ * unreachable: `ResourceLease.renew` was typed `() => boolean | Promise<boolean>`
+ * while the only implementation is async, so `if (!lease.renew())` negated a
+ * promise — always false — and every boundary was told the lease was still held.
+ *
+ * Driven directly rather than through a full order run, because a run reaches the
+ * boundary only via the store; these assert the refusal itself, and each one goes
+ * red if the `await` in front of `lease.renew()` is removed.
+ */
+describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
+  const liveLease = (renew: ResourceLease['renew']): ResourceLease => ({
+    lost: false,
+    expiresAt: Date.now() + 120_000,
+    ttlMs: 120_000,
+    renew,
+  })
+
+  it('refuses the boundary and marks the lease lost when the renewal fails', async () => {
+    const { service } = await harness()
+    let renews = 0
+    const lease = liveLease(async () => {
+      renews += 1
+      return false
+    })
+
+    const held = await service.renewResourceLease(lease)
+
+    expect(renews).toBe(1)
+    expect(held).toBe(false)
+    expect(lease.lost).toBe(true)
+    service.dispose()
+  })
+
+  it('refuses the boundary and marks the lease lost when the renewal rejects', async () => {
+    const { service } = await harness()
+    const lease = liveLease(async () => {
+      throw new Error('lock service is gone')
+    })
+
+    const held = await service.renewResourceLease(lease)
+
+    expect(held).toBe(false)
+    expect(lease.lost).toBe(true)
+    service.dispose()
+  })
+
+  it('holds the boundary and extends the lease when the renewal succeeds', async () => {
+    const { service } = await harness()
+    const lease = liveLease(async () => true)
+    lease.expiresAt = Date.now() + 1_000
+
+    const held = await service.renewResourceLease(lease)
+
+    expect(held).toBe(true)
+    expect(lease.lost).toBe(false)
+    expect(lease.expiresAt).toBeGreaterThan(Date.now() + 100_000)
+    service.dispose()
+  })
+
+  it('refuses a lease that is already lost without asking the lock service', async () => {
+    const { service } = await harness()
+    let renews = 0
+    const lease = liveLease(async () => {
+      renews += 1
+      return true
+    })
+    lease.lost = true
+
+    expect(await service.renewResourceLease(lease)).toBe(false)
+    expect(renews).toBe(0)
     service.dispose()
   })
 })
