@@ -266,7 +266,7 @@ describe('POD-98 git-state service wiring', () => {
     })
     broadcast.mockClear()
 
-    const initial = await svc.refreshGitState(id, '/repo')
+    const initial = svc.refreshGitState(id, '/repo')
     for (let i = 0; i < 50 && statusCalls === 0; i++) {
       await new Promise((resolve) => setTimeout(resolve, 1))
     }

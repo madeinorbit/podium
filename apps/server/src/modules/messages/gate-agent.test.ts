@@ -180,7 +180,7 @@ describe('agent spawn (gate)', () => {
       },
     })
 
-    const pending = await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+    const pending = gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
       issue: ISSUE.id,
       prompt: 'start after probing',
       harness: 'claude-code',

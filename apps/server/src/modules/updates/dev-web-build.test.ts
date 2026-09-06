@@ -261,7 +261,7 @@ describe('development web build', () => {
       stamps: [{ sourceSha: 'old' }, { sourceSha: 'aaaaaaa' }],
       runStep: (step) => (step.role === 'dev-web-build' ? pending : Promise.resolve()),
     })
-    const done = await web.ensure('aaaaaaa')
+    const done = web.ensure('aaaaaaa')
     // `RemainAfterExit=yes` used to make this answerable with `systemctl status`;
     // naming the live units keeps it answerable that way too.
     expect(web.state()).toEqual({

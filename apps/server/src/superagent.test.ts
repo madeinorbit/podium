@@ -717,7 +717,7 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
-    const p = await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
+    const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
     h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',

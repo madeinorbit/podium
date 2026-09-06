@@ -962,7 +962,7 @@ describe('D12 — ordering partitions', () => {
     await outbox.enqueue(close('POD-1'))
     await outbox.enqueue(close('POD-2'))
 
-    const draining = await outbox.drain()
+    const draining = outbox.drain()
     // Let the event loop turn over as far as it will while POD-1 is stuck.
     for (let i = 0; i < 20; i++) await Promise.resolve()
 
@@ -2280,13 +2280,13 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
     const outerHeld = new Promise<void>((resolve) => {
       releaseOuter = resolve
     })
-    const outer = await uow.transact(async () => {
+    const outer = uow.transact(async () => {
       await outerHeld
       throw new Error('unrelated outer transaction aborts')
     })
 
     // Concurrent, unrelated user action while the outer transaction is open.
-    const enqueued = await outbox.enqueue(close('POD-1'))
+    const enqueued = outbox.enqueue(close('POD-1'))
     for (let i = 0; i < 20; i++) await Promise.resolve()
 
     // It must NOT have resolved by joining someone else's open transaction...
@@ -2313,12 +2313,12 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
       releaseFirst = resolve
     })
 
-    const first = await uow.transact(async () => {
+    const first = uow.transact(async () => {
       order.push('first:start')
       await firstHeld
       order.push('first:end')
     })
-    const second = await uow.transact(async () => {
+    const second = uow.transact(async () => {
       order.push('second:start')
     })
     for (let i = 0; i < 20; i++) await Promise.resolve()

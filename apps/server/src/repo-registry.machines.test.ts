@@ -76,7 +76,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     await repos.add('/b', asMachineId('m2'))
 
     // Fire the scan
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
 
     // Each daemon receives a scanReposRequest; simulate their replies
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -114,7 +114,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     await store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
     await store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
 
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
     const m2Req = m2Out.find((m) => m.type === 'scanReposRequest')
     expect(m1Req).toBeDefined()
@@ -175,7 +175,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     // Rebinding and returning zero scan rows is the other half of the restart
     // race: it must enrich/fallback onto the same registered identity.
     reg.gateway.attachDaemon(machineId, (msg) => m1Out.push(msg))
-    const rebound = await repos.scanReposAll()
+    const rebound = repos.scanReposAll()
     const req = m1Out.findLast((m) => m.type === 'scanReposRequest')
     expect(req?.type).toBe('scanReposRequest')
     if (req?.type !== 'scanReposRequest') throw new Error('no rebound scan request')
@@ -235,7 +235,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
     await repos.add('/repo', asMachineId('m1'))
 
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
 
     const req = m1Out.find((m) => m.type === 'scanReposRequest')
     expect(req).toBeDefined()

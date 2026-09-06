@@ -906,13 +906,13 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = await svc.onStateChanged({
+    const asking = svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: { phase: 'needs_user', need: { kind: 'question' } } as never,
     })
     // B: the session moves on WHILE that read is outstanding.
-    const working = await svc.onStateChanged({
+    const working = svc.onStateChanged({
       sessionId: S,
       prev: { phase: 'needs_user', need: { kind: 'question' } } as never,
       next: { phase: 'working' } as never,
@@ -951,13 +951,13 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = await svc.onStateChanged({
+    const asking = svc.onStateChanged({
       sessionId: S,
       prev: undefined,
       next: { phase: 'needs_user', need: { kind: 'question' } } as never,
     })
     // B: the process dies WHILE that read is outstanding.
-    const exited = await svc.onSessionExited(S)
+    const exited = svc.onSessionExited(S)
     releaseRead()
     await Promise.all([asking, exited])
 
@@ -995,11 +995,11 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     })
 
     // A: a question arrives and blocks inside its transcript read.
-    const asking = await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    const asking = svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     await readStarted
 
     // B: a causal failure arrives WHILE A read is outstanding.
-    const failed = await svc.onTurnEvent({
+    const failed = svc.onTurnEvent({
       sessionId: S,
       at: '2026-08-14T00:00:30.000Z',
       provider: 'claude',
