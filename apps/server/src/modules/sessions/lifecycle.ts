@@ -197,7 +197,7 @@ export type {
   SessionRestorePlan,
 } from './session-lifecycle-types'
 
-import type { SessionLifecycleDeps } from './session-lifecycle-types'
+import type { SessionLifecycleDeps, SessionRestorePlan } from './session-lifecycle-types'
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
 export class SessionLifecycle {
@@ -764,8 +764,8 @@ export class SessionLifecycle {
   prepareIssueSessionDelete(...args: any[]): any {
     return (this.sessionMetaOps as any).prepareIssueSessionDelete(...args)
   }
-  prepareIssueSessionRestore(...args: any[]): any {
-    return (this.sessionMetaOps as any).prepareIssueSessionRestore(...args)
+  prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
+    return this.sessionMetaOps.prepareIssueSessionRestore(issueId)
   }
   private async removeSessionRuntime(
     sessionId: SessionId,
