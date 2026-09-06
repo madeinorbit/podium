@@ -829,7 +829,7 @@ export async function startServer(
             pendingCoordinatorVersion = version
           },
         })
-  const devPublisher = wireDevBundlePublisher({
+  const devPublisher = await wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,

@@ -172,7 +172,7 @@ export function isRemoteUpdateConsumer(
   return machine.id !== hostMachineId && machine.deliveryCaps.includes('update.delivery.feed')
 }
 
-export function wireDevBundlePublisher(deps: {
+export async function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
   /** Validated external origin. Absent is allowed only for same-host publication. */
@@ -183,7 +183,7 @@ export function wireDevBundlePublisher(deps: {
    * Read at publication time so a newly joined remote machine makes the
    * external origin mandatory immediately — whether or not it is online.
    */
-  readonly hasRemoteUpdateConsumers: () => boolean
+  readonly hasRemoteUpdateConsumers: () => Promise<boolean>
   /**
    * The platforms the registered fleet actually runs — what this host mints bundles
    * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
@@ -233,9 +233,16 @@ export function wireDevBundlePublisher(deps: {
   readonly createPublisher?: (
     input: Parameters<typeof createDevBundlePublisher>[0],
   ) => ReturnType<typeof createDevBundlePublisher>
-}): DevPublisherWiring {
+}): Promise<DevPublisherWiring> {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
+  // The sync callbacks below consume only a resolved value. Refresh it at boot
+  // and at every async build/publication producer; never start a pass with an
+  // unresolved database read hidden behind artifactUrl or channelFeed.
+  let remoteUpdateConsumers = sourceRoot ? await deps.hasRemoteUpdateConsumers() : false
+  const prepareRemoteConsumerSnapshot = async (): Promise<void> => {
+    remoteUpdateConsumers = await deps.hasRemoteUpdateConsumers()
+  }
   const instanceId = deps.instanceId ?? 'default'
   const publisherStateDirectory = deps.publisherStateDir ?? stateDir()
   const releaseTimingBase =
@@ -318,7 +325,7 @@ export function wireDevBundlePublisher(deps: {
             selectDevelopmentArtifactOrigin({
               externalOrigin: artifactOrigin,
               localOrigin: deps.localArtifactOrigin(),
-              hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+              hasRemoteUpdateConsumers: remoteUpdateConsumers,
             }),
             version,
             deps.artifactToken,
@@ -378,7 +385,7 @@ export function wireDevBundlePublisher(deps: {
       selectDevelopmentArtifactOrigin({
         externalOrigin: artifactOrigin,
         localOrigin: deps.localArtifactOrigin(),
-        hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+        hasRemoteUpdateConsumers: remoteUpdateConsumers,
       })
       return undefined
     } catch (error) {
@@ -461,7 +468,7 @@ export function wireDevBundlePublisher(deps: {
     const origin = selectDevelopmentArtifactOrigin({
       externalOrigin: artifactOrigin,
       localOrigin: deps.localArtifactOrigin(),
-      hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+      hasRemoteUpdateConsumers: remoteUpdateConsumers,
     })
     const routes = [
       ...new Map(
@@ -526,6 +533,7 @@ export function wireDevBundlePublisher(deps: {
     if (!publisher) return false
     const candidate = publisher.current()
     if (!candidate) return false
+    await prepareRemoteConsumerSnapshot()
     try {
       await proveLocalArtifactRoutes(candidate)
     } catch (error) {
@@ -558,6 +566,7 @@ export function wireDevBundlePublisher(deps: {
           },
           async () => {
             if (!publisher) throw new Error('This server does not publish development releases.')
+            await prepareRemoteConsumerSnapshot()
             const blocked = artifactOriginFailure()
             if (blocked) throw blocked
             publishFailureDetail = undefined
@@ -632,14 +641,15 @@ export function wireDevBundlePublisher(deps: {
       }
       return approval.approve(approvedBy, expected)
     },
-    requestBuild: () => {
-      if (!publisher) return Promise.resolve()
+    requestBuild: async () => {
+      if (!publisher) return
+      await prepareRemoteConsumerSnapshot()
       // Refuse before the compile, with the remedy in the sentence, rather than
       // pack for thirty-five seconds and leave the step waiting (POD-2227).
       const blocked = artifactOriginFailure()
       if (blocked) {
         recordPublishFailure(blocked)
-        return Promise.reject(blocked)
+        throw blocked
       }
       publishFailureDetail = undefined
       // A human pressed Update. Whatever the stamp says, ask git — the one
@@ -695,7 +705,7 @@ export function wireDevBundlePublisher(deps: {
         origin = selectDevelopmentArtifactOrigin({
           externalOrigin: artifactOrigin,
           localOrigin: deps.localArtifactOrigin(),
-          hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+          hasRemoteUpdateConsumers: remoteUpdateConsumers,
         })
       } catch {
         // The refusal is already reported through `requestBuild`/`preparation`;
