@@ -27,6 +27,18 @@ import { ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
 
+/** `Promise.withResolvers` needs lib es2024; this package targets lower (POD-3509). */
+function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+  let resolve!: (v: T) => void
+  let reject!: (e: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+
 /**
  * The two lookups the gate ANDs together are independently forceable to `null`
  * here. Both flags are false by default, so every other test in this file runs
@@ -239,8 +251,8 @@ describe('the connection lifecycle', () => {
   ] as const)('serves feed and input while both tasks wait, with %s completing first', async (first) => {
     const h = await harness()
     await h.feed.admissionSettled()
-    const sessions = Promise.withResolvers<void>()
-    const bootstrap = Promise.withResolvers<void>()
+    const sessions = deferred<void>()
+    const bootstrap = deferred<void>()
     const started: string[] = []
     const sent: ServerMessage[] = []
     vi.mocked(h.ports.sessions.onClientAttached).mockImplementation(async (_principal, conn) => {
