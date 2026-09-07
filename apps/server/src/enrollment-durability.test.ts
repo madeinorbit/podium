@@ -31,6 +31,7 @@ import {
   ownershipSnapshotFromMachines,
 } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
+import { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = FIRST_ADMIN_USER_ID
@@ -116,7 +117,7 @@ function hostWorld(stateDir: string, store: SessionStore, hostMachineId = store.
     userExists: (id) => store.users.get(id) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   })
   return { enrollment, machines, store }
 }
@@ -184,7 +185,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
       userExists: (id) => store.users.get(id) !== undefined,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     })
     pairRemote(source, { machineId: PROMOTED_HOST })
     const promoted = hostWorld(dir, store, PROMOTED_HOST)

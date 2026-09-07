@@ -383,7 +383,7 @@ describe('durable update approvals', () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     try {
-      const s = new OperationStore(db)
+      const s = new OperationStore(syncQueriesOver(db))
       const approval = (
         id: string,
         version: string,
@@ -402,10 +402,10 @@ describe('durable update approvals', () => {
       s.insert(approval('a', 'A', 1))
       s.insert(approval('b', 'B', 2, 'running'))
       s.sweepRetention('update', 0)
-      expect(new OperationStore(db).approvedTarget('dev')?.version).toBe('B')
+      expect(new OperationStore(syncQueriesOver(db)).approvedTarget('dev')?.version).toBe('B')
       s.update(approval('b', 'B', 2, 'canceled'))
       s.sweepRetention('update', 0)
-      expect(new OperationStore(db).approvedTarget('dev')?.version).toBe('A')
+      expect(new OperationStore(syncQueriesOver(db)).approvedTarget('dev')?.version).toBe('A')
       expect(s.approvedTarget('edge')).toBeUndefined()
       s.insert({ ...approval('system', 'C', 3), createdBy: 'system' })
       expect(s.approvedTarget('dev')?.version).toBe('A')

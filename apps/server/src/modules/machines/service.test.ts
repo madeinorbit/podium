@@ -8,7 +8,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, test, vi } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
-import type { SessionStore } from '../../store'
+import { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { Send } from '../sessions/session'
@@ -59,7 +59,7 @@ async function storedService(recoveryOnly = false): { svc: MachinesService; stor
     hostMachineId: store.hostMachineId,
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps)
   return { svc, store }
 }
@@ -344,7 +344,7 @@ describe('promoted server host identity', () => {
       hostMachineId: target,
       sessionsChangedForMachine: () => {},
       clients: () => [],
-      machinesForPrincipal: () => [],
+      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     const before = (await store.machines.listMachines()).map(({ id }) => id)
 

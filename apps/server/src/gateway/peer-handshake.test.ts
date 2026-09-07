@@ -27,6 +27,7 @@ import { mintPairingToken, openEnrollmentLedger } from '../enrollment-ledger'
 import { PairingManager } from '../hub/pairing'
 import { MachinesService } from '../modules/machines/service'
 import { SessionRegistry } from '../relay'
+import { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { wireDaemonSocket } from './daemon-socket'
 import {
@@ -157,7 +158,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     userExists: (id) => store.users.get(id) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
-    machinesForPrincipal: () => [],
+    machinesForPrincipal: async () => [],
   })
   return { dbPath, enrollment, hostMachineId, machineId, machines, pairing, store, token }
 }
