@@ -39,6 +39,7 @@ const agentPrincipal = (): InboxPrincipalReference => ({
 
 function harness(
   options: {
+    prepareSend?: () => Promise<void>
     owner?: typeof ALICE | null
     status?: string
     agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
@@ -238,7 +239,7 @@ function harness(
     // would let the manifests drift from it.
     harnessInterrupt,
     harnessName: harnessDisplayName,
-    prepareSend: vi.fn(),
+    prepareSend: options.prepareSend ?? vi.fn(async () => {}),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     setSessionDraft,
     draftText: () => draft,
@@ -771,10 +772,7 @@ describe('SessionInbox authorization and identity', () => {
       'fallback Grok',
       { agentKind: 'grok' as const, runtimeContract: true, driverId: 'generic-pty' },
     ],
-    [
-      'Codex',
-      { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' },
-    ],
+    ['Codex', { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' }],
     [
       'OpenCode',
       { agentKind: 'opencode' as const, runtimeContract: true, driverId: 'opencode-server' },
@@ -906,12 +904,7 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
       queued: true,
     })
-    h.inbox.handleControllerInput(
-      principal,
-      client,
-      SID,
-      Buffer.from('\x1b').toString('base64'),
-    )
+    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('\x1b').toString('base64'))
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(
@@ -941,12 +934,7 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    h.inbox.handleControllerInput(
-      principal,
-      client,
-      SID,
-      Buffer.from('\x1b').toString('base64'),
-    )
+    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('\x1b').toString('base64'))
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
@@ -1235,7 +1223,7 @@ describe('SessionInbox authorization and identity', () => {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
 
       expect(
-        h.inbox.interruptText({
+        await h.inbox.interruptText({
           sessionId: SID,
           text: 'stop and read this',
           principal: agentPrincipal(),
@@ -1243,9 +1231,7 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true })
       await vi.advanceTimersByTimeAsync(500)
 
-      const decoded = h.sent.map((m) =>
-        Buffer.from((m as { bytes: Uint8Array }).bytes).toString(),
-      )
+      const decoded = h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
       expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
       expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
@@ -2786,5 +2772,54 @@ describe('configureSession', () => {
       reason: 'not_running',
     })
     expect(h.contractConfigures).toEqual([])
+  })
+})
+
+describe('offer retirement before inbox admission', () => {
+  const modes = ['send', 'queue', 'interrupt', 'answer'] as const
+  function begin(h: ReturnType<typeof harness>, mode: (typeof modes)[number]) {
+    if (mode === 'answer')
+      return h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        choices: [{ optionIndices: [1] }],
+        principal: agentPrincipal(),
+      })
+    const input = { sessionId: SID, text: 'continue', principal: agentPrincipal() }
+    if (mode === 'queue') return h.inbox.queueText(input)
+    if (mode === 'interrupt') return h.inbox.interruptText(input)
+    return h.inbox.sendText(input)
+  }
+  it.each(modes)('%s waits for retirement before any row or keystroke', async (mode) => {
+    vi.useFakeTimers()
+    let release!: () => void
+    const retirement = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const h = harness({ prepareSend: () => retirement })
+    const pending = begin(h, mode)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+    release()
+    expect((await pending).ok).toBe(true)
+    if (mode === 'queue') expect(h.rows).toHaveLength(1)
+    else {
+      await vi.advanceTimersByTimeAsync(500)
+      expect(h.sent.length).toBeGreaterThan(0)
+    }
+  })
+  it.each(modes)('%s refuses a failed retirement before any row or keystroke', async (mode) => {
+    vi.useFakeTimers()
+    const h = harness({
+      prepareSend: async () => {
+        throw new Error('offer retirement refused')
+      },
+    })
+    await expect(begin(h, mode)).rejects.toThrow('offer retirement refused')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
   })
 })

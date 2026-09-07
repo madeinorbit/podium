@@ -236,8 +236,8 @@ describe('durable terminal hibernation proof', () => {
     const { registry, sessionId, confirm } = await harness()
     confirm(1)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
-    if (kind === 'input') registry.modules.sessions.sendText({ sessionId, text: 'new turn' })
-    if (kind === 'queue') registry.modules.sessions.queueText({ sessionId, text: 'queued turn' })
+    if (kind === 'input') await registry.modules.sessions.sendText({ sessionId, text: 'new turn' })
+    if (kind === 'queue') await registry.modules.sessions.queueText({ sessionId, text: 'queued turn' })
     if (kind === 'output')
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'agentFrame',

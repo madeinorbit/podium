@@ -121,7 +121,7 @@ async function harness(opts?: {
         sent.push({ fn: 'queueText', ...i })
         return { ok: true, queued: true }
       },
-      interruptText: (i) => {
+      interruptText: async (i) => {
         sent.push({ fn: 'interruptText', ...i })
         return { ok: true, queued: true }
       },

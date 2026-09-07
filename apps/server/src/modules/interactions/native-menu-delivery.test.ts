@@ -52,12 +52,12 @@ const recorder = (result: { ok: boolean; reason?: string } = { ok: true }) => {
 }
 
 describe('nativeMenuChoices', () => {
-  it('maps a chosen option onto the digit the menu shows', () => {
+  it('maps a chosen option onto the digit the menu shows', async () => {
     const mapped = nativeMenuChoices([prompt()], [{ optionIndices: [2] }])
     expect(mapped).toEqual({ ok: true, choices: [{ optionIndices: [2] }] })
   })
 
-  it('carries the menu SHAPE, because the shape decides the keystrokes', () => {
+  it('carries the menu SHAPE, because the shape decides the keystrokes', async () => {
     // POD-609/POD-770: a multi-select digit only toggles and needs a Tab, and a
     // preview dialog's digit only moves the cursor. Dropping these would type an
     // answer the operator did not give.
@@ -67,7 +67,7 @@ describe('nativeMenuChoices', () => {
     expect(preview).toEqual({ ok: true, choices: [{ previewLayout: true, optionIndices: [1] }] })
   })
 
-  it('refuses an index the screen does not have', () => {
+  it('refuses an index the screen does not have', async () => {
     // The classifier read two options. A third is an answer to some other menu,
     // and pressing row 3 on THIS one is a decision nobody made.
     const mapped = nativeMenuChoices([prompt()], [{ optionIndices: [3] }])
@@ -75,7 +75,7 @@ describe('nativeMenuChoices', () => {
     expect(mapped.ok === false && mapped.reason).toContain('beyond the 2 option(s)')
   })
 
-  it('refuses free text where the menu drew no Other row', () => {
+  it('refuses free text where the menu drew no Other row', async () => {
     const mapped = nativeMenuChoices(
       [prompt({ otherIndex: undefined })],
       [{ optionIndices: [], text: 'something else' }],
@@ -84,7 +84,7 @@ describe('nativeMenuChoices', () => {
     expect(mapped.ok === false && mapped.reason).toContain('no free-text row')
   })
 
-  it('refuses a PARTIAL answer rather than committing the rest', () => {
+  it('refuses a PARTIAL answer rather than committing the rest', async () => {
     // The closing CR commits every prompt the menu holds open, so answering one
     // of two would commit the second on whatever row it was sitting.
     const mapped = nativeMenuChoices([prompt(), prompt()], [{ optionIndices: [1] }])
@@ -92,7 +92,7 @@ describe('nativeMenuChoices', () => {
     expect(mapped.ok === false && mapped.reason).toContain('2 prompt(s)')
   })
 
-  it('refuses an ask with no readable options', () => {
+  it('refuses an ask with no readable options', async () => {
     const mapped = nativeMenuChoices([], [])
     expect(mapped.ok).toBe(false)
   })

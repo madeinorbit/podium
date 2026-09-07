@@ -143,7 +143,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
           queued.push(i)
           return { ok: true, queued: true }
         },
-        interruptText: (i) => {
+        interruptText: async (i) => {
           interrupted.push(i)
           return { ok: true, queued: true }
         },
