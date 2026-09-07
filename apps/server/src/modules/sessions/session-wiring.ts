@@ -89,6 +89,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // The store is read through its own typed binding, not through `bag`: every
   // repository call below is then checked by the compiler (POD-3515).
   const store: SessionStore = deps.store
+  const ownership: Pick<
+    SessionLifecycle,
+    'sessionOwner' | 'machineUseForClient' | 'authorizeClientDrive'
+  > = life
 
   bag.store = deps.store
   bag.sessions = deps.sessions ?? new Map()
@@ -168,7 +172,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     clients: bag.clients,
     subscriptions: bag.deps.subscriptions,
     session: (sessionId) => bag.sessions.get(sessionId),
-    sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
+    sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
   })
   bag.bindingReceipts = new SessionBindingReceipts({
@@ -176,7 +180,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
-    sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
+    sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
@@ -233,7 +237,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     clients: () => bag.clients.values(),
     // One object, so the memo CANNOT be dropped here again [POD-1653] — see
     // the port's own comment for why the two-parameter form was unsafe.
-    sessionOwner: ({ sessionId, memo }) => bag.sessionOwner(sessionId, memo),
+    sessionOwner: ({ sessionId, memo }) => ownership.sessionOwner(sessionId, memo),
     primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
     persistSession: (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
@@ -327,7 +331,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
-    sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
+    sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
@@ -347,7 +351,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
   })
-  bag.inbox = new SessionInbox({
+  const inbox = new SessionInbox({
     getSession: (sessionId) => bag.sessions.get(sessionId),
     queue: {
       enqueue: (row) => {
@@ -471,14 +475,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     harnessName: harnessDisplayName,
     prepareSend: (sessionId, attribution, kind, origin) =>
       life.prepareInboxSend(sessionId, attribution, kind, origin),
-    ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
+    ownerOf: async (sessionId) => (await ownership.sessionOwner(sessionId))?.owner,
     setSessionDraft: (input) => bag.state.setDraft(input),
     draftText: (sessionId) => bag.state.draftText(sessionId),
     resurrect: (sessionId, principal) => {
       bag.bus.emit('session.wakeRequested', { sessionId, principal })
     },
     // Take-control / hold-control re-auth at every apply (POD-1081).
-    authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
+    authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
     nativeViewActive,
     /**
      * THE DRAIN'S NO-PTY FACT (POD-2291): this session is behind the runtime
@@ -561,10 +565,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     bag.state.setDraft(input, fromClientId)
   bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
   bag.draftInjectionActive = () => bag.state.draftSyncEnabled()
+  bag.inbox = inbox
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
     state: bag.state,
-    inbox: bag.inbox,
+    inbox,
     machinesForPrincipal: async (principal) =>
       await projectMachinesForPrincipal(
         { machines: bag.machines },
@@ -589,8 +594,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         )
     },
     editDraft: (message, clientId) => bag.state.handleDraftEdit(message, clientId),
-    sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
-    machineUseFor: (principal, sessionId) => bag.machineUseForClient(principal, sessionId),
+    sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
+    machineUseFor: (principal, sessionId) => ownership.machineUseForClient(principal, sessionId),
     sessionOccupancyCount: bag.deps.sessionOccupancyCount
       ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)
       : undefined,
@@ -721,7 +726,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       session.setAgentState(next, false, draft)
       return { prev, next: draft.agentState ?? next }
     },
-    stateChanged: ({ sessionId, prev, next }) => {
+    stateChanged: async ({ sessionId, prev, next }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return
       bag.autoContinue.onStateChange(sessionId, next)
@@ -734,7 +739,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       // agentState frame. The causal event gate remains the single ingress;
       // this callback only publishes its committed projection.
       bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId })
-      bag.inbox.stateChanged({ sessionId, prev, next })
+      await inbox.stateChanged({ sessionId, prev, next })
       if (prev?.phase === 'needs_user' || prev?.phase === 'errored') {
         if (next.phase !== 'needs_user' && next.phase !== 'errored') {
           bag.state.clearAllSnoozes(sessionId)
@@ -810,7 +815,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         'text',
         input.inputOrigin ?? 'controller',
       ),
-    legacy: bag.inbox,
+    legacy: inbox,
     contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
     // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
@@ -847,7 +852,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     bus: bag.bus,
     browserOpen: bag.browserOpen,
     autoContinue: bag.autoContinue,
-    inbox: bag.inbox,
+    inbox,
     state: bag.state,
     projection: bag.daemonProjection,
     store,

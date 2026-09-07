@@ -20,7 +20,7 @@ export interface SessionBindingReceiptsDeps {
   now(): number
   sessions(): Iterable<Session>
   session(sessionId: SessionId): Session | undefined
-  sessionOwner(sessionId: SessionId): SessionOwnership | undefined
+  sessionOwner(sessionId: SessionId): Promise<SessionOwnership | undefined>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
@@ -152,7 +152,7 @@ export class SessionBindingReceipts {
 
     // Ack only after the exact mapping is already in durable server state.
     if (message.ackRequested && message.confidence === 'exact') {
-      const owner = this.deps.sessionOwner(message.sessionId)?.owner
+      const owner = (await this.deps.sessionOwner(message.sessionId))?.owner
       if (!owner) return
       this.deps.toMachine(machineId, {
         type: 'sessionResumeRefAck',
