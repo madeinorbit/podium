@@ -138,6 +138,82 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   })
 
   /**
+   * THE DURABLE ARM OF BOTH OFFER GUARDS [POD-3511].
+   *
+   * Every offer test above this point uses a session the server still holds in
+   * memory, and both guards short-circuit before their durable read on that
+   * path: `dismissOffer` takes `session?.offer?.createdAt` and never evaluates
+   * the right-hand side of the `??`, and `clearOffer` answers from
+   * `clearedInMemory` and never reaches `offerCreatedAt`. So the resident tests
+   * cannot see the durable read at all, and stayed green all the way through the
+   * defect — which is precisely why the fix needs its own cases.
+   *
+   * What was wrong: the store went async and both reads were consumed as if they
+   * were data. A promise is never `=== undefined` and never `!==`-equal to a
+   * stamp string, so neither comparison could go the way it was written. Note
+   * these pin the ANSWERS — a `true`, a `false`, a call that must not happen —
+   * and not the absence of a throw, because the defect never threw.
+   */
+  describe('the durable arm of the offer guards [POD-3511]', () => {
+    /**
+     * THE USER-VISIBLE ONE. "None of these" on a parked or restarted session.
+     *
+     * `dismissOffer` fell back to the durable stamp, compared a promise against
+     * the stamp the user clicked, and refused. It returned false, wrote nothing,
+     * and reported no error: the button did nothing and said nothing.
+     */
+    it('dismisses the offer of a session the server does not hold in memory', async () => {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const gone = asSessionId('dismiss-me-not-in-memory')
+      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      const stamp = await reg.sessionStore.sessions.offerCreatedAt(gone)
+      expect(stamp).toBeTypeOf('string')
+
+      // The TRUE is the claim. An assertion that merely awaited the call would
+      // have passed against the defect just as happily.
+      expect(await reg.modules.sessions.dismissOffer(gone, stamp as string)).toBe(true)
+      expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
+    })
+
+    /**
+     * ...and the stamp still DISCRIMINATES on that same arm. Without this, a
+     * `dismissOffer` that returned true unconditionally would satisfy the case
+     * above. The pair is what makes the guard load-bearing rather than merely
+     * reachable.
+     */
+    it('refuses a stamp that does not name the standing offer, durably too', async () => {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const gone = asSessionId('refuse-me-not-in-memory')
+      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+
+      expect(await reg.modules.sessions.dismissOffer(gone, '1999-01-01T00:00:00.000Z')).toBe(false)
+      // The offer the click did not name is still standing.
+      expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
+    })
+
+    /**
+     * THE DEAD EARLY RETURN. `clearOffer`'s "there is nothing to clear" guard
+     * compared a promise to `undefined`, which is never true, so the guard never
+     * fired and a clear aimed at a session with no row fell straight through to
+     * a DELETE for a row that was not there.
+     *
+     * The resident twin of this is 'clearing when there is no offer writes
+     * nothing and says nothing' above; it short-circuits on memory, which is how
+     * it stayed green while this arm was broken.
+     */
+    it('a non-resident session with no offer row is not cleared at all', async () => {
+      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      const gone = asSessionId('never-had-an-offer-at-all')
+      const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
+
+      await reg.modules.sessions.clearOffer(gone)
+
+      expect(deleted).not.toHaveBeenCalled()
+      deleted.mockRestore()
+    })
+  })
+
+  /**
    * WHAT REACHES CLIENTS, not what reaches the database (POD-1104).
    *
    * Both offer writes have an arm that changes the durable `offers` row without
