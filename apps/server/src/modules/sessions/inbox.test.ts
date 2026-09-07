@@ -175,16 +175,19 @@ function harness(
       reconcileGeometry: vi.fn(),
     },
   } as unknown as Session
+  const getSession = vi.fn((id: SessionId) => (id === SID ? session : undefined))
+  const listQueue = vi.fn(async (id: SessionId) =>
+    rows.filter((row) => row.sessionId === id).sort((a, b) => a.queuedAt - b.queuedAt),
+  )
   const inbox = new SessionInbox({
-    getSession: (id) => (id === SID ? session : undefined),
+    getSession,
     queue: {
       enqueue: async (row) => {
         if (rows.some((existing) => existing.id === row.id)) return false
         rows.push({ ...row, attempts: 0 })
         return true
       },
-      list: async (id) =>
-        rows.filter((row) => row.sessionId === id).sort((a, b) => a.queuedAt - b.queuedAt),
+      list: listQueue,
       bumpAttempts: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts += 1
@@ -292,6 +295,8 @@ function harness(
   })
   return {
     inbox,
+    getSession,
+    listQueue,
     session,
     rows,
     sent,
@@ -366,6 +371,52 @@ const typedTexts = (sent: unknown[]): string[] =>
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('drain invalidation during queue enumeration', () => {
+  it.each(['session replacement', 'inbox disposal'] as const)(
+    'does not resume stale drain work after %s while queue.list is pending',
+    async (invalidation) => {
+      const h = harness({ status: 'parked', transcriptAvailable: true })
+      h.rows.push({
+        id: 'held-row', sessionId: SID, text: 'still queued',
+        principal: agentPrincipal(), queuedAt: 0, attempts: 2,
+        inputOrigin: 'mail', sourceMessageId: null,
+      })
+      let release!: (rows: typeof h.rows) => void
+      const pending = new Promise<typeof h.rows>((resolve) => { release = resolve })
+      const order: string[] = []
+      h.listQueue.mockImplementationOnce(() => {
+        order.push('list pending')
+        return pending
+      })
+      const drain = h.inbox.drain(SID).then(() => { order.push('drain returned') })
+      try {
+        expect(order).toEqual(['list pending'])
+        expect(h.getSession).toHaveReturnedWith(h.session)
+        if (invalidation === 'session replacement') {
+          h.getSession.mockReturnValue({ ...h.session } as Session)
+        } else {
+          h.inbox.dispose()
+        }
+        order.push(invalidation)
+        expect(h.rows[0]?.attempts).toBe(2)
+        order.push('list released')
+        release([...h.rows])
+        await drain
+        expect(order).toEqual(['list pending', invalidation, 'list released', 'drain returned'])
+        expect(h.rows[0]?.attempts, 'invalidated drain must not reset queued delivery attempts').toBe(2)
+        expect(h.listQueue, 'invalidated drain must stop before its next queue read').toHaveBeenCalledTimes(1)
+        expect(h.write).not.toHaveBeenCalled()
+        expect(h.resurrect).not.toHaveBeenCalled()
+        expect(h.sent).toEqual([])
+      } finally {
+        release([])
+        await drain
+        h.inbox.dispose()
+      }
+    },
+  )
 })
 
 describe('SessionInbox persistence completion', () => {
