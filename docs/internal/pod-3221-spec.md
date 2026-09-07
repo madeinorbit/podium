@@ -407,6 +407,20 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 
 ## 5. Definition of done
 
+### Transitional instrument deletion record
+
+B2.4 deletion census (2026-09-07). Low-level `SqlDatabase` and `SqlStatement`
+remain required by drivers, migrations and fixtures; they are not synchronous store ports.
+
+| Instrument | Deletion commit or release evidence |
+|---|---|
+| Synchronous transaction helper, export and `SqlTransactionScope` | `094f3fb1365edfd96f5c9fd1c8295330b74cceb6` |
+| Synchronous Drizzle port, builder and factory | `094f3fb1365edfd96f5c9fd1c8295330b74cceb6` |
+| Executor `legacy` field | `9f0d5c33e`; residual comments and harness exclusion removed in `094f3fb1365edfd96f5c9fd1c8295330b74cceb6` |
+| Flip codemod, metadata, fixed-point checker and package commands | `094f3fb1365edfd96f5c9fd1c8295330b74cceb6` |
+| Final production decision marker | `094f3fb1365edfd96f5c9fd1c8295330b74cceb6` (resolved by rule 57) |
+| Freeze lock | `podium lock status freeze:pod-3221-flip` reports free on 2026-09-07; no file deletion |
+
 ### 5.1 "Keeps running stably as it is today"
 
 - **No behaviour change on SQLite.** The existing store and service tests are the oracle. For
