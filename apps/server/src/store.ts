@@ -68,7 +68,12 @@ import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
-import { createBunStoreExecutor, type QueryClient, type RootStoreExecutor } from './store/executor'
+import {
+  createBunStoreExecutor,
+  type QueryClient,
+  type RootStoreExecutor,
+  type WatchdogOptions,
+} from './store/executor'
 import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
@@ -242,12 +247,18 @@ export class SessionStore {
     path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
     snapshotVerifierDeps: SnapshotVerifierDeps = {},
+    watchdog: WatchdogOptions = {
+      report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
+      onReportFailure: (error) =>
+        log.error('transaction watchdog sink failed', { error: String(error) }),
+    },
   ): Promise<SessionStore> {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     let database = await openStoreDatabase(path)
     let executor = createBunStoreExecutor({
       database,
       startOpen: true,
+      watchdog,
       effectSink: (error, label) =>
         log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
     })
@@ -263,6 +274,7 @@ export class SessionStore {
         executor = createBunStoreExecutor({
           database,
           startOpen: true,
+          watchdog,
           effectSink: (error, label) =>
             log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
         })

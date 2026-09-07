@@ -65,7 +65,7 @@ import {
   PostCommitRunner,
   type PostCommitStep,
 } from './post-commit'
-import { createScheduler, type Lease, type Scheduler, type WatchdogReport } from './scheduler'
+import { createScheduler, type Lease, type Scheduler, type WatchdogOptions } from './scheduler'
 
 /**
  * Register an external effect (mechanism 3) that must not run inside an open
@@ -240,7 +240,7 @@ export interface StoreExecutorOptions<TClient> {
   /** One second preserves a fast restart while giving ordinary effects time to finish. */
   effectDrainGraceMs?: number
   drainGraceMs?: number
-  watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
+  watchdog?: WatchdogOptions
   now?: () => number
   /** Mechanism 3's report sink. Failures are reported, never rethrown. */
   effectSink?: (error: unknown, label: string) => void
