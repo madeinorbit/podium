@@ -3345,3 +3345,52 @@ timeouts using a `grep -B 40 "Test timed out"` window, which swept in neighbours
 that itself and reported it. A crude proximity window is not a classifier; match the failure to
 its own test name, and state the timeout count per arm so the reader can see whether any
 conclusion rests on one.
+
+### Rule 61 — THREE DEFENCES, and they catch different things: the pre-flip diff, the typecheck, the tests
+
+POD-3525's most valuable section is where its own method failed. Three times, each caught by a
+**different** defence, and no two of the three would have sufficed.
+
+**(a) A heuristic was wrong three times in four.** Its "sibling inside the held window" widening
+proposed four candidates; two were *consuming* uses (`const record = await enqueued`) that it
+would have broken. Only comparing against the pre-flip file separated them. It dropped the
+heuristic from the shipped rule rather than keeping it with caveats.
+
+**(b) A file BYTE-IDENTICAL to `9f0d5c33e^` still carried the defect.** `maintenance/service.test.ts:453`
+passed every text check — but its *callee* went from `(id) =>` to `async (id) =>` in the flip, so
+a field was being read off a promise under a line that had not changed. **The typecheck caught
+it; the diff could not.**
+
+**(c) A callee that was ALREADY async still regressed.** `scanReposAll()` was async before the
+flip, but the store going async moved an `await` to the top of its body, so a fan-out that used
+to be queued synchronously with the call no longer is. Three tests regressed. **Only running
+them caught it.**
+
+**THE RULE.** Comparing against the pre-flip file cannot see a callee whose asyncness changed
+under an unchanged line. So for any conversion of this class, all three of:
+
+| defence | catches |
+|---|---|
+| diff against pre-flip | a line the flip changed that it should not have |
+| typecheck | a value whose *type* moved because a callee's signature moved |
+| running the tests | an ORDERING that moved because a callee's body moved |
+
+This is the third time the epic has been bitten by trusting one of the three. POD-3508's
+control-arm typecheck 404'd and read as a perfect zero; POD-3515 found a defect had shipped past
+a test that was already red; and now a byte-identical file carrying a live defect. **A green
+from one defence is not a result — it is one of three.**
+
+**AND READ THE SHAPE SPLIT THE RIGHT WAY ROUND.** POD-3525's five-lane comparison:
+
+```
+                 failed   timeout-shaped   assertion-shaped
+control (bug)      338          76               262
+fix                351          14               337
+```
+
+The assertion count **rises**, and that is the fix working: a deadlocked test never reaches its
+own assertion. `daemon-request.test.ts` went 10 timeout-shaped / 0 assertion-shaped to 1 / 9,
+and 200s to 20s — the same ten failures, but nine can now reach the assertion they would always
+have failed. Reading a rising assertion count as a regression would have been exactly backwards.
+Worse, the control arm's store lane **silently ran 3 of its 6 files**: 22 tests never executed
+at all under the bug, so the control's own totals understate it.
