@@ -246,7 +246,7 @@ describe('composition threads deployment identity explicitly', () => {
     const session = await store.sessions.getSession(sessionId)
     expect(session?.durableLabel).toBe('podium-blue-' + sessionId)
 
-    const headless = registry.modules.sessions.headless.createHeadlessSession({
+    const headless = await registry.modules.sessions.headless.createHeadlessSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })

@@ -194,8 +194,8 @@ describe('bounded headless session identity', () => {
       requireNoTools: true,
     }
 
-    expect(h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
-    expect(h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
+    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
+    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
     expect(
       (await h.registry.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId),
     ).toMatchObject({
@@ -232,13 +232,13 @@ describe('bounded headless session identity', () => {
     })
     h.resolveTurn(request, { output: '{}' })
     await expect(turn).resolves.toMatchObject({ ok: true })
-    expect(() =>
+    await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
         ...input,
         accountId: asAccountId('native:claude-code:different'),
       }),
-    ).toThrow(/mismatched headless session/)
-    expect(() =>
+    ).rejects.toThrow(/mismatched headless session/)
+    await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
         ...input,
         createdBy: {
@@ -246,32 +246,32 @@ describe('bounded headless session identity', () => {
           onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       }),
-    ).toThrow(/mismatched headless session/)
+    ).rejects.toThrow(/mismatched headless session/)
   })
 
   it('refuses unsupported no-tools sessions before dispatch', async () => {
     const h = await harness()
-    expect(() =>
+    await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
         agentKind: 'codex',
         cwd: '/r',
         requireNoTools: true,
       }),
-    ).toThrow(/cannot enforce a no-tools headless session/)
-    expect(() =>
+    ).rejects.toThrow(/cannot enforce a no-tools headless session/)
+    await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
         agentKind: 'claude-code',
         cwd: '/r',
         accountId: asAccountId('native:claude-code'),
         requireNoTools: true,
       }),
-    ).toThrow(/exact native account fingerprint/)
+    ).rejects.toThrow(/exact native account fingerprint/)
     expect(h.turnReqs).toHaveLength(0)
   })
 
   it('keeps ordinary legacy headless sessions runnable without a bound account', async () => {
     const h = await harness()
-    const { sessionId } = h.registry.modules.sessions.headless.createHeadlessSession({
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
       agentKind: 'claude-code',
       cwd: '/r',
     })

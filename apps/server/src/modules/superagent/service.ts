@@ -674,7 +674,7 @@ export class SuperagentService {
     const bound = thread.podiumSessionId
     if (bound && await this.sessionById(bound)) return bound
     const agent = HarnessAgent.safeParse(thread.agentKind)
-    const { sessionId } = this.modules.headless.createHeadlessSession({
+    const { sessionId } = await this.modules.headless.createHeadlessSession({
       agentKind: agent.success
         ? agent.data
         : superagentHarnessAgent(await this.store.settings.getSettingsFor(thread.ownerUserId)),
@@ -1025,7 +1025,7 @@ export class SuperagentService {
       // an orphan journal; the accepted user turn can never be replayed twice.
       await this.store.superagent.deletePendingTurn(pending.turnId)
       if (hasDurableHeadlessResultIdentity(result)) {
-        this.modules.headless.headlessTurnAck(
+        await this.modules.headless.headlessTurnAck(
           pending.podiumSessionId,
           pending.turnId,
           result.requestDigest,
@@ -1114,7 +1114,7 @@ export class SuperagentService {
     for (const queued of await this.store.superagent.listQueuedInputs(threadId)) {
       await this.store.superagent.deleteQueuedInput(queued.inputId)
     }
-    this.modules.headless.headlessInterrupt(thread.podiumSessionId)
+    await this.modules.headless.headlessInterrupt(thread.podiumSessionId)
     for (const pending of await this.store.superagent.listPendingTurns()) {
       if (pending.threadId !== threadId) continue
       if (this.interruptFallbacks.has(pending.turnId)) continue
@@ -1144,7 +1144,7 @@ export class SuperagentService {
     for (const queued of await this.store.superagent.listQueuedInputs(threadId)) {
       await this.store.superagent.deleteQueuedInput(queued.inputId)
     }
-    if (podiumSessionId) this.modules.headless.headlessInterrupt(podiumSessionId)
+    if (podiumSessionId) await this.modules.headless.headlessInterrupt(podiumSessionId)
     for (const pending of await this.store.superagent.listPendingTurns()) {
       if (pending.threadId !== threadId) continue
       const fallback = this.interruptFallbacks.get(pending.turnId)

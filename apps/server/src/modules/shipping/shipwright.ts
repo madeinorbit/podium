@@ -812,7 +812,7 @@ export class ShipwrightService {
       throw new Error('shipwright result acknowledgement fence mismatch')
     }
     for (const receipt of envelope.receipts) {
-      this.deps.headless.headlessTurnAck(
+      await this.deps.headless.headlessTurnAck(
         receipt.sessionId,
         receipt.turnId,
         receipt.requestDigest,
@@ -889,7 +889,7 @@ export class ShipwrightService {
         evidence: [],
       }
     }
-    this.deps.headless.createHeadlessSession({
+    await this.deps.headless.createHeadlessSession({
       sessionId,
       agentKind: route.agent,
       cwd: input.issue.repoPath,
