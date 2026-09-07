@@ -205,18 +205,18 @@ export interface MessageDeliveryDeps {
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
     queuedMessagePosition?(sessionId: SessionId, sourceMessageId: string): number | undefined
-    sendText(input: InboxDeliveryInput): {
+    sendText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
-    queueText(input: InboxDeliveryInput): {
+    }>
+    queueText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
+    }>
     cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     /** Whether a composer draft is typed into the agent's own prompt line on
@@ -229,12 +229,12 @@ export interface MessageDeliveryDeps {
      *  exists to not corrupt someone's typing. */
     draftInjectionActive?(): boolean
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    interruptText(input: InboxDeliveryInput): {
+    interruptText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
+    }>
     /**
      * THE RECEIPT PATH (POD-1761 W4), and the ONLY send port delivery uses when
      * it is wired.

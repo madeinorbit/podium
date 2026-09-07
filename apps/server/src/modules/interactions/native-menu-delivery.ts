@@ -35,7 +35,7 @@ export interface NativeMenuDeliveryDeps {
     sessionId: SessionId
     choices: AnswerChoice[]
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string }
+  }): Promise<{ ok: boolean; reason?: string }>
 }
 
 export interface NativeMenuDeliveryInput {
@@ -115,10 +115,10 @@ export function nativeMenuChoices(
  * PRE-SEND refusal — the gate, the mapping, or the inbox's own deliverability
  * check — so a caller may treat it as "nothing was typed" and reopen the ask.
  */
-export function deliverToNativeMenu(
+export async function deliverToNativeMenu(
   deps: NativeMenuDeliveryDeps,
   input: NativeMenuDeliveryInput,
-): { ok: boolean; reason?: string } {
+): Promise<{ ok: boolean; reason?: string }> {
   // THE GATE FIRST, and it is about the SCREEN, not about the session's
   // lifecycle status: a session still `starting` with its onboarding dialog up
   // is exactly the case this route exists for, and it is the phase that says

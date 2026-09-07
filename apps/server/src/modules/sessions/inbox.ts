@@ -311,7 +311,7 @@ export interface SessionInboxDeps {
     attribution: Attribution,
     kind: 'text' | 'answer',
     origin: ObservationInputOrigin,
-  ): void
+  ): Promise<void>
   ownerOf(sessionId: SessionId): UserId | null | undefined
   /** Seed/restore the server-persisted composer draft without a client echo. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
@@ -697,11 +697,11 @@ export class SessionInbox {
    * keeps the proof requirement recognizable if the server restarts before the
    * first turn is observed.
    */
-  queueInitialPrompt(input: InboxSendInput): {
+  async queueInitialPrompt(input: InboxSendInput): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     return this.queueText({
       ...input,
       mutationId: asMutationId(initialPromptQueueId(input.sessionId)),
@@ -754,11 +754,11 @@ export class SessionInbox {
     return undefined
   }
 
-  sendText(input: InboxSendInput): {
+  async sendText(input: InboxSendInput): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
@@ -807,14 +807,28 @@ export class SessionInbox {
     ) {
       return this.queueText(input)
     }
+    if (
+      !session ||
+      (session.status !== 'live' && session.status !== 'starting') ||
+      this.deps.serverDriven?.(session) === true ||
+      session.agentState?.phase === 'needs_user'
+    )
+      return { ok: false }
+    // Complete metadata admission before entering the synchronous byte path.
+    await this.deps.prepareSend(
+      input.sessionId,
+      (input.principal ?? SYSTEM_INBOX_PRINCIPAL).attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
     return this.typeText(input)
   }
 
-  resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): {
+  async resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
@@ -823,7 +837,9 @@ export class SessionInbox {
     return this.queueText({ ...input, mutationId: input.mutationId })
   }
 
-  interruptText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
+  async interruptText(
+    input: InboxSendInput,
+  ): Promise<{ ok: boolean; queued?: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
@@ -837,6 +853,19 @@ export class SessionInbox {
     // than refused — the message still lands, which is the point of this path.
     // Skipping matters for a harness whose key exits when idle: an
     // interrupt-urgency message must never be the thing that kills the session.
+    await this.deps.prepareSend(
+      input.sessionId,
+      principal.attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'session changed during admission' }
+    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (currentRefusal) return { ok: false, reason: currentRefusal }
     const abort = this.abortKeyFor(session)
     if (abort) {
       this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
@@ -868,7 +897,9 @@ export class SessionInbox {
    * is the delivery those sessions actually have; every server driver
    * implements `interrupt()` and none of them was ever called.
    */
-  async interruptTurn(input: Omit<InboxSendInput, 'text'>): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
+  async interruptTurn(
+    input: Omit<InboxSendInput, 'text'>,
+  ): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
@@ -1067,11 +1098,11 @@ export class SessionInbox {
     return abort.bytes
   }
 
-  queueText(input: InboxSendInput & { mutationId?: MutationId }): {
+  async queueText(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
@@ -1094,6 +1125,19 @@ export class SessionInbox {
       this.drain(input.sessionId)
       return { ok: true, queued: true }
     }
+    // Persist admission before a row can be drained or reported as queued.
+    await this.deps.prepareSend(
+      input.sessionId,
+      principal.attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
+    if (this.deps.getSession(input.sessionId) !== session)
+      return { ok: false, reason: 'session changed during admission' }
+    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (currentRefusal) return { ok: false, reason: currentRefusal }
+    if (input.sourceMessageId && this.hasQueuedMessage(input.sessionId, input.sourceMessageId))
+      return { ok: true, queued: true }
     const inserted = this.deps.queue.enqueue({
       id: input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
@@ -1111,12 +1155,6 @@ export class SessionInbox {
           draft.queuedMessageCount += 1
         },
         { cancelTerminalCandidate: true },
-      )
-      this.deps.prepareSend(
-        input.sessionId,
-        principal.attribution,
-        'text',
-        input.inputOrigin ?? 'controller',
       )
       this.deps.broadcast()
     }
@@ -1236,8 +1274,7 @@ export class SessionInbox {
     this.drainGenerations.set(sessionId, drainGeneration)
     this.activeDrains.add(sessionId)
     const isCurrent = (): boolean =>
-      this.drainGenerations.get(sessionId) === drainGeneration &&
-      this.activeDrains.has(sessionId)
+      this.drainGenerations.get(sessionId) === drainGeneration && this.activeDrains.has(sessionId)
     // A PTY we are watching come up — parked as this pass begins, or bound so
     // recently that the caller is telling us so. Its CLI has proven nothing yet,
     // and it is the only case whose readiness the quiet heuristic gets wrong.
@@ -1542,7 +1579,7 @@ export class SessionInbox {
        * actual boundary rather than stretched past it: every row here is one
        * whose delivery is proven from the transcript, and exact matching only
        * ever ADDS to what such a row can prove.
-      */
+       */
       const exactNeedle = firstPromptNeedsProof || needsReadinessProof
       const needle = confirmationNeedle(head.text, exactNeedle)
       if (!this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
@@ -1629,7 +1666,6 @@ export class SessionInbox {
         principal: head.principal,
         allowErrored: this.recoveryDrains.has(sessionId),
         ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
-        recordSend: false,
       })
       if (!sent.ok) {
         // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
@@ -2010,12 +2046,12 @@ export class SessionInbox {
    * not answer stay on their first row, and the closing CR would commit those
    * rows as if the operator had picked them. The caller surfaces the reason.
    */
-  answerAskUserQuestion(input: {
+  async answerAskUserQuestion(input: {
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string } {
+  }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     // Attention is per-owner. An unresolved owner is not an invitation to send
@@ -2033,6 +2069,16 @@ export class SessionInbox {
       if (why) return { ok: false, reason: why }
     }
     const attribution = input.principal.attribution
+    // Retire the offer before the first answer keystroke is scheduled.
+    const answerState = session.agentState
+    await this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      session.agentState !== answerState ||
+      this.deps.ownerOf(input.sessionId) !== ownerUserId ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'session changed during answer admission' }
     let delayMs = 0
     let typed = false
     const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
@@ -2065,8 +2111,6 @@ export class SessionInbox {
       }
       if (typed && !isLoneSingleSelect(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
     }
-    // Answering the agent's question is always a person acting.
-    this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
@@ -2246,10 +2290,8 @@ export class SessionInbox {
     this.deps.getSession(sessionId)?.terminal.reconcileGeometry(client.id)
   }
 
-  private typeText(
-    input: InboxSendInput & { recordSend?: boolean },
-    afterEsc = false,
-  ): { ok: boolean } {
+  /** Bytes for an already-admitted turn; drain retries must not retire a newer offer. */
+  private typeText(input: InboxSendInput, afterEsc = false): { ok: boolean } {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
@@ -2263,13 +2305,6 @@ export class SessionInbox {
     if (this.deps.serverDriven?.(session) === true) return { ok: false }
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    if (input.recordSend !== false)
-      this.deps.prepareSend(
-        input.sessionId,
-        principal.attribution,
-        'text',
-        input.inputOrigin ?? 'controller',
-      )
     const baseline = session.terminal
       .transcriptItems()
       .filter((item) => item.role === 'user').length

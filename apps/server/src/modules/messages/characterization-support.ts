@@ -332,9 +332,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     issues,
     sessions: {
       listSessions: () => sessions,
-      sendText: record('sendText'),
-      queueText: record('queueText'),
-      interruptText: record('interruptText'),
+      sendText: async (input) => record('sendText')(input),
+      queueText: async (input) => record('queueText')(input),
+      interruptText: async (input) => record('interruptText')(input),
       ...(receiptOpts ? { receiptSend } : {}),
     },
     // Production wires both legacy-mirror seams; the #463 regression class and

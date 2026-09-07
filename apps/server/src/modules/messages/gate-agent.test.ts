@@ -113,15 +113,15 @@ async function harness(opts?: {
     issues: fakeIssues(),
     sessions: {
       listSessions: () => sessions,
-      sendText: (i) => {
+      sendText: async (i) => {
         sent.push({ fn: 'sendText', ...i })
         return { ok: true }
       },
-      queueText: (i) => {
+      queueText: async (i) => {
         sent.push({ fn: 'queueText', ...i })
         return { ok: true, queued: true }
       },
-      interruptText: (i) => {
+      interruptText: async (i) => {
         sent.push({ fn: 'interruptText', ...i })
         return { ok: true, queued: true }
       },

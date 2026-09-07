@@ -94,26 +94,28 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     queueNotEmpty = false,
     reasons: { archive?: string; failure?: string } = {},
     nativeView = false,
+    prepareSend: () => Promise<void> = async () => {},
   ) => {
     const forwarded: string[] = []
     const forwardedAttachments: unknown[] = []
     const enqueued: string[] = []
     const legacy: string[] = []
     const s = new ReceiptSender({
+      prepareSend,
       legacy: {
-        sendText: () => {
+        sendText: async () => {
           legacy.push('now')
           return { ok: true }
         },
-        queueText: () => {
+        queueText: async () => {
           legacy.push('queue')
           return { ok: true, queued: true }
         },
-        interruptText: () => {
+        interruptText: async () => {
           legacy.push('interrupt')
           return { ok: true }
         },
-        resumeAndSend: () => {
+        resumeAndSend: async () => {
           legacy.push('wake')
           return { ok: true }
         },
@@ -132,7 +134,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
         },
       },
       queue: {
-        enqueue: (input) => {
+        enqueue: async (input) => {
           enqueued.push(input.text)
           return { ok: true, position: 1 }
         },
@@ -154,6 +156,29 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     return { s, forwarded, forwardedAttachments, enqueued, legacy }
   }
 
+  it('holds a contract send until offer retirement completes', async () => {
+    let release!: () => void
+    const retirement = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { s, forwarded } = sender(true, false, {}, false, () => retirement)
+    const pending = s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })
+    expect(forwarded).toEqual([])
+    release()
+    expect((await pending).ok).toBe(true)
+    expect(forwarded).toEqual(['when-ready'])
+  })
+
+  it('refuses a contract send when offer retirement fails', async () => {
+    const { s, forwarded } = sender(true, false, {}, false, async () => {
+      throw new Error('offer retirement refused')
+    })
+    await expect(s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })).rejects.toThrow(
+      'offer retirement refused',
+    )
+    expect(forwarded).toEqual([])
+  })
+
   it('completes a queued send on the server and forwards nothing', async () => {
     const { s, forwarded, enqueued } = sender(true)
     const r = await s.send('queue', { sessionId: asSessionId('s1'), text: 'durable' })
@@ -173,29 +198,29 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(forwarded).toEqual([])
   })
 
-  it.each([false, true])(
-    'archive refusal outranks allowErrored before the contract=%s send seam',
-    async (onContract) => {
-      const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
-        archive: 'session is archived',
-        failure: 'provider failed',
-      })
+  it.each([
+    false,
+    true,
+  ])('archive refusal outranks allowErrored before the contract=%s send seam', async (onContract) => {
+    const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
+      archive: 'session is archived',
+      failure: 'provider failed',
+    })
 
-      for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
-        expect(
-          await s.send(via, {
-            sessionId: asSessionId('s1'),
-            text: 'do not revive',
-            allowErrored: true,
-          }),
-        ).toEqual({ ok: false, reason: 'session is archived' })
-      }
+    for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
+      expect(
+        await s.send(via, {
+          sessionId: asSessionId('s1'),
+          text: 'do not revive',
+          allowErrored: true,
+        }),
+      ).toEqual({ ok: false, reason: 'session is archived' })
+    }
 
-      expect(forwarded).toEqual([])
-      expect(enqueued).toEqual([])
-      expect(legacy).toEqual([])
-    },
-  )
+    expect(forwarded).toEqual([])
+    expect(enqueued).toEqual([])
+    expect(legacy).toEqual([])
+  })
 
   it('allowErrored still crosses a provider failure when archive is absent', async () => {
     const { s, enqueued } = sender(true, false, { failure: 'provider failed' })
@@ -307,15 +332,16 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // far from the cause, as duplicated or stuck work.
     const rows: Record<string, unknown>[] = []
     const s = new ReceiptSender({
+      prepareSend: async () => {},
       legacy: {
-        sendText: () => ({ ok: true }),
-        queueText: () => ({ ok: true, queued: true }),
-        interruptText: () => ({ ok: true }),
-        resumeAndSend: () => ({ ok: true }),
+        sendText: async () => ({ ok: true }),
+        queueText: async () => ({ ok: true, queued: true }),
+        interruptText: async () => ({ ok: true }),
+        resumeAndSend: async () => ({ ok: true }),
       },
       contract: { send: async () => ({ outcome: 'refused', refusal: { reason: 'not_running' } }) },
       queue: {
-        enqueue: (input) => {
+        enqueue: async (input) => {
           rows.push(input as unknown as Record<string, unknown>)
           return { ok: true, position: 1 }
         },
@@ -353,7 +379,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
   it('forwards only the live deliveries, and only those', async () => {
     const { s, forwarded, enqueued } = sender(true)
     expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true })
-    expect(await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({ ok: true })
+    expect(await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({
+      ok: true,
+    })
 
     expect(forwarded).toEqual(['when-ready', 'interrupt'])
     expect(enqueued).toEqual([])
@@ -389,14 +417,15 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // process-level unhandled rejection rather than a quiet no-op.
     const seen: string[] = []
     const s = new ReceiptSender({
+      prepareSend: async () => {},
       legacy: {
-        sendText: () => ({ ok: true }),
-        queueText: () => ({ ok: true, queued: true }),
-        interruptText: () => ({ ok: true }),
-        resumeAndSend: () => ({ ok: true }),
+        sendText: async () => ({ ok: true }),
+        queueText: async () => ({ ok: true, queued: true }),
+        interruptText: async () => ({ ok: true }),
+        resumeAndSend: async () => ({ ok: true }),
       },
       contract: { send: () => Promise.reject(new Error('daemon went away')) },
-      queue: { enqueue: () => ({ ok: true, position: 1 }) },
+      queue: { enqueue: async () => ({ ok: true, position: 1 }) },
       onContract: () => true,
       liveWithEmptyQueue: () => true,
       queueNotEmpty: () => false,
@@ -410,7 +439,9 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     })
 
     // No reconciler: must not throw, and must not leave a rejection unobserved.
-    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({ ok: true })
+    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({
+      ok: true,
+    })
 
     await s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
       seen.push(

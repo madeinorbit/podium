@@ -207,12 +207,12 @@ describe('queueText (durable outbox sends)', () => {
         },
       }
       expect(
-        reg.modules.sessions.queueText({
+        (await reg.modules.sessions.queueText({
           sessionId: target,
           text: 'must not cross revocation',
           mutationId: asMutationId('revoke-before-drain'),
           principal,
-        }),
+        })),
       ).toEqual({ ok: true, queued: true })
 
       // User lifecycle writes intentionally have no repository API yet.
@@ -249,7 +249,7 @@ describe('queueText (durable outbox sends)', () => {
       daemon.length = 0
 
       expect(
-        reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' }),
+        (await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })),
       ).toEqual({
         ok: true,
         queued: true,
@@ -310,11 +310,11 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = await hibernatedSession(regA)
       regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       expect(
-        regA.modules.sessions.queueText({
+        (await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),
           text: 'wake',
           mutationId: asMutationId('restart-wake'),
-        }),
+        })),
       ).toEqual({ ok: true, queued: true })
       regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
         type: 'agentExit',
@@ -440,7 +440,7 @@ describe('queueText (durable outbox sends)', () => {
     })
     daemon.length = 0
 
-    expect(reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
+    expect((await reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' }))).toEqual({
       ok: false,
       reason: 'no resume ref',
     })
@@ -460,10 +460,10 @@ describe('queueText (durable outbox sends)', () => {
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
       const sessionId = await hibernatedSession(regA)
       expect(
-        regA.modules.sessions.queueText({
+        (await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),
           text: 'survive-restart',
-        }),
+        })),
       ).toEqual({
         ok: true,
         queued: true,
@@ -522,8 +522,8 @@ describe('queueText (durable outbox sends)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-      reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
-      reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
       expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(2)
 
       // Silent TUI → the readiness window falls back to its ceiling and the head
@@ -575,7 +575,7 @@ describe('queueText (durable outbox sends)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
 
       vi.advanceTimersByTime(26_000)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
@@ -623,7 +623,7 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.modules.sessions.queueText({
+    await reg.modules.sessions.queueText({
       sessionId: asSessionId(sessionId),
       text: 'queued-while-parked',
     })
@@ -654,7 +654,7 @@ describe('queueText (durable outbox sends)', () => {
     })
     expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
 
-    reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
+    await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
     expect('snoozedUntil' in ((await reg.modules.sessions.listSessions())[0] ?? {})).toBe(false)
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
@@ -738,8 +738,8 @@ describe('framework idempotency (modules.mutations)', () => {
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       const send = async () =>
-        await reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', () =>
-          reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
+        await reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', async () =>
+          (await reg.modules.sessions.sendText({ sessionId, text: 'only-once' })),
         )
       // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES (POD-2842): the send is
       // accepted and HELD, not typed. `queued: true` is the caller's warning
