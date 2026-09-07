@@ -3655,3 +3655,27 @@ the gate on control arms taken at the integration tip. 65a is the opposite error
 a correct `dev/mw` ancestry check on the *wrong line*, producing a confident "inherited" that is
 wrong. A pickaxe result is evidence about a LINE. Deciding it is evidence about a FAILURE takes one
 more step, and that step is naming which side of the contract moved.
+
+### Rule 66 — VERIFY A REF EVEN WHEN AN AUTHORITY HANDS IT TO YOU
+
+POD-3511-A's correction, and the error was mine.
+
+I told it, verbatim, "They are now POD-3577." POD-3577 is *Bug: mobile typecheck failures* — unrelated.
+It took the ref in good faith and propagated it through an audit, an artifact, and a mail, four
+repetitions, each looking corroborated by the last. Its acceptance criterion would have landed on a
+mobile-typecheck issue where nobody would ever have read it, and it had already mailed a long essay
+about offer observation to a worker who had no idea what it was about.
+
+**Its sharpening is the rule, not mine.** "Check the ref before you cite it" is right but toothless;
+the version that would have caught this is:
+
+> **Check it even when someone else hands it to you — a wrong ref from an authoritative source is
+> the one nobody checks.**
+
+`podium issue show <ref>` costs four seconds. Two of us in sequence declined to spend them.
+
+**WHY THIS EPIC IS UNUSUALLY EXPOSED.** Refs move here. Fourteen findings were filed top-level and
+recreated under the epic with *new numbers*, so notes, artifacts and mails written an hour earlier
+cite refs that now point at something else. A stale ref does not error — it resolves, to the wrong
+issue, silently. That is the same shape as every other defect in this epic: the failure is not that
+nothing happens, it is that something plausible happens instead.
