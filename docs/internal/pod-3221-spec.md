@@ -3567,3 +3567,27 @@ uninformative noise. **A failure bucket with no message text is the finding**, n
 *This is rule 44 applied to a counter rather than a guard: a check whose pass is silence must be
 shown to fail before its silence counts. Eight instruments in this epic have now been caught
 reporting success for work they did not do.*
+
+### Rule 64 — THE EXIT CODE AND THE ASSERTION RESULTS ARE INDEPENDENT SIGNALS
+
+This epic has now been bitten from both directions, and neither reading is safe alone.
+
+| | assertions | exit code | what it was |
+|---|---|---|---|
+| POD-3531 | none executed | **0** | the runner announced 446 files and ran none |
+| POD-3502 gate | none matched | **0** | a vitest filter that matched no file "passed" |
+| POD-3586 | **12 pass** | **1** | an unhandled rejection derived from a handled promise |
+
+POD-3586 is the newest and the inverse of the familiar one. `mutation-ledger.ts` stores
+`tracked = owner.then(…)` in `inFlight` but awaits `owner`. With a joiner, `tracked` is awaited and
+all is well; with **no** joiner, the caller catches `owner`'s rejection and `tracked`'s rejection
+has no observer — so the test file passes every assertion it makes and vitest exits 1.
+
+**Read both, every time.** Triaging by exit code alone sends you hunting a failing assertion that
+does not exist; triaging by assertion count alone calls the file green and ships an unhandled
+rejection. State both in a handoff — "12 passed, exit 1" is a complete report and "12 passed" is not.
+
+**And note what makes it invisible to the type system:** a promise derived from a correctly handled
+promise is not a promise anyone forgot to handle. `owner` is awaited, `tracked` is stored. Every
+individual line is right. Rule 52c's blind half again — no compiler has an opinion about who
+observes a derived promise.
