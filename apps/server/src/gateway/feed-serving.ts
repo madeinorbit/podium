@@ -201,7 +201,10 @@ interface CachedWorld {
 }
 
 /** One admitted client, as this module needs it. */
-export interface FeedPeer extends EdgePeer {}
+export interface FeedPeer extends EdgePeer {
+  /** End a failed admission's transport; absent for in-process sinks. */
+  terminate?(): void
+}
 
 export interface FeedServingDeps {
   /** The kernel role. Both reads come from it, which is the whole point. */
@@ -292,6 +295,10 @@ export class FeedServing {
    * Admit a connection and serve it its world. Returns a 426 instead when the
    * version it announced is outside the supported window.
    *
+   * Null means the version was accepted, not that a world or resume has been
+   * delivered. Admission continues asynchronously under {@link defer}; failure
+   * removes feed registration and terminates the transport so the client can retry.
+   *
    * Idempotent per peer id: a re-attach at a NEW version keeps the connection's
    * position (see {@link renegotiate}); nothing here re-reads the world for a
    * connection that already has one.
@@ -355,7 +362,8 @@ export class FeedServing {
    * defect is answered here rather than left implicit:
    *
    *   OBSERVABLE   the promise is retained, and {@link admissionSettled} awaits it.
-   *   REPORTED     a rejection is logged. It was an unhandled rejection before,
+   *   REPORTED     a rejection is logged and the owning peer is detached and
+   *                its transport terminated. It was an unhandled rejection before,
    *                so a world that failed to be read was a client waiting forever
    *                for a bootstrap and nothing anywhere saying why.
    *   EXCLUSIVE    the slot IS the "in flight" flag {@link spokenFor} reads, so a
@@ -368,7 +376,18 @@ export class FeedServing {
     if (this.admissions.has(peerId)) return
     const admission: Promise<void> = start()
       .catch((error: unknown) => {
-        log.error('a feed admission failed — the peer holds no position', { peer: peerId, error })
+        log.error('a feed admission failed', { peer: peerId, error })
+        // A detached admission must not evict a replacement using the same id.
+        if (this.admissions.get(peerId) !== admission) return
+        const peer = this.peers.get(peerId)
+        this.detach(peerId)
+        // Transport failure must not turn the rejection handler into another
+        // unhandled rejection. Feed registration has already been removed.
+        try {
+          peer?.terminate?.()
+        } catch (error) {
+          log.error('failed to terminate a rejected feed peer', { peer: peerId, error })
+        }
       })
       .then(() => {
         // Only the admission that OWNS the slot may clear it: a detach-and-
