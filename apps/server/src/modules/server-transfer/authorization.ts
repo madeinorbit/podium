@@ -1,5 +1,5 @@
 import { asMachineId, type UserId, type UserRole } from '@podium/model'
-import { checkMachineVerb, ownershipFromMachines } from '../../machine-access'
+import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
 import { userCommandPrincipal } from '../../command-principal'
 import { decodeOperationActor } from '../operations/actor'
 import type { MachinesService } from '../machines/service'
@@ -35,7 +35,7 @@ export function serverMoveAuthorization(
       const refusal = checkMachineVerb(
         principal,
         asMachineId(deps.targetMachineId),
-        ownershipFromMachines(deps.machines),
+        await ownershipSnapshotFromMachines(deps.machines),
         'manage',
       )
       if (refusal) {

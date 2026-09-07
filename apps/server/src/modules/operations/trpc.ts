@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { checkMachineVerb, ownershipFromMachines } from '../../machine-access'
+import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 
@@ -40,7 +40,7 @@ async function assertActionAuthorized(ctx: Context, operationId: string): Promis
   const failure = checkMachineVerb(
     principal,
     asMachineId(targetMachineId),
-    ownershipFromMachines(familyState(ctx).modules.machines),
+    await ownershipSnapshotFromMachines(familyState(ctx).modules.machines),
     'manage',
   )
   if (!failure) return

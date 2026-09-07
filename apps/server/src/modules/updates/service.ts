@@ -1459,7 +1459,7 @@ export class UpdatesService {
      * that constitute the wave under hundreds that changed nothing.
      */
     if ((await issued).length > 0) {
-      const granted = (await issued).map(async (machineId) => {
+      const granted = (await issued).map((machineId) => {
         const machine = channelMachines.find((candidate) => candidate.id === machineId)
         return { id: machineId, ...(machine?.name ? { name: machine.name } : {}) }
       })

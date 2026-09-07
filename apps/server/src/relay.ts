@@ -1129,7 +1129,9 @@ export class SessionRegistry {
         return {
           exists: machine !== undefined,
           online: machines.hasDaemon(machineId),
-          capable: machine?.wireSchemaDigest === digest,
+          capable:
+            machine?.wireSchemaDigest === digest &&
+            machine.serverMoveEligibility?.eligible === true,
           // POD-2700. `undefined` components mean NOT RECORDED, which must not
           // refuse — same reading as everywhere else — so only an evaluated row
           // that lacks the component answers `false`.
@@ -1160,19 +1162,12 @@ export class SessionRegistry {
       },
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
-      targetState: async (machineId) => {
-        const machine = (await machines.listMachines()).find((candidate) => candidate.id === machineId)
-        return {
-          exists: machine !== undefined,
-          online: machines.hasDaemon(machineId),
-          capable:
-            machine?.wireSchemaDigest === wireSchemaDigest() &&
-            machine.serverMoveEligibility?.eligible === true,
-          // POD-2700. `undefined` components mean NOT RECORDED, so only an
-          // evaluated row that lacks the daemon component is refused.
-          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
-        }
-      },
+      // ONE machines read for the whole fleet (POD-3257). The per-machine form
+      // delegates to it: asking `targetState` inside a loop is what re-read the
+      // whole table per machine, which is quadratic and a round trip each on a
+      // networked backend.
+      targetStateResolver,
+      targetState: async (machineId) => (await targetStateResolver())(machineId),
       endpointHandoff: {
         registeredMachineIds: async () =>
           (await machines.listMachines())
