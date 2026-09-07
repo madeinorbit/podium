@@ -1807,6 +1807,7 @@
         "src/relay.bind-storm.test.ts",
         "src/relay.conversation-registry.test.ts",
         "src/relay.draft-reap.test.ts",
+        "src/relay.fleet-change.test.ts",
         "src/relay.issue-session-delete.test.ts",
         "src/relay.lake-read.test.ts",
         "src/relay.machines.test.ts",
