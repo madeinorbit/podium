@@ -49,7 +49,7 @@ describe('startTargetRefresh', () => {
   const build = (
     opts: {
       refresh?: (channel: UpdateChannel) => Promise<boolean | void>
-      operationActive?: (channel: UpdateChannel) => boolean | Promise<boolean>
+      operationActive?: (channel: UpdateChannel) => Promise<boolean>
     } = {},
   ) => {
     const clock = fakeSchedule()
@@ -108,7 +108,7 @@ describe('startTargetRefresh', () => {
 
   /** Never yank a target out from under a machine that is mid-grant on it. */
   it('skips a channel with a wave in flight and still refreshes the other', async () => {
-    const { fire, refreshed } = build({ operationActive: (channel) => channel === 'dev' })
+    const { fire, refreshed } = build({ operationActive: async (channel) => channel === 'dev' })
 
     await fire()
 
@@ -119,7 +119,7 @@ describe('startTargetRefresh', () => {
   })
 
   it('re-arms after a skipped tick, so a wave does not end the schedule', async () => {
-    const { fire, armed } = build({ operationActive: () => true })
+    const { fire, armed } = build({ operationActive: async () => true })
 
     await fire()
 
@@ -280,7 +280,7 @@ describe('scheduled refresh after supervised completion', () => {
       const handle = startTargetRefresh({
         channels: ['dev'],
         schedule: clock.schedule,
-        operationActive: (channel) => service.operationActive(channel),
+        operationActive: async (channel) => await service.operationActive(channel),
         refresh: (channel) => service.refreshTarget(channel),
       })
       try {

@@ -574,7 +574,7 @@ describe('recovery-only daemon handshake verification', () => {
       })
       expect(touch).not.toHaveBeenCalled()
       expect(invalidate).not.toHaveBeenCalled()
-      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('stored.local')
+      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('stored.local')
     } finally {
       world.store.close()
     }
@@ -651,7 +651,7 @@ describe('recovery-only daemon handshake verification', () => {
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
       expect(invalidate).toHaveBeenCalledOnce()
-      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('observed.local')
+      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('observed.local')
     } finally {
       world.store.close()
     }

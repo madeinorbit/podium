@@ -165,7 +165,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(promoted.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
     expect(promoted.enrollment.nextSerial(PROMOTED_HOST)).toBe(serialBeforePromotion)
     expect(promoted.enrollment.recordedOwner(PROMOTED_HOST)).toBe(OTHER)
-    expect((await source).store.machines.getMachine(PROMOTED_HOST)?.ownerUserId).toBe(OTHER)
+    expect((await (await source).store.machines.getMachine(PROMOTED_HOST))?.ownerUserId).toBe(OTHER)
     expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
     expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, (await paired).token)).toBe(false)
   })

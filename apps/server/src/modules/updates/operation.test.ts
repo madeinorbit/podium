@@ -1307,7 +1307,7 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
-  approvedTarget?: () => UpdateTarget | undefined
+  approvedTarget?: () => Promise<UpdateTarget | undefined>
   durableRecovery?: boolean
   machines?: WaveMachine[]
   target?: UpdateTarget
@@ -4595,8 +4595,8 @@ describe('coordinator snapshot activation boundary', () => {
       await preparing.promise
     }
     const repeat = async () => {
-      const operation = h.read()
-      const step = (await operation).steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
+      const operation = await h.read()
+      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
       return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
     }
     return {
@@ -4628,7 +4628,7 @@ describe('coordinator snapshot activation boundary', () => {
       await f.snapshotting.promise
       repeats.push(f.repeat())
       expect(f.snapshot).toHaveBeenCalledTimes(1)
-      expect(f.h.read().details?.databaseSnapshotPath).toBeUndefined()
+      expect((await f.h.read()).details?.databaseSnapshotPath).toBeUndefined()
       expect(await f.oldServer()).toBe('old coordinator serving')
       f.releaseSnapshot.resolve()
       await f.activated.promise
@@ -4667,7 +4667,7 @@ describe('coordinator snapshot activation boundary', () => {
         expect(f.fallbackRestart).not.toHaveBeenCalled()
         expect(await f.oldServer()).toBe('old coordinator serving')
         expect(f.executor.snapshot()!.phase).toBe('canceled')
-        if (failure !== 'cancellation') expect(f.h.read().state).toBe('failed')
+        if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
       } finally { vi.restoreAllMocks(); await f.close() }
     },
   )
@@ -4689,7 +4689,7 @@ describe('coordinator snapshot activation boundary', () => {
       expect(f.executor.snapshot()!.grant.grantId).toBe('separate-owner')
       expect(f.executor.snapshot()!.phase).toBe('prepared')
       expect(f.adapter.activate).not.toHaveBeenCalled()
-      expect(f.h.read().state).toBe('failed')
+      expect((await f.h.read()).state).toBe('failed')
     } finally { await f.close() }
   })
 

@@ -134,7 +134,7 @@ describe('machine build report over a live daemon socket', () => {
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(server.registry.modules.machines.listMachines()[0]).toMatchObject({
+    expect((await server.registry.modules.machines.listMachines())[0]).toMatchObject({
       online: true,
       presenceSource: 'supervisor',
       appVersion: '0.5.0',
@@ -143,7 +143,7 @@ describe('machine build report over a live daemon socket', () => {
     })
 
     await close(supervisor)
-    expect(server.registry.modules.machines.listMachines()[0]).toMatchObject({
+    expect((await server.registry.modules.machines.listMachines())[0]).toMatchObject({
       online: true,
       presenceSource: 'legacy-daemon',
       appVersion: '0.4.1',
