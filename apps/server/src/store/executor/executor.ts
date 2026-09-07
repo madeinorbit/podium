@@ -590,7 +590,20 @@ export function createStoreExecutor<TClient>(
       await settleInFlight(frame.unit.inFlight)
       closeFrame(frame)
       registry.discard()
-      if (alive()) await lease.session.rollback()
+      if (alive()) {
+        try {
+          await lease.session.rollback()
+        } catch (rollbackError) {
+          // Cleanup can fail independently (including on a remote transport).
+          // Keep the body failure primary without losing either error or
+          // mutating the caller's error and its existing cause chain.
+          throw new AggregateError(
+            [error, rollbackError],
+            `transaction failed: ${String(error)}; rollback also failed`,
+            { cause: error },
+          )
+        }
+      }
       throw error
     }
     // A statement the body ADMITTED and did not await. The token cannot help
@@ -613,23 +626,41 @@ export function createStoreExecutor<TClient>(
       // the engine holds, and the nested body may still be parked. Committing
       // would commit a unit whose inner half nobody finished.
       registry.discard()
-      await lease.session.rollback()
-      throw new AbandonedNestedTransactionError(
+      const error = new AbandonedNestedTransactionError(
         `transaction ${frame.id} is rolled back: it returned while nested scope ` +
           `${abandoned.id} was still open. A transact the body did not await is the usual cause.`,
       )
+      try {
+        await lease.session.rollback()
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `transaction failed: ${String(error)}; rollback also failed`,
+          { cause: error },
+        )
+      }
+      throw error
     }
     if (frame.unit.poisoned !== undefined) {
       // A boundary failed somewhere under this transaction and the body carried
       // on regardless. Committing would commit a frame stack that no longer
       // describes what the engine holds.
       registry.discard()
-      await lease.session.rollback()
-      throw new TransactionPoisonedError(
+      const error = new TransactionPoisonedError(
         'the transaction is rolled back: a savepoint boundary failed, so what the engine held ' +
           'open was no longer known and the commit could not be trusted.',
         frame.unit.poisoned,
       )
+      try {
+        await lease.session.rollback()
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `transaction failed: ${String(error)}; rollback also failed`,
+          { cause: error },
+        )
+      }
+      throw error
     }
     await lease.session.commit()
     if (runner) {
