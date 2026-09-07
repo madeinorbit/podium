@@ -1738,6 +1738,34 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(h.session.queuedMessageCount).toBe(0)
   })
 
+  it('drains durable rows exactly once even when the projected queue count is stale', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'claude-code', transcriptAvailable: true, nativeView: true })
+    const first = 'deliver the first durable prompt'
+    const second = 'deliver the second durable prompt'
+    await h.inbox.queueText({ sessionId: SID, text: first })
+    await h.inbox.queueText({ sessionId: SID, text: second })
+
+    // A concurrent session draft can install an older count during wake.
+    h.session.queuedMessageCount = 0
+    h.setNativeView(false)
+    await Promise.all([h.inbox.drain(SID), h.inbox.drain(SID)])
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(typedTexts(h.sent)).toEqual([first])
+
+    h.landTurn(first)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(typedTexts(h.sent)).toEqual([first, second])
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+
+    h.landTurn(second)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+  })
+
   it('keeps the short OpenCode creation prompt queued until its turn is witnessed', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)

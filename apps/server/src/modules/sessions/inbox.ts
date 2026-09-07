@@ -1308,7 +1308,12 @@ export class SessionInbox {
     if (this.deps.nativeViewActive?.(sessionId) === true) return
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
-    if (!session || session.queuedMessageCount === 0) return
+    if (!session) return
+    // The durable FIFO is authoritative: concurrent session drafts can carry
+    // an older projected count while accepted rows still need delivery.
+    const queued = await this.deps.queue.list(sessionId)
+    if (queued.length === 0 || this.activeDrains.has(sessionId)) return
+    if (this.deps.getSession(sessionId) !== session || this.disposed) return
     const drainGeneration = (this.drainGenerations.get(sessionId) ?? 0) + 1
     this.drainGenerations.set(sessionId, drainGeneration)
     this.activeDrains.add(sessionId)
@@ -1361,8 +1366,9 @@ export class SessionInbox {
       if (!isCurrent()) return
       const completion: Promise<void> = this.deps.queue.delete(asSessionId(id))
       await completion
+      const remaining = await this.deps.queue.list(sessionId)
       const persistence: Promise<void> = this.deps.write(current, (draft) => {
-        draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
+        draft.queuedMessageCount = remaining.length
         if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
       })
       await persistence
@@ -1398,11 +1404,12 @@ export class SessionInbox {
         await completion
       }
       await removeHead(current, head.id)
-      afterHead(current)
+      await afterHead()
     }
-    const afterHead = (current: Session): void => {
+    const afterHead = async (): Promise<void> => {
+      const remaining = await this.deps.queue.list(sessionId)
       if (!isCurrent()) return
-      if (current.queuedMessageCount > 0) {
+      if (remaining.length > 0) {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
     }
@@ -1496,7 +1503,7 @@ export class SessionInbox {
         }
         const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
         if (!(await queuedRows).some((row) => row.id === head.id)) {
-          afterHead(current)
+          await afterHead()
           return
         }
         // A fresh session may create its first transcript record only after this
@@ -1644,7 +1651,7 @@ export class SessionInbox {
       const needle = confirmationNeedle(head.text, exactNeedle)
       const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
       if (!(await queuedRows).some((row) => row.id === head.id)) {
-        afterHead(current)
+        await afterHead()
         return
       }
       // Re-authorize immediately before EVERY physical attempt. Confirmation
@@ -1665,7 +1672,7 @@ export class SessionInbox {
           reason: authorized.reason,
         })
         await completion
-        afterHead(current)
+        await afterHead()
         return
       }
       // A retry exists ONLY because the last attempt went unwitnessed. If the
@@ -1817,7 +1824,7 @@ export class SessionInbox {
           reason: authorized.reason,
         })
         await completion
-        afterHead(current)
+        await afterHead()
         return
       }
       if (this.deps.serverDriven?.(current) === true) {
