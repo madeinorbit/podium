@@ -64,6 +64,7 @@
     },
     "@podium/mobile#build": {
       "dependsOn": [],
+      "passThroughEnv": ["BUN_INSTALL_CACHE_DIR", "BUN_INSTALL"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "!dist/**",

@@ -15,6 +15,8 @@ const config = getDefaultConfig(projectRoot)
 // outside a watched root, so the store has to be one: without it a bare
 // `react/jsx-runtime` from inside a dependency is reported as "could not be found"
 // while Node resolves it fine.
+// The mobile build task forwards both location overrides through Turbo strict mode.
+// They locate installed bytes; they do not change the build output/cache identity.
 const bunLinkStore = (() => {
   const cache = process.env.BUN_INSTALL_CACHE_DIR
     ? path.resolve(process.env.BUN_INSTALL_CACHE_DIR)

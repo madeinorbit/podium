@@ -848,6 +848,115 @@ describe('test lane configuration', () => {
     expect(turbo.globalEnv).not.toContain('PODIUM_VALIDATION_RESOURCE_HELD')
   })
 
+  it('forwards Bun store locations to Metro through strict Turbo builds [POD-3203]', () => {
+    // Windows CI installs on D:, outside the checkout; without forwarding, Metro
+    // watches the default C: store instead. Exercise the real Turbo env boundary
+    // and the real Metro config, with only Expo defaults stubbed (no bundler boot).
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-metro-env-'))
+    const source = readFileSync(new URL('../apps/mobile/metro.config.js', import.meta.url), 'utf8')
+    const config = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8'))
+    const mobileTask = config.tasks['@podium/mobile#build']
+    const turbo = fileURLToPath(new URL('../node_modules/.bin/turbo', import.meta.url))
+    try {
+      const workspace = join(fixture, 'workspace')
+      const mobile = join(workspace, 'apps/mobile')
+      const cache = join(fixture, 'custom-cache')
+      const install = join(fixture, 'custom-bun')
+      const home = join(fixture, 'home')
+      for (const dir of [
+        mobile,
+        join(cache, 'links'),
+        join(install, 'install/cache/links'),
+        join(home, '.bun/install/cache/links'),
+      ]) {
+        mkdirSync(dir, { recursive: true })
+      }
+      writeFileSync(
+        join(workspace, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-root',
+          private: true,
+          packageManager: 'bun@1.2.0',
+          workspaces: ['apps/*'],
+        }),
+      )
+      writeFileSync(join(workspace, 'bun.lock'), '')
+      writeFileSync(
+        join(mobile, 'package.json'),
+        JSON.stringify({
+          name: '@podium/mobile',
+          version: '0.0.0',
+          scripts: { build: 'node probe.cjs' },
+        }),
+      )
+      writeFileSync(join(mobile, 'metro.config.js'), source)
+      writeFileSync(
+        join(mobile, 'probe.cjs'),
+        `
+        const fs = require('node:fs')
+        const vm = require('node:vm')
+        const module_ = { exports: {} }
+        vm.runInNewContext(fs.readFileSync('metro.config.js', 'utf8'), {
+          __dirname, module: module_, process,
+          require(id) {
+            if (id === 'expo/metro-config') return { getDefaultConfig: () => ({ resolver: {} }) }
+            if (id === './scripts/metro-gesture-handler-web') return { redirectGestureHandler: () => null }
+            if (id === 'node:os') return { homedir: () => ${JSON.stringify(home)} }
+            return require(id)
+          },
+        })
+        fs.writeFileSync('result.json', JSON.stringify({
+          watchFolders: module_.exports.watchFolders,
+          unrelated: process.env.PODIUM_METRO_UNDECLARED ?? null,
+        }))
+      `,
+      )
+      const run = (forward: boolean, env: Record<string, string>) => {
+        writeFileSync(
+          join(workspace, 'turbo.json'),
+          JSON.stringify({
+            tasks: {
+              '@podium/mobile#build': {
+                ...mobileTask,
+                inputs: ['$TURBO_DEFAULT$'],
+                outputs: [],
+                cache: false,
+                ...(forward ? {} : { passThroughEnv: [] }),
+              },
+            },
+          }),
+        )
+        const childEnv = { ...process.env }
+        delete childEnv.BUN_INSTALL_CACHE_DIR
+        delete childEnv.BUN_INSTALL
+        const result = spawnSync(
+          turbo,
+          ['run', 'build', '--filter=@podium/mobile', '--env-mode=strict'],
+          {
+            cwd: workspace,
+            encoding: 'utf8',
+            timeout: 20_000,
+            env: { ...childEnv, ...env, PODIUM_METRO_UNDECLARED: 'must be filtered' },
+          },
+        )
+        expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+        const observed = JSON.parse(readFileSync(join(mobile, 'result.json'), 'utf8'))
+        expect(observed.unrelated).toBeNull()
+        return observed.watchFolders as string[]
+      }
+      const overrides = { BUN_INSTALL_CACHE_DIR: cache, BUN_INSTALL: install }
+      // Negative control: the old config loses the relocated store, even though it exists.
+      expect(run(false, overrides)).not.toContain(join(cache, 'links'))
+      const forwarded = run(true, overrides)
+      expect(forwarded).toContain(join(cache, 'links'))
+      expect(forwarded).not.toContain(join(install, 'install/cache/links'))
+      expect(run(true, { BUN_INSTALL: install })).toContain(join(install, 'install/cache/links'))
+      expect(run(true, {})).toContain(join(home, '.bun/install/cache/links'))
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   it('fails the whole command when a shard fails, even though the aggregate is skipped [POD-520]', () => {
     // The inverse of the trap above, and the one that would be invisible to every other
     // guard here because they all reason about the task GRAPH rather than the process.
