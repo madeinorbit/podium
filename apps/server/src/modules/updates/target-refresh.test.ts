@@ -246,7 +246,7 @@ describe('scheduled refresh after supervised completion', () => {
       })
     let service = construct()
     service.setTarget('dev', target)
-    service.authorize()
+    await service.authorize()
     expect(send).toHaveBeenCalledTimes(1)
     fleet[0]!.version = target.version
     const report = {
@@ -257,11 +257,11 @@ describe('scheduled refresh after supervised completion', () => {
       grantId: 'g1',
       phaseDetail: 'current',
     }
-    if (phase !== 'unconfirmed') service.onStatus(asMachineId('a'), report)
+    if (phase !== 'unconfirmed') await service.onStatus(asMachineId('a'), report)
     if (phase !== 'unconfirmed' && phase !== 'unprojected') {
-      service.fleet()
+      await service.fleet()
       service.withdrawAuthorization()
-      service.releaseInFlightGrants()
+      await service.releaseInFlightGrants()
       expect(recovery.read()?.grants).toHaveLength(1)
     }
     if (phase === 'publication-replaced') service.setTarget('dev', { ...target, critical: true })
@@ -269,10 +269,10 @@ describe('scheduled refresh after supervised completion', () => {
 
     for (const reboot of [false, true]) {
       if (reboot) service = construct()
-      expect(service.operationActive('dev')).toBe(phase !== 'completed')
+      expect(await service.operationActive('dev')).toBe(phase !== 'completed')
       if (phase === 'completed') {
-        service.onStatus(asMachineId('a'), report)
-        expect(service.operationActive('dev')).toBe(false)
+        await service.onStatus(asMachineId('a'), report)
+        expect(await service.operationActive('dev')).toBe(false)
         expect(recovery.read()?.grants[0]?.[1].grantId).toBe('g1')
       }
       resolve.mockClear()

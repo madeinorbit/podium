@@ -129,7 +129,7 @@ describe('UpdatesService', () => {
   })
 
   describe('supervisor canary execution confirmation', () => {
-    const start = (overrides: Partial<UpdatesDeps> = {}) => {
+    const start = async (overrides: Partial<UpdatesDeps> = {}) => {
       const machines = [
         m('a', { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] }),
         m('b'),
@@ -140,7 +140,7 @@ describe('UpdatesService', () => {
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
       })
-      expect(svc.authorize()).toEqual(['a'])
+      expect(await svc.authorize()).toEqual(['a'])
       machines[0]!.version = '0.4.2' // Production hello precedes child startup.
       return { svc, send, machines }
     }
@@ -165,7 +165,7 @@ describe('UpdatesService', () => {
 
     it('restores exact pending authority before any target publication or fleet read', async () => {
       const recovery = memoryRecovery()
-      const { machines } = start({ recovery })
+      const { machines } = await start({ recovery })
       machines[0]!.online = false
       const { svc, send } = make(machines, { recovery })
       expect((await svc.fleet())[0]?.state).toBe('granted')
@@ -184,7 +184,7 @@ describe('UpdatesService', () => {
 
     it('checkpoints confirmation before widening and restores its exact terminal replay', async () => {
       const recovery = memoryRecovery()
-      const { svc, machines } = start({ recovery })
+      const { svc, machines } = await start({ recovery })
       svc.onStatus(asMachineId('a'), confirmed)
       expect(recovery.read()?.machines[0]?.[1]).toMatchObject({ state: 'current', grantId: 'g1' })
       const boot = make(machines, { recovery })
@@ -202,7 +202,7 @@ describe('UpdatesService', () => {
       'approval',
     ] as const)('keeps the restored fence after same-version %s replacement, even after confirmed projection', async (replacement) => {
       const recovery = memoryRecovery()
-      const { svc, machines } = start({ recovery })
+      const { svc, machines } = await start({ recovery })
       svc.onStatus(asMachineId('a'), confirmed)
       svc.withdrawAuthorization()
       svc.fleet()
@@ -224,7 +224,7 @@ describe('UpdatesService', () => {
       'cancel',
     ] as const)('restores %s without accepting hello as success', async (verdict) => {
       const recovery = memoryRecovery()
-      const { svc, machines } = start({ recovery })
+      const { svc, machines } = await start({ recovery })
       if (verdict === 'cancel') {
         svc.withdrawAuthorization()
         svc.releaseInFlightGrants('Canceled')
@@ -247,7 +247,7 @@ describe('UpdatesService', () => {
         async (retirement) => {
           for (const reboot of [false, true]) {
             const recovery = memoryRecovery()
-            const h = start({ recovery })
+            const h = await start({ recovery })
             if (retirement === 'abandon') h.svc.abandonWait(['a'], 'Deadline expired')
             else if (retirement === 'release') {
               h.svc.withdrawAuthorization()
@@ -289,7 +289,7 @@ describe('UpdatesService', () => {
         { state: 'restarting' as const },
         { state: 'downloading' as const, grantId: undefined },
       ])('ignores incomplete or unrelated retired evidence: %j', async (override) => {
-        const { svc, send } = start()
+        const { svc, send } = await start()
         svc.abandonWait(['a'], 'Deadline expired')
         svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
         expect((await svc.fleet())[0]?.state).toBe('stuck')
@@ -303,7 +303,7 @@ describe('UpdatesService', () => {
         async (replacement) => {
           for (const confirmFirst of [false, true]) {
             const recovery = memoryRecovery()
-            const h = start({ recovery })
+            const h = await start({ recovery })
             h.svc.abandonWait(['a'], 'Deadline expired')
             if (confirmFirst) {
               h.svc.onStatus(asMachineId('a'), confirmed)
@@ -341,7 +341,7 @@ describe('UpdatesService', () => {
 
       it('supersedes retired correlation with a new repair grant', async () => {
         const recovery = memoryRecovery()
-        const { svc, send } = start({ recovery })
+        const { svc, send } = await start({ recovery })
         svc.abandonWait(['a'], 'Deadline expired')
         expect((await svc.repairMachine(asMachineId('a'), TEST_REPAIR)).result).toBe('granted')
         expect(recovery.read()?.retiredGrants).toEqual([])
@@ -351,9 +351,9 @@ describe('UpdatesService', () => {
       })
 
       it.each(['retirement', 'confirmation'] as const)(
-        'refuses observations after a retired %s checkpoint fails', (failure) => {
+        'refuses observations after a retired %s checkpoint fails', async (failure) => {
           const recovery = memoryRecovery()
-          const { svc, send } = start({ recovery })
+          const { svc, send } = await start({ recovery })
           if (failure === 'confirmation') svc.abandonWait(['a'], 'Deadline expired')
           recovery.write = () => { throw new Error('disk full') }
           expect(() => failure === 'retirement'
@@ -390,9 +390,9 @@ describe('UpdatesService', () => {
       expect(send).not.toHaveBeenCalled()
     })
 
-    it('refuses healthy proof and widening when confirmation cannot be committed', () => {
+    it('refuses healthy proof and widening when confirmation cannot be committed', async () => {
       const recovery = memoryRecovery()
-      const { svc, send } = start({ recovery })
+      const { svc, send } = await start({ recovery })
       recovery.write = () => {
         throw new Error('disk full')
       }
@@ -456,7 +456,7 @@ describe('UpdatesService', () => {
     })
 
     it('holds the pending grant through early hello and slow child startup', async () => {
-      const { svc, send } = start()
+      const { svc, send } = await start()
       for (let i = 0; i < 3; i++) {
         expect((await svc.fleet())[0]).toMatchObject({ state: 'granted', version: '0.4.1' })
         expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
@@ -490,7 +490,7 @@ describe('UpdatesService', () => {
       { phaseDetail: undefined },
       { phaseDetail: 'restarting' },
     ])('does not accept incomplete or stale execution evidence: %j', async (override) => {
-      const { svc, send } = start()
+      const { svc, send } = await start()
       svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
       expect((await svc.fleet())[0]?.state).not.toBe('current')
       expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
@@ -505,7 +505,7 @@ describe('UpdatesService', () => {
       'stuck',
       'rejected',
     ] as const)('preserves %s after a target-version hello', async (state) => {
-      const { svc, send } = start()
+      const { svc, send } = await start()
       svc.onStatus(asMachineId('a'), {
         ...confirmed,
         state,
@@ -518,7 +518,7 @@ describe('UpdatesService', () => {
     })
 
     it('keeps the execution fence when supervisor presence falls back to a daemon', async () => {
-      const { svc, send, machines } = start()
+      const { svc, send, machines } = await start()
       Object.assign(machines[0]!, { presenceSource: 'legacy-daemon' })
       expect((await svc.fleet())[0]?.state).toBe('granted')
       expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
@@ -543,7 +543,7 @@ describe('UpdatesService', () => {
           artifacts: { headless: { delivery: 'feed' as const, platforms: {} } },
         }
         let approved: ReturnType<UpdatesService['target']>
-        const { svc, send } = start({ approvedTarget: async () => approved })
+        const { svc, send } = await start({ approvedTarget: async () => approved })
         if (replacement === 'publication') svc.setTarget(changed)
         else approved = changed
         svc.onStatus(asMachineId('a'), confirmed)
@@ -554,7 +554,7 @@ describe('UpdatesService', () => {
     )
 
     it('rechecks the exact descriptor when projection follows accepted confirmation', async () => {
-      const { svc, send } = start()
+      const { svc, send } = await start()
       svc.onStatus(asMachineId('a'), confirmed)
       svc.setTarget({
         version: '0.4.2',
@@ -567,7 +567,7 @@ describe('UpdatesService', () => {
     })
 
     it('accepts an equivalent descriptor and repeated exact terminal replay', async () => {
-      const { svc, send } = start()
+      const { svc, send } = await start()
       svc.setTarget({
         artifacts: { headless: { platforms: {}, delivery: 'feed' } },
         critical: false,
@@ -581,7 +581,7 @@ describe('UpdatesService', () => {
     })
 
     it('retains exact terminal replay while the directory temporarily lacks the machine', async () => {
-      const { svc, send, machines } = start()
+      const { svc, send, machines } = await start()
       const canary = machines.shift()!
       svc.onStatus(asMachineId('a'), confirmed)
       machines.unshift(canary)
@@ -609,12 +609,12 @@ describe('UpdatesService', () => {
       svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} })
       svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
       expect((await svc.fleet())[0]?.state).toBe('current')
-      expect(svc.authorize()).toEqual([])
+      expect(await svc.authorize()).toEqual([])
       expect(send).not.toHaveBeenCalled()
     })
 
     it('waits for the directory to corroborate the confirmed running version', async () => {
-      const { svc, send, machines } = start()
+      const { svc, send, machines } = await start()
       machines[0]!.version = '0.4.1'
       svc.onStatus(asMachineId('a'), confirmed)
       svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })

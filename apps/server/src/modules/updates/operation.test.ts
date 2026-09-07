@@ -1791,7 +1791,7 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    expect(h.read()).toMatchObject({
+    expect(await h.read()).toMatchObject({
       state: 'failed',
       error: { code: 'legacy-transfer-in-progress' },
     })

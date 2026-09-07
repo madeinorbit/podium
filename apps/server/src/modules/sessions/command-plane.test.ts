@@ -681,7 +681,7 @@ describe('attribution and ownership come from the principal', () => {
       ownerUserId: COLLEAGUE,
       spawnedBy: 'session:agent-1',
     })
-    expect(o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
+    expect(await o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
       owner: COLLEAGUE,
       grants: [],
     })

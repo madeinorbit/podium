@@ -102,24 +102,24 @@ describe('SessionRegistry', () => {
       providerId: 'codex',
       path: stalePath,
     })
-    expect(seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    expect(await seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
     seededRegistry.dispose()
     seeded.close()
 
     const queryOnly = await SessionStore.open(file, TEST_MACHINE, { queryOnly: true })
-    expect(queryOnly.sessions.getSession(sessionId)).toBeDefined()
+    expect(await queryOnly.sessions.getSession(sessionId)).toBeDefined()
     const recovery = await SessionRegistry.create(queryOnly, undefined, {
       instanceId: 'recovery-only',
       recoveryOnly: true,
     })
-    expect(queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
-    expect(recovery.modules.sessions.listSessions()).toEqual([])
+    expect(await queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    expect(await recovery.modules.sessions.listSessions()).toEqual([])
     recovery.dispose()
     queryOnly.close()
 
     const writable = await SessionStore.open(file, TEST_MACHINE)
     const ordinary = await SessionRegistry.create(writable, undefined, { instanceId: 'writable' })
-    expect(writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
+    expect(await writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
     ordinary.dispose()
     writable.close()
   })

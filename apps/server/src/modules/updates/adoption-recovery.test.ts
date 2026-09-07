@@ -199,7 +199,7 @@ describe('production adoption restores supervised execution proof', () => {
           targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'restarting',
         })
         expect(await h.registry.modules.operations.engine.cancel(id)).toMatchObject({ canceled: true })
-        expect(updates.operationActive('dev')).toBe(false)
+        expect(await updates.operationActive('dev')).toBe(false)
         expect(h.store.updateRecovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
         if (reboot) {
           const boot = await h.reboot()
@@ -218,14 +218,14 @@ describe('production adoption restores supervised execution proof', () => {
           targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
         }
         current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
-        expect(current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
+        expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
         for (let replay = 0; replay < 3; replay++) {
           current.onStatus(asMachineId('a'), report)
           h.registry.modules.updateFleetBridge?.onFleetChanged()
           await h.registry.modules.operations.engine.whenSettled(id)
           expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-          expect(current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
-          expect(current.operationActive('dev')).toBe(false)
+          expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+          expect(await current.operationActive('dev')).toBe(false)
           expect((await h.store.operations.get(id))?.state).toBe('canceled')
           expect(h.sent.map((s) => s.id)).toEqual(['a'])
         }
@@ -233,7 +233,7 @@ describe('production adoption restores supervised execution proof', () => {
         h.hello('a')
         h.hello('b', '0.4.1')
         expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-        expect(boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+        expect(await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
         expect((await h.store.operations.get(id))?.state).toBe('canceled')
         expect(h.sent.map((s) => s.id)).toEqual(['a'])
       } finally {
@@ -263,7 +263,7 @@ describe('production adoption restores supervised execution proof', () => {
       })
       for (let read = 0; read < 3; read++) {
         expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-        expect(boot.modules.updates.operationActive('dev')).toBe(false)
+        expect(await boot.modules.updates.operationActive('dev')).toBe(false)
       }
       expect(write).not.toHaveBeenCalled()
       expect(h.store.updateRecovery.read()).toEqual(saved)
@@ -305,7 +305,7 @@ describe('production adoption restores supervised execution proof', () => {
       // Those are precisely the writes that a constructor-only fix missed.
       for (let read = 0; read < 3; read++) {
         expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-        expect(boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(
+        expect(await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(
           false,
         )
       }

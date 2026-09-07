@@ -127,11 +127,11 @@ describe('oracle: two-user SessionService fixture', () => {
 
   it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, async () => {
     const f = await twoUserOracle()
-    expect(f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
+    expect(await f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
       owner: ALICE,
       grants: [],
     })
-    expect(f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
+    expect(await f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
       owner: BOB,
       grants: [],
     })

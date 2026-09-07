@@ -747,7 +747,7 @@ describe('adoption after a restart (P3, §3.4)', () => {
     const engine = successor(store, registry)
     await engine.adoptOnBoot(() => ({ state: 'promoting' }))
 
-    expect(store.get('op_1')).toEqual(before)
+    expect(await store.get('op_1')).toEqual(before)
     expect(ensure).not.toHaveBeenCalled()
     expect(engine.isAdoptionDeferred('op_1')).toBe(true)
 

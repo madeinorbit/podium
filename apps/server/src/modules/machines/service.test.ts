@@ -278,7 +278,7 @@ describe('MachinesService supervisor presence', () => {
         status.observedAt,
       )
       await svc.resumeAfterTransferFence()
-      expect(store.machines.getMachine(MACHINE)).toEqual(before)
+      expect(await store.machines.getMachine(MACHINE)).toEqual(before)
       expect(svc.daemonSupports(MACHINE, 'recovery-cap')).toBe(true)
       svc.toMachine(MACHINE, keystroke)
       expect(daemon.got).toEqual([keystroke])
@@ -351,9 +351,9 @@ describe('promoted server host identity', () => {
     const before = (await store.machines.listMachines()).map(({ id }) => id)
 
     expect(svc.onlineMachineIds()).toEqual([])
-    expect(svc.ensureHostMachine('promoted-hostname', 'promoted-secret')).toBe(target)
+    expect(await svc.ensureHostMachine('promoted-hostname', 'promoted-secret')).toBe(target)
     expect((await store.machines.listMachines()).map(({ id }) => id)).toEqual(before)
-    expect(store.machines.getMachine(target)).toMatchObject({
+    expect(await store.machines.getMachine(target)).toMatchObject({
       id: target,
       hostname: 'promoted-hostname',
     })

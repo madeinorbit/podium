@@ -523,7 +523,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     await h.clock.advance()
     expect(h.granted()).toEqual(['laptop'])
     expect(h.reconciler.pending()).toEqual(['vps'])
-    expect(h.updates.operationActive('dev')).toBe(true)
+    expect(await h.updates.operationActive('dev')).toBe(true)
 
     await h.clock.advance(GRANT_DEADLINE_MS)
 
@@ -543,7 +543,7 @@ describe('UpdateReconciler: a grant that goes silent', () => {
     // the event that makes the service project that raw proof and retire the
     // pending grant. A current status alone is deliberately insufficient.
     await h.reconciler.onMachineConnected('vps')
-    expect(h.updates.operationActive('dev')).toBe(false)
+    expect(await h.updates.operationActive('dev')).toBe(false)
   })
 
   /**

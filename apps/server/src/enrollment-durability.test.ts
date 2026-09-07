@@ -148,7 +148,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
     expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(OWNER)
     expect(host.enrollment.isActivelyEnrolled(asMachineId('forged-row'))).toBe(false)
-    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'original-secret')).toBe(true)
+    expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'original-secret')).toBe(true)
   })
 
   it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', async () => {
@@ -166,8 +166,8 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(promoted.enrollment.nextSerial(PROMOTED_HOST)).toBe(serialBeforePromotion)
     expect(promoted.enrollment.recordedOwner(PROMOTED_HOST)).toBe(OTHER)
     expect((await (await source).store.machines.getMachine(PROMOTED_HOST))?.ownerUserId).toBe(OTHER)
-    expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
-    expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, (await paired).token)).toBe(false)
+    expect(await (await source).store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
+    expect(await (await source).store.machines.getMachineByToken(PROMOTED_HOST, (await paired).token)).toBe(false)
   })
 
   it('keeps the former host eligible when the server moves away and then returns', async () => {
@@ -197,7 +197,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(returned.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
     expect(returned.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
     expect(returned.enrollment.nextSerial(ORIGINAL_HOST)).toBe(sourceSerial)
-    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'return-secret')).toBe(true)
+    expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'return-secret')).toBe(true)
   })
 
   it('does not let a forged host row override durable revocation', async () => {
@@ -223,8 +223,8 @@ describe('server host enrollment provenance (POD-2467)', () => {
       'enrollment is revoked',
     )
     expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
-    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'forged-secret')).toBe(true)
-    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'trusted-secret')).toBe(false)
+    expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'forged-secret')).toBe(true)
+    expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'trusted-secret')).toBe(false)
   })
 
   it('reboots idempotently without appending another enrollment', async () => {

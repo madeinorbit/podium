@@ -267,7 +267,7 @@ describe('the machine verb is read from the contract, per command', () => {
       bindHost: '0.0.0.0',
       confirmation: 'TRANSFER SERVER' as const,
     }
-    expect(fleetAuthzFailure('machines.moveServer', input, deps(user(OWNER)))).toBeUndefined()
+    expect(await fleetAuthzFailure('machines.moveServer', input, deps(user(OWNER)))).toBeUndefined()
 
     const memberManage = deps(user(COLLEAGUE), {
       role: 'member',
@@ -279,7 +279,7 @@ describe('the machine verb is read from the contract, per command', () => {
       role: 'admin',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
+    expect(await fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
     expect((await fleetAuthzFailure('machines.moveServer', input, admin))?.code).toBe('NOT_FOUND')

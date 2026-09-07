@@ -280,7 +280,7 @@ describe('auth-route', () => {
     expect(response.status).toBe(303)
     expect(response.headers.get('location')).toBe('/issues?moved=1')
     expect(response.headers.get('set-cookie')).toMatch(/podium_session=.*HttpOnly.*SameSite=Lax/i)
-    expect(store.auth.getClientSession(hashToken(claim))).toBeUndefined()
+    expect(await store.auth.getClientSession(hashToken(claim))).toBeUndefined()
 
     const replacement = cookieValue(response)
     expect(replacement).toBeTruthy()
@@ -687,8 +687,8 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
       new Date(nowMs + 60_000).toISOString(),
     )
     const cookie = cookieFor(token)
-    expect(requestUserId(store.auth, cookie, nowMs)).toBe(FIRST_ADMIN_USER_ID)
-    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
+    expect(await requestUserId(store.auth, cookie, nowMs)).toBe(FIRST_ADMIN_USER_ID)
+    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
   })
 
   test('rejects an expired session cookie (present row, past expiresAt)', async () => {
@@ -702,20 +702,20 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     )
     const cookie = cookieFor(token)
     expect((await store.auth.getClientSession(hashToken(token)))?.userId).toBe(FIRST_ADMIN_USER_ID)
-    expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
-    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
+    expect(await requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
+    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
   })
 
-  test('rejects an unknown session cookie', () => {
+  test('rejects an unknown session cookie', async () => {
     const cookie = cookieFor('never-issued-token')
-    expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
-    expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
+    expect(await requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
+    expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
   })
 
-  test('rejects a missing or empty cookie header', () => {
-    expect(requestUserId(store.auth, undefined, nowMs)).toBeUndefined()
-    expect(requestUserId(store.auth, '', nowMs)).toBeUndefined()
-    expect(isRequestAuthed(store.auth, undefined, nowMs)).toBe(false)
+  test('rejects a missing or empty cookie header', async () => {
+    expect(await requestUserId(store.auth, undefined, nowMs)).toBeUndefined()
+    expect(await requestUserId(store.auth, '', nowMs)).toBeUndefined()
+    expect(await isRequestAuthed(store.auth, undefined, nowMs)).toBe(false)
   })
 })
 
@@ -832,17 +832,17 @@ describe('session expiry at the gate', () => {
   }
 
   test('isRequestAuthed refuses a session row that is present but expired', async () => {
-    expect(isRequestAuthed(store.auth, await expiredRow(), AT)).toBe(false)
+    expect(await isRequestAuthed(store.auth, await expiredRow(), AT)).toBe(false)
   })
 
   test('isRequestAuthed accepts that same row one second before it expires', async () => {
     // Counterfactual for the case above: same store, same cookie, only the clock moves.
     // Without this, a gate hard-wired to `false` would satisfy the refusal test.
-    expect(isRequestAuthed(store.auth, await expiredRow(), AT - 2_000)).toBe(true)
+    expect(await isRequestAuthed(store.auth, await expiredRow(), AT - 2_000)).toBe(true)
   })
 
-  test('isRequestAuthed refuses a token that was never issued', () => {
-    expect(isRequestAuthed(store.auth, 'podium_session=never-minted', AT)).toBe(false)
+  test('isRequestAuthed refuses a token that was never issued', async () => {
+    expect(await isRequestAuthed(store.auth, 'podium_session=never-minted', AT)).toBe(false)
   })
 
   test('clientAuthGuard 401s a session row that is present but expired', async () => {

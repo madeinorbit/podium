@@ -412,7 +412,7 @@ describe('durable update approvals', () => {
       s.insert(approval('d', 'D', 4))
       s.sweepRetention('update', 0)
       expect((await s.approvedTarget('dev'))?.version).toBe('D')
-      expect(s.get('a')).toBeUndefined()
+      expect(await s.get('a')).toBeUndefined()
     } finally {
       db.close()
     }

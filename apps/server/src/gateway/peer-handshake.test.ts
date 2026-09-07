@@ -567,7 +567,7 @@ describe('recovery-only daemon handshake verification', () => {
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
     const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
-      expect(receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
+      expect(await receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
         kind: 'established',
         machineId: world.machineId,
         name: 'Durable machine',
@@ -627,9 +627,9 @@ describe('recovery-only daemon handshake verification', () => {
         JSON.stringify({ type: 'pair', code, machineId, hostname: 'new.local' }),
       )
       expect((await outcome).kind).toBe('rejected')
-      expect(world.store.machines.getMachine(machineId)).toBeUndefined()
+      expect(await world.store.machines.getMachine(machineId)).toBeUndefined()
       expect(
-        world.machines.authenticateDaemon({
+        await world.machines.authenticateDaemon({
           type: 'pair',
           code,
           machineId,
