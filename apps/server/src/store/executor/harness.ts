@@ -13,7 +13,7 @@
  * boundary and statement is recorded in order, tagged with its session.
  */
 
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -29,7 +29,9 @@ import type {
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
-import { IntentAudit } from './intent-audit'
+import type { IntentAudit } from './intent-audit'
+import { attachLaneIntentAudit } from './lane-intent-audit'
+export { laneIntentAudit } from './lane-intent-audit'
 import { instrumentDriver, StatementProbeHub } from './statement-probe'
 
 export interface Barrier {
@@ -301,53 +303,6 @@ export interface Harness {
   close(): Promise<void>
 }
 
-/**
- * THE LANE'S DECLARED-INTENT AUDIT [POD-3391].
- *
- * ONE audit for the whole process, not one per harness, because the gate's
- * question is about a LANE — "did any statement this lane executed declare a
- * write as a read" — and a per-harness object would have to be collected from
- * every test that forgot to close one. Every harness feeds it; nothing reads it
- * except the gate below and a test that asks.
- *
- * It is attached unconditionally rather than behind the report env var, so the
- * audited path is the path the executor tests exercise every day and not a
- * second configuration that only CI takes. The cost is one keyword derivation
- * per statement, and the stack is built only when a finding already exists.
- */
-const laneAudit = new IntentAudit()
-
-/** What every harness in this process saw. */
-export function laneIntentAudit(): IntentAudit {
-  return laneAudit
-}
-
-/**
- * Append this process's audit to the gate's report, if one was asked for.
- *
- * JSONL AND APPEND-ONLY because vitest runs the lane across several workers and
- * each is its own process: the gate sums the lines. Registered on `exit` rather
- * than in an `afterAll`, so a worker that ran no store test still contributes
- * its (empty) line and a worker that crashed contributes nothing — which
- * under-reports the count, the safe direction for a check whose failure mode is
- * a vacuous pass.
- */
-const intentReportPath = process.env.PODIUM_STATEMENT_INTENT_REPORT
-if (intentReportPath) {
-  process.on('exit', () => {
-    try {
-      appendFileSync(
-        intentReportPath,
-        `${JSON.stringify({ totals: laneAudit.totals, reach: laneAudit.reach, findings: laneAudit.findings })}\n`,
-      )
-    } catch {
-      // A report that cannot be written must not fail the test that produced
-      // it; the gate notices a missing line as a missing count, which is the
-      // observation it is built to make.
-    }
-  })
-}
-
 export interface HarnessOptions
   extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'legacy'> {
   /** Extra DDL run before the executor is built. */
@@ -401,7 +356,11 @@ export function openHarness(options: HarnessOptions = {}): Harness {
   raw.exec(options.schema ?? DEFAULT_SCHEMA)
   const entries: string[] = []
   const auditHub = new StatementProbeHub()
-  auditHub.attach((options.intentAudit ?? laneAudit).probe, { wantsIssueSite: true })
+  if (options.intentAudit) {
+    auditHub.attach(options.intentAudit.probe, { wantsIssueSite: true })
+  } else {
+    attachLaneIntentAudit(auditHub)
+  }
   const driver = recordingDriver(
     instrumentDriver(
       createBunSqliteDriver({

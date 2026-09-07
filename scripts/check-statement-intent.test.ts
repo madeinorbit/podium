@@ -11,7 +11,12 @@
  * that only ever refuses is as useless as one that never does.
  */
 
-import { describe, expect, it } from 'vitest'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { sql } from 'drizzle-orm'
+import { describe, expect, it, vi } from 'vitest'
+import { createBunStoreExecutor } from '../apps/server/src/store/executor'
+import { laneIntentAudit } from '../apps/server/src/store/executor/harness'
+import { stageASeam } from '../apps/server/src/test-support/stage-a-seam'
 import { gateVerdict, type LaneReport } from './check-statement-intent'
 
 const report = (over: Partial<LaneReport> = {}): LaneReport => ({
@@ -86,4 +91,34 @@ describe('gateVerdict', () => {
   it('reports a FATAL rather than the reach refusal when the corpus could and did fail', () => {
     expect(gateVerdict(report({ findings: [fatalFinding] })).code).toBe(1)
   })
+})
+
+describe('repository audit attachment', () => {
+  it('counts repository statements once when seams share a database', async () => {
+    const database = openDatabase(':memory:')
+    try {
+      const first = stageASeam(database)
+      const second = stageASeam(database)
+      const before = laneIntentAudit().totals.examined
+      await first.rootDb.all(sql`SELECT 1`)
+      await second.rootDb.all(sql`SELECT 2`)
+      expect(laneIntentAudit().totals.examined - before).toBe(2)
+    } finally {
+      database.close()
+    }
+  })
+})
+
+it.each([false, true])('executor audit attachment follows report request: %s', async (enabled) => {
+  vi.stubEnv('PODIUM_STATEMENT_INTENT_REPORT', enabled ? '/unused-report-path' : undefined)
+  const database = openDatabase(':memory:')
+  const executor = createBunStoreExecutor({ database })
+  try {
+    const before = laneIntentAudit().totals.examined
+    await executor.drizzle.get('SELECT 1')
+    expect(laneIntentAudit().totals.examined - before).toBe(enabled ? 1 : 0)
+  } finally {
+    await executor.close()
+    vi.unstubAllEnvs()
+  }
 })

@@ -18,13 +18,17 @@
  * this returns that one instead, and the call sites do not move.
  */
 
-import { createBunStoreExecutor } from '../store/executor'
+import { createBunStoreExecutor, statementProbeHubFor } from '../store/executor'
+import { attachLaneIntentAudit } from '../store/executor/lane-intent-audit'
 import type { StoreQueries } from '../store/executor/sync-drizzle'
 
 type BunBackedDatabase = Parameters<typeof createBunStoreExecutor>[0]['database']
 
 /** The capability over `database`, refusing loudly rather than handing back undefined. */
 export function stageASeam(database: BunBackedDatabase): StoreQueries {
+  // Repository traffic must reach the same lane audit as the executor harness.
+  // This is test-only wiring; production composition pays no audit cost.
+  attachLaneIntentAudit(statementProbeHubFor(database))
   const queries = createBunStoreExecutor({ database }).queries
   if (!queries) {
     throw new Error(

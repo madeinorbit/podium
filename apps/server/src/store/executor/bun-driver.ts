@@ -15,6 +15,7 @@
  * file, which not every caller has.
  */
 
+import { attachLaneIntentAudit } from './lane-intent-audit'
 import type { SqlDatabase, SqlStatement } from '@podium/runtime/sqlite'
 import type {
   BatchRouter,
@@ -302,6 +303,9 @@ export function createBunStoreExecutor(
   const { database, openReader, onClose, ...executor } = options
   const probes = statementProbeHubFor(database)
   installQueryAttributionProbe(probes)
+  // Include direct executor and SessionStore constructions in corpus runs.
+  // Ordinary production stores do not install the test lane's audit.
+  if (process.env.PODIUM_STATEMENT_INTENT_REPORT) attachLaneIntentAudit(probes)
   return createStoreExecutor<QueryClient>({
     driver: instrumentDriver(
       createBunSqliteDriver({
