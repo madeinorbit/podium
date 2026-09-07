@@ -978,6 +978,7 @@
         "src/modules/messages/handlers/spawn-agent.ts",
         "src/modules/messages/mailbox.ts",
         "src/modules/messages/multi-user.test.ts",
+        "src/modules/messages/queued-apply.test.ts",
         "src/modules/messages/queued-apply.ts",
         "src/modules/messages/registry.ts",
         "src/modules/messages/render.ts",

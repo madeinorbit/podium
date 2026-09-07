@@ -245,17 +245,17 @@ export interface InboxAuthorizationPort {
     sourceMessageId: string | null
     principal: InboxPrincipalReference
     reason: string
-  }): void
+  }): Promise<void>
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
-  applied(input: { sourceMessageId: string; sessionId: SessionId }): void
+  applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
   /** The bytes went into the CLI; the agent has not been seen to take them yet
    *  (POD-1242). Between this and {@link applied} the message is normally the
    *  harness's. An explicit interrupt is the one signal that returns ownership
    *  to this queue so it can cancel instead of retrying. */
-  injected?(input: { sourceMessageId: string; sessionId: SessionId }): void
+  injected?(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
   /** The operator interrupted an injected row before it became a user turn. */
-  interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
+  interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): Promise<void>
   /** The operator interrupted while a chat message was still held in the
    *  higher-level message ledger and had no physical inbox row yet. */
   interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): Promise<void>
@@ -1087,10 +1087,11 @@ export class SessionInbox {
     })
     await persistence
     this.deps.broadcast()
-    this.deps.authorization.interrupted?.({
+    const completion: Promise<void> | undefined = this.deps.authorization.interrupted?.({
       sourceMessageId: head.sourceMessageId,
       sessionId,
     })
+    await completion
     return true
   }
 
@@ -1371,7 +1372,10 @@ export class SessionInbox {
       }
       if (transcriptConfirmed) this.reportedPromptFailures.delete(head.id)
       if (head.sourceMessageId) {
-        this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
+        const completion: Promise<void> = this.deps.authorization.applied({
+          sourceMessageId: head.sourceMessageId, sessionId,
+        })
+        await completion
       }
       await removeHead(current, head.id)
       afterHead(current)
@@ -1631,12 +1635,13 @@ export class SessionInbox {
       })
       if (!authorized.ok) {
         await removeHead(current, head.id)
-        this.deps.authorization.rejected({
+        const completion: Promise<void> = this.deps.authorization.rejected({
           queueId: head.id,
           sourceMessageId: head.sourceMessageId,
           principal: head.principal,
           reason: authorized.reason,
         })
+        await completion
         afterHead(current)
         return
       }
@@ -1721,7 +1726,10 @@ export class SessionInbox {
       // can stop calling a message that has been handed over "pending". It is not
       // delivery: `applied` below still waits for the turn.
       if (head.sourceMessageId) {
-        this.deps.authorization.injected?.({ sourceMessageId: head.sourceMessageId, sessionId })
+        const completion: Promise<void> | undefined = this.deps.authorization.injected?.({
+          sourceMessageId: head.sourceMessageId, sessionId,
+        })
+        await completion
       }
       if (needle !== null && (witnessable || transcriptCreatingWrite || needsReadinessProof)) {
         confirm(head, needle, attempt)
@@ -1776,12 +1784,13 @@ export class SessionInbox {
       })
       if (!authorized.ok) {
         await removeHead(current, head.id)
-        this.deps.authorization.rejected({
+        const completion: Promise<void> = this.deps.authorization.rejected({
           queueId: head.id,
           sourceMessageId: head.sourceMessageId,
           principal: head.principal,
           reason: authorized.reason,
         })
+        await completion
         afterHead(current)
         return
       }
@@ -1870,10 +1879,11 @@ export class SessionInbox {
             if (head.sourceMessageId) {
               // A retraction that raced the in-flight send is a no-op here:
               // `onQueuedInputApplied` only moves rows still `queued`.
-              this.deps.authorization.applied({
+              const completion: Promise<void> = this.deps.authorization.applied({
                 sourceMessageId: head.sourceMessageId,
                 sessionId,
               })
+              await completion
             }
             // The delivery was ASYNC, so the row may have been retracted while
             // it was in flight — removeHead on an already-deleted row would

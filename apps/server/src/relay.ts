@@ -113,7 +113,7 @@ import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
-import { QueuedMessageApply } from './modules/messages/queued-apply'
+import { cancelInterruptedQueuedMessage, QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
@@ -1232,22 +1232,28 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      applied?: (messageId: string, sessionId: SessionId) => void
-      injected?: (messageId: string, sessionId: SessionId) => void
+      applied?: (messageId: string, sessionId: SessionId) => Promise<void>
+      injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       abandoned?: (input: {
         sessionId: SessionId
         turnIds: readonly string[]
         reason: QueueDrainAbandonedReason
-      }) => void
-      interrupted?: (messageId: string) => void
+      }) => Promise<void>
+      interrupted?: (messageId: string) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
       events: this.store.events,
       authorize: mail.authorizeAtApply,
-      applied: (messageId, sessionId) => queuedApplyHooks.applied?.(messageId, sessionId),
-      injected: (messageId, sessionId) => queuedApplyHooks.injected?.(messageId, sessionId),
+      applied: async (messageId, sessionId) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.applied?.(messageId, sessionId)
+        await completion
+      },
+      injected: async (messageId, sessionId) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.injected?.(messageId, sessionId)
+        await completion
+      },
       bus: this.bus,
       now: () => new Date(this.now()).toISOString(),
     })
@@ -1262,8 +1268,14 @@ export class SessionRegistry {
         queuedMessageApply.applied(messageId, sessionId),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
-      queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
-      interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
+      queueDrainAbandoned: async (input) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.abandoned?.(input)
+        await completion
+      },
+      interruptQueuedMessage: async (messageId) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.interrupted?.(messageId)
+        await completion
+      },
       interruptPendingMessage: async (sessionId, messageId) => {
         const retraction: Promise<void> | undefined =
           queuedApplyHooks.interruptedPending?.(sessionId, messageId)
@@ -1786,13 +1798,8 @@ export class SessionRegistry {
     // A live busy send can be in the message ledger without a SessionInbox row.
     // The exit event is the real boundary that hands that row to the durable FIFO.
     this.bus.on('session.exited', async ({ sessionId }) => await messagesSvc.onSessionExited(sessionId))
-    queuedApplyHooks.interrupted = async (messageId) => {
-      try {
-        await messagesSvc.cancel(messageId)
-      } catch {
-        // A concurrent echo or explicit retraction already made the row final.
-      }
-    }
+    queuedApplyHooks.interrupted = (messageId): Promise<void> =>
+      cancelInterruptedQueuedMessage(messagesSvc, messageId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
         await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)

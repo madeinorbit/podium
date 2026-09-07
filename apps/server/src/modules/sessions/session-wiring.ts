@@ -403,20 +403,32 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     authorization: {
       authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),
-      applied: ({ sourceMessageId, sessionId }) =>
-        bag.deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId),
-      injected: ({ sourceMessageId, sessionId }) =>
-        bag.deps.noteQueuedMessageInjected?.(sourceMessageId, sessionId),
-      interrupted: ({ sourceMessageId }) => {
-        if (sourceMessageId) bag.deps.interruptQueuedMessage?.(sourceMessageId)
+      applied: async ({ sourceMessageId, sessionId }) => {
+        const completion: Promise<void> | undefined =
+          deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId)
+        await completion
+      },
+      injected: async ({ sourceMessageId, sessionId }) => {
+        const completion: Promise<void> | undefined =
+          deps.noteQueuedMessageInjected?.(sourceMessageId, sessionId)
+        await completion
+      },
+      interrupted: async ({ sourceMessageId }) => {
+        if (sourceMessageId) {
+          const completion: Promise<void> | undefined = deps.interruptQueuedMessage?.(sourceMessageId)
+          await completion
+        }
       },
       interruptedPending: async ({ sessionId, sourceMessageId }) => {
         const retraction: Promise<void> | undefined =
           deps.interruptPendingMessage?.(sessionId, sourceMessageId)
         await retraction
       },
-      rejected: ({ sourceMessageId, reason }) => {
-        if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
+      rejected: async ({ sourceMessageId, reason }) => {
+        if (sourceMessageId) {
+          const completion: Promise<void> | undefined = deps.rejectQueuedMessage?.(sourceMessageId, reason)
+          await completion
+        }
       },
     },
     attention: {
@@ -890,12 +902,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       machineReconciler.onDurableSessionCensus(principal, labels),
     runtimeEvents: bag.runtimeGateway,
     queueDrainAbandoned: {
-      record: (msg) =>
-        bag.deps.queueDrainAbandoned?.({
+      record: async (msg) => {
+        const completion: Promise<void> | undefined = deps.queueDrainAbandoned?.({
           sessionId: msg.sessionId,
           turnIds: msg.turnIds,
           reason: msg.reason,
-        }),
+        })
+        await completion
+      },
     },
     /**
      * THE PROTOCOL ASK INGRESS (POD-2023).

@@ -43,11 +43,11 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       daemon: { sendInput: () => {} },
       authorization: {
         authorizeAtDrain: () => ({ ok: true }) as const,
-        applied: vi.fn(),
-        injected: vi.fn(),
-        interrupted: vi.fn(),
+        applied: vi.fn(async () => {}),
+        injected: vi.fn(async () => {}),
+        interrupted: vi.fn(async () => {}),
         interruptedPending: vi.fn(async () => {}),
-        rejected: vi.fn(),
+        rejected: vi.fn(async () => {}),
       },
       attention: {
         stateChanged: vi.fn(),

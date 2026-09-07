@@ -93,21 +93,21 @@ export interface SessionLifecycleDeps {
     messageId: string,
   ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
   /** Dead-letter the durable source intent after a drain-time refusal. */
-  rejectQueuedMessage?(messageId: string, reason: string): void
+  rejectQueuedMessage?(messageId: string, reason: string): Promise<void>
   /** Advance the source intent only after queued input crosses into the PTY. */
-  confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): void
+  confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
-  noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
+  noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): Promise<void>
   /** Persist the sender-facing correction when a driver queue abandons delivery. */
   queueDrainAbandoned?(input: {
     sessionId: SessionId
     turnIds: readonly string[]
     reason: QueueDrainAbandonedReason
-  }): void
+  }): Promise<void>
   /** Cancel a queued source intent after the harness reports that the operator
    *  interrupted the physical delivery before it became a turn. */
-  interruptQueuedMessage?(messageId: string): void
+  interruptQueuedMessage?(messageId: string): Promise<void>
   /** Cancel the named operator chat message, or the newest one when a native
    *  terminal interrupt has no chat-side message id. */
   interruptPendingMessage?(sessionId: SessionId, messageId?: string): Promise<void>
