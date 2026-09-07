@@ -92,12 +92,12 @@ describe('coordinator handoff', () => {
     expect(started.started).toBe(true)
     await engine.whenSettled('op_1')
     const sealed = store.get('op_1')
-    expect(sealed?.state).toBe('running')
+    expect((await sealed)?.state).toBe('running')
     expect(step(sealed?.operation, 'first')).toMatchObject({
       state: 'running',
       detail: 'detaching',
     })
-    expect(step(sealed?.operation, 'second')?.state).toBe('pending')
+    expect(step((await sealed)?.operation, 'second')?.state).toBe('pending')
     expect(sealed?.operation?.details).toMatchObject({
       _handoff: { stepId: 'first' },
       handoff: { target: 'other-machine' },
@@ -106,11 +106,11 @@ describe('coordinator handoff', () => {
     expect(armed()).toBe(0)
 
     expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'running' }), 'running')
-    const bytes = sealed?.payload
+    const bytes = (await sealed)?.payload
     await engine.recordProgress('op_1', 'first', { state: 'done' })
     await engine.settleAsk('op_1', 'anything')
     expect(await engine.cancel('op_1')).toEqual({ canceled: false, refused: 'handed-off' })
-    expect(store.get('op_1')?.payload).toBe(bytes)
+    expect((await store.get('op_1'))?.payload).toBe(bytes)
     expect(() => engine.sealForHandoff('op_1', 'first')).toThrow(/already sealed/)
   })
 
@@ -127,8 +127,8 @@ describe('coordinator handoff', () => {
 
     await engine.start('test')
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.error?.code).toBe('handoff-unsealed')
+    expect((await store.get('op_1'))?.state).toBe('failed')
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe('handoff-unsealed')
   })
 
   it('reclaims only inside the sealing runner and frees the exclusion group', async () => {
@@ -149,8 +149,8 @@ describe('coordinator handoff', () => {
 
     await engine.start('test')
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.details).not.toHaveProperty('_handoff')
+    expect((await store.get('op_1'))?.state).toBe('failed')
+    expect((await store.get('op_1'))?.operation?.details).not.toHaveProperty('_handoff')
     expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'failed' }), 'running')
     expect(await engine.start('test')).toMatchObject({ started: true })
   })
@@ -187,7 +187,7 @@ describe('coordinator handoff', () => {
     await engine.start('test')
     await drain()
     expect(engine.isSealed('op_1')).toBe(true)
-    const before = store.get('op_1')?.payload
+    const before = (await store.get('op_1'))?.payload
     expect(
       await engine.dispatchAction(
         'op_1',
@@ -198,7 +198,7 @@ describe('coordinator handoff', () => {
     ).toEqual({ handled: true, result: { outcome: 'resolved-committed' } })
     expect(fact).toBe('resolved')
     expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ mode: 'sealed' }))
-    expect(store.get('op_1')?.payload).toBe(before)
+    expect((await store.get('op_1'))?.payload).toBe(before)
 
     release()
     await engine.whenSettled('op_1')
@@ -225,8 +225,8 @@ describe('operation cancellation cleanup', () => {
     const [first, second] = await Promise.all([engine.cancel('op_1'), engine.cancel('op_1')])
     expect(first).toEqual(second)
     expect(onCancel).toHaveBeenCalledOnce()
-    expect(store.get('op_1')?.state).toBe('canceled')
-    expect(step(store.get('op_1')?.operation, 'first')?.detail).toBe('staging removed')
+    expect((await store.get('op_1'))?.state).toBe('canceled')
+    expect(step((await store.get('op_1'))?.operation, 'first')?.detail).toBe('staging removed')
     expect(store.get('op_1')?.operation?.details).toMatchObject({
       targetAborted: true,
       cleanup: { status: 'complete' },

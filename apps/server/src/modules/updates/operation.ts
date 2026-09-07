@@ -2140,7 +2140,7 @@ async function settleMachines(
   operation: Operation,
   step: OperationStep,
   context: UpdateOperationContext,
-): (StepOutcome & { state: 'done' | 'failed' }) | undefined {
+): Promise<(StepOutcome & { state: 'done' | 'failed' }) | undefined> {
   const { places, progress } = await projectMachines(operation, step, context)
   const failedPlaces = places.filter(
     (place) => place.state !== undefined && TERMINAL_STATES.has(place.state as never),

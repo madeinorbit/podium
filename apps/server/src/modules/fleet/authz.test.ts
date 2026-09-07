@@ -273,7 +273,7 @@ describe('the machine verb is read from the contract, per command', () => {
       role: 'member',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(fleetAuthzFailure('machines.moveServer', input, memberManage)?.code).toBe('FORBIDDEN')
+    expect((await fleetAuthzFailure('machines.moveServer', input, memberManage))?.code).toBe('FORBIDDEN')
     expect((await fleetAuthzFailure('machines.transferServer', input, memberManage))?.code).toBe(
       'FORBIDDEN',
     )
@@ -285,7 +285,7 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
-    expect(fleetAuthzFailure('machines.moveServer', input, admin)?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('machines.moveServer', input, admin))?.code).toBe('NOT_FOUND')
     expect((await fleetAuthzFailure('machines.transferServer', input, admin))?.code).toBe('NOT_FOUND')
   })
 

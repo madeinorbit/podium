@@ -1233,7 +1233,7 @@ export class MachinesService {
     }
   }
 
-  private async persistInventory(machineId: MachineId, inventoryJson: string): void {
+  private async persistInventory(machineId: MachineId, inventoryJson: string): Promise<void> {
     this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
@@ -1404,7 +1404,7 @@ export class MachinesService {
     secret: string = randomUUID(),
     assignment?: MachineServiceAssignment,
     transferredFrom?: MachineId,
-  ): string {
+  ): Promise<string> {
     const id = this.deps.hostMachineId
     const existing = this.deps.store.machines.getMachine(id)
     const enrollmentOwner = this.deps.enrollment

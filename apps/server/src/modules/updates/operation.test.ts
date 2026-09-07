@@ -1685,10 +1685,10 @@ describe('the update operation, driven', () => {
       servedWebDigest: () => WEB_DIGEST,
     })
 
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
+    await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
+    await (await h).engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = (await h).read()
     expect(operation.state).toBe('done')
     expect(operation.steps).toEqual([
       expect.objectContaining({
@@ -1705,7 +1705,7 @@ describe('the update operation, driven', () => {
       }),
     ])
     expect(operation.deferred).toEqual([])
-    expect(h.sent).toEqual([])
+    expect((await h).sent).toEqual([])
   })
 })
 
@@ -1788,15 +1788,15 @@ describe('the step runners', () => {
       legacyTransferActive: () => true,
     })
 
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
+    await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
+    await (await h).engine.whenSettled('op_1')
 
     expect(h.read()).toMatchObject({
       state: 'failed',
       error: { code: 'legacy-transfer-in-progress' },
     })
     expect(requestDestBundle).not.toHaveBeenCalled()
-    expect(h.sent).toEqual([])
+    expect((await h).sent).toEqual([])
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
@@ -3525,7 +3525,7 @@ describe('the fleet bridge', () => {
 
     expect(offeredDeliveries(devTarget())).toEqual([])
     expect(
-      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, (await h).updates),
     ).toEqual([{ id: 'laptop', name: 'laptop', state: 'pending' }])
   })
 })
@@ -4576,8 +4576,8 @@ describe('coordinator snapshot activation boundary', () => {
       }),
       activate: vi.fn(async (grant: UpdateGrantMessage) => {
         // Read the actual SQLite operation row at the external activation boundary.
-        expect(h.read().details?.databaseSnapshotPath).toBe(snapshotPath)
-        expect(h.read().details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
+        expect((await h).read().details?.databaseSnapshotPath).toBe(snapshotPath)
+        expect((await h).read().details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
         activated.resolve()
       }),
       discard: vi.fn(async () => {}),
@@ -4591,7 +4591,7 @@ describe('coordinator snapshot activation boundary', () => {
     const address = serving.address() as { port: number }
     const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
     const start = async () => {
-      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+      await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
       await preparing.promise
     }
     const repeat = () => {
@@ -4608,7 +4608,7 @@ describe('coordinator snapshot activation boundary', () => {
       async close() {
         releasePreparation.resolve()
         releaseSnapshot.resolve()
-        h.engine.stop()
+        (await h).engine.stop()
         await control.close()
         await new Promise<void>((resolve) => serving.close(() => resolve()))
         rmSync(runtimeDir, { recursive: true, force: true })

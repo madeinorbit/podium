@@ -74,10 +74,13 @@ registry.bus.on('machine.connected', ({ machineId: id }) => {
 registry.bus.on('machine.disconnected', ({ machineId: id }) => {
   if (id === machineId) disconnects++
 })
-async function until(check: () => boolean, label: string, timeout = 5000) {
+// `check` may be async now that the machine reads are promises. It MUST be
+// awaited: `!somePromise` is always false, so a bare call would make every
+// wait exit on its first turn and pass vacuously.
+async function until(check: () => boolean | Promise<boolean>, label: string, timeout = 5000) {
   console.error(`[machine-events] waiting: ${label}`)
   const end = Date.now() + timeout
-  while (!check()) {
+  while (!(await check())) {
     assert(Date.now() < end, `timed out: ${label}`)
     await Bun.sleep(10)
   }
@@ -115,8 +118,9 @@ async function connect() {
   }
   socket.send(JSON.stringify(report))
   await until(
-    () =>
-      machines.listMachines().find((m) => m.id === machineId)?.services?.server.state === 'stopped',
+    async () =>
+      (await machines.listMachines()).find((m) => m.id === machineId)?.services?.server.state ===
+      'stopped',
     'zero-role report',
   )
   return {

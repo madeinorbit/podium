@@ -754,7 +754,7 @@ describe('adoption after a restart (P3, §3.4)', () => {
     final = true
     const settled = await engine.resumeDeferredAdoption('op_1', { state: 'promoted' })
     expect(settled?.state).toBe('done')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
     expect(engine.isAdoptionDeferred('op_1')).toBe(false)
     expect(ensure).not.toHaveBeenCalled()
   })
@@ -1510,7 +1510,7 @@ describe('restating a deferred promise (POD-3040)', () => {
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
 
-    const after = h.store.get(id)?.operation
+    const after = (await h.store.get(id))?.operation
     expect(after?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
     // The outcome is history and stays exactly as it was.
     expect(after?.state).toBe('done')

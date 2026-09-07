@@ -448,7 +448,11 @@ export class OperationEngine {
    * Persist the last source-owned row before an irreversible coordinator handoff.
    * The sealing step remains running and all successors remain pending.
    */
-  async sealForHandoff(operationId: string, stepId: string, patch: HandoffSealPatch = {}): Operation {
+  async sealForHandoff(
+    operationId: string,
+    stepId: string,
+    patch: HandoffSealPatch = {},
+  ): Promise<Operation> {
     if (this.stopped) throw new Error('the operations engine is stopped')
     if (this.handoffs.has(operationId)) throw new Error('operation is already sealed')
     const runner = this.runnerScope.getStore()
@@ -984,7 +988,7 @@ export class OperationEngine {
     return (await this.deps.store.active())[0]
   }
 
-  async get(operationId: string): OperationRow | undefined {
+  async get(operationId: string): Promise<OperationRow | undefined> {
     return (await this.deps.store.get(operationId))
   }
 
@@ -1454,7 +1458,11 @@ export class OperationEngine {
     this.contexts.delete(operation.id)
   }
 
-  private async finishReclaimed(operation: Operation, stepId: string, error: OperationError): Operation {
+  private async finishReclaimed(
+    operation: Operation,
+    stepId: string,
+    error: OperationError,
+  ): Promise<Operation> {
     const at = this.now()
     const marked = this.applyPatch(operation, stepId, { state: 'failed', error }, at)
     const details =
@@ -2021,7 +2029,7 @@ export class OperationEngine {
     return operation
   }
 
-  private async announce(operationId: string, previousState: string | undefined): void {
+  private async announce(operationId: string, previousState: string | undefined): Promise<void> {
     const row = await this.deps.store.get(operationId)
     if (row) this.deps.onChanged?.(row, previousState)
   }
