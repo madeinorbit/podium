@@ -150,10 +150,10 @@ type BootstrapReadCache = {
    * `findSessionsByIssueIds` applies exactly the `deleted_at IS NULL` filter
    * `loadSessions` applied, so the row set is the one the filter returned.
    */
-  sessionsByIssue?: {
+  sessionsByIssue?: Promise<{
     readonly covered: Set<string>
     readonly byIssueId: Map<string, SessionRow[]>
-  }
+  }>
 }
 
 /** The store surface this policy reads. Nothing here writes. */
@@ -521,10 +521,22 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     })
   }
 
-  let readCache: BootstrapReadCache | undefined
+  let readCache: { generation: number; value: Promise<BootstrapReadCache> } | undefined
   const currentBootstrapReadCache = async (): Promise<BootstrapReadCache> => {
     const generation = await store.sync.latestChangeStatesGeneration()
-    if (readCache?.generation === generation) return readCache
+    if (readCache?.generation === generation) return readCache.value
+    // Publish the in-flight fill before concurrent anchors can start another.
+    const value = buildBootstrapReadCache(generation)
+    const entry = { generation, value }
+    readCache = entry
+    try {
+      return await value
+    } catch (error) {
+      if (readCache === entry) readCache = undefined
+      throw error
+    }
+  }
+  const buildBootstrapReadCache = async (generation: number): Promise<BootstrapReadCache> => {
     const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
     const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
     const shipOrdersByIssueId = new Map<string, ShipOrderSubject[]>()
@@ -552,13 +564,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         }
       }
     }
-    readCache = {
+    return {
       generation,
       latestByRef,
       issueDepsByFromId,
       shipOrdersByIssueId,
     }
-    return readCache
   }
   /**
    * The sessions bound to one issue, from the generation's one fill.
@@ -570,23 +581,32 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    * one.
    */
   const sessionsForIssue = async (cache: BootstrapReadCache, issueId: string): Promise<SessionRow[]> => {
-    let held = cache.sessionsByIssue
-    if (held === undefined) {
-      const anchorable = await store.grants.visibilityAudienceResourceIds('issue')
-      const byIssueId = new Map<string, SessionRow[]>()
-      const rows =
-        anchorable.length === 0
-          ? []
-          : await store.sessions.findSessionsByIssueIds(anchorable.map((id) => asIssueId(id)))
-      for (const row of rows) {
-        const boundTo = row.issueId
-        if (boundTo == null) continue
-        const bucket = byIssueId.get(boundTo)
-        if (bucket) bucket.push(row)
-        else byIssueId.set(boundTo, [row])
-      }
-      held = { covered: new Set(anchorable), byIssueId }
-      cache.sessionsByIssue = held
+    // Anchors resolve concurrently; share the pending session query as well.
+    if (cache.sessionsByIssue === undefined) {
+      cache.sessionsByIssue = (async () => {
+        const anchorable = await store.grants.visibilityAudienceResourceIds('issue')
+        const byIssueId = new Map<string, SessionRow[]>()
+        const rows =
+          anchorable.length === 0
+            ? []
+            : await store.sessions.findSessionsByIssueIds(anchorable.map((id) => asIssueId(id)))
+        for (const row of rows) {
+          const boundTo = row.issueId
+          if (boundTo == null) continue
+          const bucket = byIssueId.get(boundTo)
+          if (bucket) bucket.push(row)
+          else byIssueId.set(boundTo, [row])
+        }
+        return { covered: new Set(anchorable), byIssueId }
+      })()
+    }
+    const fill = cache.sessionsByIssue
+    let held: Awaited<typeof fill>
+    try {
+      held = await fill
+    } catch (error) {
+      if (cache.sessionsByIssue === fill) cache.sessionsByIssue = undefined
+      throw error
     }
     const known = held.byIssueId.get(issueId)
     if (known !== undefined) return known
