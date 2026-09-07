@@ -78,44 +78,53 @@ export class SessionKill {
    * restored and therefore use generic process kill; standalone deletion is
    * terminal and emits the distinct binding-retirement instruction. */
   async removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): Promise<void> {
-    const session = this.ports.sessions.get(sessionId)
-    // The issues service owns the per-session Git attribution ledger. Notify it
-    // while membership/cwd are still resolvable, before this removal.
-    this.ports.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
+    const remove = await this.prepareSessionRuntimeRemoval(sessionId, terminalRetirement)
+    remove()
+  }
 
-    this.ports.toMachine(
-      // The live Session is the truth while it exists; after it is dropped the durable
-      // row still names the machine that ran it, and only a session with neither gets
-      // the fleet default. Every arm is a machine some daemon actually answers to.
-      session?.machineId ??
-        (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
-        await this.ports.machines.defaultMachine(),
-      terminalRetirement
-        ? {
-            type: 'sessionBindingRetire',
-            sessionId,
-            transitionId: `retire:${sessionId}`,
-            retiredAt: terminalRetirement.retiredAt,
-            ...(session ? { durableLabel: session.durableLabel } : {}),
-          }
-        : {
-            type: 'kill',
-            sessionId,
-            ...(session ? { durableLabel: session.durableLabel } : {}),
-          },
-    )
-    this.ports.autoContinue.onSessionGone(sessionId)
-    session?.terminal.detachAll()
-    this.ports.sessions.delete(sessionId)
-    this.ports.state.removeSession(sessionId)
-    this.ports.daemonProjection.disposeTitle(sessionId)
-    for (const c of this.ports.clients.values()) c.attached.delete(sessionId)
-    this.ports.repository.forget(sessionId)
+  /** Resolve routing before commit so the irreversible apply step cannot yield. */
+  async prepareSessionRuntimeRemoval(
+    sessionId: SessionId,
+    terminalRetirement?: { retiredAt: string },
+  ): Promise<() => void> {
+    const session = this.ports.sessions.get(sessionId)
+    const machineId = session?.machineId ??
+      (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
+      await this.ports.machines.defaultMachine()
+    return () => {
+      // Notify while membership/cwd are still resolvable, before removal.
+      this.ports.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
+
+      this.ports.toMachine(
+        machineId,
+        terminalRetirement
+          ? {
+              type: 'sessionBindingRetire',
+              sessionId,
+              transitionId: `retire:${sessionId}`,
+              retiredAt: terminalRetirement.retiredAt,
+              ...(session ? { durableLabel: session.durableLabel } : {}),
+            }
+          : {
+              type: 'kill',
+              sessionId,
+              ...(session ? { durableLabel: session.durableLabel } : {}),
+            },
+      )
+      this.ports.autoContinue.onSessionGone(sessionId)
+      session?.terminal.detachAll()
+      this.ports.sessions.delete(sessionId)
+      this.ports.state.removeSession(sessionId)
+      this.ports.daemonProjection.disposeTitle(sessionId)
+      for (const c of this.ports.clients.values()) c.attached.delete(sessionId)
+      this.ports.repository.forget(sessionId)
+    }
   }
 
   async killSession(input: { sessionId: SessionId }): Promise<void> {
     const session = this.ports.sessions.get(input.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
+    const removeRuntime = await this.prepareSessionRuntimeRemoval(input.sessionId, { retiredAt: deletedAt })
     // The remove change commits in the SAME transaction as the tombstone (and
     // the queued-send cleanup — a killed session can never deliver, so its rows
     // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
@@ -138,8 +147,8 @@ export class SessionKill {
       // client attachment dropped — so on that path it tore a session down for
       // a tombstone the enclosing span could still roll back, and there is no
       // un-kill to compensate with.
-      apply: async (_result, changes) => {
-        await this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
+      apply: (_result, changes) => {
+        removeRuntime()
         this.ports.repository.publishSessionProjection(changes)
       },
     })
