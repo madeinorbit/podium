@@ -115,7 +115,7 @@ jobs:
             $healthy = $false
             foreach ($i in 1..90) {
               if ($desktop.HasExited) { throw 'Installed desktop exited before its payload became healthy' }
-              if (Select-String -Path $nativeLog -Pattern 'payload spawn failed|payload seed failed|payload is not executable|window build failed' -Quiet -ErrorAction SilentlyContinue) {
+              if ((Test-Path $nativeLog) -and (Select-String -Path $nativeLog -Pattern 'payload spawn failed|payload seed failed|payload is not executable|window build failed' -Quiet)) {
                 throw 'Installed desktop reported a payload or window failure'
               }
               try {
