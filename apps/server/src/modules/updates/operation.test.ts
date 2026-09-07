@@ -4553,7 +4553,7 @@ describe('coordinator snapshot activation boundary', () => {
     })!
     const h = await harness({
       machines: fleet, target, hostMachineId: 'host', durableRecovery: true,
-      approvedTarget: () => approved, servedWebDigest: () => WEB_DIGEST,
+      approvedTarget: async () => approved, servedWebDigest: () => WEB_DIGEST,
       legacyTransferActive: () => transfer,
       prepareCoordinatorUpdate: async (target, grant) => {
         const receipt = await prepare(target, grant)
@@ -4725,8 +4725,8 @@ describe('coordinator snapshot activation boundary', () => {
     const target = releaseFor(['linux-x64'])
     const fleet: WaveMachine[] = []
     const send = vi.fn()
-    const service = new UpdatesService({ machines: () => fleet, send, now: () => 1,
-      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: () => target })
+    const service = new UpdatesService({ machines: async () => fleet, send, now: () => 1,
+      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: async () => target })
     service.setTarget('dev', target)
     service.markAuthorized('dev')
     service.tick('dev')

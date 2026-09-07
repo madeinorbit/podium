@@ -49,7 +49,7 @@ describe('startTargetRefresh', () => {
   const build = (
     opts: {
       refresh?: (channel: UpdateChannel) => Promise<boolean | void>
-      operationActive?: (channel: UpdateChannel) => boolean
+      operationActive?: (channel: UpdateChannel) => boolean | Promise<boolean>
     } = {},
   ) => {
     const clock = fakeSchedule()
@@ -234,7 +234,7 @@ describe('scheduled refresh after supervised completion', () => {
     const send = vi.fn()
     const construct = () =>
       new UpdatesService({
-        machines: () => fleet,
+        machines: async () => fleet,
         recovery,
         approvedTarget: async () => approved,
         resolveTarget: resolve,

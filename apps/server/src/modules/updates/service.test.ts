@@ -40,7 +40,7 @@ function make(machines: unknown[], overrides: Partial<UpdatesDeps> = {}) {
   const send = vi.fn()
   let n = 0
   const svc = new UpdatesService({
-    machines: () => machines as never,
+    machines: async () => machines as never,
     send,
     now: () => 1_000,
     nextGrantId: () => `g${++n}`,
@@ -209,7 +209,7 @@ describe('UpdatesService', () => {
       const changed = { ...svc.target()!, critical: true }
       const boot = make(machines, {
         recovery,
-        ...(replacement === 'approval' ? { approvedTarget: () => changed } : {}),
+        ...(replacement === 'approval' ? { approvedTarget: async () => changed } : {}),
       })
       if (replacement === 'publication') boot.svc.setTarget(changed)
       boot.svc.onStatus(asMachineId('a'), confirmed)
@@ -257,7 +257,7 @@ describe('UpdatesService', () => {
             expect(recovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe('g1')
             const { svc, send } = reboot ? make(h.machines, { recovery }) : h
             const sentBefore = send.mock.calls.length
-            expect(svc.operationActive('dev')).toBe(false)
+            expect(await svc.operationActive('dev')).toBe(false)
             expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
             svc.onStatus(asMachineId('a'), confirmed)
             expect(recovery.read()?.machines[0]?.[1]).toMatchObject({
@@ -265,13 +265,13 @@ describe('UpdatesService', () => {
             })
             for (let replay = 0; replay < 3; replay++) {
               svc.onStatus(asMachineId('a'), confirmed)
-              expect(svc.fleet()[0]?.state).toBe('current')
+              expect((await svc.fleet())[0]?.state).toBe('current')
               expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
-              expect(svc.operationActive('dev')).toBe(false)
+              expect(await svc.operationActive('dev')).toBe(false)
             }
             expect(send).toHaveBeenCalledTimes(sentBefore)
             const boot = make(h.machines, { recovery })
-            expect(boot.svc.fleet()[0]?.state).toBe('current')
+            expect((await boot.svc.fleet())[0]?.state).toBe('current')
             expect(await boot.svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
             expect(boot.send).not.toHaveBeenCalled()
           }
@@ -293,7 +293,7 @@ describe('UpdatesService', () => {
         svc.abandonWait(['a'], 'Deadline expired')
         svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
         expect((await svc.fleet())[0]?.state).toBe('stuck')
-        expect(svc.operationActive('dev')).toBe(false)
+        expect(await svc.operationActive('dev')).toBe(false)
         expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
         expect(send).toHaveBeenCalledTimes(1)
       })
@@ -318,7 +318,7 @@ describe('UpdatesService', () => {
             }
             const { svc, send } = make(h.machines, {
               recovery,
-              ...(replacement.startsWith('approval') ? { approvedTarget: () => changed } : {}),
+              ...(replacement.startsWith('approval') ? { approvedTarget: async () => changed } : {}),
             })
             if (replacement === 'publication') svc.setTarget(changed)
             if (replacement === 'channel') {
@@ -331,9 +331,9 @@ describe('UpdatesService', () => {
             if (replacement === 'channel') {
               expect(recovery.read()?.machines[0]?.[1].channel).toBe('dev')
             }
-            expect(svc.fleet()[0]?.state).not.toBe('current')
+            expect((await svc.fleet())[0]?.state).not.toBe('current')
             expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
-            expect(svc.operationActive('dev')).toBe(false)
+            expect(await svc.operationActive('dev')).toBe(false)
             expect(send).not.toHaveBeenCalled()
           }
         },
@@ -458,7 +458,7 @@ describe('UpdatesService', () => {
     it('holds the pending grant through early hello and slow child startup', async () => {
       const { svc, send } = start()
       for (let i = 0; i < 3; i++) {
-        expect(svc.fleet()[0]).toMatchObject({ state: 'granted', version: '0.4.1' })
+        expect((await svc.fleet())[0]).toMatchObject({ state: 'granted', version: '0.4.1' })
         expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
         svc.tick()
       }
@@ -543,7 +543,7 @@ describe('UpdatesService', () => {
           artifacts: { headless: { delivery: 'feed' as const, platforms: {} } },
         }
         let approved: ReturnType<UpdatesService['target']>
-        const { svc, send } = start({ approvedTarget: () => approved })
+        const { svc, send } = start({ approvedTarget: async () => approved })
         if (replacement === 'publication') svc.setTarget(changed)
         else approved = changed
         svc.onStatus(asMachineId('a'), confirmed)
@@ -1035,7 +1035,7 @@ describe('UpdatesService', () => {
       const send = vi.fn()
       let n = 0
       const svc = new UpdatesService({
-        machines: () => machines as never,
+        machines: async () => machines as never,
         send,
         now: () => clock,
         nextGrantId: () => `g${++n}`,
@@ -1073,14 +1073,14 @@ describe('UpdatesService', () => {
       svc.setTarget(target)
       // One canary first, so exactly one machine is mid-grant here.
       await svc.authorize()
-      expect(svc.operationActive('dev')).toBe(true)
+      expect(await svc.operationActive('dev')).toBe(true)
 
       expect(await svc.releaseInFlightGrants()).toEqual(['a'])
       expect((await svc.fleet())[0]).toMatchObject({
         state: 'stuck',
         detail: 'The machine stopped reporting progress while updating.',
       })
-      expect(svc.operationActive('dev')).toBe(false)
+      expect(await svc.operationActive('dev')).toBe(false)
     })
 
     it('re-issues the grant for a machine the planner would otherwise skip', async () => {
@@ -1150,7 +1150,7 @@ describe('UpdatesService', () => {
         detail: expect.stringContaining('did not reach 0.4.2'),
       })
       expect(classifyMachineFailure(failed?.detail)).toBe('machine-update-not-confirmed')
-      expect(svc.operationActive('dev')).toBe(false)
+      expect(await svc.operationActive('dev')).toBe(false)
     })
 
     it('does not apply a recovered crash report to a different packaged target', async () => {
@@ -1179,7 +1179,7 @@ describe('UpdatesService', () => {
         version: '0.4.1',
       })
       expect((await svc.fleet())[0]).not.toHaveProperty('detail')
-      expect(svc.operationActive('dev')).toBe(true)
+      expect(await svc.operationActive('dev')).toBe(true)
     })
 
     it('does not re-grant a source checkout from legacy in-flight state', async () => {
@@ -1780,7 +1780,7 @@ describe('target refresh bookkeeping', () => {
   describe('operationActive', () => {
     it('is false with no wave in flight', async () => {
       const { svc } = make([m('a')])
-      expect(svc.operationActive('dev')).toBe(false)
+      expect(await svc.operationActive('dev')).toBe(false)
     })
 
     it('is true while a grant is outstanding on that channel, and only that channel', async () => {
@@ -1788,8 +1788,8 @@ describe('target refresh bookkeeping', () => {
       svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
       await svc.authorize('dev')
 
-      expect(svc.operationActive('dev')).toBe(true)
-      expect(svc.operationActive('stable')).toBe(false)
+      expect(await svc.operationActive('dev')).toBe(true)
+      expect(await svc.operationActive('stable')).toBe(false)
     })
 
     it('is false again once the machine reconnects at the target', async () => {
@@ -1799,11 +1799,11 @@ describe('target refresh bookkeeping', () => {
       await svc.authorize('dev')
       await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
-      expect(svc.operationActive('dev')).toBe(true)
+      expect(await svc.operationActive('dev')).toBe(true)
       const machine = machines[0]
       if (machine) machine.version = '0.4.2'
       await svc.fleet()
-      expect(svc.operationActive('dev')).toBe(false)
+      expect(await svc.operationActive('dev')).toBe(false)
     })
   })
 })
@@ -1894,7 +1894,7 @@ describe('withdrawAuthorization', () => {
 describe('UpdatesService.operationChannel', () => {
   const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
     new UpdatesService({
-      machines: () => machines as never,
+      machines: async () => machines as never,
       send: vi.fn(),
       now: () => 1_000,
       nextGrantId: () => 'g1',
@@ -1966,7 +1966,7 @@ describe('UpdatesService.operationChannel', () => {
 describe('UpdatesService.advertisedTarget', () => {
   const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
     new UpdatesService({
-      machines: () => machines as never,
+      machines: async () => machines as never,
       send: vi.fn(),
       now: () => 1_000,
       nextGrantId: () => 'g1',
