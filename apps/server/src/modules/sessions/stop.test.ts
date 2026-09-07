@@ -51,7 +51,7 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   // Every issue in this file lives at `/r`, and recreating a freed worktree
   // goes through `requireMachineForRepo` — an issue's machine must actually
   // host the repo. The fixture states that once rather than each test carrying

@@ -278,7 +278,11 @@ export class DaemonMux {
    * with the placeholder: rows are written under a real machine id from boot, so an
    * attaching daemon has nothing to claim — it just becomes reachable.
    */
-  attachDaemon(peer: DaemonPeer, transport: DaemonControlPeer, caps?: readonly string[]): void {
+  async attachDaemon(
+    peer: DaemonPeer,
+    transport: DaemonControlPeer,
+    caps?: readonly string[],
+  ): Promise<void> {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
@@ -297,7 +301,7 @@ export class DaemonMux {
     // the in-process link, and keeps the superseded-socket guard below authoritative.
     log.info('daemon attached — the machine is now online', { machineId })
     machines.flushQueued(machineId)
-    sessions.onMachineAttached(principal)
+    await sessions.onMachineAttached(principal)
     machines.scheduleBroadcastMachines()
     this.deps.bus.emit('machine.connected', { machineId })
   }

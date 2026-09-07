@@ -56,7 +56,7 @@ export interface MachineReconcilerPorts {
   /** Archive means stopped: park a survivor that is still live/reconnecting. */
   parkArchivedSession(sessionId: Session['sessionId']): void
   /** Build the reattach control message for one survivor. */
-  reattachMessage(session: Session, machineId: MachineId): ControlMessage
+  reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Rank survivors: lower tier reattaches sooner. */
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
@@ -81,7 +81,7 @@ export class SessionMachineReconciler {
    * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
    * class; `docs/multi-user-readiness.md` §3.1.6 S5).
    */
-  onAttached(principal: MachinePrincipal): void {
+  async onAttached(principal: MachinePrincipal): Promise<void> {
     const machineId = principal.machine
 
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
@@ -89,7 +89,7 @@ export class SessionMachineReconciler {
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
     for (const s of this.ports.sessions()) {
       if (s.machineId === machineId && s.queuedMessageCount > 0) {
-        // NOT awaited: onAttached is the transport's synchronous attach half.
+        // NOT awaited: the drain waits for later daemon observations.
         // A drain pass loses nothing if it fails — the row is durable and the
         // next bind, reconnect or enqueue re-arms a fresh pass (rule 57, and
         // SessionInbox.dispose's own note).
@@ -144,7 +144,7 @@ export class SessionMachineReconciler {
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
     for (const s of probes) {
-      this.ports.toMachine(machineId, this.ports.reattachMessage(s, machineId))
+      this.ports.toMachine(machineId, await this.ports.reattachMessage(s, machineId))
     }
 
     // Headless sessions have no PTY to reattach; instead re-establish their
@@ -173,7 +173,7 @@ export class SessionMachineReconciler {
    * Archived rows are excluded: archive means stopped, and {@link onAttached}
    * parks (and now verifiably kills) them a few lines earlier.
    */
-  onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void {
+  async onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): Promise<void> {
     const machineId = principal.machine
     const live = new Set(labels)
     for (const s of this.ports.sessions()) {
@@ -184,7 +184,7 @@ export class SessionMachineReconciler {
       // an identity a server-family session never has — so this caller may
       // bypass the server-family hold below: the reattach it triggers is the
       // passive PTY bind, never a spawning adopt.
-      this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
+      await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
         measuredPtyHost: true,
       })
     }
@@ -201,7 +201,7 @@ export class SessionMachineReconciler {
    * `onExit` leaves a hibernated row hibernated — a wrong guess here costs a
    * probe, never a resurrection.
    */
-  reviveParkedButAlive(
+  async reviveParkedButAlive(
     session: Session,
     machineId: MachineId,
     reason: string,
@@ -211,7 +211,7 @@ export class SessionMachineReconciler {
        *  revive triggers is the passive PTY bind. Only the census can say it. */
       measuredPtyHost?: boolean
     } = {},
-  ): void {
+  ): Promise<void> {
     if (session.status !== 'hibernated' && session.status !== 'exited') return
     /**
      * A POSSIBLY-SERVER-FAMILY ROW IS NEVER BLIND-REATTACHED FROM A RECEIPT
@@ -299,7 +299,7 @@ export class SessionMachineReconciler {
       draft.status = 'reconnecting'
       draft.exitCode = undefined
     })
-    this.ports.toMachine(machineId, this.ports.reattachMessage(session, machineId))
+    this.ports.toMachine(machineId, await this.ports.reattachMessage(session, machineId))
     this.ports.broadcastSessions()
   }
 

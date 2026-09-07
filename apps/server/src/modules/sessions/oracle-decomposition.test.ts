@@ -318,7 +318,7 @@ describe('oracle: priority pushes', () => {
 
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) =>
+    await o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) =>
       reconnected.push(message),
     )
     expect(priorities(reconnected)).toEqual(
@@ -453,7 +453,7 @@ describe('oracle: browser-open forwarding', () => {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
-    o.reg.gateway.attachDaemon('foreign', () => {})
+    await o.reg.gateway.attachDaemon('foreign', () => {})
     o.daemon.length = 0
     browser.length = 0
 

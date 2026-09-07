@@ -17,8 +17,9 @@ import { systemPrincipal } from '../../command-principal'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
-import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
-import type { MachineListing } from '../machines/service'
+import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import type { MachinesService, MachineListing } from '../machines/service'
+import type { SessionMachineReconciler } from './machine-reconciler'
 import type { Session } from './session'
 
 const log = createLogger('server:sessions')
@@ -28,8 +29,8 @@ export interface SessionClientPlanePorts {
   clientControl: import('./client-control').SessionClientControl
   clients: any
   headless: any
-  machineReconciler: any
-  machines: any
+  machineReconciler: SessionMachineReconciler
+  machines: Pick<MachinesService, 'ownershipRows' | 'grantsForMachine' | 'toMachine'>
   repository: any
   rpc: any
   state: any
@@ -44,8 +45,8 @@ export class SessionClientPlane {
    * attach/detach. Delegated to {@link SessionMachineReconciler}; the gateway
    * (`gateway/daemon-mux.ts`) owns the transport half and calls these.
    */
-  onMachineAttached(principal: MachinePrincipal): void {
-    this.ports.machineReconciler.onAttached(principal)
+  onMachineAttached(principal: MachinePrincipal): Promise<void> {
+    return this.ports.machineReconciler.onAttached(principal)
   }
 
   onMachineDetached(principal: MachinePrincipal): void {
@@ -55,17 +56,14 @@ export class SessionClientPlane {
   /**
    * The reattach control message for one survivor session.
    *
-   * `recoveryMachineAccess` was computed ONCE per attach before this moved, and
-   * is computed per session here. Identical result: the decision depends only on
-   * `machineId` and the machines ownership snapshot, and the caller's loop is
-   * synchronous, so nothing can change between iterations.
+   * Resolve the repository-backed ownership before constructing the probe.
    */
-  reattachMessageFor(session: Session, machineId: MachineId): ControlMessage {
+  async reattachMessageFor(session: Session, machineId: MachineId): Promise<ControlMessage> {
     const recoveryMachineAccess =
       machineUseDecision(
         systemPrincipal('session-rebind'),
         machineId,
-        ownershipFromMachines(this.ports.machines),
+        await ownershipSnapshotFromMachines(this.ports.machines),
       ) === 'granted'
         ? 'allowed'
         : 'denied'

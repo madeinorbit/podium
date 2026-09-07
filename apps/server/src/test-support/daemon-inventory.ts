@@ -57,6 +57,6 @@ export async function attachDaemonWithInventory(
   transport: DaemonControlPeer = () => {},
   inventory: Inventory = fixtureInventory(),
 ): Promise<void> {
-  registry.gateway.attachDaemon(machineId, transport)
+  await registry.gateway.attachDaemon(machineId, transport)
   await registry.modules.machines.recordInventory(asMachineId(machineId), inventory)
 }

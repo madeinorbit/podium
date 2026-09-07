@@ -28,7 +28,7 @@ async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistr
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 
@@ -124,7 +124,7 @@ describe('resolved runtime driver projection', () => {
 
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     daemon.length = 0
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
 
     const reattach = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
@@ -200,7 +200,7 @@ describe('Claude SDK continuity projection', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
-    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
       daemon.push(message),
     )
     const reattach = daemon.find(
@@ -248,7 +248,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
-    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
       daemon.push(message),
     )
     expect(
@@ -358,7 +358,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
-    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
       daemon.push(message),
     )
     expect(
