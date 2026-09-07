@@ -81,10 +81,11 @@ const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame):
     mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg),
   )
 
-const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): void => {
-  const joined = mux.presence.route(conn, msg)
-  if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
-}
+const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): Promise<void> =>
+  mux.enqueueSessionWork(conn, async () => {
+    const joined = await mux.presence.route(conn, msg)
+    if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
+  })
 
 const DISPATCH: Dispatcher = {
   // ---- sessions ----

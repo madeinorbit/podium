@@ -230,7 +230,7 @@ export interface FeedServingDeps {
    */
   diagnostics(): ConversationDiagnosticWire[]
   /** Rights moved: revalidate ephemeral rooms held by these same subscribers. */
-  onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void
+  onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void | Promise<void>
 }
 
 export class FeedServing {
@@ -910,7 +910,7 @@ export class FeedServing {
     const subscribers = this.deps.subscriptions.subscribers(key)
     const targets = subscribers.map((sub) => String(sub.subscriberId))
     if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
-      this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
+      await this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
     }
     await this.publisher.publishTo(targets, principal, delivery)
     const tFramed = performance.now()
