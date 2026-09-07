@@ -37,7 +37,6 @@ const BOOLEAN_COLUMNS = [
   'issues.draft',
   'issues.needs_human',
   'machines.podium_managed',
-  'machines.supervised',
   'messages.expects_response',
   'quota_windows.partial',
   'sessions.archived',

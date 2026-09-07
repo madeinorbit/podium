@@ -522,10 +522,6 @@ export class ServerTransferService {
           this.journal.transition('validated')
           hooks.onPhase?.('validate', 'done', record)
         }
-        await authorization.reauthorize('validate')
-        await this.assertTarget(input.targetMachineId)
-        await this.validate(initialManifest, input.targetMachineId)
-        this.journal.transition('validated')
 
         if (hooks.canceled?.()) {
           throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')

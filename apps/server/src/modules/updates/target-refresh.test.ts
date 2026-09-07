@@ -37,8 +37,15 @@ function fakeSchedule() {
       if (entry.canceled) throw new Error('the armed callback was canceled')
       const before = armed.length
       entry.run()
-      for (let turn = 0; turn < 10 && armed.length === before; turn += 1) {
-        await Promise.resolve()
+      // Yield through a MACROTASK, not `await Promise.resolve()`. The armed
+      // callback is `() => { void tick() }` -- production cannot hand a timer a
+      // promise to await -- so the only way to observe the re-arm is to let the
+      // chain run. A microtask yield advances the chain by exactly one link, so
+      // a fixed count of them is really an assertion about how many awaits `tick`
+      // contains, and it broke the moment `operationActive` became genuinely
+      // async. Draining to empty each round makes the number of links irrelevant.
+      for (let turn = 0; turn < 50 && armed.length === before; turn += 1) {
+        await new Promise((resolve) => setImmediate(resolve))
       }
       if (armed.length === before) throw new Error('the scheduled callback did not settle')
     },

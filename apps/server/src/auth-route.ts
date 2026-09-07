@@ -376,7 +376,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     if (
       token.length < 32 ||
       session?.label !== 'server-transfer-claim' ||
-      !store.isClientSessionValid(tokenHash, new Date(now()).toISOString())
+      !(await store.isClientSessionValid(tokenHash, new Date(now()).toISOString()))
     ) {
       return c.redirect('/?serverTransferClaim=invalid', 303)
     }
@@ -384,8 +384,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // claim was carried only in the old authenticated WebSocket and URL fragment;
     // after this response it no longer authenticates anything.
     const replacement = randomBytes(32).toString('base64url')
-    store.deleteClientSession(tokenHash)
-    store.createClientSession(
+    await store.deleteClientSession(tokenHash)
+    await store.createClientSession(
       hashToken(replacement),
       session.userId,
       new Date(now() + SESSION_TTL_MS).toISOString(),
@@ -476,14 +476,14 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     const token = randomBytes(32).toString('base64url')
     const expiresMs = at + SESSION_TTL_MS
     const expiresAt = new Date(expiresMs).toISOString()
-    store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
+    await store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
     // WHICH PERSON this device belongs to. The shared password authenticates a
     // CONNECTION, not a human (ADR 9 D1.3), so the only true answer available is
     // the instance's one account — passed EXPLICITLY rather than defaulted in the
     // store, so per-user login (POD-315) changes this line and nothing silently
     // keeps writing one id for everybody.
     if (nativeLogin) {
-      store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
+      await store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
         sessionId: randomBytes(18).toString('base64url'),
         deviceId: nativeLogin.deviceId,
         deviceName: nativeLogin.deviceName,

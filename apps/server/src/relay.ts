@@ -497,10 +497,18 @@ export class SessionRegistry {
     // The host row must exist before the completed registry can serve a request,
     // but provisioning it is a store write and therefore belongs in async boot,
     // after composition and before every other hydration step.
-    await this.modules.machines.ensureHostMachine(hostname())
+    //
+    // GUARDED, and the guard is the point. dev/mw put these two steps in the
+    // constructors behind `if (!recoveryOnly)`, because a recovery-only registry
+    // holds a QUERY-ONLY store and may not run boot WRITERS against it. The flip
+    // moved the steps here -- a constructor cannot await -- so the guard has to
+    // travel with them. Without it a recovery-only boot writes to a read-only
+    // store and fails with SQLITE_READONLY.
+    if (!this.recoveryOnly) await this.modules.machines.ensureHostMachine(hostname())
     // Session rows must be restored before any issue or message reconciliation
-    // can inspect their targets.
-    await this.modules.sessions.loadFromStore()
+    // can inspect their targets. Recovery-only serves operations, history, action
+    // and health, so it neither needs nor may run session restoration's writers.
+    if (!this.recoveryOnly) await this.modules.sessions.loadFromStore()
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.superagentDefaults.seed()
@@ -529,12 +537,14 @@ export class SessionRegistry {
     await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
-    try {
-      await this.modules.messages.reconcileQueued()
-    } catch (error) {
-      log.warn('queued message startup recovery failed — the retry backstop remains active', {
-        err: error,
-      })
+    if (!this.recoveryOnly) {
+      try {
+        await this.modules.messages.reconcileQueued()
+      } catch (error) {
+        log.warn('queued message startup recovery failed — the retry backstop remains active', {
+          err: error,
+        })
+      }
     }
   }
 
@@ -722,11 +732,11 @@ export class SessionRegistry {
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
     // a machine nobody may use — so the row has to exist before the registry can be
-    // asked for anything, and making it a construction invariant is how no
-    // composition gets to forget. The composition root calls `ensureHostMachine`
-    // again with the real hostname and the loopback bootstrap secret; that call is
-    // an idempotent UPDATE of this row, not a rival insert.
-    if (!recoveryOnly) machines.ensureHostMachine(hostname())
+    // asked for anything. It is NOT a construction invariant any more: the row is
+    // provisioned in `hydrate`, which is the only place that can await the write.
+    // The composition root calls `ensureHostMachine` again with the real hostname
+    // and the loopback bootstrap secret; that call is an idempotent UPDATE of this
+    // row, not a rival insert.
     // The fleet's log-level valve (POD-3156), built after the machine registry
     // it selects over. It reaches the registry through a PORT (online set, name,
     // one send) rather than holding the service: which machines a raise is for
@@ -1617,11 +1627,8 @@ export class SessionRegistry {
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
-    // Boot: hydrate sessions (and reconcile the restored state against the
-    // write-seam ledger — boot reconciliation lives in the sessions module now).
-    // Recovery-only serves operations/history/action/health and holds a query-only
-    // store, so it neither needs nor may run session restoration's boot writers.
-    if (!recoveryOnly) sessionsSvc.loadFromStore()
+    // Boot session hydration runs in `hydrate`, not here: it is async now and a
+    // constructor cannot await it. Its recovery-only guard moved with it.
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
@@ -3193,17 +3200,9 @@ export class SessionRegistry {
         .reconcile()
         .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
     }
-    // One durable queued-row pass repairs events missed while the server was down
-    // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
-    if (!recoveryOnly) {
-      try {
-        messagesSvc.reconcileQueued()
-      } catch (error) {
-        log.warn('queued message startup recovery failed — the retry backstop remains active', {
-          err: error,
-        })
-      }
-    }
+    // The durable queued-row pass runs in `hydrate` [spec:SP-c29e]. Called here it
+    // was never awaited, so it raced the rest of boot AND the catch below it was
+    // dead -- an unawaited rejection cannot be caught by the try that started it.
     this.steward = new StewardService({
       principal: systemPrincipal('steward'),
       store: this.store.events,

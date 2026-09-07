@@ -150,7 +150,7 @@ import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { createServerReadiness } from './server-readiness'
 import { registerSetupRoute } from './setup-route'
-import { closeServerFast, type PersistStep } from './shutdown'
+import { closeServerFast } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
@@ -1677,45 +1677,6 @@ export async function startServer(
       { host },
     )
   }
-
-  let targetRefresh: ReturnType<typeof startTargetRefresh> | undefined
-  const persistence: readonly PersistStep[] = [
-    ['messaging.stop', () => messaging.stop()],
-    // An armed refresh timer that outlives the server would resolve a
-    // target against a service whose store is already closed.
-    ['updates.stopTargetRefresh', () => targetRefresh?.stop()],
-    ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
-    // Same hazard, same window (POD-2097): an armed operation deadline
-    // that outlives the server would wake into a closed store and try
-    // to persist a stall against it. Operations are durable, so losing
-    // the timer costs nothing — the successor adopts the operation and
-    // re-derives it from reality, which is the stronger answer anyway.
-    ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
-    // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
-    // final network flush: shutdown is a user-visible latency path
-    // (POD-611 made it deterministic and fast), and a report is worth
-    // less than a fast stop. The queue is durable — it goes next boot.
-    ['telemetry.stop', () => telemetry.stop()],
-    // Release the per-origin client log descriptors. The sink writes
-    // synchronously, so nothing is buffered and this loses no records —
-    // it closes fds a long-lived process would otherwise hold.
-    ['logs.close', async () => await registry.modules.logs.close()],
-    // The same, for the per-machine fleet descriptors (POD-3156).
-    ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
-    [
-      'janitorHost.close',
-      async () => {
-        janitorHostClosing = true
-        await janitorHostStarting
-        if (janitorHost) {
-          const closing: Promise<void> = janitorHost.close()
-          await closing
-        }
-      },
-    ],
-    ['registry.dispose', () => registry.dispose()],
-    ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
-  ]
 
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>(async (resolve, reject) => {
