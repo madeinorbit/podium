@@ -728,7 +728,7 @@ export class SessionRegistry {
     })
     // Hosts is composed below the transfer service. The callback is rebound once
     // it exists; transfer actions cannot run until this constructor completes.
-    let resumeHostPressureAfterTransferFence = (): void => {}
+    let resumeHostPressureAfterTransferFence = async (): Promise<void> => {}
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
     // a machine nobody may use — so the row has to exist before the registry can be
@@ -1286,8 +1286,8 @@ export class SessionRegistry {
         await memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
         this.localDaemonPortableState?.resume()
-        machines.resumeAfterTransferFence()
-        resumeHostPressureAfterTransferFence()
+        await machines.resumeAfterTransferFence()
+        await resumeHostPressureAfterTransferFence()
       },
       demoteSource: ({ transferId, publicUrl }) => {
         prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })

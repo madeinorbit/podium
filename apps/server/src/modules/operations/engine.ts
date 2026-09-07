@@ -309,7 +309,7 @@ export class OperationEngine {
         (place) => `${place.id}:${place.reason ?? 'unstated'}`,
       ),
     })
-    this.announce(operation.id, undefined)
+    await this.announce(operation.id, undefined)
 
     // START CREATES THE OPERATION; IT DOES NOT RUN IT TO COMPLETION. The caller
     // is a button press, and what it needs back is an identity to render — the
@@ -496,11 +496,11 @@ export class OperationEngine {
 
     // No callback is allowed between the durable write and the in-memory seal.
     const previousState = (await this.deps.store.get(operationId))?.state
-    this.deps.store.update(sealed)
+    await this.deps.store.update(sealed)
     this.handoffs.set(operationId, { stepId, phase: 'sealed' })
     this.disarm(operationId)
     this.disarmBudgets(operationId)
-    this.announce(operationId, previousState)
+    await this.announce(operationId, previousState)
     return sealed
   }
 
@@ -733,7 +733,7 @@ export class OperationEngine {
     let canceling = this.persistable(operation, def)
     if (currentStep) {
       canceling = this.applyPatch(canceling, currentStep.id, { detail: 'canceling' }, at)
-      this.persist(canceling, at)
+      await this.persist(canceling, at)
     }
 
     let cleanup: CancelCleanupResult = { cleanup: 'complete' }
@@ -1150,8 +1150,8 @@ export class OperationEngine {
           },
         }
         const previousState = (await this.deps.store.get(updated.id))?.state
-        this.deps.store.update(updated)
-        this.announce(updated.id, previousState)
+        await this.deps.store.update(updated)
+        await this.announce(updated.id, previousState)
         return result.cleanup === 'complete' ? 1 : 0
       })
     }
@@ -1278,7 +1278,7 @@ export class OperationEngine {
         if (outcome.state !== 'failed') {
           throw new Error('a reclaimed handoff runner must return failed')
         }
-        this.finishReclaimed(current, step.id, outcome.error ?? { code: 'step-failed' })
+        await this.finishReclaimed(current, step.id, outcome.error ?? { code: 'step-failed' })
         return
       }
       if (handoff) return
@@ -1477,12 +1477,12 @@ export class OperationEngine {
       error,
     }
     const previousState = (await this.deps.store.get(operation.id))?.state
-    this.deps.store.update(finished)
+    await this.deps.store.update(finished)
     this.handoffs.delete(operation.id)
     this.disarm(operation.id)
     this.contexts.delete(operation.id)
-    this.deps.store.sweepRetention(finished.kind)
-    this.announce(operation.id, previousState)
+    await this.deps.store.sweepRetention(finished.kind)
+    await this.announce(operation.id, previousState)
     return finished
   }
 
@@ -1699,7 +1699,7 @@ export class OperationEngine {
     this.disarm(finished.id)
     this.contexts.delete(finished.id)
     await this.deps.store.sweepRetention(finished.kind)
-    this.announce(finished.id, previousState)
+    await this.announce(finished.id, previousState)
     return finished
   }
 
@@ -1735,7 +1735,7 @@ export class OperationEngine {
     }
     await this.deps.store.markTerminal(row.id, 'failed', at)
     this.disarm(row.id)
-    this.announce(row.id, row.state)
+    await this.announce(row.id, row.state)
     return { id: row.id, kind: row.kind, state: 'failed', exclusionGroup: row.exclusionGroup }
   }
 
@@ -1798,7 +1798,7 @@ export class OperationEngine {
     const next: PersistedOperation = { ...operation, updatedAt: at, ...(state ? { state } : {}) }
     const previousState = (await this.deps.store.get(next.id))?.state
     await this.deps.store.update(next)
-    this.announce(next.id, previousState)
+    await this.announce(next.id, previousState)
     return next
   }
 
@@ -1990,7 +1990,7 @@ export class OperationEngine {
       if (outcome.state !== 'failed') {
         throw new Error('a reclaimed handoff runner must return failed')
       }
-      this.finishReclaimed(after, step.id, outcome.error ?? { code: 'step-failed' })
+      await this.finishReclaimed(after, step.id, outcome.error ?? { code: 'step-failed' })
       return
     }
     if (handoff) return

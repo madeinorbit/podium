@@ -328,10 +328,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         },
       }
       if (recoveryTransportOnly(registry)) {
-        registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
+        await registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
         registry.modules.machines.flushQueued(principal.machine)
       } else {
-        registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
+        await registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
       }
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
@@ -475,13 +475,13 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded
-      registry.modules.machines.attachSupervisor(
+      await registry.modules.machines.attachSupervisor(
         outcome.machineId,
         send,
         outcome.build ?? {},
         outcome.offeredCaps,
       )
-      registry.modules.machines.broadcastMachines()
+      await registry.modules.machines.broadcastMachines()
       // Supervisor-only desktops have no daemon attach to wake standing catch-up.
       // Publish only after the authenticated build and live sender are installed.
       if (!recoveryTransportOnly(registry))
@@ -502,20 +502,28 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
           new Date().toISOString(),
         )
       } else {
-        registry.modules.updates.onStatus(principal.machine, message)
-        if (!recoveryTransportOnly(registry)) registry.modules.updateFleetBridge?.onFleetChanged()
+        await registry.modules.updates.onStatus(principal.machine, message)
+        if (!recoveryTransportOnly(registry))
+          await registry.modules.updateFleetBridge?.onFleetChanged()
       }
     } catch (error) {
       warnDroppedFrame('machine', error)
     }
   })
-  ws.on('close', () => {
+  ws.on('close', async () => {
     if (!principal || !send) return
-    if (registry.modules.machines.detachSupervisor(principal.machine, send)) {
-      // A replaced socket closing is not a new lifecycle transition.
-      if (!recoveryTransportOnly(registry))
-        registry.bus.emit('machine.disconnected', { machineId: principal.machine })
-      registry.modules.machines.broadcastMachines()
+    try {
+      // AWAITED: detachSupervisor is async, and a promise in this condition is
+      // always truthy -- the disconnect would be announced for a socket that was
+      // already replaced, which is exactly what the comment below rules out.
+      if (await registry.modules.machines.detachSupervisor(principal.machine, send)) {
+        // A replaced socket closing is not a new lifecycle transition.
+        if (!recoveryTransportOnly(registry))
+          registry.bus.emit('machine.disconnected', { machineId: principal.machine })
+        await registry.modules.machines.broadcastMachines()
+      }
+    } catch (error) {
+      warnDroppedFrame('machine', error)
     }
   })
 }

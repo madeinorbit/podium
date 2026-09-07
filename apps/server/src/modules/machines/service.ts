@@ -361,7 +361,7 @@ export class MachinesService {
     // confident false negative.
     this.inventoryPending.add(machineId)
     if (!this.supervisors.has(machineId) && !this.presenceReadOnly) {
-      this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
+      await this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
       this.clearPresenceGrace(machineId)
     }
     // The daemon may have (re-)registered/touched its machine row on the way in
@@ -411,7 +411,7 @@ export class MachinesService {
     this.supervisors.set(machineId, { send, build, caps: [...caps] })
     this.clearPresenceGrace(machineId)
     if (this.presenceReadOnly) return
-    this.deps.store.machines.setMachineBuild(
+    await this.deps.store.machines.setMachineBuild(
       machineId,
       build,
       caps,
@@ -422,7 +422,10 @@ export class MachinesService {
     send({ type: 'serviceAssignment', assignment: await this.serviceAssignment(machineId) })
   }
 
-  detachSupervisor(machineId: MachineId, send: Send<MachineSupervisorControlMessage>): boolean {
+  async detachSupervisor(
+    machineId: MachineId,
+    send: Send<MachineSupervisorControlMessage>,
+  ): Promise<boolean> {
     if (this.supervisors.get(machineId)?.send !== send) return false
     this.supervisors.delete(machineId)
     if (this.presenceReadOnly) {
@@ -431,7 +434,7 @@ export class MachinesService {
     }
     const legacy = this.legacyBuilds.get(machineId)
     if (this.daemons.has(machineId) && legacy) {
-      this.deps.store.machines.setMachineBuild(
+      await this.deps.store.machines.setMachineBuild(
         machineId,
         legacy.build,
         legacy.caps,
@@ -440,7 +443,7 @@ export class MachinesService {
       )
       this.clearPresenceGrace(machineId)
     } else if (this.daemons.has(machineId)) {
-      this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
+      await this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
       this.clearPresenceGrace(machineId)
     } else {
       this.beginPresenceGrace(machineId)
@@ -453,18 +456,27 @@ export class MachinesService {
     return this.supervisors.has(machineId)
   }
 
-  recordLegacyBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void {
+  async recordLegacyBuild(
+    machineId: MachineId,
+    build: PeerBuild,
+    caps: string[],
+    at: string,
+  ): Promise<void> {
     this.legacyBuilds.set(machineId, { build, caps: [...caps] })
     if (this.presenceReadOnly || this.supervisors.has(machineId)) return
-    this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
+    await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     this.invalidateMachineCache()
   }
 
-  recordSupervisorReport(machineId: MachineId, services: MachineServiceReport, at: string): void {
+  async recordSupervisorReport(
+    machineId: MachineId,
+    services: MachineServiceReport,
+    at: string,
+  ): Promise<void> {
     if (this.presenceReadOnly) return
     const supervisor = this.supervisors.get(machineId)
     if (!supervisor) return
-    this.deps.store.machines.setSupervisorPresence(
+    await this.deps.store.machines.setSupervisorPresence(
       machineId,
       supervisor.build,
       supervisor.caps,
@@ -472,7 +484,7 @@ export class MachinesService {
       at,
     )
     this.invalidateMachineCache()
-    this.broadcastMachines()
+    await this.broadcastMachines()
   }
 
   /**
@@ -559,7 +571,7 @@ export class MachinesService {
       this.presenceGraceTimers.delete(machineId)
       this.presenceGraceUntil.delete(machineId)
       this.invalidateMachineCache()
-      this.broadcastMachines()
+      this.scheduleBroadcastMachines()
     }, MACHINE_PRESENCE_GRACE_MS)
     timer.unref?.()
     this.presenceGraceTimers.set(machineId, timer)
@@ -1203,17 +1215,17 @@ export class MachinesService {
       this.deferredInventoryByMachine.set(machineId, inventoryJson)
       return
     }
-    this.persistInventory(machineId, inventoryJson)
+    await this.persistInventory(machineId, inventoryJson)
   }
 
   /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
-  resumeAfterTransferFence(): void {
+  async resumeAfterTransferFence(): Promise<void> {
     if (this.presenceReadOnly) return
     // A recoverable abort restores the presence facts retained in memory while
     // SQLite was sealed. The socket maps, not historical rows, own current state.
     for (const machineId of this.daemons.keys()) {
       const id = asMachineId(machineId)
-      this.recordComponent(id, 'daemon')
+      await this.recordComponent(id, 'daemon')
       if (!this.supervisors.has(id)) this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
     }
     for (const [machineId, supervisor] of this.supervisors) {
@@ -1225,7 +1237,7 @@ export class MachinesService {
       )
     }
     for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
-      this.persistInventory(machineId, inventoryJson)
+      await this.persistInventory(machineId, inventoryJson)
       // A synchronous projection callback could have received a newer report.
       // Only remove the exact value just persisted so newest-wins remains true.
       if (this.deferredInventoryByMachine.get(machineId) === inventoryJson) {
@@ -1235,7 +1247,7 @@ export class MachinesService {
   }
 
   private async persistInventory(machineId: MachineId, inventoryJson: string): Promise<void> {
-    this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
+    await this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
@@ -1248,7 +1260,7 @@ export class MachinesService {
   /** Persist the compatibility local participant's build while no supervisor owns it. */
   async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
     if (this.supervisors.has(machineId)) return
-    this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
+    await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     this.invalidateMachineCache()
     await this.broadcastMachines()
   }
@@ -1435,7 +1447,7 @@ export class MachinesService {
     // The composition root supplies this from durable target promotion evidence and
     // never calls writable host bootstrap in recoveryOnly mode.
     if (transferredFrom && transferredFrom !== id) {
-      this.deps.store.machines.setServiceAssignment(transferredFrom, {
+      await this.deps.store.machines.setServiceAssignment(transferredFrom, {
         server: false,
         agentExecution: true,
       })
