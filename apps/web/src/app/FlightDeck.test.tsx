@@ -581,12 +581,12 @@ describe('the cold deck (POD-1112)', () => {
 })
 
 describe('the developer Flight Deck views', () => {
-  it('keeps the original list and does no Handoff reads when development is off', () => {
+  it('keeps the original list and does no Timeline reads when development is off', () => {
     harness.ui.set('podium.flightDeck.mode', 'handoff')
     deck()
 
     expect(screen.queryByRole('button', { name: 'Waterfall' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Handoff' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Timeline' })).toBeNull()
     expect(screen.getByTestId('flight-deck-rows').className).toContain('deck-rows')
     expect(screen.queryByTestId('flight-deck-waterfall')).toBeNull()
     expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
@@ -598,11 +598,11 @@ describe('the developer Flight Deck views', () => {
     )
   })
 
-  it('orders Waterfall and Handoff after the three spine views', () => {
+  it('orders Waterfall and Timeline after the three spine views', () => {
     developerFeature.enabled = true
     deck()
 
-    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Handoff'].map((name) =>
+    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Timeline'].map((name) =>
       screen.getByRole('button', { name }),
     )
     expect(views.map((view) => view.textContent)).toEqual([
@@ -610,18 +610,18 @@ describe('the developer Flight Deck views', () => {
       'Working',
       'Needs you',
       'Waterfall',
-      'Handoff',
+      'Timeline',
     ])
     fireEvent.click(views[4] as HTMLElement)
 
     expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
     expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Handoff' }).getAttribute('aria-pressed')).toBe(
+    expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe(
       'true',
     )
   })
 
-  it('falls back without overwriting Handoff and restores it when the gate returns', () => {
+  it('falls back without overwriting Timeline and restores it when the gate returns', () => {
     developerFeature.enabled = true
     harness.ui.set('podium.flightDeck.mode', 'handoff')
     const view = deck()
