@@ -3509,3 +3509,49 @@ mistaking for a result.
 **AND STATE THE LIMITS YOU PREDICT.** POD-3520 predicted in advance that reverting a blanket
 `catch` would be compiler-invisible, then ran it and confirmed nothing appeared. A limit predicted
 and then confirmed is evidence; the identical silence found by accident is a false clearance.
+
+### Rule 63 — CAPTURE BOTH REPORTERS: the vitest JSON reporter DESTROYS timeout messages
+
+Found by POD-3264 while building its paired comparison, then proved by POD-3511-A with a canary
+that killed POD-3511-A's own headline number in one run.
+
+**THE DEFECT.** Three tests, both reporters, one run:
+
+| test | default reporter | JSON `failureMessages` |
+|---|---|---|
+| forced 5000ms timeout at `{ timeout: 50 }` | `× canary A: this MUST time out` | `Error\n    at task (…/vitest/dist/chunks/…)` |
+| `expect(1).toBe(2)` | `× canary B` | `AssertionError: expected 1 to be 2 // Object.is…` |
+
+The assertion keeps its full text. **The timeout is reduced to a bare `Error` plus a stack whose
+first frame is vitest's internal `task`.** The string `Test timed out in \d+ms` is one the JSON
+reporter *never writes*, so any classifier grepping JSON for it is structurally incapable of
+returning non-zero.
+
+**WHAT IT COST.** POD-3511-A reported "zero scheduler timeouts across all 722", and the coordinator
+used that to certify the arm as load-trustworthy and repeated it to three parties. Re-derived
+against the signature the real count is **~69 of 722 (9.6%)**, concentrated in
+`relay-agent-relay.test.ts` (32) and `modules/daemon-request.test.ts` (10).
+
+**THE TELL WAS IN THE REPORT ALREADY.** `70 × Error` was the single most common first line in
+POD-3511-A's own distinct-failure-lines table, and both it and the coordinator read it as
+uninformative noise. **A failure bucket with no message text is the finding**, not the background.
+
+**THE RULE.**
+
+1. **Every evidence arm captures BOTH reporters** — `--reporter=default` to a file *alongside*
+   `--reporter=json`. It costs nothing and it is the difference between a comparable pair and two
+   numbers nobody can reconcile.
+2. The shared classification, until a direct reading is available: **timeout-shaped iff the JSON
+   message is exactly `Error` AND the first stack frame is vitest-internal `at task`**; anything
+   carrying real message text is classified by that text.
+3. **Where a default-reporter join disagrees with the signature, the join wins** — a derived
+   signature yields to the string the reporter actually wrote.
+4. Report a signature-derived count as **signature-matched, not measured**.
+5. Difference the arms by name *after* classifying each side independently, and report
+   **"same name, different shape"** as a third category beside newly-red and newly-green. A name
+   that times out in one arm and asserts in the other is present in both, so it appears in neither
+   direction of a naive set difference while being a real change.
+
+*This is rule 44 applied to a counter rather than a guard: a check whose pass is silence must be
+shown to fail before its silence counts. Eight instruments in this epic have now been caught
+reporting success for work they did not do.*
