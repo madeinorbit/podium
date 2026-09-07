@@ -3044,7 +3044,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['start this chat'])
@@ -3069,7 +3069,7 @@ describe('sendText (chat send path)', () => {
       // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
       // held, not typed. `queued: true` is the caller's warning that the bytes
       // are not on the wire yet.
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -3101,7 +3101,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -3129,7 +3129,7 @@ describe('sendText (chat send path)', () => {
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // An image send: the composer converts the pasted path to an attachment,
       // which outlasts the CR delay — the CR is swallowed, nothing submits.
-      reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
+      await reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
       advanceToComposerReady(() => readInputs(daemon).length)
       expectSubmitStillDeferred(
         () => readInputs(daemon),
@@ -3161,7 +3161,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
+      await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
       // Reach the typing FIRST. Setting the phase before the paste is on the
       // wire would make this pass for the wrong reason — the retry it forbids
       // is the one that fires after a submit, so the submit has to happen.
@@ -3189,7 +3189,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
+      await reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
       advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn ran so fast the phase is already back to idle — but the user turn
@@ -3218,7 +3218,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'hello' })
+      await reg.modules.sessions.sendText({ sessionId, text: 'hello' })
       advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // A trailing assistant item from the PREVIOUS turn arrives late; it must not
@@ -3247,7 +3247,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
+      await reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
       advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn started and hit an AskUserQuestion before the verify fired. A
@@ -3321,7 +3321,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // Idle at accept time, so the send is legitimately taken and held.
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' })).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -3366,7 +3366,7 @@ describe('sendText (chat send path)', () => {
       // proof the queue did not swallow it. `readinessQueueRefusal` asks the
       // needs_user question BEFORE the diversion (POD-2828), so "not yet" and
       // "no" stay different answers.
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' })).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'now ok' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -3424,7 +3424,7 @@ describe('sendText (chat send path)', () => {
       sessionId,
       code: 0,
     })
-    expect(reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
+    expect(await reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
   })
 })
 
@@ -3443,7 +3443,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // -> live
-      reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
 
       // The TUI is still drawing: an output frame every poll for ~2s.
       let seq = 0
@@ -3476,7 +3476,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
-      reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('too-early')
     } finally {
@@ -3492,7 +3492,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // live, but never emits output
-      reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
       vi.advanceTimersByTime(2000)
@@ -4374,7 +4374,7 @@ describe('hibernation', () => {
     })
 
     expect(
-      reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+      await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
     ).toEqual({ ok: true, queued: true })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -4568,7 +4568,7 @@ describe('hibernation', () => {
       },
     })
     expect(
-      reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
+      await reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
     ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
@@ -4644,7 +4644,7 @@ describe('hibernation', () => {
     })
     daemon.length = 0
     expect(
-      reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
+      await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
     ).toEqual({ ok: true, queued: true })
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4718,7 +4718,7 @@ describe('hibernation', () => {
       },
     }
     expect(
-      reg.modules.sessions.queueText({
+      await reg.modules.sessions.queueText({
         sessionId,
         text: 'delegation revoked before process exit',
         principal,
@@ -5880,7 +5880,7 @@ describe('SessionRegistry snooze', () => {
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
-    reg.modules.sessions.sendText({ sessionId, text: 'hi' })
+    await reg.modules.sessions.sendText({ sessionId, text: 'hi' })
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
@@ -6474,7 +6474,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'queued',
       })
-      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
     } finally {
       registry.dispose()
@@ -6757,7 +6757,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'queued',
       })
-      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
       registry.dispose()
@@ -6830,7 +6830,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         reg.sessionStore.hostMachineId,
         contractBind(sessionId, 'generic-pty'),
       )
-      reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
+      await reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
       // Past the silent-spawn fallback window: a PTY session with no output
       // still gets served.
       vi.advanceTimersByTime(7000)
@@ -6862,7 +6862,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
     } finally {
@@ -6882,7 +6882,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
     } finally {
@@ -6998,7 +6998,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
 
       const ghost = 'sess_no_such_session'
-      registry.modules.sessions.queueText({
+      await registry.modules.sessions.queueText({
         sessionId,
         text: 'from a session that is gone',
         principal: {
@@ -7011,7 +7011,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
           },
         },
       })
-      registry.modules.sessions.queueText({
+      await registry.modules.sessions.queueText({
         sessionId,
         text: 'the row behind it',
         principal: {
@@ -7081,7 +7081,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       })).sessionId
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(coordinator))
 
-      registry.modules.sessions.queueText({
+      await registry.modules.sessions.queueText({
         sessionId: coordinator,
         text: 'reply from the child worker',
         principal: {

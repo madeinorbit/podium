@@ -164,11 +164,11 @@ export interface SessionStartPorts {
   ): { owner: UserId; grants: string[] } | undefined | Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
-  queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
+  queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  }
+  }>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -335,7 +335,7 @@ export class SessionStart {
     await preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
-      const queued = this.ports.queueInitialPrompt({
+      const queued = await this.ports.queueInitialPrompt({
         sessionId: spawned.sessionId,
         text: taskPrompt,
       })

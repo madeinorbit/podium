@@ -287,7 +287,7 @@ export class SessionDaemonLifecycle {
       // the row still said `live`, so queueText did not request resurrection.
       // Once the real exit is published, hand that accepted row back to the
       // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
-      this.inbox.recoverQueuedAfterExit(msg.sessionId)
+      await this.inbox.recoverQueuedAfterExit(msg.sessionId)
     }
   }
 
@@ -445,7 +445,7 @@ export class SessionDaemonLifecycle {
         // the drain cannot see for itself: markLive above has already flipped the
         // session to 'live', so by the time it looks, an unproven CLI and a
         // long-settled one are the same word (POD-1100).
-        this.inbox.drain(msg.sessionId, { justBound: true })
+        await this.inbox.drain(msg.sessionId, { justBound: true })
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
@@ -533,7 +533,7 @@ export class SessionDaemonLifecycle {
         // A queued send may have committed just before the server died, losing
         // only its in-memory wake event. Once the durable host confirms this
         // process is gone, reconstruct that wake from the durable queue.
-        this.inbox.reconcileQueuedWake(msg.sessionId)
+        await this.inbox.reconcileQueuedWake(msg.sessionId)
         this.broadcastSessions()
         break
       }
