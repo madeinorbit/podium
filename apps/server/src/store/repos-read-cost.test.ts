@@ -67,9 +67,11 @@ beforeEach(async () => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
   tableWrites = new TableWrites()
-  // The probe patches `prepare` ON `rawDb` IN PLACE, and the executor's legacy
-  // field is that same object, so the repository's statements are still observed
-  // through the constructor change [POD-3281, POD-3254].
+  // The probe patches `prepare` ON `rawDb` IN PLACE, and the repository runs its
+  // statements against that same object, so they are still observed through the
+  // constructor change [POD-3281, POD-3254]. (The executor's `legacy` field was
+  // the original reason this held; POD-3263 deleted it and the handle is now the
+  // only path, so the observation is more direct, not less.)
   repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, asMachineId(HOST), tableWrites)
   await repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   await repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
