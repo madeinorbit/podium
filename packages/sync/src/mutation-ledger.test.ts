@@ -166,6 +166,68 @@ describe('MutationLedger', () => {
     expect(runs).toBe(2)
   })
 
+  describe.each(['lookup', 'body', 'record'] as const)('%s failure', (stage) => {
+    it.each([false, true])('propagates and permits retry (joiner: %s)', async (withJoiner) => {
+      const store = fakeStore()
+      const failure = new Error(`${stage} unavailable`)
+      let enter!: () => void
+      const entered = new Promise<void>((resolve) => { enter = resolve })
+      let reject!: (reason: Error) => void
+      const blocked = new Promise<never>((_, fail) => { reject = fail })
+      let shouldFail = true
+      const failOnce = async () => {
+        if (!shouldFail) return
+        shouldFail = false
+        enter()
+        await blocked
+      }
+      const lookup = vi.fn(async (id: MutationId) => {
+        if (stage === 'lookup') await failOnce()
+        return store.getAppliedMutation(id)
+      })
+      const record = vi.fn(async (...args: Parameters<AppliedMutationStore['recordAppliedMutation']>) => {
+        if (stage === 'record') await failOnce()
+        await store.recordAppliedMutation(...args)
+      })
+      const body = vi.fn(async () => {
+        if (stage === 'body') await failOnce()
+        return 'done'
+      })
+      const led = new MutationLedger({
+        getAppliedMutation: lookup,
+        recordAppliedMutation: record,
+      }, () => 1_000)
+      const id = asMutationId('m-failure')
+      const owner = led.apply(id, 'sessions.create', body)
+      await entered
+      const joinerBody = vi.fn(() => 'must not run')
+      const pending = [owner]
+      if (withJoiner) pending.push(led.apply(id, 'sessions.create', joinerBody))
+      // Observe every caller before triggering rejection. Leave the ledger's
+      // internal promise alone so Vitest detects an orphaned rejection itself.
+      const settled = Promise.allSettled(pending)
+      reject(failure)
+      expect(await settled).toEqual(pending.map(() => ({ status: 'rejected', reason: failure })))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(joinerBody).not.toHaveBeenCalled()
+      expect(lookup).toHaveBeenCalledTimes(1)
+      expect(body).toHaveBeenCalledTimes(stage === 'lookup' ? 0 : 1)
+      expect(record).toHaveBeenCalledTimes(stage === 'record' ? 1 : 0)
+      expect(store.rows.size).toBe(0)
+
+      await expect(led.apply(id, 'sessions.create', body)).resolves.toEqual({
+        outcome: 'applied', value: 'done',
+      })
+      expect(store.rows.get(id)?.result).toBe('"done"')
+      await expect(led.apply(id, 'sessions.create', joinerBody)).resolves.toEqual({
+        outcome: 'replayed', value: 'done',
+      })
+      expect(joinerBody).not.toHaveBeenCalled()
+      expect(body).toHaveBeenCalledTimes(stage === 'lookup' ? 1 : 2)
+      expect(record).toHaveBeenCalledTimes(stage === 'record' ? 2 : 1)
+    })
+  })
+
   it('records the applied-at stamp from the injected clock', async () => {
     const now = vi.fn(() => 4_242)
     const store = fakeStore()
