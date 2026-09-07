@@ -304,7 +304,7 @@ describe('multi-daemon routing', () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     const logs = captureLogs()
 
-    const browse = await reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
+    const browse = reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
     const request = m1.find((msg) => msg.type === 'browseDirsRequest')
     expect(request, 'the browse must have been sent to m1').toBeDefined()
     expect(m2.filter((msg) => msg.type === 'browseDirsRequest')).toHaveLength(0)

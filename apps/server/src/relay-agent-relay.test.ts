@@ -84,7 +84,7 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('relays a scoped op through the capability gate (rejects a write outside the subtree)', async () => {
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir1',
@@ -110,7 +110,7 @@ describe('server agent relay handler (P1b)', () => {
       await registry.issues.get(A.id) as { repoPath: string; seq: number },
     )
     const setOffer = async (requestId: string, message: string) => {
-      const reply = await captureReply(registry, machineId)
+      const reply = captureReply(registry, machineId)
       registry.gateway.routeDaemonFrame(machineId, {
         type: 'agentRelayRequest',
         requestId,
@@ -141,7 +141,7 @@ describe('server agent relay handler (P1b)', () => {
    */
   it('refuses an offer once the calling session own issue is closed', async () => {
     const setOffer = async (requestId: string) => {
-      const reply = await captureReply(registry, machineId)
+      const reply = captureReply(registry, machineId)
       registry.gateway.routeDaemonFrame(machineId, {
         type: 'agentRelayRequest',
         requestId,
@@ -173,7 +173,7 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('override lets a scoped op write outside its subtree', async () => {
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir2',
@@ -195,7 +195,7 @@ describe('server agent relay handler (P1b)', () => {
     // in beforeEach because a third live machine changes the fleet projections
     // the enumeration and quota tests in this file assert on.
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
-    const spawnReply = await captureReply(registry, machineId)
+    const spawnReply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn',
@@ -216,7 +216,7 @@ describe('server agent relay handler (P1b)', () => {
       }),
     )
 
-    const awaitReply = await captureReply(registry, machineId)
+    const awaitReply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-await',
@@ -231,7 +231,7 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('still scope-gates a relayed child spawn onto another issue (#475)', async () => {
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn-scoped',
@@ -246,7 +246,7 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('rejects a non-allowlisted router', async () => {
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir3',
@@ -268,7 +268,7 @@ describe('server agent relay handler (P1b)', () => {
    */
   describe('machines enumeration', () => {
     it('relays the machine projection an agent needs to choose a host', async () => {
-      const reply = await captureReply(registry, machineId)
+      const reply = captureReply(registry, machineId)
       registry.gateway.routeDaemonFrame(machineId, {
         type: 'agentRelayRequest',
         requestId: 'ir-machines-list',
@@ -293,7 +293,7 @@ describe('server agent relay handler (P1b)', () => {
     })
 
     it('joins registered repos onto the machines this caller may USE', async () => {
-      const reply = await captureReply(registry, machineId)
+      const reply = captureReply(registry, machineId)
       registry.gateway.routeDaemonFrame(machineId, {
         type: 'agentRelayRequest',
         requestId: 'ir-machines-fleet',
@@ -343,7 +343,7 @@ describe('server agent relay handler (P1b)', () => {
       // The allowlist grants reach to two reads and the bounded re-probe, not
       // to the router: rename and revoke stay operator-side.
       for (const proc of ['rename', 'revoke', 'pairingCode']) {
-        const reply = await captureReply(registry, machineId)
+        const reply = captureReply(registry, machineId)
         registry.gateway.routeDaemonFrame(machineId, {
           type: 'agentRelayRequest',
           requestId: `ir-machines-${proc}`,
@@ -420,7 +420,7 @@ describe('server agent relay handler (P1b)', () => {
       agentKind: 'shell',
       issueId: asIssueId(B.id),
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-scoped',
@@ -440,7 +440,7 @@ describe('server agent relay handler (P1b)', () => {
       agentKind: 'shell',
       issueId: asIssueId(B.id),
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-override',
@@ -462,7 +462,7 @@ describe('server agent relay handler (P1b)', () => {
       cwd: '/nowhere/unrelated',
       agentKind: 'shell',
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless',
@@ -483,7 +483,7 @@ describe('server agent relay handler (P1b)', () => {
       agentKind: 'shell',
       spawnedBy: `session:${sA}`,
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless-parent',
@@ -500,7 +500,7 @@ describe('server agent relay handler (P1b)', () => {
     // RELAY_ALLOWED is a plain object, so a router like 'constructor'/'__proto__'
     // would index an INHERITED value and blow up on `.has(...)` — the guard must
     // treat non-own keys as simply not-permitted, not a confusing TypeError.
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir5',
@@ -516,7 +516,7 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('relays prime bound to the session capability', async () => {
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir4',
@@ -585,7 +585,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       agentKind: 'shell',
       geometry: { cols: 80, rows: 24 },
     })
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-self',
@@ -610,7 +610,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       agentKind: 'shell',
       issueId: asIssueId(A.id),
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-sib',
@@ -630,7 +630,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       agentKind: 'shell',
       issueId: asIssueId(B.id),
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out',
@@ -651,7 +651,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       agentKind: 'shell',
       issueId: asIssueId(B.id),
     })).sessionId
-    const reply = await captureReply(registry, machineId)
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out-ok',
@@ -669,7 +669,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       cwd: '/nowhere',
       agentKind: 'shell',
     })).sessionId
-    const blocked = await captureReply(registry, machineId)
+    const blocked = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-block',
@@ -682,7 +682,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     expect(blockedR.ok).toBe(false)
     expect(blockedR.error).toMatch(/outside-scope/)
 
-    const allowed = await captureReply(registry, machineId)
+    const allowed = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-ok',

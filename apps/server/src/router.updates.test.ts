@@ -388,7 +388,7 @@ describe('release target checks', () => {
       },
     })
 
-    await expect(await caller.updates.fleet()).resolves.toMatchObject({
+    await expect(caller.updates.fleet()).resolves.toMatchObject({
       appVersion: '0.4.1',
       servedWebDigest: '47a01e3',
       servedMobileWeb: {
@@ -416,7 +416,7 @@ describe('release target checks', () => {
   it('has nothing to say about a channel it has never checked', async () => {
     const { registry, caller } = await harness()
 
-    await expect(await caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
     registry.dispose()
   })
 
@@ -632,7 +632,7 @@ describe('updates tRPC', () => {
     }
     const { registry, caller } = await harness({ updatePreparation: () => preparation })
 
-    await expect(await caller.updates.fleet()).resolves.toMatchObject({ preparation })
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ preparation })
     registry.dispose()
   })
 
@@ -814,7 +814,7 @@ describe('updates tRPC', () => {
     const { registry, caller } = await devFleet(vi.fn().mockResolvedValue(undefined))
 
     await caller.updates.converge()
-    await expect(await caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
     registry.dispose()
   })
 
@@ -1676,7 +1676,7 @@ describe('the update operation', () => {
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
-    await expect(await caller.updates.fleet()).resolves.toMatchObject({
+    await expect(caller.updates.fleet()).resolves.toMatchObject({
       startability: {
         startable: false,
         reason: 'Podium is already at this version everywhere.',

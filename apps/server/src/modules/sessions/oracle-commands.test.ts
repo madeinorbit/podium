@@ -514,8 +514,8 @@ describe('oracle: kill', () => {
         }),
     )
 
-    const first = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    const second = await o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
 
     release({ ok: true, cwd: '/p' })

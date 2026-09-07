@@ -96,17 +96,36 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   offer: new Set(['set', 'clear']),
 }
 
+/**
+ * The dispatcher's answer for "this router/proc pair does not exist here".
+ *
+ * A UNIQUE SYMBOL, so it cannot collide with any value a real procedure might
+ * resolve to — `undefined` could not make that promise, and every void mutation
+ * over the relay produces exactly `undefined`.
+ */
+export const NO_SUCH_PROCEDURE: unique symbol = Symbol('agent relay: no such procedure')
+
 export interface AgentRelayGateDeps {
   /** Run one relayed op through the derived command surface (the registry
    *  dispatcher for issues/repos, the specs module for specs) — router-equal
-   *  guard + schema, no router involved. Undefined = no such procedure. */
+   *  guard + schema, no router involved.
+   *
+   *  NO SUCH PROCEDURE IS A VALUE, NOT AN ABSENCE. It resolves to
+   *  {@link NO_SUCH_PROCEDURE}. This used to be spelled `Promise<unknown> |
+   *  undefined`, where returning something that was not a promise WAS the
+   *  signal — and POD-3221's async flip broke that in both directions at once
+   *  (the implementation became `async`, so the undefined arm could no longer
+   *  be produced; the caller began awaiting, so a command that RESOLVED to
+   *  undefined started reading as a missing procedure). A union of "a promise"
+   *  and "not a promise" cannot survive an await being added anywhere along the
+   *  path, which is spec rule 52b's whole point. A sentinel can. */
   dispatch(
     capability: Capability,
     overrideScope: boolean | undefined,
     router: string,
     proc: string,
     input: unknown,
-  ): Promise<unknown> | undefined
+  ): Promise<unknown>
   capabilityForSession(sessionId: SessionId): Capability
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
@@ -174,18 +193,18 @@ export class AgentRelayGate {
                 machineId,
               }
             : msg.input
-      const result = await this.deps.dispatch(
+      const result = this.deps.dispatch(
         this.deps.capabilityForSession(msg.sessionId),
         msg.outsideScope,
         msg.router,
         msg.proc,
         input,
       )
-      if (result === undefined) {
+      const value = await result
+      if (value === NO_SUCH_PROCEDURE) {
         reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
         return
       }
-      const value = await result
       // Reply FIRST so the agent CLI observes success before any self-stop kill.
       reply({ ok: true, result: value })
       this.deps.afterSuccessfulReply?.(msg, value)

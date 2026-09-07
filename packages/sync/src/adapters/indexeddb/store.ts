@@ -786,7 +786,7 @@ export class IndexedDbSyncStore {
     }
 
     const tx = this.db.transaction([...ALL_STORES], 'readwrite')
-    const completion = await transactionCompletion(tx)
+    const completion = transactionCompletion(tx)
     for (const rewrite of entities.rewrites) {
       const { principal, record } = rewrite.row
       tx.objectStore(ENTITY_STORE).put({
@@ -833,7 +833,7 @@ export class IndexedDbSyncStore {
 
   private async clearAll(): Promise<void> {
     const tx = this.db.transaction([...ALL_STORES], 'readwrite')
-    const completion = await transactionCompletion(tx)
+    const completion = transactionCompletion(tx)
     for (const name of ALL_STORES) tx.objectStore(name).clear()
     await completion
     this.entities.clear()

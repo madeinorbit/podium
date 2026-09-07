@@ -211,8 +211,8 @@ describe('MachineRepoDiscovery.scan', () => {
       scanRepos: () => gate,
     })
 
-    const first = await svc.scan(asMachineId('mac'), { deep: false })
-    const second = await svc.scan(asMachineId('mac'), { deep: false })
+    const first = svc.scan(asMachineId('mac'), { deep: false })
+    const second = svc.scan(asMachineId('mac'), { deep: false })
     expect(second).toBe(first)
     resolveScan(scanResult([]))
     const result = await first
@@ -253,8 +253,8 @@ describe('MachineRepoDiscovery.scan', () => {
     })
     const { svc } = makeService({ listRepos: () => [], scanRepos: () => gate })
 
-    const a = await svc.scan(asMachineId('mac'), { deep: false, atPath: '/a' })
-    const b = await svc.scan(asMachineId('mac'), { deep: false, atPath: '/b' })
+    const a = svc.scan(asMachineId('mac'), { deep: false, atPath: '/a' })
+    const b = svc.scan(asMachineId('mac'), { deep: false, atPath: '/b' })
     expect(b).not.toBe(a) // different folders → independent scans, not a shared result
     resolveScan(scanResult([]))
     await Promise.all([a, b])

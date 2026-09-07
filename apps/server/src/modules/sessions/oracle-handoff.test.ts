@@ -1132,14 +1132,14 @@ describe('oracle: duplicate dispatch', () => {
     await f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
     f.reg.gateway.attachDaemon('m3', () => {})
 
-    const first = await f.reg.modules.issueSessionLifecycle.handoffSession(
+    const first = f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
         machineId: asMachineId('m2'),
       },
       TEST_CALLER,
     )
-    const second = await f.reg.modules.issueSessionLifecycle.handoffSession(
+    const second = f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
         machineId: asMachineId('m3'),
@@ -1172,11 +1172,11 @@ describe('oracle: duplicate dispatch', () => {
             ownership: revocableFleet({ m2: ['see', 'use'] }),
           })
 
-    const initiator = await f.reg.modules.issueSessionLifecycle.handoffSession(
+    const initiator = f.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
-    const joiner = await f.reg.modules.issueSessionLifecycle.handoffSession(
+    const joiner = f.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       CAROL_CALLER,
     )

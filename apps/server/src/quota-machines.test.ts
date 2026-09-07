@@ -65,7 +65,7 @@ const reqId = (msgs: ControlMessage[], type: string): string => {
 describe('SessionRegistry.agentQuotaAll()', () => {
   it('fans out to every online daemon, tagging each reply with machineId + machineName', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
-    const p = await reg.modules.rpc.agentQuotaAll()
+    const p = reg.modules.rpc.agentQuotaAll()
 
     reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
@@ -112,7 +112,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
-    const p = await reg.modules.rpc.agentQuotaAll()
+    const p = reg.modules.rpc.agentQuotaAll()
     reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(out, 'agentQuotaRequest'),

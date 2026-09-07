@@ -380,7 +380,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
   async function runLease<T>(lane: Lane, body: (lease: Lease) => Promise<T>): Promise<T> {
     if (state !== 'accepting') throw new SchedulerClosedError(`scheduler is ${state}`)
-    const queued = await admit(lane)
+    const queued = admit(lane)
     if (queued) await queued
     /**
      * THE SLOT IS HELD FROM HERE, so everything that can reject is inside the

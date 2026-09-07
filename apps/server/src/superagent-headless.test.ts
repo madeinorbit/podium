@@ -212,7 +212,7 @@ describe('bounded headless session identity', () => {
       issueId,
       accountId,
     })
-    const turn = await h.registry.modules.sessions.headless.headlessTurn({
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
       turnId: 'turn:repair',
       sessionId,
       threadId: asThreadId('shipping:order'),
@@ -275,7 +275,7 @@ describe('bounded headless session identity', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    const turn = await h.registry.modules.sessions.headless.headlessTurn({
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
       turnId: 'turn:legacy',
       sessionId,
       threadId: asThreadId('legacy'),

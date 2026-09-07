@@ -30,7 +30,7 @@ describe('prepareTarget reconnect inventory', () => {
       store: { repos: { listRepos } },
     } as unknown as SessionWorkspacePorts)
 
-    const preparing = await workspace.prepareTarget({
+    const preparing = workspace.prepareTarget({
       agentKind: 'claude-code',
       cwd: '/repo',
       machineId: asMachineId('machine-b'),

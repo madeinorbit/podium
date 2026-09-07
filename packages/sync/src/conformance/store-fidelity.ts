@@ -263,7 +263,7 @@ export function describeStoreFidelity(instantiation: SyncInstantiation): void {
       // ports.ts: `expect` must cover every key in `put` and `remove`, or a caller
       // could reintroduce an unconditional apply through a well-typed mutation.
       const { outbox } = await openStore()
-      await expect(await outbox.apply({ put: [rec('m1')], expect: [] })).rejects.toThrow()
+      await expect(outbox.apply({ put: [rec('m1')], expect: [] })).rejects.toThrow()
       expect(await outbox.read()).toEqual([])
     })
   })

@@ -69,6 +69,27 @@ describe('RepoRegistry.list(machineId)', () => {
   })
 })
 
+/**
+ * Drain the microtask queue.
+ *
+ * `scanReposAll()` fans a `scanReposRequest` out to each daemon, and the tests
+ * below drive the replies to that request. The fan-out used to be queued
+ * SYNCHRONOUSLY with the call, so a test could look for the request on the very
+ * next line. It no longer is: POD-3221 made the store async, so the method now
+ * opens with `await this.store.repos.listRepos()` and the send happens a
+ * microtask later. The claim each test makes is unchanged — only the moment the
+ * request becomes observable moved — so the tests yield here rather than
+ * assuming the old timing.
+ *
+ * NOT a fix for a race in the subject: the scan is still a single in-flight
+ * promise the test holds and awaits at the end. Awaiting it at its DECLARATION
+ * instead is what POD-3525 is repairing, and it made these tests pass through
+ * the registry fallback rather than through the daemon replies they name.
+ */
+const settleMicrotasks = async (turns = 50): Promise<void> => {
+  for (let i = 0; i < turns; i++) await Promise.resolve()
+}
+
 describe('RepoRegistry.scanReposAll()', () => {
   it('stamps each repo with its originating machineId', async () => {
     const { reg, repos, m1Out, m2Out } = await regWithTwoDaemons()
@@ -76,7 +97,8 @@ describe('RepoRegistry.scanReposAll()', () => {
     await repos.add('/b', asMachineId('m2'))
 
     // Fire the scan
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
+    await settleMicrotasks()
 
     // Each daemon receives a scanReposRequest; simulate their replies
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -114,7 +136,8 @@ describe('RepoRegistry.scanReposAll()', () => {
     await store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
     await store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
 
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
+    await settleMicrotasks()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
     const m2Req = m2Out.find((m) => m.type === 'scanReposRequest')
     expect(m1Req).toBeDefined()
@@ -175,7 +198,8 @@ describe('RepoRegistry.scanReposAll()', () => {
     // Rebinding and returning zero scan rows is the other half of the restart
     // race: it must enrich/fallback onto the same registered identity.
     reg.gateway.attachDaemon(machineId, (msg) => m1Out.push(msg))
-    const rebound = await repos.scanReposAll()
+    const rebound = repos.scanReposAll()
+    await settleMicrotasks()
     const req = m1Out.findLast((m) => m.type === 'scanReposRequest')
     expect(req?.type).toBe('scanReposRequest')
     if (req?.type !== 'scanReposRequest') throw new Error('no rebound scan request')
@@ -235,7 +259,8 @@ describe('RepoRegistry.scanReposAll()', () => {
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
     await repos.add('/repo', asMachineId('m1'))
 
-    const scanPromise = await repos.scanReposAll()
+    const scanPromise = repos.scanReposAll()
+    await settleMicrotasks()
 
     const req = m1Out.find((m) => m.type === 'scanReposRequest')
     expect(req).toBeDefined()

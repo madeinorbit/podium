@@ -457,7 +457,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       "machine 'Builder' is still probing whether claude-code is installed",
     )
 
-    const waiting = await svc.waitForInventory(MACHINE)
+    const waiting = svc.waitForInventory(MACHINE)
     expect(daemon.got).toEqual([{ type: 'inventoryRequest' }])
     await svc.recordInventory(MACHINE, {
       ...INV,

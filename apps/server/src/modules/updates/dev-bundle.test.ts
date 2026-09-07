@@ -1757,8 +1757,8 @@ describe('buildDevBundle', () => {
       },
     })
 
-    const first = await publisher.requestBuild(true)
-    const second = await publisher.requestBuild(true)
+    const first = publisher.requestBuild(true)
+    const second = publisher.requestBuild(true)
     await buildStarted
     expect(builds).toBe(1)
     resolveBuild()
@@ -1947,7 +1947,7 @@ describe('development bundle readiness', () => {
       },
     })
 
-    const built = await publisher.requestBuild(true)
+    const built = publisher.requestBuild(true)
     // `onAdmitted`, not the call returning: admission reads HEAD and walks the
     // tree off the loop, so a request is not yet in flight when `requestBuild`
     // hands back its promise. This is the moment the read model is told to stop
@@ -2672,7 +2672,7 @@ describe('the dev feed manifest the publisher writes', () => {
     )
     const approved = await publisher.proposal()
     expect(approved).toBeDefined()
-    const building = await publisher.requestBuild(true, approved)
+    const building = publisher.requestBuild(true, approved)
     await preparing
 
     // A commit lands and receives its own reserved version while the approved

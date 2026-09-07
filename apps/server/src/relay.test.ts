@@ -1562,7 +1562,7 @@ describe('SessionRegistry', () => {
     const c = sink()
     attachCurrent(reg, c.send)
     c.sent.length = 0
-    const p = await reg.modules.rpc.scan()
+    const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
@@ -1589,7 +1589,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
-    const p = await reg.modules.rpc.scan()
+    const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
@@ -1606,7 +1606,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
-    const p = await reg.modules.rpc.scanRepos(['/home/u/src'])
+    const p = reg.modules.rpc.scanRepos(['/home/u/src'])
     const req = daemon.find((m) => m.type === 'scanReposRequest') as
       | { requestId: string; roots: string[] }
       | undefined
@@ -2202,7 +2202,7 @@ describe('memory breakdown relay', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
-    const pending = await reg.modules.hosts.memoryBreakdown(['/src/app'])
+    const pending = reg.modules.hosts.memoryBreakdown(['/src/app'])
     const req = daemon.find(
       (m): m is Extract<ControlMessage, { type: 'memoryBreakdownRequest' }> =>
         m.type === 'memoryBreakdownRequest',
@@ -2230,7 +2230,7 @@ describe('memory breakdown relay', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-      const pending = await reg.modules.hosts.memoryBreakdown([])
+      const pending = reg.modules.hosts.memoryBreakdown([])
       vi.advanceTimersByTime(10_500)
       await expect(pending).resolves.toBeUndefined()
     } finally {
@@ -2893,7 +2893,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    const p = await reg.modules.rpc.readTranscript(
+    const p = reg.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
@@ -2930,7 +2930,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
       conversationId: 'conv-1',
     })
 
-    const p = await reg.modules.rpc.readTranscript(
+    const p = reg.modules.rpc.readTranscript(
       {
         sessionId,
         anchor: 'c42',
@@ -6249,7 +6249,7 @@ describe('listDir routing', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
 
-    const p = await reg.modules.rpc.listDir({
+    const p = reg.modules.rpc.listDir({
       machineId: reg.sessionStore.hostMachineId,
       root: '/w',
       path: '/w',
@@ -6538,7 +6538,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = await registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
 
       const request = daemon.find(
         (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
@@ -6580,7 +6580,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = await registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
       const request = daemon.find(
         (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
       ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
