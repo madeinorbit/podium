@@ -1041,7 +1041,7 @@ export class SessionInbox {
       : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
     if (!head) {
       if (includeUnattempted) {
-        this.deps.authorization.interruptedPending?.({
+        await this.deps.authorization.interruptedPending?.({
           sessionId,
           ...(sourceMessageId ? { sourceMessageId } : {}),
         })

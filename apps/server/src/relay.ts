@@ -1264,8 +1264,9 @@ export class SessionRegistry {
         queuedMessageApply.injected(messageId, sessionId),
       queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
       interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
-      interruptPendingMessage: (sessionId, messageId) =>
-        queuedApplyHooks.interruptedPending?.(sessionId, messageId),
+      interruptPendingMessage: async (sessionId, messageId) => {
+        await queuedApplyHooks.interruptedPending?.(sessionId, messageId)
+      },
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
