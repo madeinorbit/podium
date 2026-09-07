@@ -10,7 +10,7 @@ export interface ServerMoveAuthorizationDeps {
   authorizedBy: string
   targetMachineId: string
   machines: MachinesService
-  roleOf(userId: UserId): UserRole | undefined
+  roleOf(userId: UserId): Promise<UserRole | undefined>
 }
 
 /** Reconstructs current policy from durable identity; it never retains a request context. */
@@ -27,7 +27,7 @@ export function serverMoveAuthorization(
       if (actor.kind !== 'user') {
         return denied('the recorded actor is not a current administrator')
       }
-      const role = deps.roleOf(actor.userId)
+      const role = await deps.roleOf(actor.userId)
       if (role !== 'admin') {
         return denied('the recorded administrator is unavailable')
       }

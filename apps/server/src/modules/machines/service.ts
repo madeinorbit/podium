@@ -401,7 +401,7 @@ export class MachinesService {
     )
   }
 
-  attachSupervisor(
+  async attachSupervisor(
     machineId: MachineId,
     send: Send<MachineSupervisorControlMessage>,
     build: PeerBuild,
@@ -419,7 +419,7 @@ export class MachinesService {
       'supervisor',
     )
     this.invalidateMachineCache()
-    send({ type: 'serviceAssignment', assignment: this.serviceAssignment(machineId) })
+    send({ type: 'serviceAssignment', assignment: await this.serviceAssignment(machineId) })
   }
 
   detachSupervisor(machineId: MachineId, send: Send<MachineSupervisorControlMessage>): boolean {

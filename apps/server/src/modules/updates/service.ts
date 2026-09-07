@@ -896,7 +896,7 @@ export class UpdatesService {
    * the channel on a version change). A skipped tick costs at most one day of
    * staleness; a yanked target costs the update.
    */
-  operationActive(channel: UpdateChannel): boolean {
+  async operationActive(channel: UpdateChannel): Promise<boolean> {
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel !== channel) continue
       const state = this.machineStates.get(machineId)
@@ -909,7 +909,7 @@ export class UpdatesService {
         state.projectedCurrent === true &&
         state.grantId === pending.grantId &&
         state.version === this.target(channel)?.version &&
-        this.grantMatchesTarget(pending, channel, this.target(channel))
+        (await this.grantMatchesTarget(pending, channel, this.target(channel)))
       if (!completed) return true
     }
     for (const state of this.machineStates.values()) {
@@ -982,7 +982,7 @@ export class UpdatesService {
       pending === undefined &&
       retired?.channel === channel &&
       message.grantId === retired.grantId &&
-      this.retiredGrantMatchesTarget(retired, channel, target)
+      (await this.retiredGrantMatchesTarget(retired, channel, target))
         ? retired
         : undefined
     const executionGrant = pendingGrant ?? retiredGrant
@@ -999,7 +999,7 @@ export class UpdatesService {
       message.version === target.version &&
       message.state === 'current' &&
       message.phaseDetail === 'current' &&
-      this.grantMatchesTarget(executionGrant, channel, target)
+      (await this.grantMatchesTarget(executionGrant, channel, target))
     // Ordinary progress carrying a grant id must belong to the current grant.
     // A packaged process can, however, be DOWN while the coordinator spends its
     // one retry and replaces that id. Its durable boot report is still the
@@ -1517,12 +1517,12 @@ export class UpdatesService {
   }
 
   /** Consent and publication must still name the descriptor this grant executed. */
-  private grantMatchesTarget(
+  private async grantMatchesTarget(
     pending: PendingGrant,
     channel: UpdateChannel,
     target: UpdateTarget | undefined,
-  ): boolean {
-    const approved = this.approvedTarget(channel)
+  ): Promise<boolean> {
+    const approved = await this.approvedTarget(channel)
     return (
       target !== undefined &&
       pending.channel === channel &&
@@ -1533,24 +1533,24 @@ export class UpdatesService {
     )
   }
 
-  private retiredGrantMatchesTarget(
+  private async retiredGrantMatchesTarget(
     grant: PendingGrant,
     channel: UpdateChannel,
     target: UpdateTarget | undefined,
-  ): boolean {
-    const approved = this.approvedTarget(channel)
+  ): Promise<boolean> {
+    const approved = await this.approvedTarget(channel)
     return (
-      this.grantMatchesTarget(grant, channel, target) &&
+      (await this.grantMatchesTarget(grant, channel, target)) &&
       (approved === undefined || grant.targetFingerprint === updateFingerprint(approved))
     )
   }
 
-  private executionMatchesTarget(machineId: string, channel: UpdateChannel): boolean {
+  private async executionMatchesTarget(machineId: string, channel: UpdateChannel): Promise<boolean> {
     const grant = this.pendingGrants.get(machineId) ?? this.retiredGrants.get(machineId)
     if (!grant || this.machineStates.get(machineId)?.grantId !== grant.grantId) return false
     return this.pendingGrants.has(machineId)
-      ? this.grantMatchesTarget(grant, channel, this.target(channel))
-      : this.retiredGrantMatchesTarget(grant, channel, this.target(channel))
+      ? await this.grantMatchesTarget(grant, channel, this.target(channel))
+      : await this.retiredGrantMatchesTarget(grant, channel, this.target(channel))
   }
 
   private retireGrant(machineId: string): void {
