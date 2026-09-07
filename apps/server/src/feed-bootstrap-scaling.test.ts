@@ -432,14 +432,23 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
       capability: asCapabilityRef('cap:probe-2'),
     }
     const delivered: number[] = []
-    const off1 = ledger.authority.subscribe(feedPrincipal, () => delivered.push(1))
-    const off2 = ledger.authority.subscribe(second, () => delivered.push(2))
+    let finishDelivery!: () => void
+    const delivery = new Promise<void>((resolve) => { finishDelivery = resolve })
+    const onDelivery = (subscriber: number) => {
+      delivered.push(subscriber)
+      if (delivered.length === 2) finishDelivery()
+    }
+    const off1 = ledger.authority.subscribe(feedPrincipal, () => onDelivery(1))
+    const off2 = ledger.authority.subscribe(second, () => onDelivery(2))
     try {
-      const reads = await grantReadsDuring(reg, () =>
-        ledger.capture([
+      const reads = await grantReadsDuring(reg, async () => {
+        await ledger.capture([
           { entity: 'issue', id: 'iss_shared_0', op: 'upsert', value: { id: 'iss_shared_0', v: 2 } },
-        ] as EntityChangeSpec[]),
-      )
+        ] as EntityChangeSpec[])
+        // capture appends durably; post-commit delivery completes separately.
+        // Keep the read probes installed through both subscriber callbacks.
+        await delivery
+      })
       // CONTROL: both subscribers really were evaluated, so a count of 1 below
       // is one read shared by two passes and not one pass that happened.
       expect(delivered).toEqual([1, 2])
