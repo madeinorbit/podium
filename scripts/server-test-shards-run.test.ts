@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { SHARD_REPORT_DIR_ENV } from '../apps/server/test-shard-report'
+import { executedTestFiles, SHARD_REPORT_DIR_ENV } from '../apps/server/test-shard-report'
 import {
   readManifest,
   reconcile,
@@ -57,6 +57,10 @@ const root = process.env.STUB_ROOT
 const plan = JSON.parse(process.env.STUB_PLAN ?? '{}')
 appendFileSync(process.env.STUB_LEDGER, shardId + '\\n')
 if ((plan.skip ?? []).includes(shardId)) process.exit(0)
+if ((plan.malformed ?? []).includes(shardId)) {
+  writeFileSync(join(process.env.${SHARD_REPORT_DIR_ENV}, shardId + '.json'), 'null')
+  process.exit(0)
+}
 
 const manifest = JSON.parse(readFileSync(join(root, 'apps/server/test-shards.json'), 'utf8'))
 const shard = manifest.shards.find((candidate) => candidate.id === shardId)
@@ -66,7 +70,9 @@ writeFileSync(
   join(process.env.${SHARD_REPORT_DIR_ENV}, shardId + '.json'),
   JSON.stringify({
     success: true,
-    testResults: files.map((file) => ({ name: join(root, file), status: 'passed' })),
+    testResults: files.map((file) => ({ name: join(root, file), status: 'passed',
+      assertionResults: [{ status: (plan.skipped ?? []).includes(shardId) ? 'pending' : 'passed' }],
+    })),
   }),
 )
 `
@@ -74,6 +80,8 @@ writeFileSync(
 interface StubPlan {
   skip?: string[]
   short?: Record<string, number>
+  skipped?: string[]
+  malformed?: string[]
 }
 
 interface CliResult {
@@ -109,8 +117,8 @@ async function runCli(plan: StubPlan, args: string[] = []): Promise<CliResult> {
   // STRING "undefined" is truthy, and would silently put this test in the delegated path.
   delete env.TURBO_HASH
 
-  const child = Bun.spawn(['bun', join(repositoryRoot, 'scripts/server-test-shards.ts'), ...args], {
-    cwd: repositoryRoot,
+  const child = Bun.spawn(['bun', 'run', 'test', ...args], {
+    cwd: join(repositoryRoot, 'apps/server'),
     env,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -169,6 +177,23 @@ describe('the @podium/server test aggregate, run directly', () => {
     )
     // The other four still ran: an unaccounted shard must not fail-fast the rest, or the
     // refusal cannot say what happened to them.
+    expect(result.invoked).toEqual(SHARDS.map((shard) => shard.id))
+    expect(result.exitCode).toBe(1)
+  }, 120_000)
+
+  it('refuses files collected successfully with every assertion skipped', async () => {
+    const result = await runCli({ skipped: ['store'] })
+    const store = manifest.shards.find((shard) => shard.id === 'store')!
+    expect(result.output).toContain(
+      `[short-shard] shard "store" announced ${store.testFiles.length} files but executed 0`,
+    )
+    expect(result.exitCode).toBe(1)
+  }, 120_000)
+
+  it('refuses malformed reports with a shard-specific diagnostic and finishes the roster', async () => {
+    const result = await runCli({ malformed: ['store'] })
+    expect(result.output).toContain('[unrun] shard "store"')
+    expect(result.output).toContain('invalid Vitest report: expected success and testResults')
     expect(result.invoked).toEqual(SHARDS.map((shard) => shard.id))
     expect(result.exitCode).toBe(1)
   }, 120_000)
@@ -233,5 +258,19 @@ describe('the direct path and the gated path run the same thing', () => {
         `.test-shard-reports/${shard.id}.json`,
       ])
     }
+  })
+})
+
+describe('report execution evidence', () => {
+  it('counts passed and failed assertions, but not pending, todo or empty files', () => {
+    const report = {
+      testResults: ['passed', 'failed', 'pending', 'todo']
+        .map((status) => ({
+          name: join(repositoryRoot, `${status}.test.ts`),
+          assertionResults: [{ status }],
+        }))
+        .concat([{ name: join(repositoryRoot, 'empty.test.ts'), assertionResults: [] }]),
+    }
+    expect(executedTestFiles(repositoryRoot, report)).toEqual(['failed.test.ts', 'passed.test.ts'])
   })
 })

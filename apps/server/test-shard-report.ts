@@ -63,13 +63,15 @@ export function shardReportPath(
 /** The subset of Vitest's JSON reporter output this file depends on. */
 export interface VitestJsonReport {
   success?: unknown
-  testResults?: { name?: unknown }[]
+  testResults?: { name?: unknown; assertionResults?: { status?: unknown }[] }[]
 }
 
 /**
  * Every test file the report says ran, repo-relative and sorted.
  *
- * Vitest names files by absolute path and emits one `testResults` entry per collected file;
+ * Vitest names files by absolute path and emits one `testResults` entry per collected file; only files with a passed or failed assertion
+ * count as executed, so a filtered or entirely skipped file cannot read as green.
+ *
  * the two shard projects (reused/isolated) partition the roster, so a file appears once. A
  * malformed or empty report yields an empty set, which the caller reports as an unrun shard
  * rather than as a pass — the whole point being that "nothing to see" must never read green.
@@ -78,6 +80,10 @@ export function executedTestFiles(root: string, report: VitestJsonReport): strin
   const files = new Set<string>()
   for (const result of report.testResults ?? []) {
     if (typeof result?.name !== 'string' || result.name === '') continue
+    if (
+      !result.assertionResults?.some((test) => test.status === 'passed' || test.status === 'failed')
+    )
+      continue
     files.add(relative(root, result.name))
   }
   return [...files].sort()

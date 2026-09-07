@@ -56,7 +56,15 @@
  *
  *   bun scripts/server-test-shards.ts --write
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -740,6 +748,11 @@ export function readShardOutcome(
   let report: VitestJsonReport
   try {
     report = JSON.parse(readFileSync(path, 'utf8')) as VitestJsonReport
+    if (!report || typeof report.success !== 'boolean' || !Array.isArray(report.testResults)) {
+      throw new Error('invalid Vitest report: expected success and testResults')
+    }
+    // Parse inside this boundary so malformed nested data produces an isolating refusal.
+    executedTestFiles(root, report)
   } catch (error) {
     return {
       id,
@@ -759,7 +772,9 @@ export function readShardOutcome(
 }
 
 const sample = (files: string[], limit = 5): string =>
-  files.length <= limit ? files.join(', ') : `${files.slice(0, limit).join(', ')}, … +${files.length - limit} more`
+  files.length <= limit
+    ? files.join(', ')
+    : `${files.slice(0, limit).join(', ')}, … +${files.length - limit} more`
 
 /**
  * Refuse unless the run accounted for every file the roster announced.
@@ -825,10 +840,10 @@ export function reconcile(manifest: Manifest, outcomes: ShardOutcome[]): VerifyF
         detail: `shard "${shard.id}" executed files it does not claim: ${sample(unclaimed)}`,
       })
     }
-    if (outcome.success === false && (outcome.exitCode === null || outcome.exitCode === 0)) {
+    if (outcome.success !== true && (outcome.exitCode === null || outcome.exitCode === 0)) {
       failures.push({
         kind: 'shard-failed',
-        detail: `shard "${shard.id}" reported failing tests`,
+        detail: `shard "${shard.id}" reported failing tests or no success verdict`,
       })
     }
   }
@@ -909,14 +924,20 @@ export async function runShards(
   // Last run's reports are not this run's evidence. Clear them first, so a shard that fails
   // to start is an absent report rather than a stale one that reads as a pass.
   const reportDir = shardReportDir(root, env)
-  rmSync(reportDir, { recursive: true, force: true })
   mkdirSync(reportDir, { recursive: true })
+  for (const shard of manifest.shards) rmSync(shardReportPath(root, shard.id, env), { force: true })
 
   const outcomes: ShardOutcome[] = []
   for (const shard of manifest.shards) {
     const { command, cwd } = shardInvocation(root, shard.id, env)
     console.error(`\n▸ ${shard.id} — ${shard.testFiles.length} files (${command.join(' ')})`)
-    const child = Bun.spawn(command, { cwd, stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' })
+    const child = Bun.spawn(command, {
+      cwd,
+      env,
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    })
     const exitCode = await child.exited
     outcomes.push(readShardOutcome(root, shard.id, exitCode, env))
   }
@@ -957,7 +978,8 @@ function writeArtifacts(root: string): void {
 
 function reportFailures(headline: string, failures: VerifyFailure[], hint: string): never {
   console.error(`${headline}\n`)
-  for (const failure of failures.slice(0, 25)) console.error(`  [${failure.kind}] ${failure.detail}`)
+  for (const failure of failures.slice(0, 25))
+    console.error(`  [${failure.kind}] ${failure.detail}`)
   if (failures.length > 25) console.error(`  … and ${failures.length - 25} more`)
   console.error(`\n${hint}`)
   process.exit(1)
@@ -967,7 +989,9 @@ function announce(manifest: Manifest): number {
   const total = manifest.shards.reduce((sum, shard) => sum + shard.testFiles.length, 0)
   console.error(`@podium/server test shards — ${total} unit files across ${SHARDS.length} shards:`)
   for (const shard of manifest.shards) {
-    console.error(`  ${shard.id.padEnd(16)} ${String(shard.testFiles.length).padStart(3)}  ${shard.title}`)
+    console.error(
+      `  ${shard.id.padEnd(16)} ${String(shard.testFiles.length).padStart(3)}  ${shard.title}`,
+    )
   }
   return total
 }
@@ -1022,7 +1046,9 @@ async function main(): Promise<void> {
       RECONCILE_HINT,
     )
   }
-  console.error(`\n@podium/server: ${total} unit files announced, ${total} executed across ${SHARDS.length} shards.`)
+  console.error(
+    `\n@podium/server: ${total} unit files announced, ${total} executed across ${SHARDS.length} shards.`,
+  )
 }
 
 if (import.meta.main) await main()
