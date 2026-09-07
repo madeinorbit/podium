@@ -3,6 +3,10 @@ import { expect, it, vi } from 'vitest'
 import { Session } from './session'
 import { SessionBindingReceipts, type SessionBindingReceiptsDeps } from './session-binding'
 
+type MemoryPort = SessionBindingReceiptsDeps['memory']
+/** Derived rather than imported: if the registry's id type changes, this breaks. */
+type ConversationId = Awaited<ReturnType<MemoryPort['ensureConversationIdentity']>>
+
 it('retains heuristic projection while the clearing write is pending and after it rejects', async () => {
   const machineId = asMachineId('binding-machine')
   const sessions = ['heuristic', 'exact'].map(
@@ -20,7 +24,12 @@ it('retains heuristic projection while the clearing write is pending and after i
         toDaemon: vi.fn(),
       }),
   )
-  const [heuristic, exact] = sessions
+  // `sessions` is built directly above with exactly these two entries, so the
+// indexed reads are total; the assertions make that total-ness checkable
+// rather than asserted with a bare non-null operator.
+const heuristic = sessions[0]
+const exact = sessions[1]
+if (!heuristic || !exact) throw new Error('fixture must build both sessions')
   const write = vi.fn<SessionBindingReceiptsDeps['write']>(async (session, mutate) => {
     const draft = session.captureDurableState()
     mutate(draft)
@@ -28,8 +37,12 @@ it('retains heuristic projection while the clearing write is pending and after i
   })
   const receipts = new SessionBindingReceipts({
     memory: {
-      ensureConversationIdentity: vi.fn(async () => 'conversation'),
-      linkConversationSegment: vi.fn(async () => 'conversation'),
+      ensureConversationIdentity: vi.fn<MemoryPort['ensureConversationIdentity']>(
+        async () => 'conversation' as ConversationId,
+      ),
+      linkConversationSegment: vi.fn<MemoryPort['linkConversationSegment']>(
+        async () => 'conversation' as ConversationId,
+      ),
     },
     now: () => 0,
     sessions: () => sessions,
