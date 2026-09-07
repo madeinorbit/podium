@@ -241,14 +241,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
     persistSession: (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
-      if (session) bag.repository.persist(session, additionalWrite)
+      if (session) return bag.repository.persist(session, additionalWrite)
     },
     writeSession: (sessionId, mutate) => {
       const session = bag.sessions.get(sessionId)
       if (session) bag.repository.write(session, mutate)
     },
     mutateSession: (sessionId, mutate) => {
-      bag.mutateSessionMeta(sessionId, (draft: SessionDurableState) => mutate(draft))
+      return bag.mutateSessionMeta(sessionId, (draft: SessionDurableState) => mutate(draft))
     },
     broadcastSessions: () => bag.broadcastSessions(),
     broadcastToClients: (message, options) => bag.broadcastToClients(message, options),
@@ -978,9 +978,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.sessionMetaOps = new SessionMetaOps({
     broadcastSessions: () => bag.broadcastSessions(),
     funnel: bag.funnel,
-    mutations: bag.mutations,
     now: () => bag.now(),
-    removeSessionRuntime: (id: SessionId, ret: unknown) =>
+    removeSessionRuntime: (id: SessionId, ret?: { retiredAt: string }) =>
       bag.sessionKill.removeSessionRuntime(id, ret),
     repository: bag.repository,
     sessionRemovalSpecs: (id: SessionId) => bag.sessionKill.sessionRemovalSpecs(id),
@@ -988,7 +987,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     state: bag.state,
     store,
-    toMachine: (mid: string, msg: unknown) => bag.toMachine(mid, msg),
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     view: bag.view,
   })

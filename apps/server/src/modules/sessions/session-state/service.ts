@@ -147,14 +147,14 @@ export interface SessionStatePorts {
   /** Persist one session and an optional satellite-row write atomically. The
    *  session's own durable fields are UNCHANGED by this write — one that changes
    *  them goes through {@link writeSession} or {@link mutateSession}. */
-  readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void) => void
+  readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void | Promise<void>) => void | Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
    *  no funnel span and no broadcast of its own. */
   readonly writeSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void
   /** Shared session-field mutation through the host's canonical metadata seam
    *  — the funnel span and the broadcast that makes it visible. */
-  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void
+  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void | Promise<void>
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
@@ -232,6 +232,29 @@ export class SessionStateService {
       })
     }
     this.invalidateAllOverlays()
+  }
+
+  /** Read restored drafts before commit; install only those sessions after commit. */
+  async prepareStoredDrafts(sessionIds: readonly SessionId[]): Promise<() => void> {
+    const times = await this.ports.store.sessions.loadDraftTimes()
+    const docs = await this.ports.store.sessions.loadDraftDocs()
+    return () => {
+      for (const sessionId of sessionIds) {
+        this.draftTimes.delete(sessionId)
+        this.draftDocs.delete(sessionId)
+        const updatedAt = times[sessionId]
+        if (updatedAt !== undefined) this.draftTimes.set(sessionId, updatedAt)
+        const stored = docs[sessionId]
+        if (stored) this.draftDocs.set(sessionId, {
+          sessionId,
+          text: stored.text,
+          rev: stored.rev,
+          origin: stored.origin ?? 'seed',
+          editedAt: stored.updatedAt,
+          history: stored.history,
+        })
+      }
+    }
   }
 
   /** Attach off-row draft metadata to a newly installed runtime session. */
@@ -328,11 +351,11 @@ export class SessionStateService {
     this.overlays.clear()
   }
 
-  private persistPerUser(userId: UserId, sessionId: SessionId, write: () => void): boolean {
+  private async persistPerUser(userId: UserId, sessionId: SessionId, write: () => void | Promise<void>): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
     try {
-      this.ports.persistSession(sessionId, () => {
-        write()
+      await this.ports.persistSession(sessionId, async () => {
+        await write()
         this.invalidateOverlay(userId)
       })
     } finally {
@@ -389,7 +412,7 @@ export class SessionStateService {
   async clearAllSnoozes(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!await this.ports.store.sessions.hasAnySnooze(sessionId)) return
-    this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
+    await this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
     this.invalidateAllOverlays()
     this.ports.broadcastSessions()
   }
@@ -463,15 +486,15 @@ export class SessionStateService {
   // Shared session facts
   // -------------------------------------------------------------------------
 
-  setArchived(sessionId: SessionId, archived: boolean): void {
-    this.ports.mutateSession(sessionId, (draft) => {
+  async setArchived(sessionId: SessionId, archived: boolean): Promise<void> {
+    await this.ports.mutateSession(sessionId, (draft) => {
       draft.archived = archived
     })
     if (archived) this.ports.onArchived(sessionId)
   }
 
-  setWorkState(sessionId: SessionId, workState: WorkState | null): void {
-    this.ports.mutateSession(sessionId, (draft) => {
+  async setWorkState(sessionId: SessionId, workState: WorkState | null): Promise<void> {
+    await this.ports.mutateSession(sessionId, (draft) => {
       draft.workState = workState ?? undefined
     })
   }

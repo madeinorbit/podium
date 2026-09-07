@@ -290,14 +290,14 @@ export interface IssueDeps {
    *  the relay; optional so existing test deps literals stay valid. */
   getSessionIssueId?(sessionId: SessionId): IssueId | null
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
-  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void
+  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void | Promise<void>
   /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */
-  setSessionCwd?(sessionId: SessionId, cwd: string): void
+  setSessionCwd?(sessionId: SessionId, cwd: string): void | Promise<void>
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
-  setSessionArchived?(sessionId: SessionId, archived: boolean): void
+  setSessionArchived?(sessionId: SessionId, archived: boolean): void | Promise<void>
   /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep

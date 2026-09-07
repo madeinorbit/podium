@@ -500,7 +500,7 @@ export async function buildSuperagentTools(
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
         if (!await getSession(sessionId)) return 'unknown session'
-        sessions.setWorkState({ sessionId, workState: parsed.data })
+        await sessions.setWorkState({ sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
     },

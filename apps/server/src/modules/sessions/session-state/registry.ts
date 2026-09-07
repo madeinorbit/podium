@@ -288,19 +288,19 @@ const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setArchived': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
+      return deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
     },
   },
   'sessions.setWorkState': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
+      return deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
     },
   },
   'sessions.setIssueId': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
+      return deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
     },
   },
   'sessions.dismissOffer': {

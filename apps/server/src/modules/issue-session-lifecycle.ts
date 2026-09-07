@@ -184,7 +184,7 @@ export class IssueSessionLifecycle {
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
 
-    const sessionPlan = this.deps.sessions.prepareIssueSessionDelete(
+    const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
       current.worktreePath,
     )
@@ -196,7 +196,7 @@ export class IssueSessionLifecycle {
 
     await this.deps.ledger.commit({
       write: async () => {
-        sessionPlan.write()
+        await sessionPlan.write()
         await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
@@ -252,7 +252,7 @@ export class IssueSessionLifecycle {
 
     await this.deps.ledger.commit({
       write: async () => {
-        sessionPlan.write()
+        await sessionPlan.write()
         await issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],

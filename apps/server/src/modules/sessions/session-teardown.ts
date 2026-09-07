@@ -73,7 +73,7 @@ export interface SessionTeardownPorts {
   daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
   listSessions(): SessionMeta[]
-  setArchived(input: { sessionId: SessionId; archived: boolean }): void
+  setArchived(input: { sessionId: SessionId; archived: boolean }): void | Promise<void>
   rearmUnread(sessionId: SessionId): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
@@ -240,7 +240,7 @@ export class SessionTeardown {
       )
       if (!issue || issue.parentId) return 'precondition'
     }
-    this.ports.setArchived({ sessionId: session.sessionId, archived: true })
+    await this.ports.setArchived({ sessionId: session.sessionId, archived: true })
     return 'applied'
   }
 

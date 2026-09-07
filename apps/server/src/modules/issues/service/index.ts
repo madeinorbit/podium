@@ -311,7 +311,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
         if (session.issueId != null) continue
         const issueId = await this.reports.soleOwnerForCwd(session.cwd)
         if (!issueId) continue
-        setSessionIssueId(session.sessionId, issueId)
+        await setSessionIssueId(session.sessionId, issueId)
         totalized += 1
       }
       if (totalized > 0) {
