@@ -32,6 +32,7 @@ import {
   type PeerHelloReply,
 } from '@podium/protocol'
 import {
+  createMachineDirectory,
   type MachineAuthenticationInput,
   type MachineAuthenticator,
   createResolvedMachineDirectory,

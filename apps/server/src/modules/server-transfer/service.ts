@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'

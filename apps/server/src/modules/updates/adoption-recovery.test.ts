@@ -27,7 +27,7 @@ const build = (appVersion: string) => ({
 
 /** Actual production composition, with transport sinks instead of sockets.
  * Every reboot closes/reopens SQLite and constructs a new SessionRegistry. */
-function fixture() {
+async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'podium-canary-recovery-'))
   const file = join(dir, 'podium.db')
   let store: SessionStore
@@ -40,7 +40,7 @@ function fixture() {
     })
     return registry
   }
-  open()
+  await open()
   const sent: Array<{ id: string; grant: UpdateGrantMessage }> = []
   return {
     get registry() {
@@ -50,15 +50,15 @@ function fixture() {
       return store
     },
     sent,
-    add(id: string, version = '0.4.1') {
-      store.machines.upsertMachine({
+    async add(id: string, version = '0.4.1') {
+      await store.machines.upsertMachine({
         id,
         name: id,
         hostname: id,
         tokenHash: '',
         ownerUserId: FIRST_ADMIN_USER_ID,
       })
-      store.machines.setUpdateChannel(id, 'dev')
+      await store.machines.setUpdateChannel(id, 'dev')
       this.hello(id, version)
     },
     hello(id: string, version = target.version) {
@@ -100,7 +100,7 @@ describe('production adoption restores supervised execution proof', () => {
   it.each([
     1, 2,
   ])('holds an unconfirmed canary with %i awaited machines across coordinator restart', async (count) => {
-    const h = fixture()
+    const h = await fixture()
     try {
       const ids = count === 1 ? ['a'] : ['a', 'b']
       for (const id of ids) h.add(id)
@@ -179,7 +179,7 @@ describe('production adoption restores supervised execution proof', () => {
   it.each([false, true])(
     'keeps a canceled rollout canceled when its canary finishes late (reboot=%s)',
     async (reboot) => {
-      const h = fixture()
+      const h = await fixture()
       try {
         for (const machine of ['a', 'b']) h.add(machine)
         const updates = h.registry.modules.updates
@@ -240,8 +240,8 @@ describe('production adoption restores supervised execution proof', () => {
     },
   )
 
-  it('accepts retired proof in recovery-only memory without writing the reopened query-only database', () => {
-    const h = fixture()
+  it('accepts retired proof in recovery-only memory without writing the reopened query-only database', async () => {
+    const h = await fixture()
     try {
       h.add('a')
       h.add('b')
@@ -274,8 +274,8 @@ describe('production adoption restores supervised execution proof', () => {
   it.each([
     false,
     true,
-  ])('serves repeated query-only fleet reads without writes or poisoned proof (legacy=%s)', (legacy) => {
-    const h = fixture()
+  ])('serves repeated query-only fleet reads without writes or poisoned proof (legacy=%s)', async (legacy) => {
+    const h = await fixture()
     try {
       h.add('a')
       const updates = h.registry.modules.updates

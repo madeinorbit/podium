@@ -402,61 +402,67 @@ export class MachinesRepository {
   }
 
   /** Persist a compatibility-path build report. */
-  setMachineBuild(
+  async setMachineBuild(
     id: string,
     build: PeerBuild,
     caps: string[],
     at: string,
     source?: MachinePresenceSource,
-  ): void {
-    this.db
-      .prepare(
-        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = COALESCE(?, presence_source), build_reported_at = ? WHERE id = ?',
-      )
-      .run(
-        build.appVersion ?? null,
-        build.wireSchemaDigest ?? null,
-        build.installKind ?? null,
-        JSON.stringify(caps),
-        source ?? null,
-        at,
-        id,
-      )
+  ): Promise<void> {
+    await this.db
+      .update(machines)
+      .set({
+        appVersion: build.appVersion ?? null,
+        wireSchemaDigest: build.wireSchemaDigest ?? null,
+        installKind: build.installKind ?? null,
+        deliveryCapsJson: JSON.stringify(caps),
+        // COALESCE, not a plain write: a report without a source must LEAVE the
+        // recorded presence alone rather than clearing it.
+        presenceSource: sql`COALESCE(${source ?? null}, ${machines.presenceSource})`,
+        buildReportedAt: at,
+      })
+      .where(eq(machines.id, id as MachineId))
+      .run()
   }
 
   /** One supervisor report atomically owns presence, build and service truth. */
-  setSupervisorPresence(
+  async setSupervisorPresence(
     id: string,
     build: PeerBuild,
     caps: string[],
     services: MachineServiceReport,
     at: string,
-  ): void {
-    this.db
-      .prepare(
-        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = ?, service_report_json = ?, build_reported_at = ?, last_seen_at = ? WHERE id = ?',
-      )
-      .run(
-        build.appVersion ?? null,
-        build.wireSchemaDigest ?? null,
-        build.installKind ?? null,
-        JSON.stringify(caps),
-        'supervisor',
-        JSON.stringify(services),
-        at,
-        at,
-        id,
-      )
+  ): Promise<void> {
+    await this.db
+      .update(machines)
+      .set({
+        appVersion: build.appVersion ?? null,
+        wireSchemaDigest: build.wireSchemaDigest ?? null,
+        installKind: build.installKind ?? null,
+        deliveryCapsJson: JSON.stringify(caps),
+        presenceSource: 'supervisor',
+        serviceReportJson: JSON.stringify(services),
+        buildReportedAt: at,
+        lastSeenAt: at,
+      })
+      .where(eq(machines.id, id as MachineId))
+      .run()
   }
 
-  setServiceAssignment(id: string, assignment: MachineServiceAssignment): void {
-    this.db
-      .prepare('UPDATE machines SET service_assignment_json = ? WHERE id = ?')
-      .run(JSON.stringify(assignment), id)
+  async setServiceAssignment(id: string, assignment: MachineServiceAssignment): Promise<void> {
+    await this.db
+      .update(machines)
+      .set({ serviceAssignmentJson: JSON.stringify(assignment) })
+      .where(eq(machines.id, id as MachineId))
+      .run()
   }
 
-  setPresenceSource(id: string, source: MachinePresenceSource): void {
-    this.db.prepare('UPDATE machines SET presence_source = ? WHERE id = ?').run(source, id)
+  async setPresenceSource(id: string, source: MachinePresenceSource): Promise<void> {
+    await this.db
+      .update(machines)
+      .set({ presenceSource: source })
+      .where(eq(machines.id, id as MachineId))
+      .run()
   }
 
   /** Constant-time token comparison using sha-256 hex. */
