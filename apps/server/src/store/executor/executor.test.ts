@@ -628,6 +628,72 @@ function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
 }
 
 describe('the remote lane policy', () => {
+  it.each(['arriving', 'queued'] as const)(
+    'holds the %s read outside an active exclusive body',
+    async (arrival) => {
+      const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
+      const precedingParked = barrier()
+      const exclusiveEntered = barrier()
+      const exclusiveParked = barrier()
+      const order: string[] = []
+      const preceding = scheduler.run('read', async () => {
+        await precedingParked.wait()
+      })
+      const exclusive = scheduler.run('exclusive', async () => {
+        order.push('exclusive:start')
+        exclusiveEntered.release()
+        await exclusiveParked.wait()
+        order.push('exclusive:end')
+      })
+      let read: Promise<void> | undefined
+      const startRead = () =>
+        scheduler.run('read', async () => {
+          order.push('read')
+        })
+      try {
+        if (arrival === 'queued') read = startRead()
+        precedingParked.release()
+        await exclusiveEntered.wait()
+        if (arrival === 'arriving') read = startRead()
+        await settle()
+        expect([...order], 'read must wait while the exclusive body is parked').toEqual([
+          'exclusive:start',
+        ])
+      } finally {
+        precedingParked.release()
+        exclusiveParked.release()
+        await Promise.all([preceding, exclusive, read])
+        await scheduler.close()
+      }
+      expect(order).toEqual(['exclusive:start', 'exclusive:end', 'read'])
+    },
+  )
+
+  it('still admits a read while an ordinary write body is parked', async () => {
+    const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
+    const entered = barrier()
+    const parked = barrier()
+    const order: string[] = []
+    const write = scheduler.run('write', async () => {
+      order.push('write:start')
+      entered.release()
+      await parked.wait()
+      order.push('write:end')
+    })
+    await entered.wait()
+    const read = scheduler.run('read', async () => {
+      order.push('read')
+    })
+    try {
+      await settle()
+      expect(order).toEqual(['write:start', 'read'])
+    } finally {
+      parked.release()
+      await Promise.all([write, read])
+      await scheduler.close()
+    }
+  })
+
   it('runs reads concurrently, drains before an exclusive, and lets nothing overtake it', async () => {
     const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
     const parked = barrier()
