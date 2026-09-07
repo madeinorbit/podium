@@ -11,8 +11,8 @@ import { openTestStore } from './test-support/open-test-store'
 // cursor onto the same state a fresh snapshot would give.
 describe('SessionRegistry metadata deltas', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   async function makeRegistry(): Promise<SessionRegistry> {

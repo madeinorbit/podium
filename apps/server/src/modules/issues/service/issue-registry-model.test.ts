@@ -90,8 +90,8 @@ const open = async (): Promise<Harness> => {
 }
 
 let harness: Harness | undefined
-afterEach(() => {
-  harness?.store.close?.()
+afterEach(async () => {
+  await harness?.store.close?.()
   harness = undefined
 })
 

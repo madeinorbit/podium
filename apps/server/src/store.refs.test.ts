@@ -21,7 +21,7 @@ describe('repo prefixes', () => {
     expect(prefixes[0]).toBe('POD')
     expect(prefixes[1]).not.toBe('POD')
     expect(new Set(prefixes).size).toBe(2)
-    s.close()
+    await s.close()
   })
 
   it('honours a validated explicit override and rejects a bad/duplicate one', async () => {
@@ -33,7 +33,7 @@ describe('repo prefixes', () => {
     await expect(s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM')).rejects.toThrow(
       /already in use/,
     )
-    s.close()
+    await s.close()
   })
 
   it('resolves a prefix back to its repo', async () => {
@@ -42,7 +42,7 @@ describe('repo prefixes', () => {
     const repo = await s.repos.repoForPrefix('POD')
     expect(repo?.path).toBe('/a/podium')
     expect(await s.repos.repoForPrefix('ZZZ')).toBeNull()
-    s.close()
+    await s.close()
   })
 
   it('setRepoPrefix renames server-wide and enforces uniqueness', async () => {
@@ -55,7 +55,7 @@ describe('repo prefixes', () => {
     await expect(s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).rejects.toThrow(
       /already used/,
     )
-    s.close()
+    await s.close()
   })
 })
 
@@ -68,7 +68,7 @@ describe('session letter allocation', () => {
     expect([a, b, c]).toEqual(['A', 'B', 'C'])
     // A different issue starts its own sequence.
     expect(await s.issues.allocateSessionLetter(asIssueId('iss_2'))).toBe('A')
-    s.close()
+    await s.close()
   })
 
   it('crosses Z -> AA', async () => {
@@ -76,7 +76,7 @@ describe('session letter allocation', () => {
     let last = ''
     for (let i = 0; i < 27; i++) last = await s.issues.allocateSessionLetter(asIssueId('iss_z'))
     expect(last).toBe('AA')
-    s.close()
+    await s.close()
   })
 })
 
@@ -86,7 +86,7 @@ describe('per-repo DRAFT counter', () => {
     expect(await s.repos.nextDraftSeq(asRepoId('repo_x'))).toBe(1)
     expect(await s.repos.nextDraftSeq(asRepoId('repo_x'))).toBe(2)
     expect(await s.repos.nextDraftSeq(asRepoId('repo_y'))).toBe(1)
-    s.close()
+    await s.close()
   })
 })
 

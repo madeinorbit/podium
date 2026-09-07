@@ -161,7 +161,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
       0, 1, 2, 3, 4,
     ])
-    reg.dispose()
+    await reg.dispose()
   })
 })
 
@@ -322,7 +322,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       expect(obsB).toEqual(obsA)
       expect(obsC).toEqual(obsA)
     } finally {
-      for (const r of registries.splice(0)) r.dispose()
+      for (const r of registries.splice(0)) await r.dispose()
     }
   })
 })
@@ -362,7 +362,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
         reg.issues.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
       ).toThrow(/closedReason/)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -386,7 +386,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reopenedEvents).toHaveLength(1)
       expect(reopenedEvents[0]?.payload).toMatchObject({ seq: w.seq })
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -412,7 +412,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
         .map((e) => e.payload)
       expect(stages).toEqual([{ seq: w.seq, from: 'done', to: 'in_progress' }])
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })
@@ -478,7 +478,7 @@ describe('characterization: change-log delta client heals to identical state (co
       500,
     )
     expect(await ledger.changesSince(lagCursor)).toBeNull()
-    store.close()
+    await store.close()
   })
 })
 
@@ -533,8 +533,8 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     expect(before.sessionIds).toContain(sessionId)
     expect(before.issue).not.toBeNull()
     expect(before.changes.length).toBeGreaterThan(0)
-    reg1.dispose()
-    store1.close()
+    await reg1.dispose()
+    await store1.close()
 
     const schemaBefore = schemaOf(file)
     expect(schemaBefore.length).toBeGreaterThan(10) // the schema actually exists
@@ -561,7 +561,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       2000,
     )
     expect(next).toEqual([before.maxChangeSeq + 1])
-    store2.close()
+    await store2.close()
 
     expect(schemaOf(file)).toEqual(schemaBefore)
   })
@@ -680,7 +680,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         await outcome(overriddenViewer.issues.update({ id: A.id, patch: { notes: 'x' } })),
       ).toBe('FORBIDDEN')
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })

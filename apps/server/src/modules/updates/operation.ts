@@ -1386,9 +1386,12 @@ export interface UpdateOperationContext {
     failureDetail?: string
   }
   /** Server-owned snapshot seam; daemon places deliberately have none. */
-  createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  createDatabaseSnapshot?: (
+    fromVersion: string,
+    targetVersion: string,
+  ) => Promise<string | undefined>
   /**
-   * Worker-backed snapshot seam (POD-3068), preferred over the synchronous one
+   * Worker-backed snapshot seam (POD-3068), preferred over the staged-only one
    * above when both are present.
    *
    * The server step is the ONE place allowed to wait for a snapshot proof, and
@@ -1413,10 +1416,7 @@ export interface UpdateOperationContext {
    * store write, so the implementation returns a promise, and a caller that only
    * fires it races the restart it is supposed to precede.
    */
-  recordOperationDetails?: (
-    operationId: string,
-    patch: Record<string, unknown>,
-  ) => Promise<void>
+  recordOperationDetails?: (operationId: string, patch: Record<string, unknown>) => Promise<void>
   /**
    * Report progress for one step of THIS operation.
    *
@@ -2188,7 +2188,10 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
     } else if (context.createDatabaseSnapshot) {
       try {
-        databaseSnapshotPath = context.createDatabaseSnapshot(fromVersion, details.target.version)
+        databaseSnapshotPath = await context.createDatabaseSnapshot(
+          fromVersion,
+          details.target.version,
+        )
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
         await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
       } catch (error) {
@@ -2438,7 +2441,7 @@ export function createUpdateFleetBridge(deps: {
       const details = updateOperationDetails(row.operation)
       if (!details) continue
       const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
-      if (restated) void await deps.engine.recordDeferred(row.id, restated)
+      if (restated) void (await deps.engine.recordDeferred(row.id, restated))
     }
   }
 
@@ -2486,7 +2489,7 @@ export function createUpdateFleetBridge(deps: {
       const admitted = await admissibleDeferredPlaces(row.operation, details, deps.updates)
       if (admitted.length > 0) {
         const places = [...(step.places ?? []), ...admitted]
-        void await deps.engine.admitDeferred(
+        void (await deps.engine.admitDeferred(
           row.id,
           UPDATE_STEP_MACHINES,
           admitted.map((place) => place.id),
@@ -2497,7 +2500,7 @@ export function createUpdateFleetBridge(deps: {
               total: places.length,
             },
           },
-        )
+        ))
         return
       }
 
@@ -2579,11 +2582,11 @@ export function createUpdateFleetBridge(deps: {
         places.some((place) => place.state === 'pending')
 
       if (returned || stalled) {
-        void await deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
+        void (await deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected))
         return
       }
 
-      void await deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
+      void (await deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected))
     },
   }
   return bridge

@@ -27,8 +27,8 @@ import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>

@@ -13,7 +13,7 @@ describe('SessionRegistry model catalog wiring', () => {
       byAgent: {},
       fetchedAt: 0,
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('serves the injected probe result via refreshModelCatalog + getModelCatalog', async () => {
@@ -34,7 +34,7 @@ describe('SessionRegistry model catalog wiring', () => {
     )
     expect(modelProbe).toHaveBeenCalledWith(machineId)
     expect(modelProbe).toHaveBeenCalledTimes(1)
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('persists the catalog so a restart serves it instantly without re-probing', async () => {
@@ -48,7 +48,7 @@ describe('SessionRegistry model catalog wiring', () => {
       modelProbe: probe,
     })
     await first.modules.settings.refreshModelCatalog(machineId)
-    first.dispose()
+    await first.dispose()
 
     // Second "boot" (same DB): the catalog is served from persistence immediately —
     // get() returns it with no additional probe on the fresh registry.
@@ -60,7 +60,7 @@ describe('SessionRegistry model catalog wiring', () => {
     expect((await second.modules.settings.getModelCatalog(machineId)).byAgent.grok?.[0]?.value).toBe(
       'grok-build',
     )
-    second.dispose()
+    await second.dispose()
   })
 
   /**
@@ -104,7 +104,7 @@ describe('SessionRegistry model catalog wiring', () => {
     expect(
       (await store.settings.getModelCatalog(asMachineId(other)))?.byAgent.grok?.[0]?.value,
     ).toBe('other-model')
-    registry.dispose()
+    await registry.dispose()
 
     // Restart: each machine still reads its own persisted catalog, not the other's.
     const probe2 = vi.fn(async () => ({}))
@@ -118,6 +118,6 @@ describe('SessionRegistry model catalog wiring', () => {
     expect(
       (await second.modules.settings.getModelCatalog(asMachineId(other))).byAgent.grok?.[0]?.value,
     ).toBe('other-model')
-    second.dispose()
+    await second.dispose()
   })
 })

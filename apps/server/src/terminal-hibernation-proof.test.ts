@@ -9,8 +9,8 @@ import { openTestStore } from './test-support/open-test-store'
 const registries: SessionRegistry[] = []
 const at = (second: number) => `2026-07-19T12:00:${String(second).padStart(2, '0')}.000Z`
 
-afterEach(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterEach(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 function runtime(
@@ -264,7 +264,7 @@ describe('durable terminal hibernation proof', () => {
     if (restartKind === 'daemon') {
       registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
     } else {
-      registry.dispose()
+      await registry.dispose()
       registry = await SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
       registries.push(registry)
     }
@@ -436,7 +436,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('re-arms one accepted-live retryable error on the first post-restart bind only', async () => {
     const h = await harness({ terminalPhase: 'errored', terminalRetryable: true })
-    h.registry.dispose()
+    await h.registry.dispose()
     await h.store.settings.setSettings({
       ...(await h.store.settings.getSettings()),
       autoContinue: { enabled: true, promptDismissed: true },
@@ -476,7 +476,7 @@ describe('durable terminal hibernation proof', () => {
       terminalPhase: 'errored',
       terminalRetryable: true,
     })
-    h.registry.dispose()
+    await h.registry.dispose()
     await h.store.settings.setSettings({
       ...(await h.store.settings.getSettings()),
       autoContinue: { enabled: true, promptDismissed: true },

@@ -13,8 +13,8 @@ import { attachTestClient } from './test-support/client-transport'
 // links live-rolls, and identity survives across the roll.
 describe('SessionRegistry conversation registry', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   async function makeRegistry(): Promise<SessionRegistry> {

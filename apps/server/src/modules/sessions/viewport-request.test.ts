@@ -559,8 +559,8 @@ describe('T5: the legacy frames still work, and an old daemon still gets a movin
 
 describe('T5 (wiring): the capability travels socket → machine registry → session', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   /** The live Session objects, which is what the branch under test hangs off. */

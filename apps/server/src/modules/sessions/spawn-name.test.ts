@@ -9,8 +9,8 @@ import { SessionRegistry } from '../../relay'
 
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 async function makeRegistry(): Promise<SessionRegistry> {

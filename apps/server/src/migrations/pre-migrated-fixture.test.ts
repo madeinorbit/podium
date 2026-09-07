@@ -136,12 +136,12 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
   it('reaches identical schema objects and rows', async () => {
     const chain = await openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromChain = { schema: schemaObjects(raw(chain)), rows: allRows(raw(chain)) }
-    chain.close()
+    await chain.close()
 
     installPreMigratedStoreFixture()
     const cloned = await openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromClone = { schema: schemaObjects(raw(cloned)), rows: allRows(raw(cloned)) }
-    cloned.close()
+    await cloned.close()
 
     expect(fromClone.schema, DISAGREEMENT).toEqual(fromChain.schema)
     // Not just counts: the ten migrations carrying DML seed rows, and the per-boot
@@ -156,7 +156,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     expect([...appliedDrizzleNames(raw(store))].sort()).toEqual(
       DRIZZLE_MIGRATIONS.map((m) => m.name).sort(),
     )
-    store.close()
+    await store.close()
   })
 
   it('seeds a fresh file database and leaves an existing one to the chain', async () => {
@@ -166,7 +166,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     const fresh = join(dir, 'fresh.db')
     const seeded = await openTestStore(fresh)
     expect(appliedDrizzleNames(raw(seeded)).size).toBe(DRIZZLE_MIGRATIONS.length)
-    seeded.close()
+    await seeded.close()
 
     // A database the test built on purpose (here: one migration deep) must NOT be
     // overwritten — that is how the upgrade suites build their old schemas.
@@ -178,7 +178,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     const upgraded = await openTestStore(existing)
     // It advanced by its pending migrations rather than being replaced by the image.
     expect(appliedDrizzleNames(raw(upgraded)).size).toBe(DRIZZLE_MIGRATIONS.length)
-    upgraded.close()
+    await upgraded.close()
   })
 })
 
@@ -190,8 +190,8 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
     const second = await openTestStore(':memory:')
     expect(await second.repos.listRepoPaths()).toEqual([])
     expect(await first.repos.listRepoPaths()).toEqual(['/only-in-first'])
-    first.close()
-    second.close()
+    await first.close()
+    await second.close()
   })
 
   it('never lets a write reach the shared image', async () => {
@@ -204,12 +204,12 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
     const insert = raw(store).prepare('INSERT INTO zz_growth VALUES (?)')
     for (let i = 0; i < 20_000; i++) insert.run('x'.repeat(200))
     await store.repos.addRepo('/written', store.hostMachineId)
-    store.close()
+    await store.close()
     expect(Buffer.from(currentSchemaImage()).toString('base64')).toBe(before)
     // And the next clone still sees an empty database.
     const after = await openTestStore(':memory:')
     expect(await after.repos.listRepoPaths()).toEqual([])
-    after.close()
+    await after.close()
   })
 })
 
@@ -278,7 +278,7 @@ describe('the seam cannot reach production [POD-523]', () => {
     writeFileSync(decoy, 'untouched')
     installPreMigratedStoreFixture()
     const store = await openTestStore(join(dir, 'db', 'podium.db'))
-    store.close()
+    await store.close()
     expect(readFileSync(decoy, 'utf8')).toBe('untouched')
   })
 })

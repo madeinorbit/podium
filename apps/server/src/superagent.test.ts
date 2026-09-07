@@ -816,11 +816,11 @@ describe('superagent turn reaper disposal (POD-2772)', () => {
     await settle(60)
     expect(reads).toBeGreaterThan(0)
 
-    registry.dispose()
+    await registry.dispose()
     const readsAtDisposal = reads
     // The real shutdown order: `registry.dispose()` sits in the persist list
     // directly above `store.close()`. A tick after this line is the RangeError.
-    store.close()
+    await store.close()
     await settle(60)
 
     expect(reads).toBe(readsAtDisposal)

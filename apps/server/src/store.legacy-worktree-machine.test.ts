@@ -70,7 +70,7 @@ function machineIds(path: string): Record<string, string | null> {
  */
 async function seedV010ShapedDb(path: string): Promise<void> {
   // Let the migration chain build the schema, then close and write behind it.
-  ;(await openTestStore(path, HOST)).close()
+  ;await (await openTestStore(path, HOST)).close()
   const db = openDatabase(path)
   const machine = (id: string, name: string): string =>
     `INSERT OR REPLACE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
@@ -123,7 +123,7 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     expect(before['i-unpinned-host-session']).toBeNull()
 
     const store = await openTestStore(path, HOST)
-    store.close()
+    await store.close()
 
     const after = machineIds(path)
     expect(after['i-unpinned']).toBe(HOST)
@@ -136,7 +136,7 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     await seedV010ShapedDb(path)
 
     const store = await openTestStore(path, HOST)
-    store.close()
+    await store.close()
 
     const after = machineIds(path)
     // Routing these to the local disk is the failure the backfill was written to
@@ -156,7 +156,7 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     // worktree-less row is LEGITIMATE, so this is the case that says why the
     // POD-3246 sentinel refusal must not be widened to fire on NULL machines.
     const store = await openTestStore(path, HOST)
-    store.close()
+    await store.close()
 
     expect(machineIds(path)['i-worktreeless']).toBeNull()
   })
@@ -166,7 +166,7 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     await seedV010ShapedDb(path)
 
     const store = await openTestStore(path, HOST)
-    store.close()
+    await store.close()
 
     expect(machineIds(path)['i-already-pinned']).toBe(OTHER)
   })
@@ -174,14 +174,14 @@ describe('the boot backfill for legacy worktree machine identity', () => {
   it('changes nothing on a second boot', async () => {
     const path = tmpDb()
     await seedV010ShapedDb(path)
-    ;(await openTestStore(path, HOST)).close()
+    ;await (await openTestStore(path, HOST)).close()
     const afterFirst = machineIds(path)
 
     const store = await openTestStore(path, HOST)
     // The count the operator sees, read directly: a rerun reports zero work,
     // which is what makes this safe to leave in the boot path indefinitely.
     const rerun = await store.issues.backfillLegacyWorktreeMachineIds(HOST)
-    store.close()
+    await store.close()
 
     expect(rerun.backfilled).toBe(0)
     // The contradicted rows stay countable on every boot — that is how the
@@ -198,7 +198,7 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     // count query, which shares `legacyWorktreeTerms` with the UPDATE.
     const store = await openTestStore(':memory:', HOST)
     const sql = store.issues.legacyWorktreeContradictionSql(HOST)
-    store.close()
+    await store.close()
     expect(sql).toContain('"issues"."id"')
     expect(sql).not.toContain('"sessions"."id"')
   })

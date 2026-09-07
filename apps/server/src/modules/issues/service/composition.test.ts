@@ -46,7 +46,7 @@ describe('issue tracker capability composition', () => {
     expect(await tracker.reports.list()).toEqual([])
     const created = await tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
     expect((await tracker.reports.get(created.id))?.title).toBe('one store')
-    deps.store.close()
+    await deps.store.close()
   })
 
   it('has zero IssueService class-inheritance layers and constructs one store', () => {

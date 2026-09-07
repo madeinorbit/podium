@@ -37,7 +37,7 @@ async function captureSpawn(over: {
   await attachDaemonWithInventory(registry, 'm1', (m) => sent.push(m))
   await registry.modules.sessions.createSession({ cwd: '/wt', machineId: asMachineId('m1'), ...over })
   const spawn = sent.find((m) => m.type === 'spawn')
-  registry.dispose()
+  await registry.dispose()
   return spawn as Extract<ControlMessage, { type: 'spawn' }> | undefined
 }
 

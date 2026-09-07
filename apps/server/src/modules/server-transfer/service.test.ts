@@ -192,13 +192,13 @@ function makeService(
     sourceMachineId: asMachineId('source-1'),
     sourceFeedIdentity: () => ({ feedId: 'feed-1', feedEpoch: 'epoch-1' }),
     sourceApplicationVersion: 'test',
-    sourceSchemaVersion: () => 'schema-1',
+    sourceSchemaVersion: async () => 'schema-1',
     sourceWireSchemaDigest: 'wire-1',
     rpc,
     targetState: () => ({ exists: true, online: true, capable: true, hasDaemon: true }),
     localPromotedTransfer: () => undefined,
-    sourceHealthy: vi.fn(),
-    checkpoint: vi.fn(),
+    sourceHealthy: vi.fn(async () => undefined),
+    checkpoint: vi.fn(async () => undefined),
     fence: vi.fn(),
     releaseFence: vi.fn(),
     demoteSource: vi.fn(),
@@ -234,7 +234,7 @@ describe('ServerTransferService final-fence flow', () => {
     const fence = vi.fn(() => {
       order.push('fence')
     })
-    const checkpoint = vi.fn(() => {
+    const checkpoint = vi.fn(async () => {
       order.push(fence.mock.calls.length === 0 ? 'checkpoint:writable' : 'checkpoint:fenced')
     })
     const service = makeService(fake.rpc, { fence, checkpoint })

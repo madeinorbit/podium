@@ -41,7 +41,7 @@ describe('SessionStore transcript mirror state', () => {
     expect(rawMirrorRow(store, 'm1', 'n1')).toEqual({ mirrored_bytes: 0, mirrored_at: null })
     // A segment we never registered reads as cursor 0 too (nothing mirrored).
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'never-seen')).toBe(0)
-    store.close()
+    await store.close()
   })
 
   it('setMirrorCursor round-trips and stores mirrored_at', async () => {
@@ -72,7 +72,7 @@ describe('SessionStore transcript mirror state', () => {
     )
     expect(await store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'n1')).toBe(0)
     expect(rawMirrorRow(store, 'm1', 'n1')?.mirrored_at).toBe('2026-07-02T11:00:00.000Z')
-    store.close()
+    await store.close()
   })
 
   it('retains retired file identities while advancing the active incarnation', async () => {
@@ -120,7 +120,7 @@ describe('SessionStore transcript mirror state', () => {
         active: true,
       },
     ])
-    store.close()
+    await store.close()
   })
 
   it('segmentsToMirror lists only path-known segments of the requested machine', async () => {
@@ -166,7 +166,7 @@ describe('SessionStore transcript mirror state', () => {
       },
     ])
     expect(await store.conversations.mirror.segmentsToMirror(asMachineId('m3'))).toEqual([])
-    store.close()
+    await store.close()
   })
 
   it('persists reported_bytes through ensureConversationIdentity (insert, update, COALESCE)', async () => {
@@ -206,7 +206,7 @@ describe('SessionStore transcript mirror state', () => {
       path: '/home/u/.claude/projects/-proj/n2.jsonl',
     })
     expect(await store.conversations.mirror.reportedBytes(asMachineId('m1'), 'n2')).toBeUndefined()
-    store.close()
+    await store.close()
   })
 
   it('segmentsToMirrorDirty lists behind + NULL-reported segments, never caught-up ones', async () => {
@@ -253,7 +253,7 @@ describe('SessionStore transcript mirror state', () => {
     expect(await store.conversations.mirror.segmentsToMirrorDirty(asMachineId('m1'))).toEqual([])
     // The FULL work list is untouched by dirtiness — the manual-reconcile seam.
     expect((await store.conversations.mirror.segmentsToMirror(asMachineId('m1'))).length).toBe(3)
-    store.close()
+    await store.close()
   })
 
   it('reopening a file-backed store is idempotent and keeps cursors (ALTER guard)', async () => {
@@ -272,7 +272,7 @@ describe('SessionStore transcript mirror state', () => {
       '2026-07-02T10:00:00.000Z',
     )
     await first.conversations.mirror.setReportedBytes(asMachineId('m1'), 'n1', 900)
-    first.close()
+    await first.close()
 
     // Second open replays CREATE TABLE ... IF NOT EXISTS + the ALTER guards over a
     // schema that ALREADY has the mirror columns — must not throw, must not reset.
@@ -285,6 +285,6 @@ describe('SessionStore transcript mirror state', () => {
       mirrored_bytes: 777,
       mirrored_at: '2026-07-02T10:00:00.000Z',
     })
-    second.close()
+    await second.close()
   })
 })

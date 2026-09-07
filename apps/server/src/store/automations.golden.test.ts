@@ -114,7 +114,7 @@ it('round-trips an automation through insert, including the boolean and the null
       lastRunAt: null,
     })
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -141,7 +141,7 @@ it('lists live automations oldest first and hides the tombstoned ones', async ()
     expect(await store.automations.remove('b', '2026-09-01T05:00:00.000Z')).toBe(false)
     expect(await store.automations.remove('never-existed', '2026-09-01T05:00:00.000Z')).toBe(false)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -173,7 +173,7 @@ it('answers ownership through the tombstone, which is the one fact that outlives
     expect(await store.automations.ownerOf('never-existed')).toBeUndefined()
     expect(await store.automations.runOwnerOf('never-existed')).toBeUndefined()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -209,7 +209,7 @@ it('updates every mutable column and round-trips a null cron through the empty s
     expect((await store.automations.get('auto-1'))?.ownerUserId).toBe(owner)
     expect((await store.automations.get('auto-1'))?.createdByActor).toBe('user:sole')
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -251,7 +251,7 @@ it('pages an automation’s runs newest first with a total order, and lists all 
     // The full-truth read is the other direction, and it spans automations.
     expect((await store.automations.listAllRuns()).map((r) => r.id)).toEqual(['r1', 'r2', 'r3', 'r4'])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -287,7 +287,7 @@ it('tombstones an automation’s runs with it, and refuses to finalize a tombsto
     })
     expect(await store.automations.getRun('r1')).toBeUndefined()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -343,6 +343,6 @@ it('names the last spawned session per automation by insertion order, not by tim
     await store.automations.remove('auto-1', '2026-09-01T04:00:00.000Z')
     expect((await store.automations.lastSpawnedSessions()).size).toBe(0)
   } finally {
-    store.close()
+    await store.close()
   }
 })

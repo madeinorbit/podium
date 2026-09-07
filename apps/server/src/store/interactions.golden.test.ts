@@ -70,7 +70,7 @@ it('collapses a duplicate open ask onto the existing row and says it did not ins
     )
     expect(elsewhere.inserted).toBe(true)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -98,7 +98,7 @@ it('re-asks after the first was resolved, because the dedupe index covers open r
     expect((await store.interactions.openByFingerprint(session, 'fp-1'))?.id).toBe('int-2')
     expect(await store.interactions.openByFingerprint(session, 'fp-absent')).toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -142,7 +142,7 @@ it('answers exactly once, and records delivery only after the row was claimed', 
     })
     expect(row?.answer).toEqual(answer)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -180,7 +180,7 @@ it('reopens only the class of answer it was aimed at, and clears every trace of 
     // An already-open row cannot be reopened again.
     expect(await store.interactions.reopen('int-1', 'policy')).toBe(false)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -212,7 +212,7 @@ it('retires a claimed row that close cannot reach, and close reaches the open on
     // Both statuses share `expired_at`: it is when the row stopped being open.
     expect(await store.interactions.close('open', 'expired', at)).toBe(false)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -246,7 +246,7 @@ it('closes every open ask on one session at once and returns exactly the ids tha
     // Nothing open: an empty list, and no statement issued.
     expect(await store.interactions.closeSession(session, 'expired', at)).toEqual([])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -273,7 +273,7 @@ it('enumerates open asks oldest first and a session’s history newest first', a
     expect((await store.interactions.listForSession(session)).map((r) => r.id)).toEqual(['c', 'a', 'b'])
     expect((await store.interactions.listForSession(session, 2)).map((r) => r.id)).toEqual(['c', 'a'])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -311,6 +311,6 @@ it('trims resolved rows by age and never trims an open ask, however old', async 
     // An ask nobody answered is the one thing this table must not forget.
     expect(await store.interactions.get('ancient-open')).not.toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })

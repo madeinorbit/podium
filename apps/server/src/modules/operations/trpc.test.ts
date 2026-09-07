@@ -45,8 +45,8 @@ async function harness() {
   return { registry, caller, operations: registry.modules.operations }
 }
 
-afterEach(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterEach(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 const done = async (): Promise<StepOutcome> => ({ state: 'done' })

@@ -104,7 +104,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     await store.issues.upsertIssue(row)
     expect(row.revision).toBe(2)
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
-    store.close()
+    await store.close()
   })
 
   it('accepts a write whose expectedRevision matches the stored one', async () => {
@@ -112,7 +112,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     const row = await seed(store, { id: asIssueId('iss_1') })
     await store.issues.upsertIssue({ ...row, title: 'second' }, { expectedRevision: 1 })
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('second')
-    store.close()
+    await store.close()
   })
 
   it('REFUSES a write whose expectedRevision is behind the stored one, and writes nothing', async () => {
@@ -129,7 +129,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     ).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('winner')
-    store.close()
+    await store.close()
   })
 
   it('a null expectedRevision means "this row must not exist yet"', async () => {
@@ -147,7 +147,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
         }))(),
     ).rejects.toThrow(StaleIssueRevisionError)
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('X')
-    store.close()
+    await store.close()
   })
 
   it('omitting the option checks nothing — the precondition is opt-in', async () => {
@@ -157,7 +157,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // The stored revision, not the caller's copy, is what the bump is computed
     // from — so a hand-built or stale `revision` field cannot jump the counter.
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
-    store.close()
+    await store.close()
   })
 
   it('refuses against the STORED revision rather than the one on the caller row', async () => {
@@ -167,7 +167,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
       (async () =>
         await store.issues.upsertIssue({ ...row, revision: 5 }, { expectedRevision: 5 }))(),
     ).rejects.toThrow(StaleIssueRevisionError)
-    store.close()
+    await store.close()
   })
 })
 
@@ -183,7 +183,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     await seed(store, { id: asIssueId('iss_off'), seq: 2, archived: false })
     expect((await store.issues.getIssue('iss_on'))?.archived).toBe(true)
     expect((await store.issues.getIssue('iss_off'))?.archived).toBe(false)
-    store.close()
+    await store.close()
   })
 
   it('round-trips needsHuman in both states', async () => {
@@ -192,7 +192,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     await seed(store, { id: asIssueId('iss_off'), seq: 2, needsHuman: false })
     expect((await store.issues.getIssue('iss_on'))?.needsHuman).toBe(true)
     expect((await store.issues.getIssue('iss_off'))?.needsHuman).toBe(false)
-    store.close()
+    await store.close()
   })
 
   it('round-trips draft in both states', async () => {
@@ -201,7 +201,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     await seed(store, { id: asIssueId('iss_off'), seq: 2, draft: false })
     expect((await store.issues.getIssue('iss_on'))?.draft).toBe(true)
     expect((await store.issues.getIssue('iss_off'))?.draft).toBe(false)
-    store.close()
+    await store.close()
   })
 
   it('carries archived through the projection as well as the row map', async () => {
@@ -210,7 +210,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     // `mapIssueRow`, so it is a second decode site and needs its own true case.
     await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
     expect((await store.issues.listIssueCwdRows())[0]?.archived).toBe(true)
-    store.close()
+    await store.close()
   })
 
   it('round-trips the whole row through a second write', async () => {
@@ -233,7 +233,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
       draft: again?.draft,
     }).toEqual({ archived: true, needsHuman: true, draft: true })
     expect(row.id).toBe('iss_1')
-    store.close()
+    await store.close()
   })
 })
 
@@ -258,7 +258,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
       tuckedAt: null,
       pinnedAt: null,
     })
-    store.close()
+    await store.close()
   })
 
   it('is a no-op for an issue nobody has touched', async () => {
@@ -266,7 +266,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
     await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_1'), { readAt: 't' })
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
     expect((await store.issues.listIssueUserState(FIRST_ADMIN_USER_ID)).size).toBe(1)
-    store.close()
+    await store.close()
   })
 })
 
@@ -284,7 +284,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
       { id: 'iss_b1', repoPath: '/b', worktreePath: null, deletedAt: null, archived: true },
       { id: 'iss_b2', repoPath: '/b', worktreePath: '/wt/b2', deletedAt: null, archived: false },
     ])
-    store.close()
+    await store.close()
   })
 
   it('listIssueCwdRows keeps soft-deleted rows, carrying their deletedAt', async () => {
@@ -306,7 +306,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
         archived: false,
       },
     ])
-    store.close()
+    await store.close()
   })
 
   it('listIssueParentEdges excludes tombstones, on either end of the edge', async () => {
@@ -328,7 +328,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
       { id: 'iss_parent', parentId: null },
       { id: 'iss_child', parentId: 'iss_parent' },
     ])
-    store.close()
+    await store.close()
   })
 
   it('issuesMissingRepoId counts zero on rows a live writer produced', async () => {
@@ -337,7 +337,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
     // `upsertIssue` resolves a repo_id before it inserts, so any non-zero
     // answer means a database from before POD-1360 rather than a live defect.
     expect(await store.issues.issuesMissingRepoId()).toBe(0)
-    store.close()
+    await store.close()
   })
 })
 
@@ -357,7 +357,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
     // `/rootless` merely shares a prefix as TEXT; the match is on a path
     // boundary, so it must not be swept in.
     expect((await store.issues.getIssue('iss_sibling'))?.repoId).not.toBe(repoId)
-    store.close()
+    await store.close()
   })
 
   it('renumbers a colliding seq, oldest row keeping its number', async () => {
@@ -391,7 +391,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
     expect((await store.issues.getIssue('iss_old'))?.seq).toBe(1)
     expect((await store.issues.getIssue('iss_new'))?.seq).toBe(2)
     expect((await store.issues.getIssue('iss_new'))?.repoId).toBe(repoId)
-    store.close()
+    await store.close()
   })
 
   it('renumbers in creation order, so the oldest merged row takes the lower seq', async () => {
@@ -431,7 +431,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
     expect((await store.issues.getIssue('iss_incumbent'))?.seq).toBe(1)
     expect((await store.issues.getIssue('iss_older'))?.seq).toBe(2)
     expect((await store.issues.getIssue('iss_newer'))?.seq).toBe(3)
-    store.close()
+    await store.close()
   })
 
   it('is a no-op when every issue already carries the id', async () => {
@@ -445,7 +445,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
     // The selection excludes rows already on the target id, so a re-run cannot
     // renumber a row against itself.
     expect((await store.issues.getIssue('iss_1'))?.seq).toBe(7)
-    store.close()
+    await store.close()
   })
 })
 
@@ -462,7 +462,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
       ['iss_1', ['beta']],
       ['iss_2', ['alpha', 'zeta']],
     ])
-    store.close()
+    await store.close()
   })
 
   it('listIssueLabelsByIssue omits issues with no labels rather than mapping them to []', async () => {
@@ -471,7 +471,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['a'])
     await store.issues.setIssueLabels(asIssueId('iss_1'), [])
     expect(await store.issues.listIssueLabelsByIssue()).toEqual(new Map())
-    store.close()
+    await store.close()
   })
 
   it('listAllIssueDeps returns every edge in a stable order', async () => {
@@ -488,7 +488,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
       { fromId: 'iss_a', toId: 'iss_c', type: 'relates' },
       { fromId: 'iss_b', toId: 'iss_a', type: 'blocks' },
     ])
-    store.close()
+    await store.close()
   })
 
   it('countIssueComments and countIssueCommentsByIssue agree, and absence reads as zero', async () => {
@@ -514,7 +514,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
     // caller — the grouped read never emits a zero row.
     expect(counts.has('iss_none')).toBe(false)
     expect(await store.issues.countIssueComments(asIssueId('iss_none'))).toBe(0)
-    store.close()
+    await store.close()
   })
 
   it('deleteIssueMessagesForIssue removes the mail of that issue only', async () => {
@@ -537,7 +537,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
 
     expect(await store.issues.getIssueMessage('msg_0')).toBeNull()
     expect(await store.issues.getIssueMessage('msg_1')).not.toBeNull()
-    store.close()
+    await store.close()
   })
 })
 
@@ -564,7 +564,7 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
     const hits = await store.issues.searchIssueComments('needle')
 
     expect(hits.map((h) => h.body)).toEqual(['needle at the start', 'a needle inside'])
-    store.close()
+    await store.close()
   })
 
   it('treats % and _ in the query as LITERAL characters', async () => {
@@ -577,14 +577,14 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
       'done 100% of it',
     ])
     expect((await store.issues.searchIssueComments('a_c')).map((h) => h.body)).toEqual(['a_c'])
-    store.close()
+    await store.close()
   })
 
   it('returns nothing for a blank query without touching the database', async () => {
     const store = await openTestStore(':memory:')
     await withComments(store, ['anything'])
     expect(await store.issues.searchIssueComments('   ')).toEqual([])
-    store.close()
+    await store.close()
   })
 
   it('clamps the limit into 1..200, and a null limit means unbounded', async () => {
@@ -597,6 +597,6 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
     expect(await store.issues.searchIssueComments('needle', 0)).toHaveLength(1)
     expect(await store.issues.searchIssueComments('needle', -5)).toHaveLength(1)
     expect(await store.issues.searchIssueComments('needle', null)).toHaveLength(3)
-    store.close()
+    await store.close()
   })
 })

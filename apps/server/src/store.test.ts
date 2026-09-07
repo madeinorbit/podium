@@ -42,8 +42,8 @@ describe('SessionStore repos', () => {
       .map(({ name }) => name)
       .sort()
       .at(-1)
-    expect(store.schemaVersionForTransfer()).toBe(expected)
-    store.close()
+    expect(await store.schemaVersionForTransfer()).toBe(expected)
+    await store.close()
   })
 
   it('starts empty, adds, dedupes, lists in insertion order, removes', async () => {
@@ -55,26 +55,26 @@ describe('SessionStore repos', () => {
     expect(await store.repos.listRepoPaths()).toEqual(['/home/u/b', '/home/u/a'])
     await store.repos.removeRepo('/home/u/b', store.hostMachineId)
     expect(await store.repos.listRepoPaths()).toEqual(['/home/u/a'])
-    store.close()
+    await store.close()
   })
 
   it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
     const store = await openTestStore(':memory:')
-    store.beginTransferFence()
+    await store.beginTransferFence()
     await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
-    store.endTransferFence()
+    await store.endTransferFence()
     await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
-    store.close()
+    await store.close()
   })
 
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = await openTestStore(file)
     await a.repos.addRepo('/abs/one', a.hostMachineId)
-    a.close()
+    await a.close()
     const b = await openTestStore(file)
     expect(await b.repos.listRepoPaths()).toEqual(['/abs/one'])
-    b.close()
+    await b.close()
   })
 
   it('upgrades a manually-added remote repo when scanner reports a canonical path', async () => {
@@ -95,7 +95,7 @@ describe('SessionStore repos', () => {
         prefix: expect.any(String),
       },
     ])
-    store.close()
+    await store.close()
   })
 
   it('resolves subpaths under a registered filesystem root repo', async () => {
@@ -104,13 +104,13 @@ describe('SessionStore repos', () => {
     const repoId = (await store.repos.listRepos())[0]?.repoId
 
     expect(await store.repos.resolveRepoIdForPath('/home/till/src/podium')).toBe(repoId)
-    store.close()
+    await store.close()
   })
 
   it('exposes loadSessions() as [] on a fresh db (tables exist)', async () => {
     const store = await openTestStore(':memory:')
     expect(await store.sessions.loadSessions()).toEqual([])
-    store.close()
+    await store.close()
   })
 })
 
@@ -196,7 +196,7 @@ describe('SessionStore sessions', () => {
     // blanks every client. Fail loudly at the source instead.
     const s = await openTestStore(':memory:')
     await expect(s.sessions.upsertSession(row({ agentKind: 'auto' }))).rejects.toThrow(/agentKind/i)
-    s.close()
+    await s.close()
   })
 
   it('round-trips optional cumulative compute time and preserves legacy absence', async () => {
@@ -206,7 +206,7 @@ describe('SessionStore sessions', () => {
 
     await store.sessions.upsertSession(row())
     expect((await store.sessions.loadSessions())[0]).not.toHaveProperty('workingMsTotal')
-    store.close()
+    await store.close()
   })
 
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
@@ -216,7 +216,7 @@ describe('SessionStore sessions', () => {
     await a.sessions.upsertSession(
       row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
     )
-    a.close()
+    await a.close()
 
     const b = await openTestStore(file)
     expect(await b.sessions.loadSessions()).toEqual([
@@ -224,7 +224,7 @@ describe('SessionStore sessions', () => {
     ])
     await b.sessions.purgeSession(asSessionId('id-1'))
     expect(await b.sessions.loadSessions()).toEqual([])
-    b.close()
+    await b.close()
   })
 
   it('persists a cwd change when an existing session moves machines', async () => {
@@ -236,13 +236,13 @@ describe('SessionStore sessions', () => {
     await source.sessions.upsertSession(
       row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     )
-    source.close()
+    await source.close()
 
     const restarted = await openTestStore(file)
     expect(await restarted.sessions.loadSessions()).toEqual([
       row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     ])
-    restarted.close()
+    await restarted.close()
   })
 
   it('round-trips the last authoritative terminal geometry', async () => {
@@ -250,7 +250,7 @@ describe('SessionStore sessions', () => {
     const resized = row({ geometry: { cols: 173, rows: 47 } })
     await s.sessions.upsertSession(resized)
     expect(await s.sessions.loadSessions()).toEqual([resized])
-    s.close()
+    await s.close()
   })
 
   it('round-trips who named the session (#490) — and reads a rogue source as nobody', async () => {
@@ -267,7 +267,7 @@ describe('SessionStore sessions', () => {
     // user — an unknown source degrades to "nobody named it".
     await s.sessions.upsertSession({ ...user, nameSource: 'root' } as unknown as SessionRow)
     expect((await s.sessions.loadSessions()).find((r) => r.id === 'u')?.nameSource).toBeNull()
-    s.close()
+    await s.close()
   })
 
   it('round-trips #285 workflow pass-through metadata verbatim (never interpreted)', async () => {
@@ -279,7 +279,7 @@ describe('SessionStore sessions', () => {
     })
     await s.sessions.upsertSession(r)
     expect(await s.sessions.loadSessions()).toEqual([r])
-    s.close()
+    await s.close()
   })
 
   it('hides issue-deleted session tombstones and restores them as exited records', async () => {
@@ -304,7 +304,7 @@ describe('SessionStore sessions', () => {
     expect(await store.sessions.loadSessions()).toEqual([
       row({ issueId: asIssueId('iss_1'), status: 'exited' }),
     ])
-    store.close()
+    await store.close()
   })
 
   it('keeps standalone session tombstones out of active loads and issue restoration', async () => {
@@ -338,7 +338,7 @@ describe('SessionStore sessions', () => {
     await store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
     expect(await store.sessions.loadSessions()).toEqual([])
     expect(await store.sessions.loadDeletedSessions()).toHaveLength(1)
-    store.close()
+    await store.close()
   })
 
   it('round-trips resume metadata', async () => {
@@ -353,7 +353,7 @@ describe('SessionStore sessions', () => {
     })
     await store.sessions.upsertSession(r)
     expect(await store.sessions.loadSessions()).toEqual([r])
-    store.close()
+    await store.close()
   })
 
   it('round-trips the activity timestamps (output/input/resumed)', async () => {
@@ -371,7 +371,7 @@ describe('SessionStore sessions', () => {
     expect(r?.lastOutputAt).toBe('2026-06-29T01:00:00.000Z')
     expect(r?.lastInputAt).toBe('2026-06-29T02:00:00.000Z')
     expect(r?.lastResumedAt).toBe('2026-06-29T03:00:00.000Z')
-    store.close()
+    await store.close()
   })
 
   it('reads null activity timestamps for a row that never had them', async () => {
@@ -381,7 +381,7 @@ describe('SessionStore sessions', () => {
     expect(r?.lastOutputAt).toBeNull()
     expect(r?.lastInputAt).toBeNull()
     expect(r?.lastResumedAt).toBeNull()
-    store.close()
+    await store.close()
   })
 
   it('round-trips spawnedBy provenance (issue #60)', async () => {
@@ -390,7 +390,7 @@ describe('SessionStore sessions', () => {
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }),
     )
     expect((await store.sessions.loadSessions())[0]?.spawnedBy).toBe('issue:iss_9')
-    store.close()
+    await store.close()
   })
 
   it('round-trips the native login-shell purpose', async () => {
@@ -404,7 +404,7 @@ describe('SessionStore sessions', () => {
       }),
     )
     expect((await store.sessions.loadSessions())[0]?.loginHarness).toBe('codex')
-    store.close()
+    await store.close()
   })
 
   // POD-2392: `conversation_binding` is what lets a dead, ref-less agent be
@@ -417,7 +417,7 @@ describe('SessionStore sessions', () => {
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', conversationBinding: 'never' }),
     )
     expect((await store.sessions.loadSessions())[0]?.conversationBinding).toBe('never')
-    store.close()
+    await store.close()
   })
 
   it('refuses to walk a bound conversation back to never', async () => {
@@ -429,7 +429,7 @@ describe('SessionStore sessions', () => {
     await store.sessions.upsertSession({ ...base, conversationBinding: 'never' })
     await store.sessions.upsertSession({ ...base, conversationBinding: null })
     expect((await store.sessions.loadSessions())[0]?.conversationBinding).toBe('bound')
-    store.close()
+    await store.close()
   })
 
   it('reads a rogue conversation-binding value as no claim, not as proof', async () => {
@@ -443,7 +443,7 @@ describe('SessionStore sessions', () => {
       }),
     )
     expect((await store.sessions.loadSessions())[0]?.conversationBinding).toBeNull()
-    store.close()
+    await store.close()
   })
 
   it('reads spawnedBy as null on a legacy row that never had it', async () => {
@@ -455,7 +455,7 @@ describe('SessionStore sessions', () => {
     })
     await store.sessions.upsertSession(legacy)
     expect((await store.sessions.loadSessions())[0]?.spawnedBy).toBeNull()
-    store.close()
+    await store.close()
   })
 
   // Email-style read state (issue #124): read_at persists like the other additive columns.
@@ -469,7 +469,7 @@ describe('SessionStore sessions', () => {
     })
     await store.sessions.upsertSession(stopped)
     expect(await store.sessions.loadSessions()).toEqual([stopped])
-    store.close()
+    await store.close()
   })
 
   // POD-1076: read state is no longer a session COLUMN, so this stopped being a
@@ -514,7 +514,7 @@ describe('SessionStore sessions', () => {
     await expect(store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).rejects.toThrow(
       /no user id/,
     )
-    store.close()
+    await store.close()
   })
 })
 
@@ -524,13 +524,13 @@ describe('SessionStore drafts', () => {
     const a = await openTestStore(file)
     await a.sessions.setDraft(asSessionId('sess'), 'half typed')
     await a.sessions.setDraft(asSessionId('sess'), 'half typed and more') // overwrite, not append
-    a.close()
+    await a.close()
 
     const b = await openTestStore(file) // survives a "restart"
     expect(await b.sessions.loadDrafts()).toEqual({ sess: 'half typed and more' })
     await b.sessions.setDraft(asSessionId('sess'), '') // composer cleared on send
     expect(await b.sessions.loadDrafts()).toEqual({})
-    b.close()
+    await b.close()
   })
 
   it('exposes draft edit times: setDraft returns the timestamp (undefined on clear) and loadDraftTimes round-trips it', async () => {
@@ -540,7 +540,7 @@ describe('SessionStore drafts', () => {
     expect(await store.sessions.loadDraftTimes()).toEqual({ sess: at })
     expect(await store.sessions.setDraft(asSessionId('sess'), '')).toBeUndefined()
     expect(await store.sessions.loadDraftTimes()).toEqual({})
-    store.close()
+    await store.close()
   })
 
   it('drops a session draft when the session is deleted', async () => {
@@ -549,14 +549,14 @@ describe('SessionStore drafts', () => {
     await store.sessions.setDraft(asSessionId('id-1'), 'work in progress')
     await store.sessions.purgeSession(asSessionId('id-1'))
     expect(await store.sessions.loadDrafts()).toEqual({})
-    store.close()
+    await store.close()
   })
 
   it('ignores a blank session id', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.setDraft(asSessionId('  '), 'orphan')
     expect(await store.sessions.loadDrafts()).toEqual({})
-    store.close()
+    await store.close()
   })
 })
 
@@ -592,7 +592,7 @@ describe('SessionStore pins', () => {
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/a'],
     })
-    store.close()
+    await store.close()
   })
 
   it('removes a panel pin when the session is deleted', async () => {
@@ -607,7 +607,7 @@ describe('SessionStore pins', () => {
       worktrees: [],
       repos: [],
     })
-    store.close()
+    await store.close()
   })
 })
 
@@ -641,7 +641,7 @@ describe('SessionStore snoozes', () => {
     expect(await store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({
       s2: '2999-01-01T05:00:00.000Z',
     })
-    store.close()
+    await store.close()
   })
 
   it('lazily drops a timed snooze whose deadline has passed; keeps null forever', async () => {
@@ -656,7 +656,7 @@ describe('SessionStore snoozes', () => {
     expect(await store.sessions.listSnoozes(asUserId(SOLE_USER_ID), now)).toEqual({ forever: null })
     // the expired row was deleted, not just filtered
     expect(await store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({ forever: null })
-    store.close()
+    await store.close()
   })
 
   it('removes a snooze when the session is deleted', async () => {
@@ -665,7 +665,7 @@ describe('SessionStore snoozes', () => {
     await store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
     await store.sessions.purgeSession(asSessionId('s1'))
     expect(await store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({})
-    store.close()
+    await store.close()
   })
 })
 
@@ -691,7 +691,7 @@ describe('SessionStore offers', () => {
 
     await store.sessions.clearOffer(asSessionId('s1'))
     expect(await store.sessions.listOffers()).toEqual({})
-    store.close()
+    await store.close()
   })
 
   it('drops a row with corrupt JSON actions instead of throwing', async () => {
@@ -702,7 +702,7 @@ describe('SessionStore offers', () => {
       .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
       .run('{not json', 'good')
     expect(await store.sessions.listOffers()).toEqual({})
-    store.close()
+    await store.close()
   })
 
   it('removes an offer when the session is purged', async () => {
@@ -711,7 +711,7 @@ describe('SessionStore offers', () => {
     await store.sessions.setOffer(asSessionId('s1'), OFFER)
     await store.sessions.purgeSession(asSessionId('s1'))
     expect(await store.sessions.listOffers()).toEqual({})
-    store.close()
+    await store.close()
   })
 })
 
@@ -732,7 +732,7 @@ describe('SessionStore tab order', () => {
     expect(await store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({
       '/repo/a': ['s2', 's1'],
     })
-    store.close()
+    await store.close()
   })
 
   it('rejects an empty worktree path', async () => {
@@ -740,19 +740,19 @@ describe('SessionStore tab order', () => {
     await expect(store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).rejects.toThrow(
       'worktree path is empty',
     )
-    store.close()
+    await store.close()
   })
 
   it('persists across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = await openTestStore(file)
     await a.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
-    a.close()
+    await a.close()
     const b = await openTestStore(file)
     expect(await b.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({
       '/repo/a': ['s2', 's1'],
     })
-    b.close()
+    await b.close()
   })
 
   it('scrubs a session from every order when it is deleted', async () => {
@@ -766,7 +766,7 @@ describe('SessionStore tab order', () => {
     expect(await store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({
       '/repo/a': ['s2'],
     })
-    store.close()
+    await store.close()
   })
 })
 
@@ -778,7 +778,7 @@ describe('settings', () => {
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
     expect(s.hibernation.maxIdleSessions).toBe(8)
-    store.close()
+    await store.close()
   })
 
   it('accepts zero as the idle-session target and rejects negative targets', async () => {
@@ -795,7 +795,7 @@ describe('settings', () => {
         hibernation: { ...settings.hibernation, maxIdleSessions: -1 },
       })
     }).toThrow()
-    store.close()
+    await store.close()
   })
 
   it('round-trips an explicit unlimited idle-session target', async () => {
@@ -806,10 +806,10 @@ describe('settings', () => {
       ...settings,
       hibernation: { ...settings.hibernation, maxIdleSessions: null },
     })
-    a.close()
+    await a.close()
     const b = await openTestStore(file)
     expect((await b.settings.getSettings()).hibernation.maxIdleSessions).toBeNull()
-    b.close()
+    await b.close()
   })
 
   it('round-trips a saved blob and fills missing keys forward', async () => {
@@ -824,7 +824,7 @@ describe('settings', () => {
       },
       hibernation: { ...s.hibernation, memoryPct: 90 },
     })
-    a.close()
+    await a.close()
     const b = await openTestStore(file)
     const loaded = await b.settings.getSettings()
     expect(loaded.roles.coding.accountId).toBe('native:codex')
@@ -832,7 +832,7 @@ describe('settings', () => {
     expect(loaded.hibernation.memoryPct).toBe(90)
     // untouched sections keep their defaults
     expect(loaded.notifications.web).toBe(true)
-    b.close()
+    await b.close()
   })
 })
 
@@ -857,14 +857,14 @@ describe('conversation index', () => {
     ])
     const hits = await store.conversations.index.search({ query: 'keyboard' })
     expect(hits.map((h) => h.id)).toEqual(['a'])
-    store.close()
+    await store.close()
   })
 
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
     expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
-    store.close()
+    await store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', async () => {
@@ -876,7 +876,7 @@ describe('conversation index', () => {
     ])
     const hits = await store.conversations.index.search({ projectPath: '/src/app' })
     expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
-    store.close()
+    await store.close()
   })
 
   it('excludes subagent (sidechain) conversations from the resume picker', async () => {
@@ -889,7 +889,7 @@ describe('conversation index', () => {
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
     expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
-    store.close()
+    await store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', async () => {
@@ -903,7 +903,7 @@ describe('conversation index', () => {
       'newer',
       'older',
     ])
-    store.close()
+    await store.close()
   })
 
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
@@ -918,7 +918,7 @@ describe('conversation index', () => {
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
-    store.close()
+    await store.close()
   })
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', async () => {
@@ -942,7 +942,7 @@ describe('conversation index', () => {
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
     expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
-    store.close()
+    await store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', async () => {
@@ -950,7 +950,7 @@ describe('conversation index', () => {
     await store.conversations.index.upsert([conv('a')])
     await store.conversations.index.delete([])
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
-    store.close()
+    await store.close()
   })
 })
 
@@ -982,7 +982,7 @@ describe('SessionStore superagent threads', () => {
     expect((await s.superagent.loadSuperagentMessages('btw_x')).map((m) => m.content)).toEqual([
       'ctx',
     ])
-    s.close()
+    await s.close()
   })
   it('defaults message ops to the global thread', async () => {
     const s = await openTestStore(':memory:')
@@ -991,7 +991,7 @@ describe('SessionStore superagent threads', () => {
       content: 'legacy',
     })
     expect((await s.superagent.loadSuperagentMessages()).map((m) => m.content)).toEqual(['legacy'])
-    s.close()
+    await s.close()
   })
   it('stores and reads a btw watermark', async () => {
     const s = await openTestStore(':memory:')
@@ -1005,7 +1005,7 @@ describe('SessionStore superagent threads', () => {
     const t = await s.superagent.getSuperagentThread('btw_y')
     expect(t?.watermarkItemId).toBe('item-42')
     expect(t?.watermarkTs).toBe('2026-06-16T08:00:00Z')
-    s.close()
+    await s.close()
   })
   it('clears only the targeted thread', async () => {
     const s = await openTestStore(':memory:')
@@ -1020,7 +1020,7 @@ describe('SessionStore superagent threads', () => {
     await s.superagent.clearSuperagentMessages('btw_z')
     expect((await s.superagent.loadSuperagentMessages('global')).length).toBe(1)
     expect((await s.superagent.loadSuperagentMessages('btw_z')).length).toBe(0)
-    s.close()
+    await s.close()
   })
 
   it('tolerates a corrupt tool_calls column instead of dropping the whole thread', async () => {
@@ -1044,6 +1044,6 @@ describe('SessionStore superagent threads', () => {
     const msgs = await s.superagent.loadSuperagentMessages('global')
     expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
     expect(msgs[0]?.toolCalls).toBeUndefined()
-    s.close()
+    await s.close()
   })
 })

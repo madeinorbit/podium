@@ -44,12 +44,17 @@ import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
-import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
-import { latestAppliedMigration, runDrizzleMigrations } from './migrations/index'
+import { latestAppliedMigration } from './migrations/index'
+import {
+  checkpointStore,
+  configureStoreConnection,
+  migrateStoreConnection,
+  setStoreTransferFence,
+} from './migrations/store-lifecycle'
 import {
   type SnapshotVerification,
   SnapshotVerifier,
@@ -115,10 +120,8 @@ export class SessionStore {
    *
    * An unconverted repository reads `executor.legacy`, the same connection this
    * store opened; POD-3267 deletes that field at the end of Stage A, and the
-   * compiler then names anything still on it. Nothing has moved through the
-   * scheduler yet: `close()` below still closes the connection directly, because
-   * routing the lifecycle through the executor makes it asynchronous and that
-   * belongs to Stage B, not to a binding change.
+   * compiler then names anything still on it. Lifecycle operations and close
+   * now use the same scheduler as repository work.
    */
   private readonly executor: RootStoreExecutor<QueryClient>
   /** The synchronous query capability, handed to converted repositories. */
@@ -240,10 +243,38 @@ export class SessionStore {
     hostMachineId: MachineId = asMachineId(randomUUID()),
     snapshotVerifierDeps: SnapshotVerifierDeps = {},
   ): Promise<SessionStore> {
-    const database = await openStoreDatabase(path)
-    const store = new SessionStore(path, hostMachineId, snapshotVerifierDeps, database)
-    await store.initialize()
-    return store
+    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
+    let database = await openStoreDatabase(path)
+    let executor = createBunStoreExecutor({
+      database,
+      startOpen: true,
+      effectSink: (error, label) =>
+        log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
+    })
+    try {
+      const applied = await executor.exclusive(async () => migrateStoreConnection(database, path))
+      if (applied.length > 0) log.info('applied migrations', { applied })
+      if (path !== ':memory:') {
+        // Migration owns its connection, including the OFF/ON bracket. Runtime
+        // begins on a fresh connection with enforcement enabled. An in-memory
+        // database transfers the migrated handle: reopening would lose it.
+        await executor.close()
+        database = openDatabase(path)
+        executor = createBunStoreExecutor({
+          database,
+          startOpen: true,
+          effectSink: (error, label) =>
+            log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
+        })
+        await executor.exclusive(async () => configureStoreConnection(database))
+      }
+      const store = new SessionStore(path, hostMachineId, snapshotVerifierDeps, database, executor)
+      await store.initialize()
+      return store
+    } catch (error) {
+      await executor.close()
+      throw error
+    }
   }
 
   private constructor(
@@ -251,48 +282,15 @@ export class SessionStore {
     hostMachineId: MachineId,
     snapshotVerifierDeps: SnapshotVerifierDeps,
     database: SqlDatabase,
+    executor: RootStoreExecutor<QueryClient>,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
     this.snapshotVerifier = new SnapshotVerifier(path, snapshotVerifierDeps)
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    // `openStoreDatabase` is `openDatabase` everywhere except under a test runner
-    // that installed the pre-migrated fixture (see store-database.ts). The migration
-    // chain below still runs either way — on a pre-migrated database it simply finds
-    // nothing pending, which is exactly what a second boot of a real install does.
     this.db = database
-    this.db.exec('PRAGMA journal_mode = WAL')
-    this.db.exec('PRAGMA busy_timeout = 5000')
-    // The driver enables foreign keys on a fresh connection. Migrations use
-    // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
-    // parent with enforcement on would cascade-delete child rows. The chain owns
-    // this window; enforcement is restored immediately after it succeeds.
-    this.db.exec('PRAGMA foreign_keys = OFF')
-    // Schema migration [spec:SP-4428]. drizzle-kit AUTHORS migrations; this boot
-    // APPLIES them with drizzle-orm's own bun:sqlite migrator, on THIS connection
-    // (so the foreign_keys = OFF window covers it). Schema DDL lives ONLY in
-    // src/migrations/. A fresh file is built by the baseline; an existing drizzle
-    // database advances by any pending migrations.
-    const applied = runDrizzleMigrations(this.db, DRIZZLE_MIGRATIONS, {
-      dbPath: path === ':memory:' ? undefined : path,
-    })
-    // Say what the schema actually did — a silently-skipped migration (#472)
-    // survived for so long precisely because it was invisible.
-    if (applied.length > 0) {
-      log.info('applied migrations', { applied })
-    }
-    // Foreign-key enforcement is per-connection in SQLite; restored now that the
-    // migrator (which runs table rebuilds with enforcement off) is done.
-    this.db.exec('PRAGMA foreign_keys = ON')
-
-    // The executor the whole repository set is bound to. It is built AFTER the
-    // migration chain for the same reason the repositories are: the connection
-    // it wraps has to be the migrated one. No `openReader`, so a committed-view
-    // read from inside a body refuses rather than deadlocking — nothing asks for
-    // one yet, and a second connection to `:memory:` would be a second database.
-    this.executor = createBunStoreExecutor({ database: this.db })
+    this.executor = executor
 
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
@@ -316,11 +314,13 @@ export class SessionStore {
     // purge observation checkpoints, issues resolve their stable repo_id via the
     // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
     this.observationCheckpoints = new ObservationCheckpointsRepository(this.queries)
-    this.sessions = new SessionsRepository(this.queries, async (id) =>
-      await this.observationCheckpoints.purge(id),
+    this.sessions = new SessionsRepository(
+      this.queries,
+      async (id) => await this.observationCheckpoints.purge(id),
     )
-    this.issues = new IssuesRepository(this.queries, async (repoPath) =>
-      await this.repos.resolveRepoIdForPath(repoPath),
+    this.issues = new IssuesRepository(
+      this.queries,
+      async (repoPath) => await this.repos.resolveRepoIdForPath(repoPath),
     )
     this.repos = new ReposRepository(
       this.queries,
@@ -364,7 +364,6 @@ export class SessionStore {
     this.shipping = new ShippingRepository(this.queries)
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
-
   }
 
   private async initialize(): Promise<void> {
@@ -395,7 +394,10 @@ export class SessionStore {
     // pointer when it is cleared.
     await this.refuseLegacyIdentities()
     await this.backfillLegacyWorktreeMachines()
-    this.searchIndexEnabledValue = isFeatureEnabled('command-palette', await this.settings.getSettings())
+    this.searchIndexEnabledValue = isFeatureEnabled(
+      'command-palette',
+      await this.settings.getSettings(),
+    )
     await this.conversations.ensureFts(this.searchIndexEnabledValue)
     await this.superagent.seedGlobalThread()
     await this.issues.renumberCollidingIssueSeqs()
@@ -494,22 +496,35 @@ export class SessionStore {
   }
 
   /** The exact newest migration identity the transfer target will verify. */
-  schemaVersionForTransfer(): string {
-    const name = latestAppliedMigration(this.db)
-    if (name === undefined) throw new Error('database migration identity is unavailable')
-    return name
+  async schemaVersionForTransfer(): Promise<string> {
+    return await this.executor.exclusive(async () => {
+      const name = latestAppliedMigration(this.db)
+      if (name === undefined) throw new Error('database migration identity is unavailable')
+      return name
+    })
   }
 
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
-  checkpointForTransfer(): void {
-    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  async checkpointForTransfer(): Promise<void> {
+    await this.executor.exclusive(async (session) => {
+      await checkpointStore(session)
+    })
   }
 
   /**
    * Durable recovery point made by the update operation immediately before the
    * coordinator restart can boot a binary with newer migrations.
    */
-  snapshotBeforeUpdate(fromVersion: string, targetVersion: string): string | undefined {
+  async snapshotBeforeUpdate(
+    fromVersion: string,
+    targetVersion: string,
+  ): Promise<string | undefined> {
+    return await this.executor.exclusive(async () =>
+      this.stageUpdateSnapshot(fromVersion, targetVersion),
+    )
+  }
+
+  private stageUpdateSnapshot(fromVersion: string, targetVersion: string): string | undefined {
     if (this.path === ':memory:') return undefined
     const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
     const snapshot = backupDatabase(
@@ -537,7 +552,7 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<SnapshotVerification> {
-    const staged = this.snapshotBeforeUpdate(fromVersion, targetVersion)
+    const staged = await this.snapshotBeforeUpdate(fromVersion, targetVersion)
     if (!staged) {
       return {
         ok: false,
@@ -548,12 +563,14 @@ export class SessionStore {
     }
     let expectedSchemaVersion: string | undefined
     try {
-      expectedSchemaVersion = this.schemaVersionForTransfer()
+      expectedSchemaVersion = await this.schemaVersionForTransfer()
     } catch {
       // A store with no migration identity still gets a quick_check proof; the
       // schema comparison is the part that is skipped, not the verification.
     }
-    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+    return await this.executor.exclusive(async () =>
+      this.snapshotVerifier.verify(staged, expectedSchemaVersion),
+    )
   }
 
   /**
@@ -590,18 +607,22 @@ export class SessionStore {
 
   private transferFenceHeld = false
 
-  /** Reject new SQLite writes while the target is being promoted. */
-  beginTransferFence(): void {
-    if (this.transferFenceHeld) throw new Error('transfer fence is already held')
-    this.db.exec('PRAGMA query_only = ON')
-    this.transferFenceHeld = true
+  /** In-process fence only: mint-session remains a separate writer until E.5. */
+  async beginTransferFence(): Promise<void> {
+    await this.executor.exclusive(async (session) => {
+      if (this.transferFenceHeld) throw new Error('transfer fence is already held')
+      await setStoreTransferFence(session, true)
+      this.transferFenceHeld = true
+    })
   }
 
   /** Reopen SQLite writes after a confirmed pre-promotion abort. */
-  endTransferFence(): void {
-    if (!this.transferFenceHeld) return
-    this.db.exec('PRAGMA query_only = OFF')
-    this.transferFenceHeld = false
+  async endTransferFence(): Promise<void> {
+    await this.executor.exclusive(async (session) => {
+      if (!this.transferFenceHeld) return
+      await setStoreTransferFence(session, false)
+      this.transferFenceHeld = false
+    })
   }
 
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
@@ -620,8 +641,14 @@ export class SessionStore {
     return await this.executor.transact(async () => fn())
   }
 
-  close(): void {
-    this.snapshotVerifier.close()
-    this.db.close()
+  async close(persist?: () => Promise<void>): Promise<void> {
+    const verifierClosed = this.snapshotVerifier.close()
+    await this.executor.close(async () => {
+      try {
+        await persist?.()
+      } finally {
+        await verifierClosed
+      }
+    })
   }
 }

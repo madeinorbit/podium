@@ -270,8 +270,8 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           // Both server restart modes reopen the durable store. Their daemon
           // mechanics differ below: a surviving daemon resends its held snapshot;
           // a replaced daemon folds the frozen provider fixture again.
-          registry.dispose()
-          store.close()
+          await registry.dispose()
+          await store.close()
           store = await openTestStore(dbPath, hostMachineId)
           registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
@@ -468,8 +468,8 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(await registry.modules.sessions.hasValidTerminalProof(childId)).toBe(true)
       expect((await store.observationCheckpoints.get(childId))?.checkpoint).toEqual(checkpoint)
 
-      registry.dispose()
-      store.close()
+      await registry.dispose()
+      await store.close()
     },
     30_000,
   )

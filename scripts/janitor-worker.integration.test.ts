@@ -95,7 +95,7 @@ describe('server-owned janitor worker', () => {
         expectsResponse: false,
       }
       await seed.messages.addMessage(message)
-      seed.close()
+      await seed.close()
 
       server = await startServer({
         port: 0,

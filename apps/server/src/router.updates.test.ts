@@ -132,7 +132,7 @@ afterEach(async () => {
   else process.env.PODIUM_UPDATE_CHANNEL = priorChannel
   for (const { store, directory } of temporaryStores.splice(0)) {
     try {
-      store.close()
+      await store.close()
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
@@ -166,7 +166,7 @@ describe('fleet default update channel', () => {
     expect(machine?.updateChannelOverride ?? null).toBeNull()
     expect(machine?.updateChannel).toBe('edge')
     expect(await registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('lets a pin win over the fleet default, and survives it changing', async () => {
@@ -184,7 +184,7 @@ describe('fleet default update channel', () => {
       .listMachines())
       .find((candidate) => candidate.id === 'pinned')
     expect(pinned?.updateChannelOverride).toBe('stable')
-    registry.dispose()
+    await registry.dispose()
   })
 
   it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", async () => {
@@ -214,7 +214,7 @@ describe('fleet default update channel', () => {
     expect(after.find((m) => m.id === 'pinned')?.targetVersion).toBe(
       before.find((m) => m.id === 'pinned')?.targetVersion,
     )
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('hands a machine back to the fleet default when its pin is cleared', async () => {
@@ -231,7 +231,7 @@ describe('fleet default update channel', () => {
       .listMachines())
       .find((candidate) => candidate.id === 'released')
     expect(released?.updateChannelOverride ?? null).toBeNull()
-    registry.dispose()
+    await registry.dispose()
   })
 })
 
@@ -274,7 +274,7 @@ describe('one default channel', () => {
     // Not merely "each handler refreshed something" — the SAME channel the
     // service would grant against, twice.
     expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['edge', 'edge'])
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('follows the fleet default onto dev as readily as onto stable', async () => {
@@ -291,7 +291,7 @@ describe('one default channel', () => {
     await caller.machines.applyUpdate({ id: 'unpinned' })
 
     expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev'])
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('updates Podium on a machine whose agent software is not Podium-managed', async () => {
@@ -323,7 +323,7 @@ describe('one default channel', () => {
     expect(await registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
     expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev', 'dev'])
     expect(outcome).toEqual({ result: 'granted', version: '0.4.2' })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('lets a pin win over the fleet default on every path', async () => {
@@ -341,7 +341,7 @@ describe('one default channel', () => {
     await caller.machines.applyUpdate({ id: 'pinned' })
 
     expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable'])
-    registry.dispose()
+    await registry.dispose()
   })
 })
 
@@ -374,7 +374,7 @@ describe('release target checks', () => {
       },
     ])
     fetchSpy.mockRestore()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('adds current component identities to the existing fleet payload', async () => {
@@ -397,7 +397,7 @@ describe('release target checks', () => {
         digest: '47a01e3',
       },
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('does not integrity-check database snapshots while polling fleet state', async () => {
@@ -410,14 +410,14 @@ describe('release target checks', () => {
     await caller.updates.fleet()
 
     expect(latestSnapshot).not.toHaveBeenCalled()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('has nothing to say about a channel it has never checked', async () => {
     const { registry, caller } = await harness()
 
     await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('checkNow checks the channels in use and returns their outcomes', async () => {
@@ -433,7 +433,7 @@ describe('release target checks', () => {
     expect(results.map((record) => record.channel)).toEqual(['dev', 'stable'])
     expect(results.every((record) => record.outcome.status === 'unavailable')).toBe(true)
     fetchSpy.mockRestore()
-    registry.dispose()
+    await registry.dispose()
   })
 })
 
@@ -479,7 +479,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(fleet.machines.map((machine) => machine.id)).toEqual([
       registry.sessionStore.hostMachineId,
     ])
-    registry.dispose()
+    await registry.dispose()
   })
   it('excludes a source checkout while retaining an outdated packaged machine', async () => {
     const release = '0.1.1-dev.1+6e57311'
@@ -527,7 +527,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       reason: 'Podium is already at this version everywhere.',
     })
     await expect(caller.updates.start()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -566,7 +566,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(fleet.total).toBe(2)
     // The one number the panel's remaining place row is drawn from.
     expect(fleet.behind).toBe(1)
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -603,7 +603,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     // Settings still gets every row, so the stable machine's own convergence
     // remains visible where its own action lives.
     expect(fleet.allMachines.map((machine) => machine.id)).toContain('stable-vps')
-    registry.dispose()
+    await registry.dispose()
   })
 
   /** The invariant behind both cases, asserted directly rather than implied. */
@@ -619,7 +619,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
 
     expect(channel).toBe('stable')
     expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
-    registry.dispose()
+    await registry.dispose()
   })
 })
 
@@ -633,7 +633,7 @@ describe('updates tRPC', () => {
     const { registry, caller } = await harness({ updatePreparation: () => preparation })
 
     await expect(caller.updates.fleet()).resolves.toMatchObject({ preparation })
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -650,7 +650,7 @@ describe('updates tRPC', () => {
       code: 'PRECONDITION_FAILED',
       message: 'Nothing has been published on the development channel yet.',
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -674,7 +674,7 @@ describe('updates tRPC', () => {
       code: 'PRECONDITION_FAILED',
       message: detail,
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('refuses a convergence request when every place is already on target', async () => {
@@ -692,7 +692,7 @@ describe('updates tRPC', () => {
       code: 'PRECONDITION_FAILED',
       message: 'Podium is already at this version everywhere.',
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('does not refuse when the server SHA matches but the served web stamp does not', async () => {
@@ -720,7 +720,7 @@ describe('updates tRPC', () => {
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
     expect(requestWebRebuild).toHaveBeenCalledOnce()
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -800,7 +800,7 @@ describe('updates tRPC', () => {
     })
     expect(requestDestBundle).not.toHaveBeenCalled()
     expect(grants).toHaveLength(1)
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -815,7 +815,7 @@ describe('updates tRPC', () => {
 
     await caller.updates.converge()
     await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('does not grant dest machines a dest+commit that dest cannot deliver', async () => {
@@ -863,7 +863,7 @@ describe('updates tRPC', () => {
     })
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(grants).toEqual([])
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('rebuilds dest web without dest-granting dest remotes when dest has no dest tarball', async () => {
@@ -923,7 +923,7 @@ describe('updates tRPC', () => {
     // exist.
     expect(grants).toEqual([])
     expect(requestWebRebuild).not.toHaveBeenCalled()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('grants remotes once the dest package appears after Update', async () => {
@@ -988,7 +988,7 @@ describe('updates tRPC', () => {
     await vi.waitFor(() =>
       expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
     )
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -1034,7 +1034,7 @@ describe('updates tRPC', () => {
       state: 'failed',
       error: { code: 'preparation-failed' },
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -1177,7 +1177,7 @@ describe('updates tRPC', () => {
     )
     registry.bus.emit('machine.connected', { machineId: asMachineId('installed-edge') })
     await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('converges the coordinator through its own fleet grant, never the restart callback', async () => {
@@ -1258,7 +1258,7 @@ describe('updates tRPC', () => {
       }),
     )
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('still refuses when server, web stamp, and fleet all match', async () => {
@@ -1285,7 +1285,7 @@ describe('updates tRPC', () => {
       message: 'Podium is already at this version everywhere.',
     })
     expect(requestWebRebuild).not.toHaveBeenCalled()
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -1323,7 +1323,7 @@ describe('updates tRPC', () => {
       const result = await caller.updates.converge()
       expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
       expect(requestWebRebuild).toHaveBeenCalledOnce()
-      registry.dispose()
+      await registry.dispose()
     })
 
     it('rebuilds a phone export that cannot name its commit at all', async () => {
@@ -1338,7 +1338,7 @@ describe('updates tRPC', () => {
 
       await caller.updates.converge()
       expect(requestWebRebuild).toHaveBeenCalledOnce()
-      registry.dispose()
+      await registry.dispose()
     })
 
     it('leaves an installation with no phone website alone', async () => {
@@ -1356,7 +1356,7 @@ describe('updates tRPC', () => {
         message: 'Podium is already at this version everywhere.',
       })
       expect(requestWebRebuild).not.toHaveBeenCalled()
-      registry.dispose()
+      await registry.dispose()
     })
 
     it('is current when both dists name the target commit', async () => {
@@ -1373,7 +1373,7 @@ describe('updates tRPC', () => {
         code: 'PRECONDITION_FAILED',
       })
       expect(requestWebRebuild).not.toHaveBeenCalled()
-      registry.dispose()
+      await registry.dispose()
     })
   })
 
@@ -1388,7 +1388,7 @@ describe('updates tRPC', () => {
       version: '0.4.2',
     })
     expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('explains when this installation cannot rebuild its web app', async () => {
@@ -1398,7 +1398,7 @@ describe('updates tRPC', () => {
       code: 'PRECONDITION_FAILED',
       message: 'This Podium installation cannot rebuild its web app automatically.',
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('starts a machine-only wave while the coordinating server is current', async () => {
@@ -1437,7 +1437,7 @@ describe('updates tRPC', () => {
       grantedMachineIds: ['flatblock'],
     })
     expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })])
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('returns an in-progress wave after the human authorizes convergence', async () => {
@@ -1463,7 +1463,7 @@ describe('updates tRPC', () => {
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
     expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('does not count or grant a machine selected onto another channel', async () => {
@@ -1487,7 +1487,7 @@ describe('updates tRPC', () => {
 
     const fleet = await caller.updates.fleet()
     expect(fleet.machines.map((machine) => machine.id)).not.toContain('stable-machine')
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('exposes the fleet query and propagates convergence failures', async () => {
@@ -1503,7 +1503,7 @@ describe('updates tRPC', () => {
       throw new Error('The update transport is unavailable.')
     })
     await expect(caller.updates.converge()).rejects.toThrow('The update transport is unavailable.')
-    registry.dispose()
+    await registry.dispose()
   })
 })
 
@@ -1543,7 +1543,7 @@ describe('the update operation', () => {
 
     const active = (await caller.operations.active()) as { id: string } | null
     expect(active?.id).toBe(started.operationId)
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -1570,7 +1570,7 @@ describe('the update operation', () => {
     })
     // A snapshot exists on disk and is UNVERIFIED: the tempting case, where a
     // background scan would look like a helpful thing to start.
-    store.snapshotBeforeUpdate('0.4.1', '0.4.2')
+    await store.snapshotBeforeUpdate('0.4.1', '0.4.2')
     const { registry, caller } = await harness({ store })
     // The host is already on the target; only a daemon machine is behind.
     await registry.modules.machines.setMachineBuild(
@@ -1609,7 +1609,7 @@ describe('the update operation', () => {
     // ...and nothing may have started one in the background either.
     expect(verifierRuns).toEqual([])
     expect(discover).not.toHaveBeenCalled()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('gives two concurrent starts one operation id', async () => {
@@ -1618,7 +1618,7 @@ describe('the update operation', () => {
     expect(second.operationId).toBe(first.operationId)
     expect(second.alreadyRunning).toBe(true)
     expect(await caller.operations.history({ kind: 'update' })).toHaveLength(1)
-    registry.dispose()
+    await registry.dispose()
   })
 
   /**
@@ -1641,7 +1641,7 @@ describe('the update operation', () => {
     expect(registry.modules.updates.target('dev')?.version).toBe('0.4.3')
     expect((await caller.updates.fleet()).nextTargetVersion).toBeUndefined()
     expect(await registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('retries the remainder as a NEW operation, linked to the one it retries', async () => {
@@ -1655,7 +1655,7 @@ describe('the update operation', () => {
     // History stays honest: the attempt that failed is still on record.
     const history = await caller.operations.history({ kind: 'update' })
     expect(history).toHaveLength(2)
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('refuses to retry an update it has no record of', async () => {
@@ -1663,7 +1663,7 @@ describe('the update operation', () => {
     await expect(caller.updates.retry({ id: 'op_nope' })).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('still refuses to start when every place is already on target', async () => {
@@ -1688,6 +1688,6 @@ describe('the update operation', () => {
     })
     // …and no operation was manufactured just to carry that refusal (§6.3).
     expect(await caller.operations.history({ kind: 'update' })).toHaveLength(0)
-    registry.dispose()
+    await registry.dispose()
   })
 })

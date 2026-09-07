@@ -36,7 +36,7 @@ describe('machines store', () => {
     expect((await s.machines.listMachines())[0]?.name).toBe('laptop')
     await s.machines.deleteMachine('m1')
     expect(await s.machines.listMachines()).toEqual([])
-    s.close()
+    await s.close()
   })
 
   it('repos table is re-keyed to (machine_id, path) with origin_url', async () => {
@@ -48,7 +48,7 @@ describe('machines store', () => {
     expect(rows.find((r) => r.path === '/home/u/b')?.originUrl).toBe('https://github.com/u/b')
     await s.repos.removeRepo('/home/u/a', s.hostMachineId)
     expect((await s.repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/b'])
-    s.close()
+    await s.close()
   })
 
   it('listRepoPaths returns a flat string[] for back-compat', async () => {
@@ -57,7 +57,7 @@ describe('machines store', () => {
     await s.repos.addRepo('/abs/two', asMachineId('m2'))
     const paths = await s.repos.listRepoPaths()
     expect(paths).toEqual(['/abs/one', '/abs/two'])
-    s.close()
+    await s.close()
   })
 
   it('listRepos(machineId) filters to one machine', async () => {
@@ -67,7 +67,7 @@ describe('machines store', () => {
     expect((await s.repos.listRepos(s.hostMachineId)).map((r) => r.path)).toEqual(['/abs/local'])
     expect((await s.repos.listRepos(asMachineId('m2'))).map((r) => r.path)).toEqual(['/abs/remote'])
     expect(await s.repos.listRepoPaths(asMachineId('m2'))).toEqual(['/abs/remote'])
-    s.close()
+    await s.close()
   })
 
   it('getMachine returns a record when it exists', async () => {
@@ -83,7 +83,7 @@ describe('machines store', () => {
     expect(m?.id).toBe('m2')
     expect(m?.name).toBe('server')
     expect(await s.machines.getMachine('no-such')).toBeUndefined()
-    s.close()
+    await s.close()
   })
 
   it('touchMachine updates last_seen_at and hostname', async () => {
@@ -98,7 +98,7 @@ describe('machines store', () => {
     await s.machines.touchMachine('m3', 'new-host')
     const m = await s.machines.getMachine('m3')
     expect(m?.hostname).toBe('new-host')
-    s.close()
+    await s.close()
   })
 
   // The 'pre-multi-machine repos copy' test (upgrading a pre-schema_version, machine_id-less
@@ -139,7 +139,7 @@ describe('machines store', () => {
       workState: null,
       machineId: s1.hostMachineId,
     })
-    s1.close()
+    await s1.close()
 
     // Second open: migrate() must be a clean no-op — no throw, data intact. The
     // row keeps the machine id the FIRST store wrote it under; a second store over
@@ -153,7 +153,7 @@ describe('machines store', () => {
     // The settings row written through migrate() survives the reopen — a proxy that
     // the meta table wasn't wiped.
     expect((await s2.settings.getSettings()).roles.coding.accountId).toBe('') // defaults always present
-    s2.close()
+    await s2.close()
     rmSync(file, { force: true })
   })
 })

@@ -9,8 +9,8 @@ import { OPERATOR } from './test-support/capabilities'
 // derived client forwards both mutate and query — i.e. the superagent's issue
 // tools work without the cookie-gated HTTP loopback (which would 401).
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 async function client() {

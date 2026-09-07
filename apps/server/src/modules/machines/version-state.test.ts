@@ -85,6 +85,6 @@ describe('deriveVersionState', () => {
     } as never)
 
     expect((await registry.modules.machines.listMachines())[0]?.versionState).toBe('current')
-    registry.dispose()
+    await registry.dispose()
   })
 })

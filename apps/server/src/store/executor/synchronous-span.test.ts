@@ -46,7 +46,7 @@ describe('the store seam', () => {
       })
       expect(order).toEqual(['body', 'effect'])
     } finally {
-      store.close()
+      await store.close()
     }
   })
 
@@ -62,7 +62,7 @@ describe('the store seam', () => {
       ).rejects.toThrow('rolled back')
       expect(ran).toEqual([])
     } finally {
-      store.close()
+      await store.close()
     }
   })
 })
@@ -128,7 +128,7 @@ describe('followUpAfterCommit', () => {
       })
       expect(order).toEqual(['body', 'follow-up'])
     } finally {
-      store.close()
+      await store.close()
     }
   })
 })

@@ -50,7 +50,7 @@ describe('appRouter', () => {
     const refreshed = await call.models.refresh()
     expect(refreshed.byAgent.grok?.[0]?.value).toBe('grok-build')
     expect((await call.models.catalog()).byAgent.grok?.[0]?.value).toBe('grok-build')
-    registry.dispose()
+    await registry.dispose()
   })
 
   it("sessions.create then list reflects it and stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
@@ -87,7 +87,7 @@ describe('appRouter', () => {
         initialPrompt: 'do the thing',
       }),
     )
-    registry.dispose()
+    await registry.dispose()
   })
 
   it("sessions.resume stamps spawnedBy 'user' on its fresh-spawn fallback (issue #60)", async () => {

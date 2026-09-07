@@ -21,8 +21,8 @@ const ISSUE = {
 
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterEach(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 it('captures spawn values instead of drifting issue defaults in row, meta, and status', async () => {

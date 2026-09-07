@@ -92,9 +92,9 @@ const session = (id: string, resumeValue: string): SessionRow => ({
 })
 
 const stores: SessionStore[] = []
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks()
-  for (const store of stores.splice(0)) store.close()
+  for (const store of stores.splice(0)) await store.close()
 })
 async function build() {
   const store = await openTestStore(':memory:')

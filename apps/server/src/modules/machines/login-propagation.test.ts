@@ -35,8 +35,8 @@ function inventory(login: 'in' | 'out', fingerprint?: string) {
 describe('login propagation coordinator', () => {
   let store: SessionStore | undefined
 
-  afterEach(() => {
-    store?.close()
+  afterEach(async () => {
+    await store?.close()
     store = undefined
   })
 

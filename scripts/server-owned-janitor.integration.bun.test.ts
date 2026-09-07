@@ -108,7 +108,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
     try {
       const seed = await openTestStore(dbPath)
       await seed.messages.addMessage(dueMessage())
-      seed.close()
+      await seed.close()
 
       // No `janitorWorkerForTests`, no injection, no env: exactly what a plain
       // `podium server` — or any other composition root — constructs.

@@ -168,8 +168,8 @@ async function world(opts: { issues?: number; sessions?: number } = {}) {
 }
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 function client(registry: SessionRegistry, caps: string[] | undefined): string {

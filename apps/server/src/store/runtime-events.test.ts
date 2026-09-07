@@ -144,8 +144,8 @@ describe('durable runtime observation gate', () => {
     expect(await store.events.listRuntimeEvents(replacementSessionId)).toHaveLength(0)
     expect(await store.events.runtimeEventCheckpoint(replacementSessionId)).toBeNull()
 
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   })
 
   it('keeps live-tail and completion-reconcile overlap exact after reload', async () => {
@@ -308,7 +308,7 @@ describe('durable runtime observation gate', () => {
       item: { kind: 'complete', item: assistantItem },
     })
 
-    registry.dispose()
+    await registry.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const rehydrated = await restarted.modules.sessions.sessionById(sessionId)
     expect(rehydrated?.transcriptAvailable).toBe(true)
@@ -319,8 +319,8 @@ describe('durable runtime observation gate', () => {
     )
     expect(transcript.items).toEqual(items)
 
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('never projects a rejected complete event and preserves one interrupt across restart', async () => {
@@ -379,14 +379,14 @@ describe('durable runtime observation gate', () => {
     expect(live).toEqual([interruptItem])
     expect(live.some((item) => item.id === rejectedItem.id)).toBe(false)
 
-    registry.dispose()
+    await registry.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const reloaded = restarted.modules.sessions.transcriptFor(sessionId)
     expect(reloaded).toEqual([interruptItem])
     expect(reloaded.some((item) => item.id === rejectedItem.id)).toBe(false)
 
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('projects causal failure detail into SessionMeta, beside the turn event', async () => {
@@ -455,8 +455,8 @@ describe('durable runtime observation gate', () => {
       }),
     )
 
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   })
 
   it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
@@ -531,7 +531,7 @@ describe('durable runtime observation gate', () => {
     expect(legacyBoard).toEqual(['activity', 'activity'])
 
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
-    registry.dispose()
+    await registry.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(store.hostMachineId, () => {})
     const restartedBoard: string[] = []
@@ -742,8 +742,8 @@ describe('durable runtime observation gate', () => {
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(6)
 
     await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('rolls event, checkpoint, and session recency back together when ingress persistence fails', async () => {
@@ -786,8 +786,8 @@ describe('durable runtime observation gate', () => {
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(1)
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
 
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   })
 
   it('replays after a server kill while an asynchronous board effect is pending', async () => {
@@ -842,7 +842,7 @@ describe('durable runtime observation gate', () => {
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
 
     // Dispose without resolving the listener: this is the server-kill window.
-    registry.dispose()
+    await registry.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBeGreaterThan(
@@ -850,8 +850,8 @@ describe('durable runtime observation gate', () => {
     )
     expect((await restarted.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(at)
 
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('accepts a process exit after the final turn epoch is closed', async () => {
@@ -904,8 +904,8 @@ describe('durable runtime observation gate', () => {
     // The relay's interaction cleanup is intentionally fire-and-forget. Let
     // that listener finish before this test closes the in-memory database.
     await new Promise((resolve) => setImmediate(resolve))
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   })
 
   it('starts a new drain for a request arriving during prior drain teardown', async () => {

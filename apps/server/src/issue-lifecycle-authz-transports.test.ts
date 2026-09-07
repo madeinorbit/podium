@@ -113,7 +113,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await caller.issues.archive({ id: f.archived.id })
       await verify(registry, f)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -130,7 +130,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await runIssueClient(client, f)
       await verify(registry, f)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -153,7 +153,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       }
       await verify(registry, f)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -185,7 +185,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await verify(registry, f)
     } finally {
       await relayServer?.close()
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })

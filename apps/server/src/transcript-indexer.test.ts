@@ -75,8 +75,8 @@ describe('TranscriptIndexer', () => {
       onBytes: (m, n, p) => indexer.onBytes(m, n, p),
       onTruncate: (m, n) => indexer.onTruncate(m, n),
     })
-    cleanups.push(() => {
-      store.close()
+    cleanups.push(async () => {
+      await store.close()
       rmSync(lakeDir, { recursive: true, force: true })
     })
     return { store, fs, mirror, indexer }
@@ -225,8 +225,8 @@ describe('TranscriptIndexer', () => {
   ) {
     const store = await openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-backfill-'))
-    cleanups.push(() => {
-      store.close()
+    cleanups.push(async () => {
+      await store.close()
       rmSync(lakeDir, { recursive: true, force: true })
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })

@@ -146,7 +146,7 @@ describe('causal session observation gate', () => {
       (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
 
-    reg.dispose()
+    await reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(
@@ -186,8 +186,8 @@ describe('causal session observation gate', () => {
     expect(restartEffects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toHaveLength(2)
 
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('routes a foreign lease advance to an explicit rejection acknowledgement', async () => {
@@ -238,8 +238,8 @@ describe('causal session observation gate', () => {
       observationGeneration: 2,
       checkpoint: null,
     })
-    reg.dispose()
-    store.close()
+    await reg.dispose()
+    await store.close()
   })
 
   it('atomically rebinds an exact native session without phase or notification effects', async () => {
@@ -436,7 +436,7 @@ describe('causal session observation gate', () => {
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
-    reg.dispose()
+    await reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
@@ -457,8 +457,8 @@ describe('causal session observation gate', () => {
         providerCursor: { segmentId: 'rollout-2', components: { file: 5 } },
       },
     })
-    restarted.dispose()
-    store.close()
+    await restarted.dispose()
+    await store.close()
   })
 
   it('rejects a fresh rebind to a provider thread already owned by another session', async () => {
@@ -536,8 +536,8 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
     })
 
-    reg.dispose()
-    store.close()
+    await reg.dispose()
+    await store.close()
   })
 
   it('rolls back resume and lease when conversation linking throws', async () => {
@@ -601,7 +601,7 @@ describe('causal session observation gate', () => {
       observationGeneration: 1,
       checkpoint: { lastTransitionId: 'bootstrap-1' },
     })
-    reg.dispose()
-    store.close()
+    await reg.dispose()
+    await store.close()
   })
 })

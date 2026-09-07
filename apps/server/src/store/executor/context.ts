@@ -220,7 +220,7 @@ export function createFrame(input: {
     active: true,
     token: {
       id,
-      active: () => frame.active,
+      active: () => frame.active && frame.alive(),
     },
   }
   return frame

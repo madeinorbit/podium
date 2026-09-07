@@ -1126,7 +1126,7 @@ export class SessionRegistry {
           portableFenceHeld = true
           await memory.pauseMirroringForTransfer()
           mirroringPaused = true
-          this.store.beginTransferFence()
+          await this.store.beginTransferFence()
         } catch (error) {
           if (mirroringPaused) await memory.resumeMirroringAfterTransfer()
           if (portableFenceHeld) portableStateFence.release()
@@ -1135,7 +1135,7 @@ export class SessionRegistry {
         }
       },
       releaseFence: async () => {
-        this.store.endTransferFence()
+        await this.store.endTransferFence()
         await memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
         this.localDaemonPortableState?.resume()
@@ -3318,7 +3318,7 @@ export class SessionRegistry {
     this.adoptedSuperagent = service
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
     // keep writing to the store on later turns. Left running they woke after the
@@ -3343,8 +3343,8 @@ export class SessionRegistry {
     this.shipping.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).
-    this.modules.sessions.dispose()
     this.steward.dispose()
+    await this.modules.sessions.dispose()
   }
 
   /** Fenced janitor entry: one bounded steward poll with

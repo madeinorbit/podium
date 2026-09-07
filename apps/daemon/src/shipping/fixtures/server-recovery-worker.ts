@@ -212,6 +212,6 @@ process.stdout.write(
   })}\n`,
 )
 service.dispose()
-store.close()
+await store.close()
 daemon.stdin.end()
 await once(daemon, 'close')

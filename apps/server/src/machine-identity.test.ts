@@ -51,7 +51,7 @@ const HOST = asMachineId('7a0f1b64-2c33-4a5d-9e10-0b1c2d3e4f50')
  */
 async function seedLegacyDb(path: string): Promise<void> {
   // Let the migration chain build the schema, then close and write behind it.
-  ;(await openTestStore(path, HOST)).close()
+  ;await (await openTestStore(path, HOST)).close()
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
@@ -94,7 +94,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     // covers every machine column in the schema, which is what
     // `store/machines-sentinel-scan.test.ts` pins.
     const path = tmpDb()
-    ;(await openTestStore(path, HOST)).close()
+    ;await (await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
       INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -113,7 +113,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
     await store.repos.addRepo('/w', HOST)
     expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
-    store.close()
+    await store.close()
   })
 })
 
@@ -178,7 +178,7 @@ describe('a database that already ran the retired upgrades', () => {
       // The RENAME is why this survived: a fresh insert would have dropped the
       // owner the legacy row carried, and split the fleet in half.
       expect(machines[0]?.ownerUserId).toBe('user:sole')
-      store.close()
+      await store.close()
     } finally {
       warn.mockRestore()
     }
@@ -253,8 +253,8 @@ describe('composition threads deployment identity explicitly', () => {
     expect((await store.sessions.getSession(headless.sessionId))?.durableLabel).toBe(
       'podium-blue-' + headless.sessionId,
     )
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   })
 })
 
@@ -273,7 +273,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
       (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.machineId,
     ).toBe(HOST)
     expect((await store.sessions.loadSessions())[0]?.machineId).toBe(HOST)
-    store.close()
+    await store.close()
   })
 
   it('defaultMachine answers with the host even when its daemon is offline', async () => {
@@ -286,7 +286,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     // …and a connected remote takes precedence, so this is not a hard-coded answer.
     registry.gateway.attachDaemon(asMachineId('remote-1'), () => {})
     expect(await registry.modules.machines.defaultMachine()).toBe(asMachineId('remote-1'))
-    store.close()
+    await store.close()
   })
 
   it('a durable session row cannot be written without a machine', async () => {
@@ -322,6 +322,6 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
       // half of the same guarantee the runtime throw below is the other half of.
       store.sessions.upsertSession(row),
     ).rejects.toThrow()
-    store.close()
+    await store.close()
   })
 })

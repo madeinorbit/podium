@@ -226,7 +226,7 @@ describe('store issues', () => {
       repoId,
       seq: 1,
     })
-    s1.close()
+    await s1.close()
     const raw = openDatabase(file)
     raw.exec('DROP INDEX idx_issues_repo_id_seq')
     raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
@@ -238,7 +238,7 @@ describe('store issues', () => {
     const seqs = (await s2.issues.listIssueRows()).map((i) => i.seq)
     expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
     expect(await s2.issues.renumberCollidingIssueSeqs()).toBe(0) // idempotent
-    s2.close()
+    await s2.close()
   })
 
   it('deletes', async () => {
@@ -666,7 +666,7 @@ describe('shipping durable store', () => {
     ).toThrow(/delivery receipt is immutable/)
 
     await s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))
-    s.close()
+    await s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(order.id)).toMatchObject({
       state: 'shipped',
@@ -683,7 +683,7 @@ describe('shipping durable store', () => {
         resolution: 'retry',
       }),
     )
-    restarted.close()
+    await restarted.close()
   })
 
   it('omits cancelled orders from the routine compact projection', () => {
@@ -913,7 +913,7 @@ describe('shipping durable store', () => {
       lowerReceipt,
     )
     expect((await s.shipping.getOrder(lower.id))?.state).toBe('shipped')
-    s.close()
+    await s.close()
   })
 
   it('exposes a CAS-only issue custody seam for atomic admission and settlement', async () => {
@@ -973,12 +973,12 @@ describe('shipping durable store', () => {
         .run(receipt.rootIssueId),
     ).toThrow(/root integration receipt is immutable/)
 
-    s.close()
+    await s.close()
     const restarted = await openTestStore(file)
     expect(
       await restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
     ).toEqual(canonical)
-    restarted.close()
+    await restarted.close()
   })
 
   it('atomically rejects cross-lane, non-prefix, and stale-member train custody', async () => {
@@ -1036,7 +1036,7 @@ describe('shipping durable store', () => {
       outcome: 'failed',
     })
     expect(await s.shipping.activeTrainForOrder(c.id)).toBeNull()
-    s.close()
+    await s.close()
 
     const cyclic = await openTestStore(':memory:', asMachineId('machine-1'))
     const upperIssue = asIssueId('iss_cycle_upper')
@@ -1065,7 +1065,7 @@ describe('shipping durable store', () => {
       }),
     ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
     expect(await cyclic.shipping.listAttempts()).toEqual([])
-    cyclic.close()
+    await cyclic.close()
   })
 
   it('exposes exact current proof through the typed admission retrieval port', async () => {
@@ -1154,10 +1154,10 @@ describe('shipping durable store', () => {
         .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
         .run('{}', evidenced.id),
     ).toThrow(/approval is immutable/)
-    s.close()
+    await s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
-    restarted.close()
+    await restarted.close()
   })
 })
 

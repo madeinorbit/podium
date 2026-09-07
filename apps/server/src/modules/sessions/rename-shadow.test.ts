@@ -56,8 +56,8 @@ import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const reg of registries.splice(0)) reg.dispose()
+afterEach(async () => {
+  for (const reg of registries.splice(0)) await reg.dispose()
 })
 
 /** One real stack. Two of these, seeded identically, are the shadow pair. */

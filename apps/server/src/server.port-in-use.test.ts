@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { isAddressInUseError, PortInUseError, startServer } from './server'
 
@@ -51,6 +53,39 @@ describe('startServer port-in-use handling', () => {
     expect(outcome).toBeInstanceOf(PortInUseError)
     expect(isAddressInUseError(outcome)).toBe(true)
     expect((outcome as PortInUseError).port).toBe(port)
+  })
+
+  it('awaits registry persistence and store close before rejecting a failed listen', async () => {
+    useFreshStateDir('held-awaited')
+    held = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    const order: string[] = []
+    const dispose = SessionRegistry.prototype.dispose
+    const close = SessionStore.prototype.close
+    const disposeSpy = vi
+      .spyOn(SessionRegistry.prototype, 'dispose')
+      .mockImplementation(async function (this: SessionRegistry) {
+        order.push('dispose started')
+        await Promise.resolve()
+        await dispose.call(this)
+        order.push('dispose finished')
+      })
+    const closeSpy = vi.spyOn(SessionStore.prototype, 'close').mockImplementation(async function (
+      this: SessionStore,
+      persist,
+    ) {
+      await close.call(this, persist)
+      order.push('store closed')
+    })
+    try {
+      useFreshStateDir('failed-awaited')
+      await expect(
+        startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: held.port }),
+      ).rejects.toBeInstanceOf(PortInUseError)
+      expect(order).toEqual(['dispose started', 'dispose finished', 'store closed'])
+    } finally {
+      disposeSpy.mockRestore()
+      closeSpy.mockRestore()
+    }
   })
 
   it('isAddressInUseError recognizes a raw EADDRINUSE errno as well as PortInUseError', () => {

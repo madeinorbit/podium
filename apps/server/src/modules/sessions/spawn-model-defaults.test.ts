@@ -8,8 +8,8 @@ import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterEach(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 async function storeWithClaudeDefaults(accountId = 'native:claude-code'): Promise<SessionStore> {

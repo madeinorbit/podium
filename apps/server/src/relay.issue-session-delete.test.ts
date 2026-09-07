@@ -87,7 +87,7 @@ describe('issue/session deletion lifecycle', () => {
       projectionEvents[1]?.changes.at(-1)?.seq ?? 0,
     )
     offProjection()
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', async () => {
@@ -115,7 +115,7 @@ describe('issue/session deletion lifecycle', () => {
     expect((await store.sessions.loadSessions()).some((s) => s.id === sessionId)).toBe(true)
     expect(await store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
     expect(messages).not.toContainEqual({ type: 'kill', sessionId })
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('rolls back both tombstone restores when the ledger append fails', async () => {
@@ -149,6 +149,6 @@ describe('issue/session deletion lifecycle', () => {
     expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map((s) => s.id)).toEqual([
       sessionId,
     ])
-    registry.dispose()
+    await registry.dispose()
   })
 })

@@ -137,9 +137,9 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     db = openDatabase(dbPath, { readOnly: true })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     db.close()
-    store.close()
+    await store.close()
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })

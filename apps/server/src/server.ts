@@ -133,7 +133,7 @@ import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { createServerReadiness } from './server-readiness'
 import { registerSetupRoute } from './setup-route'
-import { closeServerFast } from './shutdown'
+import { closeServerFast, type PersistStep } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
@@ -567,7 +567,7 @@ export async function startServer(
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
-    !loadConfig().auth?.openMode && await store.users.hasPerUserCredentials()
+    !loadConfig().auth?.openMode && (await store.users.hasPerUserCredentials())
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -730,7 +730,8 @@ export async function startServer(
   // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
   const repoDiscovery = new MachineRepoDiscovery({
     listRepos: async () => await store.repos.listRepos(),
-    addRepo: async (path, machineId, originUrl) => await store.repos.addRepo(path, machineId, originUrl),
+    addRepo: async (path, machineId, originUrl) =>
+      await store.repos.addRepo(path, machineId, originUrl),
     removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
     // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
     // browseDirs answers from that daemon's own filesystem, and a directory that is
@@ -740,7 +741,8 @@ export async function startServer(
       const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
       return Boolean(res.listing)
     },
-    scanRepos: async (roots, opts, machineId) => await registry.modules.rpc.scanRepos(roots, opts, machineId),
+    scanRepos: async (roots, opts, machineId) =>
+      await registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: async (id) => await registry.modules.machines.machineName(id),
     localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
@@ -835,9 +837,9 @@ export async function startServer(
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
-      (await store.machines
-        .listMachines())
-        .some((machine) => isRemoteUpdateConsumer(machine, hostMachineId)),
+      (await store.machines.listMachines()).some((machine) =>
+        isRemoteUpdateConsumer(machine, hostMachineId),
+      ),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
@@ -1087,7 +1089,8 @@ export async function startServer(
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
     // than by a constant that stood for it.
-    authenticateToken: async (token) => await store.machines.getMachineByToken(hostMachineId, token),
+    authenticateToken: async (token) =>
+      await store.machines.getMachineByToken(hostMachineId, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
@@ -1097,14 +1100,13 @@ export async function startServer(
       worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
       liveSessionIds: async () =>
         new Set(
-          (await registry.modules.sessions
-            .listSessions(undefined, 'steward'))
+          (await registry.modules.sessions.listSessions(undefined, 'steward'))
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
       stewardTick: async () => await registry.runStewardTick(),
       connectScan: async (machineId) => {
-        void await repoDiscovery.scan(machineId, { deep: false })
+        void (await repoDiscovery.scan(machineId, { deep: false }))
       },
       localMachineId: asMachineId(hostMachineId),
     }),
@@ -1124,8 +1126,12 @@ export async function startServer(
   // registered BEFORE their handlers so Hono runs them first.
   const requestPrincipal = async (headers: ClientCredentialHeaders) => {
     const userId =
-      (await requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader)) ??
-      (!await credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
+      (await requestUserId(
+        store.auth,
+        headers.cookieHeader,
+        Date.now(),
+        headers.authorizationHeader,
+      )) ?? (!(await credentialsRequired()) ? FIRST_ADMIN_USER_ID : undefined)
     if (userId === undefined) return undefined
     const account = await store.users.get(userId)
     return account ? userCommandPrincipal(userId, account.role) : undefined
@@ -1204,8 +1210,10 @@ export async function startServer(
   registerAssetRoute(app, {
     readAsset: async (a) => await registry.modules.rpc.readAsset(a),
     allowsRoot: async (root, machineId) =>
-      await repos.inferFromPath(root, machineId ?? await registry.modules.machines.defaultMachine()) !==
-      undefined,
+      (await repos.inferFromPath(
+        root,
+        machineId ?? (await registry.modules.machines.defaultMachine()),
+      )) !== undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
   registerArtifactRoute(app, registry.modules.issueArtifacts)
@@ -1225,7 +1233,8 @@ export async function startServer(
     app,
     {
       mcpToolSpecs: async (threadId) => await superagent.mcpToolSpecs(threadId),
-      callMcpTool: async (name, args, threadId) => await superagent.callMcpTool(name, args, threadId),
+      callMcpTool: async (name, args, threadId) =>
+        await superagent.callMcpTool(name, args, threadId),
     },
     mcpToken,
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
@@ -1264,10 +1273,10 @@ export async function startServer(
           ? await store.users.get(FIRST_ADMIN_USER_ID)
           : undefined
         const principal =
-          await requestPrincipal({
+          (await requestPrincipal({
             cookieHeader: hono.req.header('cookie'),
             authorizationHeader: hono.req.header('authorization'),
-          }) ??
+          })) ??
           (bootstrapAccount
             ? userCommandPrincipal(FIRST_ADMIN_USER_ID, bootstrapAccount.role)
             : undefined)
@@ -1391,28 +1400,60 @@ export async function startServer(
 
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
-  if (!isLoopbackHost(host) && !await credentialsRequired()) {
+  if (!isLoopbackHost(host) && !(await credentialsRequired())) {
     log.warn(
       'server is network-reachable with NO login required — anyone who can reach this host can control your agents and shell; set a password in setup, or bind to 127.0.0.1',
       { host },
     )
   }
 
+  let targetRefresh: ReturnType<typeof startTargetRefresh> | undefined
+  const persistence: readonly PersistStep[] = [
+    ['messaging.stop', () => messaging.stop()],
+    // An armed refresh timer that outlives the server would resolve a
+    // target against a service whose store is already closed.
+    ['updates.stopTargetRefresh', () => targetRefresh?.stop()],
+    ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
+    // Same hazard, same window (POD-2097): an armed operation deadline
+    // that outlives the server would wake into a closed store and try
+    // to persist a stall against it. Operations are durable, so losing
+    // the timer costs nothing — the successor adopts the operation and
+    // re-derives it from reality, which is the stronger answer anyway.
+    ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
+    // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
+    // final network flush: shutdown is a user-visible latency path
+    // (POD-611 made it deterministic and fast), and a report is worth
+    // less than a fast stop. The queue is durable — it goes next boot.
+    ['telemetry.stop', () => telemetry.stop()],
+    // Release the per-origin client log descriptors. The sink writes
+    // synchronously, so nothing is buffered and this loses no records —
+    // it closes fds a long-lived process would otherwise hold.
+    ['logs.close', async () => await registry.modules.logs.close()],
+    // The same, for the per-machine fleet descriptors (POD-3156).
+    ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
+    [
+      'janitorHost.close',
+      () => {
+        janitorHostClosing = true
+        janitorHost?.close()
+      },
+    ],
+    ['registry.dispose', () => registry.dispose()],
+    ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
+  ]
+
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
-    const failListen = (err: unknown): void => {
+    const failListen = async (err: unknown): Promise<void> => {
       if (settled) return
       settled = true
-      messaging.stop()
-      registry.dispose()
-      // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
-      // here, so this server may hold armed deadlines and drives in flight over
-      // the store about to close — and a port-in-use start, the routine outcome
-      // with a stale backend on :18787, takes exactly this path. Same call and
-      // same order as the shutdown persist list below.
-      registry.modules.operations.engine.stop()
-      store.close()
+      await closeServerFast({
+        closeWebSockets: async () => ws.close(),
+        server: { stop: () => undefined },
+        drainStore: (persist) => store.close(persist),
+        persist: persistence,
+      })
       reject(
         isAddressInUseError(err)
           ? new PortInUseError(requestedPort, { cause: err })
@@ -1459,6 +1500,7 @@ export async function startServer(
     )
     revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
 
+    let acceptingRequests = true
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
     try {
       server = serveNative({
@@ -1467,6 +1509,7 @@ export async function startServer(
         ...(tls ? { tls } : {}),
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
+          if (!acceptingRequests) return new Response('Server is shutting down', { status: 503 })
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
           const upgrade = await ws.handleRequest(request, nativeServer as never)
@@ -1479,8 +1522,7 @@ export async function startServer(
         },
       })
     } catch (err) {
-      void ws.close()
-      failListen(err)
+      await failListen(err)
       return
     }
 
@@ -1713,7 +1755,7 @@ export async function startServer(
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = startTargetRefresh({
+      targetRefresh = startTargetRefresh({
         refresh: async (channel) => await registry.modules.updates.refreshTarget(channel),
         operationActive: (channel) => registry.modules.updates.operationActive(channel),
         schedule: timerSchedule,
@@ -1734,42 +1776,13 @@ export async function startServer(
         // periodic flush timer, and only then does the store close.
         close: async () =>
           await closeServerFast({
-            closeWebSockets: async () => await ws.close(),
+            closeWebSockets: async () => {
+              acceptingRequests = false
+              await ws.close()
+            },
+            drainStore: (persist) => store.close(persist),
             server,
-            persist: [
-              ['messaging.stop', () => messaging.stop()],
-              // An armed refresh timer that outlives the server would resolve a
-              // target against a service whose store is already closed.
-              ['updates.stopTargetRefresh', () => targetRefresh.stop()],
-              ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
-              // Same hazard, same window (POD-2097): an armed operation deadline
-              // that outlives the server would wake into a closed store and try
-              // to persist a stall against it. Operations are durable, so losing
-              // the timer costs nothing — the successor adopts the operation and
-              // re-derives it from reality, which is the stronger answer anyway.
-              ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
-              // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
-              // final network flush: shutdown is a user-visible latency path
-              // (POD-611 made it deterministic and fast), and a report is worth
-              // less than a fast stop. The queue is durable — it goes next boot.
-              ['telemetry.stop', () => telemetry.stop()],
-              // Release the per-origin client log descriptors. The sink writes
-              // synchronously, so nothing is buffered and this loses no records —
-              // it closes fds a long-lived process would otherwise hold.
-              ['logs.close', async () => await registry.modules.logs.close()],
-              // The same, for the per-machine fleet descriptors (POD-3156).
-              ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
-              [
-                'janitorHost.close',
-                () => {
-                  janitorHostClosing = true
-                  janitorHost?.close()
-                },
-              ],
-              ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
-              ['registry.dispose', () => registry.dispose()],
-              ['store.close', () => store.close()],
-            ],
+            persist: persistence,
           }),
       })
     })

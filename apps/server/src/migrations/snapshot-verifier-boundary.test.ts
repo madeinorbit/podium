@@ -55,7 +55,7 @@ describe('planning reads never scan the retained backups', () => {
     const { store, dbPath } = await tmpStore()
     // A real staged snapshot of a real database — the exact shape whose
     // quick_check used to cost ~27 seconds each on the production files.
-    const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
+    const staged = (await store.snapshotBeforeUpdate('0.4.1', '0.4.2')) as string
     expect(staged).toBeDefined()
 
     const startedAt = performance.now()
@@ -68,7 +68,7 @@ describe('planning reads never scan the retained backups', () => {
     expect(elapsed).toBeLessThan(2_000)
     // Nothing is verified yet, and saying so is the honest, non-blocking answer.
     expect(store.latestDatabaseSnapshot()).toBeUndefined()
-    store.close()
+    await store.close()
     void dbPath
   })
 
@@ -85,7 +85,7 @@ describe('planning reads never scan the retained backups', () => {
         result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
       }
     })
-    const legacy = store.snapshotBeforeUpdate('0.1.0', '0.1.0') as string
+    const legacy = (await store.snapshotBeforeUpdate('0.1.0', '0.1.0')) as string
     // Erase the catalogue: this instance now looks exactly like one that was
     // running before the verifier existed.
     rmSync(`${dbPath}.snapshots.json`, { force: true })
@@ -100,12 +100,12 @@ describe('planning reads never scan the retained backups', () => {
 
     expect(runs).toEqual([legacy])
     expect(store.latestDatabaseSnapshot()).toBe(legacy)
-    store.close()
+    await store.close()
   })
 
   it('serves the cached verified path without touching the file contents', async () => {
     const { store, dbPath } = await tmpStore()
-    const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
+    const staged = (await store.snapshotBeforeUpdate('0.4.1', '0.4.2')) as string
     writeSnapshotCatalogue(dbPath, [
       {
         ...(snapshotIdentity(staged) as SnapshotIdentity),
@@ -116,12 +116,12 @@ describe('planning reads never scan the retained backups', () => {
     ])
 
     expect(store.latestDatabaseSnapshot()).toBe(staged)
-    store.close()
+    await store.close()
   })
 
   it('keeps serving planning reads while a deliberately slow verification runs', async () => {
     const { store, dbPath } = await tmpStore()
-    const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
+    const staged = (await store.snapshotBeforeUpdate('0.4.1', '0.4.2')) as string
 
     // A verifier whose child takes as long as the outage did. It is a promise,
     // not a synchronous scan, which is the entire difference.
@@ -159,6 +159,6 @@ describe('planning reads never scan the retained backups', () => {
     // Only NOW does the request path have a verified path to offer.
     expect(store.latestDatabaseSnapshot()).toBe(staged)
     verifier.close()
-    store.close()
+    await store.close()
   })
 })

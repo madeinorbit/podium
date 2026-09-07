@@ -11,8 +11,8 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 type RepoOpStub = (

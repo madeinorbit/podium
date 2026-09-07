@@ -30,11 +30,23 @@ describe('closeServerFast', () => {
           cb?.()
           return undefined as never
         },
-        closeAllConnections: () => order.push('http.closeAllConnections'),
+        closeAllConnections: () => {
+          order.push('http.closeAllConnections')
+        },
       } as never,
       persist: [
-        ['a', () => order.push('a')],
-        ['b', () => order.push('b')],
+        [
+          'a',
+          () => {
+            order.push('a')
+          },
+        ],
+        [
+          'b',
+          () => {
+            order.push('b')
+          },
+        ],
       ],
     })
     expect(order).toEqual(['ws', 'a', 'b', 'http.close', 'http.closeAllConnections'])
@@ -61,14 +73,24 @@ describe('closeServerFast', () => {
       closeWebSockets: () => Promise.resolve(),
       server: makeServerDouble() as never,
       persist: [
-        ['flushActivity', () => ran.push('flushActivity')],
+        [
+          'flushActivity',
+          () => {
+            ran.push('flushActivity')
+          },
+        ],
         [
           'registry.dispose',
           () => {
             throw new Error('dispose boom')
           },
         ],
-        ['store.close', () => ran.push('store.close')],
+        [
+          'store.close',
+          () => {
+            ran.push('store.close')
+          },
+        ],
       ],
       logError: (msg) => errors.push(msg),
     })
@@ -199,5 +221,48 @@ describe('closeServerFast', () => {
     handlers.get('SIGTERM')?.()
     await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
     expect(persisted).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('awaited shutdown persistence', () => {
+  it('awaits delayed and rejecting steps before closing the store', async () => {
+    const order: string[] = []
+    const errors: string[] = []
+    await closeServerFast({
+      closeWebSockets: async () => {
+        order.push('intake stopped')
+      },
+      server: {
+        stop: () => {
+          order.push('network closed')
+        },
+      },
+      persist: [
+        [
+          'flush',
+          async () => {
+            await Promise.resolve()
+            order.push('flushed')
+          },
+        ],
+        [
+          'failure',
+          async () => {
+            await Promise.resolve()
+            throw new Error('async persistence failure')
+          },
+        ],
+        [
+          'store.close',
+          async () => {
+            await Promise.resolve()
+            order.push('store closed')
+          },
+        ],
+      ],
+      logError: (error) => errors.push(error),
+    })
+    expect(order).toEqual(['intake stopped', 'flushed', 'store closed', 'network closed'])
+    expect(errors).toEqual([expect.stringContaining('async persistence failure')])
   })
 })

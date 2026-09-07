@@ -74,7 +74,7 @@ it('reads a lease back exactly as written and reports a missing one as undefined
     expect(typeof (await store.maintenance.getLease('maintenance'))?.fencingToken).toBe('number')
     expect(typeof (await store.maintenance.getLease('maintenance'))?.protocolVersion).toBe('number')
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -97,7 +97,7 @@ it('replaces every column of an existing lease and keeps other leases separate',
     expect(await store.maintenance.getLease('maintenance')).toEqual(renewed)
     expect((await store.maintenance.getLease('other'))?.generationId).toBe('gen-other')
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -114,7 +114,7 @@ it('recalls a recorded command by its job and run key, and nothing for either ha
     expect(await store.maintenance.getCommand('message-expiry', 'run-2')).toBeUndefined()
     expect(await store.maintenance.getCommand('event-log-prune', 'run-1')).toBeUndefined()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -144,7 +144,7 @@ it('prunes strictly before the cutoff, at most a batch at a time, oldest first',
     expect(await store.maintenance.getCommand('message-expiry', 'run-5')).toBeDefined()
     expect(await store.maintenance.pruneCommandsBatch(cutoff, 10)).toBe(0)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -160,7 +160,7 @@ it('refuses a batch size that is not a positive integer, before touching the dat
     // The guard is a refusal, not a no-op that deleted first.
     expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeDefined()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -177,6 +177,6 @@ it('throws rather than quarantining when a stored command reply is not a valid r
       .run('{"status":"nonsense"}', 'message-expiry', 'run-1')
     await expect(store.maintenance.getCommand('message-expiry', 'run-1')).rejects.toThrow()
   } finally {
-    store.close()
+    await store.close()
   }
 })

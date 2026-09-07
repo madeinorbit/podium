@@ -135,7 +135,7 @@ describe('shipping: the order-to-issue lookups', () => {
     // be satisfied by a repository that returns nothing for everything.
     expect(await s.shipping.issueIdForOrder(order.id)).toBe('iss_1')
     expect(await s.shipping.issueIdForOrder('order-that-does-not-exist')).toBeNull()
-    s.close()
+    await s.close()
   })
 
   it('maps many order ids in one pass, skipping the ones it does not hold', async () => {
@@ -170,7 +170,7 @@ describe('shipping: the order-to-issue lookups', () => {
       new Map([[first, 'iss_many_0']]),
     )
     expect(await s.shipping.issueIdsForOrders([])).toEqual(new Map())
-    s.close()
+    await s.close()
   })
 
   it('crosses its 500-id chunk boundary without losing or duplicating a row', async () => {
@@ -204,7 +204,7 @@ describe('shipping: the order-to-issue lookups', () => {
     expect(mapped.get('order-chunk-500')).toBe('iss_chunk_500')
     expect(mapped.get('order-chunk-499')).toBe('iss_chunk_499')
     expect(mapped.has('order-chunk-absent')).toBe(false)
-    s.close()
+    await s.close()
   })
 })
 
@@ -338,7 +338,7 @@ describe('shipping: isolating a failed train', () => {
       expect(attempt?.finishedAt).toBe('2026-08-12T10:06:00.000Z')
       expect(attempt?.outcome).toBe('failed')
     }
-    s.close()
+    await s.close()
   })
 
   it('calls two failures an interaction, and leaves nothing behind when it refuses', async () => {
@@ -383,6 +383,6 @@ describe('shipping: isolating a failed train', () => {
       expect(hold?.generation).toBe(1)
     }
     expect(await s.shipping.activeTrainForOrder(leader.id)).toBeNull()
-    s.close()
+    await s.close()
   })
 })

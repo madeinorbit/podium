@@ -140,10 +140,10 @@ async function maintenanceHarness(dir: string, leaseTtlMs = 1_000) {
     release(): void {
       release.resolve()
     },
-    close(): void {
+    async close(): Promise<void> {
       release.resolve()
       server.stop(true)
-      store.close()
+      await store.close()
     },
   }
 }
@@ -322,7 +322,7 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         if (first.child.exitCode === null && first.child.signalCode === null) {
           await kill(first.child, 'SIGKILL')
         }
-        harness.close()
+        await harness.close()
       }
     }, 30_000)
   }
@@ -423,7 +423,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
       expect(systemctl(unit, 'ActiveState')).toBe('active')
     } finally {
       stopUnit(unit)
-      harness.close()
+      await harness.close()
     }
   }, 40_000)
 
@@ -462,7 +462,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
       expect(Number(systemctl(unit, 'MainPID'))).toBeGreaterThan(0)
     } finally {
       stopUnit(unit)
-      harness.close()
+      await harness.close()
     }
   }, 30_000)
 })

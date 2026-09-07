@@ -50,8 +50,8 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const reg of registries.splice(0)) reg.dispose()
+afterEach(async () => {
+  for (const reg of registries.splice(0)) await reg.dispose()
 })
 
 /**

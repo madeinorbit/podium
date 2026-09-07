@@ -20,8 +20,8 @@ let registry: SessionRegistry | undefined
 afterEach(async () => {
   await handle?.close()
   void server?.stop(true)
-  registry?.dispose()
-  store?.close()
+  await registry?.dispose()
+  await store?.close()
   server = handle = store = registry = undefined
 })
 

@@ -100,7 +100,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
     await store.sessions.purgeSession(asSessionId('s1'))
     expect(await store.observationCheckpoints.get(asSessionId('s1'))).toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -124,7 +124,7 @@ it('keeps exact rebind retries idempotent across repository reopen', async () =>
       disposition: 'advanced',
       lease: { providerSessionId: 'thread-1', bindingVersion: 2, observationGeneration: 2 },
     })
-    first.close()
+    await first.close()
 
     const reopened = await openTestStore(path)
     expect(
@@ -169,7 +169,7 @@ it('keeps exact rebind retries idempotent across repository reopen', async () =>
         nextProviderSessionId: 'thread-1',
       }),
     ).toMatchObject({ kind: 'rejected', rejectionReason: 'stale_observer_generation' })
-    reopened.close()
+    await reopened.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

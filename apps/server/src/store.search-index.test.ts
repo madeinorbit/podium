@@ -20,8 +20,8 @@ import { openTestStore } from './test-support/open-test-store'
  */
 
 const stores: SessionStore[] = []
-afterEach(() => {
-  for (const s of stores.splice(0)) s.close()
+afterEach(async () => {
+  for (const s of stores.splice(0)) await s.close()
 })
 
 async function open(path: string): Promise<SessionStore> {
@@ -112,7 +112,7 @@ describe('search index gate', () => {
     const first = await open(path)
     await first.conversations.index.upsert([conversation(first)])
     const machineId = first.hostMachineId
-    first.close()
+    await first.close()
     stores.pop()
 
     forceFeature('command-palette', false)
@@ -127,7 +127,7 @@ describe('search index gate', () => {
     await off.conversations.index.upsert([
       conversation(off, { id: 'native-b', title: 'written while search was off', machineId }),
     ])
-    off.close()
+    await off.close()
     stores.pop()
 
     forceFeature('command-palette', true)
@@ -153,7 +153,7 @@ describe('search index gate', () => {
       512,
     )
     expect(await first.conversations.transcriptIndex.searchCandidates('capacitor')).toHaveLength(1)
-    first.close()
+    await first.close()
     stores.pop()
 
     forceFeature('command-palette', false)
@@ -167,7 +167,7 @@ describe('search index gate', () => {
       [{ content: 'not indexed while off' }],
       1024,
     )
-    off.close()
+    await off.close()
     stores.pop()
 
     forceFeature('command-palette', true)

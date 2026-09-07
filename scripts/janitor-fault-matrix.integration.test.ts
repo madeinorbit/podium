@@ -112,7 +112,7 @@ describe.each([
       failures: 1,
       supersededJobs: 0,
     })
-    store.close()
+    await store.close()
   })
 })
 
@@ -161,7 +161,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
       },
     }
     expect(await server.apply(stale)).toMatchObject({ status: 'stale', reason: 'fenced' })
-    store.close()
+    await store.close()
   })
 
   it('accepts the fenced command after the server restarts between decision and apply', async () => {
@@ -179,7 +179,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
       readExpiryCandidates: async () => {
         if (!restarted) {
           restarted = true
-          store.close()
+          await store.close()
           store = await openTestStore(dbPath)
           server = maintenance(store)
         }
@@ -199,7 +199,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
         failures: 0,
       })
     } finally {
-      store.close()
+      await store.close()
       rmSync(dir, { recursive: true, force: true })
     }
   })

@@ -51,8 +51,8 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'podium-authroute-'))
   store = await openTestStore(':memory:')
 })
-afterEach(() => {
-  store.close()
+afterEach(async () => {
+  await store.close()
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -696,8 +696,8 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
     mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
     mintStore = await openTestStore(join(mintDir, 'podium.db'))
   })
-  afterEach(() => {
-    mintStore.close()
+  afterEach(async () => {
+    await mintStore.close()
     rmSync(mintDir, { recursive: true, force: true })
   })
 

@@ -133,7 +133,7 @@ describe('a lake the deployment turned off', () => {
       expect(lake.mirroring).toBe(false)
     } finally {
       lake.dispose()
-      store.close()
+      await store.close()
     }
   })
 
@@ -152,7 +152,7 @@ describe('a lake the deployment turned off', () => {
       expect(lake.mirroring).toBe(true)
     } finally {
       lake.dispose()
-      store.close()
+      await store.close()
       rmSync(lakeDir, { recursive: true, force: true })
     }
   })
@@ -208,7 +208,7 @@ describe('the transcript indexer follows the search flag', () => {
     // these bytes are unread, which is what makes the catch-up below possible.
     expect(await off.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(0)
     idle.dispose()
-    off.close()
+    await off.close()
 
     forceFeature('command-palette', true)
     const on = await openTestStore(dbPath)
@@ -223,7 +223,7 @@ describe('the transcript indexer follows the search flag', () => {
       (await on.conversations.transcriptIndex.searchCandidates('capacitor')).map((c) => c.nativeId),
     ).toEqual(['native-a'])
     indexer.dispose()
-    on.close()
+    await on.close()
     rmSync(dir, { recursive: true, force: true })
   })
 })

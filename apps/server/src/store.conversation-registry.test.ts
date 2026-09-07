@@ -171,7 +171,7 @@ describe('conversation registry store', () => {
       providerId: 'claude-code-jsonl',
       path: '/home/u/.claude/projects/-repo/parent-2.jsonl',
     })
-    first.close()
+    await first.close()
     const second = await openTestStore(file)
     const registry = await SessionRegistry.create(second, undefined, { instanceId: 'default' })
     expect(await second.conversations.registry.segmentPath(asMachineId('m1'), 'parent-1')).toBeUndefined()
@@ -181,7 +181,7 @@ describe('conversation registry store', () => {
     expect(await second.conversations.registry.segmentPath(asMachineId('m1'), 'parent-2')).toBe(
       '/home/u/.claude/projects/-repo/parent-2.jsonl',
     )
-    registry.dispose()
-    second.close()
+    await registry.dispose()
+    await second.close()
   })
 })

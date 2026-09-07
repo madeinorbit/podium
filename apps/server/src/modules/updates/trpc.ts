@@ -290,7 +290,10 @@ export function updateOperationContext(input: {
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
   prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
-  createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
+  createDatabaseSnapshot: (
+    fromVersion: string,
+    targetVersion: string,
+  ) => Promise<string | undefined>
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
   requestCoordinatorRestart?: () => void
@@ -345,7 +348,8 @@ export function updateOperationContext(input: {
     },
     // The other half of the same seam (POD-2173): `report` is how a watcher
     // says something, and this is how it learns to stop.
-    stepActive: async (operationId, stepId) => await input.operations.engine.watching(operationId, stepId),
+    stepActive: async (operationId, stepId) =>
+      await input.operations.engine.watching(operationId, stepId),
   }
 }
 
@@ -728,7 +732,9 @@ export function updateProcedures() {
      * want to wait a day. Rate-limited per channel inside the service, so a
      * held-down button is one feed request, not a loop.
      */
-    checkNow: t.procedure.mutation(async ({ ctx }) => await familyState(ctx).modules.updates.checkNow()),
+    checkNow: t.procedure.mutation(
+      async ({ ctx }) => await familyState(ctx).modules.updates.checkNow(),
+    ),
     /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
     repairPayload: t.procedure
       .input(z.object({ id: z.string().min(1).optional() }).optional())
@@ -737,11 +743,11 @@ export function updateProcedures() {
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
         const outcome = await state.modules.updates.repairMachine(machineId, {
           initiator: { kind: 'operator-repair' },
-          eligibility: 'a person asked for this machine\'s payload to be re-delivered',
+          eligibility: "a person asked for this machine's payload to be re-delivered",
         })
         const machineName =
-          (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)
-            ?.name ?? machineId
+          (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
+          machineId
         if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',

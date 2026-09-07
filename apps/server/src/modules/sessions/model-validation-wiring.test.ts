@@ -15,8 +15,8 @@ import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 async function storeWithCatalog(): Promise<SessionStore> {

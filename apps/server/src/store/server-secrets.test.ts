@@ -6,8 +6,8 @@ import { openTestStore } from '../test-support/open-test-store'
 describe('native login transfer secrets', () => {
   let store: SessionStore | undefined
 
-  afterEach(() => {
-    store?.close()
+  afterEach(async () => {
+    await store?.close()
     store = undefined
   })
 

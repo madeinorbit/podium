@@ -172,7 +172,7 @@ describe('countContextAwarePendingMail', () => {
       })
       expect(oldSeparateReads).toHaveLength(0)
     } finally {
-      store.close()
+      await store.close()
     }
   })
 
@@ -207,7 +207,7 @@ describe('countContextAwarePendingMail', () => {
         ),
       ).toEqual({ unread: 1, senders: ['issue:iss_peer'] })
     } finally {
-      store.close()
+      await store.close()
     }
   })
 })

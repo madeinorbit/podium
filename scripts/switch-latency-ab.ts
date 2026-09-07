@@ -278,8 +278,8 @@ async function runArm(label: string): Promise<ArmReport> {
       interaction: summarize(interactionMs),
     }
   } finally {
-    registry.dispose()
-    store.close()
+    await registry.dispose()
+    await store.close()
   }
 }
 
