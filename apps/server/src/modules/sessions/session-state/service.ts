@@ -595,8 +595,16 @@ export class SessionStateService {
     principal: SessionStatePrincipal,
     send: (message: LiveServerMessage) => void,
   ): Promise<void> {
-    for (const doc of this.draftDocs.values()) {
-      if (doc.text && (await this.canReadSession(principal, doc.sessionId))) send(this.draftWire(doc))
+    const visibleIds: SessionId[] = []
+    for (const sessionId of this.draftDocs.keys()) {
+      if (await this.canReadSession(principal, sessionId)) visibleIds.push(sessionId)
+    }
+    // No await may separate reading a document from sending it. Live edits can
+    // replace draftDocs during authorization; replaying a captured older rev
+    // afterward would overwrite the client's newer text (POD-3539).
+    for (const sessionId of visibleIds) {
+      const doc = this.draftDocs.get(sessionId)
+      if (doc?.text) send(this.draftWire(doc))
     }
   }
 
