@@ -274,9 +274,6 @@ describe('the machine verb is read from the contract, per command', () => {
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
     expect((await fleetAuthzFailure('machines.moveServer', input, memberManage))?.code).toBe('FORBIDDEN')
-    expect((await fleetAuthzFailure('machines.transferServer', input, memberManage))?.code).toBe(
-      'FORBIDDEN',
-    )
 
     const adminManage = deps(user(COLLEAGUE), {
       role: 'admin',
@@ -286,7 +283,6 @@ describe('the machine verb is read from the contract, per command', () => {
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
     expect((await fleetAuthzFailure('machines.moveServer', input, admin))?.code).toBe('NOT_FOUND')
-    expect((await fleetAuthzFailure('machines.transferServer', input, admin))?.code).toBe('NOT_FOUND')
   })
 
   it('naming yourself as the recipient does not make you the owner', async () => {

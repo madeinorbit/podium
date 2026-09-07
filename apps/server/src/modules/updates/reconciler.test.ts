@@ -134,7 +134,7 @@ function harness(machines: WaveMachine[], over: { operationActive?: boolean } = 
   let grants = 0
   const live = machines
   const updates = new UpdatesService({
-    approvedTarget: () => approved,
+    approvedTarget: async () => approved,
     machines: async () => live,
     send,
     now: () => 1_000,

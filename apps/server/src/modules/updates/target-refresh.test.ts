@@ -236,7 +236,7 @@ describe('scheduled refresh after supervised completion', () => {
       new UpdatesService({
         machines: () => fleet,
         recovery,
-        approvedTarget: () => approved,
+        approvedTarget: async () => approved,
         resolveTarget: resolve,
         send,
         now: () => 1000,

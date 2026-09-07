@@ -1,3 +1,4 @@
+import { syncQueriesOver } from './store/executor/sync-drizzle'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -133,7 +134,7 @@ describe('target server deferred move adoption', () => {
 
     const db = openDatabase(join(root, 'podium.db'))
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    new OperationStore(db).insert(operation)
+    new OperationStore(syncQueriesOver(db)).insert(operation)
     db.close()
 
     const stage = join(root, '.server-transfer', finalTransferId)
@@ -229,7 +230,7 @@ describe('source server deferred move adoption', () => {
       }
       const db = openDatabase(join(root, 'podium.db'))
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-      new OperationStore(db).insert(sourceOperation)
+      new OperationStore(syncQueriesOver(db)).insert(sourceOperation)
       db.close()
 
       const packageDir = join(root, '.server-transfer', 'snapshots', operation.id, 'initial')

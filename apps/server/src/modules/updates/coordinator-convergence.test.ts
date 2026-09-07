@@ -94,7 +94,7 @@ function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] 
 
   const updates = new UpdatesService({
     // Isolate the coordinator guard with an already-approved fleet target.
-    approvedTarget: () => publishedTarget(),
+    approvedTarget: async () => publishedTarget(),
     machines: async () => fleet,
     send: (machineId: MachineId, message: UpdateGrantMessage) => {
       sentTo.push(String(machineId))

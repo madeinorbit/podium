@@ -225,7 +225,7 @@ describe('MachinesService supervisor presence', () => {
     })
 
     svc.detach(MACHINE, daemon.send)
-    expect(svc.listMachines()[0]).toMatchObject({
+    expect((await svc.listMachines())[0]).toMatchObject({
       online: true,
       presenceSource: 'supervisor',
       appVersion: '0.5.0',
@@ -277,15 +277,15 @@ describe('MachinesService supervisor presence', () => {
         { server: status, agentExecution: status },
         status.observedAt,
       )
-      svc.resumeAfterTransferFence()
+      await svc.resumeAfterTransferFence()
       expect(store.machines.getMachine(MACHINE)).toEqual(before)
       expect(svc.daemonSupports(MACHINE, 'recovery-cap')).toBe(true)
       svc.toMachine(MACHINE, keystroke)
       expect(daemon.got).toEqual([keystroke])
       if (!recoveryOnly) {
         store.endTransferFence()
-        svc.resumeAfterTransferFence()
-        expect(store.machines.getMachine(MACHINE)?.components).toContain('daemon')
+        await svc.resumeAfterTransferFence()
+        expect((await store.machines.getMachine(MACHINE))?.components).toContain('daemon')
       }
     } finally {
       bootFence?.mockRestore()
@@ -316,10 +316,10 @@ describe('MachinesService supervisor presence', () => {
       const send = (_message: MachineSupervisorControlMessage) => {}
       svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
       expect(svc.detachSupervisor(MACHINE, send)).toBe(true)
-      expect(svc.listMachines()[0]?.online).toBe(true)
+      expect((await svc.listMachines())[0]?.online).toBe(true)
 
       vi.advanceTimersByTime(30_001)
-      expect(svc.listMachines()[0]?.online).toBe(false)
+      expect((await svc.listMachines())[0]?.online).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -627,11 +627,11 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(() => svc.recordInventory(MACHINE, latest)).not.toThrow()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
     // Reconciliation cannot weaken or bypass the physical fence.
-    svc.resumeAfterTransferFence()
+    await svc.resumeAfterTransferFence()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
 
     store.endTransferFence()
-    svc.resumeAfterTransferFence()
+    await svc.resumeAfterTransferFence()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })
 
