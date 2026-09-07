@@ -41,6 +41,7 @@ function harness(
   options: {
     prepareSend?: () => Promise<void>
     owner?: typeof ALICE | null
+    ownerOf?: () => typeof ALICE | null | undefined
     status?: string
     agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
     /** The harness's observed phase — what the interrupt's idle guard reads, and
@@ -240,7 +241,7 @@ function harness(
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: options.prepareSend ?? vi.fn(async () => {}),
-    ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
+    ownerOf: options.ownerOf ?? (() => (options.owner === undefined ? ALICE : options.owner)),
     setSessionDraft,
     draftText: () => draft,
     resurrect,
@@ -2789,6 +2790,41 @@ describe('offer retirement before inbox admission', () => {
     if (mode === 'interrupt') return h.inbox.interruptText(input)
     return h.inbox.sendText(input)
   }
+  // POD-3552 makes the owner port async. Change the double only during preparation
+  // to isolate this newly added recheck from that issue's initial-owner lookup.
+  it('accepts an unchanged owner resolved asynchronously after retirement', async () => {
+    vi.useFakeTimers()
+    const ownerOf = vi.fn(() => ALICE)
+    const h = harness({
+      ownerOf,
+      prepareSend: async () => {
+        ownerOf.mockResolvedValue(ALICE)
+      },
+    })
+    expect(await begin(h, 'answer')).toEqual({ ok: true })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.sent.length).toBeGreaterThan(0)
+    expect(h.answered).toHaveLength(1)
+    expect(ownerOf).toHaveBeenCalledTimes(2)
+  })
+  it('refuses an owner changed asynchronously during retirement', async () => {
+    vi.useFakeTimers()
+    const ownerOf = vi.fn(() => ALICE)
+    const h = harness({
+      ownerOf,
+      prepareSend: async () => {
+        ownerOf.mockResolvedValue(asUserId('user:bob'))
+      },
+    })
+    expect(await begin(h, 'answer')).toEqual({
+      ok: false,
+      reason: 'session changed during answer admission',
+    })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+    expect(h.rows).toEqual([])
+  })
   it.each(modes)('%s waits for retirement before any row or keystroke', async (mode) => {
     vi.useFakeTimers()
     let release!: () => void

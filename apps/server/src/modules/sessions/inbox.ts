@@ -2097,7 +2097,7 @@ export class SessionInbox {
     if (
       this.deps.getSession(input.sessionId) !== session ||
       session.agentState !== answerState ||
-      this.deps.ownerOf(input.sessionId) !== ownerUserId ||
+      (await this.deps.ownerOf(input.sessionId)) !== ownerUserId ||
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during answer admission' }
