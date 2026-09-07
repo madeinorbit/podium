@@ -107,12 +107,13 @@ describe('a subscriber that commits from inside its own notification', () => {
     const { store, ledger } = await openWiredStore()
     const seen: string[] = []
     let reentered = false
+    let reentrantCommit: ReturnType<typeof ledger.commit> | undefined
     for (const name of ['A', 'B']) {
       ledger.onAppended((changes) => {
         for (const change of changes) seen.push(`${name}:${change.id}`)
         if (name === 'A' && !reentered) {
           reentered = true
-          ledger.commit({ write: async () => 'ok', changes: () => [...upsert('second', { v: 1 })] })
+          reentrantCommit = ledger.commit({ write: async () => 'ok', changes: () => [...upsert('second', { v: 1 })] })
         }
       })
     }
@@ -120,6 +121,10 @@ describe('a subscriber that commits from inside its own notification', () => {
     await store.transact(async () => {
       await ledger.commit({ write: async () => 'ok', changes: () => [...upsert('first', { v: 1 })] })
     })
+
+    // Notification listeners are synchronous; the test owns the async commit
+    // they start and must finish it before asserting or closing the database.
+    await reentrantCommit
 
     // A's re-entrant commit must not reach A before batch 1 reached B.
     expect(seen).toEqual(['A:first', 'B:first', 'A:second', 'B:second'])

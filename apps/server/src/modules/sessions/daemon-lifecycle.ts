@@ -85,7 +85,7 @@ export interface SessionDaemonLifecyclePorts {
     record(
       machineId: MachineId,
       msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' | 'runtimeFineEvent' }>,
-    ): import('./runtime-event-gate').RuntimeEventGateResult
+    ): Promise<import('./runtime-event-gate').RuntimeEventGateResult>
     ready(sessionId: SessionId): boolean
   }
   /**
@@ -1009,12 +1009,12 @@ export class SessionDaemonLifecycle {
         // for a session that declared the runtime contract.
         const owner = this.sessions.get(msg.sessionId)
         if (msg.type === 'runtimeFineEvent') {
-          if (owner?.machineId === machineId) this.ports.runtimeEvents?.record(machineId, msg)
+          if (owner?.machineId === machineId) await this.ports.runtimeEvents?.record(machineId, msg)
           break
         }
         const result =
           owner?.machineId === machineId
-            ? this.ports.runtimeEvents?.record(machineId, msg)
+            ? await this.ports.runtimeEvents?.record(machineId, msg)
             : ({ kind: 'rejected', reason: 'unknown-session' } as const)
         if (!result) break
         if (!msg.deliveryId) break
