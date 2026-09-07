@@ -361,7 +361,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         storage.failNextCommit(new Error('power loss mid-transaction'))
         await ada.replica.receive(frame)
         // SURFACED on the unit of work the Replica joined, not swallowed.
-        await expect(await ada.settle()).rejects.toThrow('power loss')
+        await expect(ada.settle()).rejects.toThrow('power loss')
         // ONE transaction was opened for both regions, not two — through the kernel's
         // own commit path, which is what POD-1158's fix made reachable.
         expect(storage.unitOfWorkTransactions()).toBe(transactionsBefore + 1)
@@ -632,7 +632,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         expect(ada.replica.cursor?.seq).toBe(authority.head())
         expect(ada.replica.stats().bufferedFrames).toBe(0)
         // The failure was reported ONCE, not stuck on the replica forever.
-        await expect(await ada.settle()).resolves.toBeUndefined()
+        await expect(ada.settle()).resolves.toBeUndefined()
       })
 
       it(`${ledger.cover('base/quota-exhaustion')} — a denied durable write surfaces and loses nothing`, async () => {
@@ -1076,7 +1076,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const preOutbox = await ada.view.outbox.read()
         storage.failNextCommit(new Error('crash with watermark in flight'))
         await ada.replica.receive(frame)
-        await expect(await ada.settle()).rejects.toThrow('crash with watermark')
+        await expect(ada.settle()).rejects.toThrow('crash with watermark')
 
         const recovered = (await ada.recover()) as Client
         // ONE TRANSACTION RULE HELD: neither region moved.

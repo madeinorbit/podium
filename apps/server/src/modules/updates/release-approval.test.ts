@@ -79,7 +79,7 @@ describe('release approval flow', () => {
     })
 
     const first = flow.approve('user:admin', TARGET)
-    await vi.waitFor(async () => expect(await flow.read()).resolves.toMatchObject({ state: 'building' }))
+    await vi.waitFor(() => expect(flow.read()).resolves.toMatchObject({ state: 'building' }))
     current = { ...BASE, headSha: 'bbbbbbb', version: '0.1.2-dev.2+bbbbbbb' }
     expect(await flow.read()).toMatchObject({ headSha: 'bbbbbbb', state: 'pending' })
     await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
