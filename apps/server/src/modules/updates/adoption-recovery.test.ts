@@ -124,7 +124,7 @@ describe('production adoption restores supervised execution proof', () => {
         target.version,
       )
       const boot = await h.reboot()
-      expect(boot.modules.updates.fleet().find((m) => m.id === 'a')).toMatchObject({
+      expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')).toMatchObject({
         online: false,
         state: 'granted',
       })
@@ -140,10 +140,12 @@ describe('production adoption restores supervised execution proof', () => {
         () => h.context(ids),
       )
       await boot.modules.operations.engine.whenSettled(id)
-      const machines = () =>
-        h.store.operations.get(id)?.operation?.steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
-      expect(machines()?.state).not.toBe('done')
-      expect(machines()?.places?.find((p) => p.id === 'a')?.state).not.toBe('current')
+      const machines = async () =>
+        (await h.store.operations.get(id))?.operation?.steps?.find(
+          (s) => s.id === UPDATE_STEP_MACHINES,
+        )
+      expect((await machines())?.state).not.toBe('done')
+      expect((await machines())?.places?.find((p) => p.id === 'a')?.state).not.toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
       for (const machine of ids) h.hello(machine, machine === 'a' ? target.version : '0.4.1')
       boot.modules.updateFleetBridge?.onFleetChanged()
@@ -164,12 +166,12 @@ describe('production adoption restores supervised execution proof', () => {
       boot.modules.updates.onStatus(asMachineId('a'), report)
       boot.modules.updateFleetBridge?.onFleetChanged()
       await boot.modules.operations.engine.whenSettled(id)
-      expect(machines()?.places?.find((p) => p.id === 'a')?.state).toBe('current')
+      expect((await machines())?.places?.find((p) => p.id === 'a')?.state).toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(ids)
-      expect(boot.modules.updates.fleet().find((m) => m.id === 'already-healthy')?.state).toBe(
+      expect((await boot.modules.updates.fleet()).find((m) => m.id === 'already-healthy')?.state).toBe(
         'current',
       )
-      if (count === 1) expect(machines()?.state).toBe('done')
+      if (count === 1) expect((await machines())?.state).toBe('done')
       else expect(boot.modules.updates.waveRounds('dev')[0]?.gate).toBe('widen')
     } finally {
       h.close()
@@ -210,7 +212,7 @@ describe('production adoption restores supervised execution proof', () => {
         h.hello('a')
         h.hello('b', '0.4.1')
         const current = h.registry.modules.updates
-        expect(current.fleet().find((m) => m.id === 'a')?.state).toBe('stuck')
+        expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('stuck')
         const report = {
           type: 'updateStatus' as const, state: 'current' as const, version: target.version,
           targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
@@ -221,18 +223,18 @@ describe('production adoption restores supervised execution proof', () => {
           current.onStatus(asMachineId('a'), report)
           h.registry.modules.updateFleetBridge?.onFleetChanged()
           await h.registry.modules.operations.engine.whenSettled(id)
-          expect(current.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+          expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
           expect(current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
           expect(current.operationActive('dev')).toBe(false)
-          expect(h.store.operations.get(id)?.state).toBe('canceled')
+          expect((await h.store.operations.get(id))?.state).toBe('canceled')
           expect(h.sent.map((s) => s.id)).toEqual(['a'])
         }
         const boot = await h.reboot()
         h.hello('a')
         h.hello('b', '0.4.1')
-        expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
         expect(boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
-        expect(h.store.operations.get(id)?.state).toBe('canceled')
+        expect((await h.store.operations.get(id))?.state).toBe('canceled')
         expect(h.sent.map((s) => s.id)).toEqual(['a'])
       } finally {
         h.close()
@@ -260,7 +262,7 @@ describe('production adoption restores supervised execution proof', () => {
         targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
       })
       for (let read = 0; read < 3; read++) {
-        expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
         expect(boot.modules.updates.operationActive('dev')).toBe(false)
       }
       expect(write).not.toHaveBeenCalled()
@@ -302,7 +304,7 @@ describe('production adoption restores supervised execution proof', () => {
       // Projection would set canaryHealthy and (for a legacy grant) retire rows.
       // Those are precisely the writes that a constructor-only fix missed.
       for (let read = 0; read < 3; read++) {
-        expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
+        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
         expect(boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(
           false,
         )

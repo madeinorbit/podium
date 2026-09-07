@@ -181,7 +181,7 @@ describe('machine build report over a live daemon socket', () => {
       }),
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
-    const listed = server.registry.modules.machines.listMachines()[0]
+    const listed = (await server.registry.modules.machines.listMachines())[0]
     expect(listed).toMatchObject({
       online: true,
       presenceSource: 'supervisor',
@@ -189,7 +189,7 @@ describe('machine build report over a live daemon socket', () => {
       services: { crashOwner: 'desktop' },
     })
 
-    const planned = server.registry.modules.updates.fleet()[0]
+    const planned = (await server.registry.modules.updates.fleet())[0]
     expect(planned).toMatchObject({
       online: true,
       presenceSource: 'supervisor',

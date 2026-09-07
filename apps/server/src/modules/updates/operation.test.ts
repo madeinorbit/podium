@@ -1689,8 +1689,8 @@ describe('the update operation, driven', () => {
     await (await h).engine.whenSettled('op_1')
 
     const operation = (await h).read()
-    expect(operation.state).toBe('done')
-    expect(operation.steps).toEqual([
+    expect((await operation).state).toBe('done')
+    expect((await operation).steps).toEqual([
       expect.objectContaining({
         id: UPDATE_STEP_MACHINES,
         state: 'done',
@@ -1704,7 +1704,7 @@ describe('the update operation, driven', () => {
         ],
       }),
     ])
-    expect(operation.deferred).toEqual([])
+    expect((await operation).deferred).toEqual([])
     expect((await h).sent).toEqual([])
   })
 })
@@ -4594,10 +4594,10 @@ describe('coordinator snapshot activation boundary', () => {
       await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
       await preparing.promise
     }
-    const repeat = () => {
-      const operation = h.read()
-      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
-      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
+    const repeat = async () => {
+      const operation = (await h).read()
+      const step = (await operation).steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
+      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: (await h).context() })
     }
     return {
       h, target, executor, adapter, snapshot, snapshotting, preparing, activated, receiptSettled,
