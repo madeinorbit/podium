@@ -2817,3 +2817,41 @@ describe('the detached reader’s ambient wiring', () => {
     await executor.close()
   })
 })
+
+// Caller-visible assertions transferred from the retired synchronous helper (POD-3267).
+describe('transaction caller contract', () => {
+  function values(db: Harness['raw']): number[] {
+    return (db.prepare('SELECT v FROM t ORDER BY v').all() as { v: number }[]).map((r) => r.v)
+  }
+
+  it('commits at depth 0 and returns the callback result', async () => {
+    const h = open({ schema: 'CREATE TABLE t (v INTEGER)' })
+    const db = h.raw
+    const out = await h.executor.transact(async (tx) => {
+      await tx.drizzle.run('INSERT INTO t VALUES (?)', 1)
+      return 'done'
+    })
+    expect(out).toBe('done')
+    expect(values(db)).toEqual([1])
+    db.exec('BEGIN IMMEDIATE')
+    db.exec('COMMIT')
+  })
+
+  it('rolls back at depth 0 on throw, rethrowing the original error', async () => {
+    const h = open({ schema: 'CREATE TABLE t (v INTEGER)' })
+    const db = h.raw
+    let caught: unknown
+    try {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run('INSERT INTO t VALUES (?)', 1)
+        throw new Error('boom')
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect((caught as Error).message).toBe('boom')
+    expect(values(db)).toEqual([])
+    db.exec('BEGIN IMMEDIATE')
+    db.exec('COMMIT')
+  })
+})

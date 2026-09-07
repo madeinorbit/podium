@@ -2283,7 +2283,7 @@ export class SessionInbox {
     // this path no longer carries the base64 the check was first written for.
     const abort = this.abortKeyFor(session)
     if (session.terminal.controllerId === client.id && abort && Buffer.from(abort).equals(bytes)) {
-      // DECISION POD-3528: the callee went async and this frame handler cannot
+      // Spec rule 57 (POD-3528): the callee went async and this frame handler cannot
       // yield. Left non-blocking, which is exactly today's behaviour — the
       // submitVerificationGeneration delete that must beat the 90ms delayed
       // Enter (POD-1733) runs before the callee's first await.

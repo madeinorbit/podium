@@ -8,15 +8,12 @@
  * explicit form inside the store and the kernel. Services keep their narrowed
  * dependency lambdas and their call shapes; nothing they hold changes.
  *
- * THE OBJECT REPOSITORIES TAKE is `{ drizzle, transact, read, legacy, context }`:
+ * THE OBJECT REPOSITORIES TAKE is `{ drizzle, transact, read, context }`:
  *   drizzle — the query-layer client, bound to whatever scope the executor is.
  *             The root's client resolves the scope PER STATEMENT, which is what
  *             makes ambient routing possible at all; a client that closed over a
  *             connection could not do it.
  *   transact/read — methods, never the raw handle.
- *   legacy  — the raw handle for repositories not yet converted. It is a
- *             transitional instrument: deleted at Stage A exit, which is a free
- *             second completeness check (POD-3267 holds the deletion).
  *   context — the tenant seam. Empty today; multi-tenancy is a later epic and
  *             this slot is what keeps it a context value rather than a redesign.
  *

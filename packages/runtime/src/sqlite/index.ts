@@ -19,14 +19,12 @@ export {
   queryKey,
   resetQueryAttribution,
 } from './query-attribution'
-export { transaction } from './transaction'
 export type {
   OpenOptions,
   SqlDatabase,
   SqlParam,
   SqlRunResult,
   SqlStatement,
-  SqlTransactionScope,
 } from './types'
 
 /** True when running under the Bun runtime. */
