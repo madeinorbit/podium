@@ -3730,6 +3730,21 @@ only in the list, so a later reader sees why the await is absent before they add
 entry is a live hazard, not clutter — `unused-keep-sync=3` in the measured run is POD-3489, and an
 unused entry silences a site that may since have become an ordinary un-awaited call.
 
+**RULE 62a EXPIRES WITH THE CODEMOD, AND THAT IS THE REAL RESOLUTION.** POD-3267 (B2.4) deletes the
+whole awaitify apparatus — `awaitify.ts`, `awaitify-derive-keep-sync.ts`, `awaitify-keep-sync.txt`,
+`check-await-idempotence.test.ts`. The pass and its fixed-point check exist ONLY to drive the
+conversion; once the conversion is finished there is no pass to be a fixed point of, and `keep-sync`
+has nothing left to annotate.
+
+So the collision is transitional by construction. Until B2.4 lands, use `keep-sync` as above. After
+it lands, **only rule 59 governs** — an await inside a `Promise.all` array literal sequentialises
+the race — and that lint (`scripts/check-boundaries.ts`, the `sequential-promise-combinator` rule)
+is PERMANENT and is not part of the deletion set. There is then no contradiction to resolve, because
+only one of the two checks still exists.
+
+Do not carry a `keep-sync` habit past B2.4: after it, an un-awaited store call has no sanctioned
+list to sit on and must be justified at the site or awaited.
+
 *Measured on POD-3524's branch: `keep-sync=3 refusals=11 proposed-files=1 proposed-awaits=6
 unused-keep-sync=3`. The six proposed awaits were two racing `claimGroup()` calls in each of three
 new concurrency tests — rule 59's exact shape, arriving from the pass rather than from a person.*
