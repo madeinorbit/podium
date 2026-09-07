@@ -243,7 +243,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
 
   it('terminates pre-auth binary locally while another daemon remains routable', async () => {
     const reg = await registryWithMachine()
-    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     const bad = fakeWs()
     const healthy = fakeWs()
     wireDaemonSocket(bad as never, reg)
@@ -297,7 +297,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
 
   it('terminates binary output after a handshake that did not negotiate it', async () => {
     const { reg, ws } = await authenticatedSocket([])
-    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     const binary = binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 })
     await ws.emit('message', binary)
     await ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
@@ -335,7 +335,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
   it('keeps an old daemon on one canonical legacy decode', async () => {
     const { reg, ws } = await authenticatedSocket([])
     const routeOutput = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
-    const routeFrame = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const routeFrame = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     await ws.emit(
       'message',
       frame({ type: 'agentFrameBatch', sessionId: 'legacy', frames: ['AP8=', ''] }),
@@ -460,7 +460,7 @@ describe('handshake order at the real gateway', () => {
 
   it('still routes ordinary control traffic after the handshake', async () => {
     const reg = await registryWithMachine()
-    const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     await ws.emit(

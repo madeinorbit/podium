@@ -482,7 +482,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('entering working after the user typed into the PTY consumes it', async () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -492,7 +492,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', async () => {
       const { reg, sessionId, createdAt } = await seed()
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -503,7 +503,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', async () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(minusMinute(createdAt)),
@@ -515,7 +515,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: idle(plusMinute(createdAt)),
@@ -523,14 +523,14 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
       // ENTRY into working counts, so an offer set mid-turn survives its turn.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
       })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       await typeIntoPty(reg, sessionId, createdAt)
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(plusMinute(createdAt))),
@@ -589,7 +589,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         transitionId: 'snapshot-1',
         state: state('idle', shift(createdAt, -120)),
       }
-      observe(bootstrap)
+      await observe(bootstrap)
       /** The next turn opening, a minute after the offer was posted. */
       const turnOpened = (inputOrigin: AgentObservation['inputOrigin']): AgentObservation => ({
         ...bootstrap,
@@ -631,13 +631,13 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it("a human-origin turn_opened consumes it (the harness's own answer)", async () => {
       const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
-      observe(turnOpened('human'))
+      await observe(turnOpened('human'))
       expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
     it('a controller-origin turn_opened (chat/button) consumes it', async () => {
       const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
-      observe(turnOpened('controller'))
+      await observe(turnOpened('controller'))
       expect(await metaOffer(reg, sessionId)).toBeUndefined()
     })
 
@@ -648,7 +648,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       'system',
     ] as const)('a %s-origin turn preserves it — nobody saw the offer yet [POD-118]', async (origin) => {
       const { reg, sessionId, observe, turnOpened } = await seed('claude-code')
-      observe(turnOpened(origin))
+      await observe(turnOpened(origin))
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
@@ -656,12 +656,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // no origin — so those harnesses fall back to input evidence.
     it('a provider-origin turn consumes it only after the user typed', async () => {
       const withoutTyping = await seed('codex')
-      withoutTyping.observe(withoutTyping.turnOpened('provider'))
+      await withoutTyping.observe(withoutTyping.turnOpened('provider'))
       expect((await metaOffer(withoutTyping.reg, withoutTyping.sessionId))?.message).toBe(OFFER.message)
 
       const withTyping = await seed('codex')
       await typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
-      withTyping.observe(withTyping.turnOpened('provider'))
+      await withTyping.observe(withTyping.turnOpened('provider'))
       expect(await metaOffer(withTyping.reg, withTyping.sessionId)).toBeUndefined()
     })
 
@@ -676,7 +676,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         inputOrigin: 'mail',
       })
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
-      observe(turnOpened('provider'))
+      await observe(turnOpened('provider'))
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
@@ -692,21 +692,21 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a turn that opened BEFORE the offer cannot consume it', async () => {
       const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const early = turnOpened('human')
-      observe({ ...early, receivedAt: shift(createdAt, -30), providerAt: shift(createdAt, -30) })
+      await observe({ ...early, receivedAt: shift(createdAt, -30), providerAt: shift(createdAt, -30) })
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
     })
 
     it('mid-turn activity and the turn end that posts the offer leave it', async () => {
       const { reg, sessionId, createdAt, observe, turnOpened } = await seed('claude-code')
       const open = turnOpened('human')
-      observe({
+      await observe({
         ...open,
         transitionKind: 'activity',
         sourceEventKind: 'PostToolUse',
         transitionId: 'turn-1-activity',
       })
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
-      observe({
+      await observe({
         ...open,
         providerCursor: { segmentId: 'seg-1', components: { file: 30 } },
         transitionKind: 'turn_terminal',
@@ -732,9 +732,9 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         if ('sessionId' in event && event.sessionId === sessionId) derived.push(event.kind)
       })
       const open = turnOpened('human')
-      observe(open)
+      await observe(open)
       expect(derived).not.toContain('turnEnd')
-      observe({
+      await observe({
         ...open,
         providerCursor: { segmentId: 'seg-1', components: { file: 30 } },
         providerAt: shift(createdAt, 90),

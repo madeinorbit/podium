@@ -360,8 +360,8 @@ export class SessionRuntimeGateway {
   }
 
   /** True only after this session has a committed coarse-event restart head. */
-  async ready(sessionId: SessionId): Promise<boolean> {
-    return await this.ports.events.ready(sessionId)
+  ready(sessionId: SessionId): boolean {
+    return this.ports.events.ready(sessionId)
   }
 
   /** Replay committed board inputs after a server crash or interrupted fan-out. */

@@ -368,7 +368,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         registry.gateway.routeDaemonOutput(principal, output)
         return
       }
-      registry.gateway.routeDaemonFrame(principal, message)
+      void registry.gateway.routeDaemonFrame(principal, message)
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.

@@ -40,7 +40,7 @@ const confirmUserTurn = (
   o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
   text: string,
-): void =>
+): Promise<void> =>
   o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'transcriptDelta',
     sessionId,
