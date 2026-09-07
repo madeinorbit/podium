@@ -1,8 +1,8 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -25,6 +25,42 @@ async function regWithDaemon(store?: SessionStore) {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
+}
+
+/** Own every writer in restart fixtures, including when an assertion fails. */
+function draftFixture() {
+  const directory = mkdtempSync(join(tmpdir(), 'podium-draft-boundary-'))
+  const file = join(directory, 'state.sqlite')
+  const stores = new Set<SessionStore>()
+  const registries = new Set<SessionRegistry>()
+  const closeStore = async (store: SessionStore) => {
+    await store.close()
+    stores.delete(store)
+  }
+  const stopRegistry = async (registry: SessionRegistry) => {
+    await registry.dispose()
+    registries.delete(registry)
+    await closeStore(registry.sessionStore)
+  }
+  onTestFinished(async () => {
+    try {
+      for (const registry of registries) await stopRegistry(registry)
+      for (const store of stores) await closeStore(store)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  const openStore = async () => {
+    const store = await openTestStore(file)
+    stores.add(store)
+    return store
+  }
+  const createRegistry = async () => {
+    const registry = await SessionRegistry.create(await openStore(), undefined, { instanceId: 'default' })
+    registries.add(registry)
+    return registry
+  }
+  return { openStore, createRegistry, closeStore, stopRegistry }
 }
 
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
@@ -190,13 +226,17 @@ describe('boot-time draft retention', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-reap-')), 'state.sqlite')
 
   it('does not infer abandonment from a missing session', async () => {
-    const file = freshFile()
-    const reg1 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const fixture = draftFixture()
+    const reg1 = await fixture.createRegistry()
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
-    ;await (await openTestStore(file)).sessions.purgeSession(sessionId)
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    // A reboot relinquishes the old writer before opening the replacement.
+    await fixture.stopRegistry(reg1)
+    const orphanStore = await fixture.openStore()
+    await orphanStore.sessions.purgeSession(sessionId)
+    await fixture.closeStore(orphanStore)
+    const reg2 = await fixture.createRegistry()
     expect(await reg2.issues.get(draft.id)).not.toBeNull()
   })
 
@@ -292,8 +332,8 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
   })
 
   it('boot heals references a purge before this fix already left behind', async () => {
-    const file = freshFile()
-    const reg1 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const fixture = draftFixture()
+    const reg1 = await fixture.createRegistry()
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
 
@@ -301,13 +341,16 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // the table (what `purgeEmptyDraft` used to amount to) while the session row
     // keeps naming it. `deleteIssue` deliberately does not touch sessions — only
     // the purge path does — so this leaves the exact damage found in the field.
-    const store = await openTestStore(file)
+    // A reboot relinquishes the old writer before opening the replacement.
+    await fixture.stopRegistry(reg1)
+    const store = await fixture.openStore()
     await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
     await store.issues.deleteIssue(draft.id)
     expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
 
     // Reopening the store runs the boot heal ahead of every reader.
-    const healed = await openTestStore(file)
+    await fixture.closeStore(store)
+    const healed = await fixture.openStore()
     expect((await healed.sessions.getSession(sessionId))?.issueId).toBeNull()
     expect((await healed.sessions.getSession(sessionId))?.refIssueId).toBeNull()
 
@@ -317,24 +360,24 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
   })
 
   it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', async () => {
-    const file = freshFile()
-    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const fixture = draftFixture()
+    const reg = await fixture.createRegistry()
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg)
 
     // Scrubbing a live row behind the in-memory `Session` map's back would
     // desync it, so `detachTombstonesFromIssue` must leave it strictly alone.
-    ;await (await openTestStore(file)).sessions.detachTombstonesFromIssue(draft.id)
-    expect((await (await openTestStore(file)).sessions.getSession(sessionId))?.issueId).toBe(draft.id)
+    await reg.sessionStore.sessions.detachTombstonesFromIssue(draft.id)
+    expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 
   it('the deleted issue takes its ref-letter counter with it', async () => {
-    const file = freshFile()
-    const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const fixture = draftFixture()
+    const reg = await fixture.createRegistry()
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { draft } = await draftWithSession(reg)
 
-    const store = await openTestStore(file)
+    const store = reg.sessionStore
     await store.issues.allocateSessionLetter(draft.id)
     await store.issues.deleteIssue(draft.id)
     // Nothing left to prune: the delete already took the counter.

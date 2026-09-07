@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
@@ -119,10 +119,13 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('streams session upserts through the same seam', async () => {
     const registry = await makeRegistry()
-    const delta = client(registry, ['metadataDelta'])
+    const delta = await readyClient(registry, ['metadataDelta'])
     const before = delta.inbox.length
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     flush(registry)
+    await vi.waitFor(() => {
+      expect(deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId)).toBe(true)
+    })
     const changes = deltas(delta.inbox.slice(before)).filter((c) => c.entity === 'session')
     expect(changes.length).toBeGreaterThanOrEqual(1)
     expect(changes[0]).toMatchObject({ entity: 'session', id: sessionId, op: 'upsert' })
@@ -237,3 +240,20 @@ describe('SessionRegistry metadata deltas', () => {
     expect(inbox).toHaveLength(before)
   })
 })
+
+// Observe session publication only after hello has delivered the final bootstrap chunk.
+async function readyClient(registry: SessionRegistry, caps: string[]) {
+  const inbox: ServerMessage[] = []
+  const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
+  await registry.clientGateway.routeClientFrame(id, {
+    type: 'hello',
+    clientId: '',
+    wireVersion: 2,
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+    caps,
+  })
+  await vi.waitFor(() => {
+    expect(inbox.some((message) => message.type === 'feedBootstrap' && message.last)).toBe(true)
+  })
+  return { inbox }
+}
