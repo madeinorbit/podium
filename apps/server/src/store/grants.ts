@@ -22,7 +22,7 @@
  *
  * Every `use` check names one machine. A cached whole-table read would be a
  * SECOND source of truth for "who may run code on this laptop", and the failure
- * mode is the one D16.1 names by hand: a revoked grant that keeps working until
+ * mode is the one ADR 9 D2 rule 4 forbids: a revoked grant that keeps working until
  * something invalidates a cache. `MachinesService` caches machine ROWS for the
  * hot listing path; grants are deliberately not in that cache.
  */
@@ -151,7 +151,11 @@ export class GrantsRepository {
     return currentTransaction() ?? this.rootDb
   }
 
-  /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
+  /**
+   * Every edge on one resource (ADR 9 D2 rule 4). Live authorization requires
+   * the caller to read under the lease that applies or publishes its decision.
+   * Unparseable rows are omitted.
+   */
   async listForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]> {
     const rows = await this.db
       .select()

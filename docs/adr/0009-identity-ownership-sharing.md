@@ -200,6 +200,15 @@ Rules that hold across all classes:
 4. **A grant is not a copy of rights.** It is evaluated live against the granter's current
    rights, for the same reason D5/A1 gives for delegation: a frozen grant survives the
    revocation of the person who issued it.
+   **Async-store amendment (2026-09-07, POD-3221 / POD-3266): live means read under
+   the lease that applies or publishes the decision.** Commands read rights under
+   their write lease; publication scoping reads them at the committed head under
+   the writer's lease; bootstrap reads them under its read lease. A per-batch
+   visibility prefetch may supply synchronous policy predicates only within that
+   scope. A cached visible world validates both `(cursor, authorizationRevision)`
+   under the same lease; the cursor alone cannot certify grants, since grant changes
+   need not move an entity revision or append a distinct entity change. An earlier
+   rights read followed by an unprotected await is not live authorization.
 5. **Visibility changes are not entity changes.** Granting or revoking makes entities appear
    or disappear for a principal without the entity's revision moving. The feed mechanism that
    expresses this (watermarks, rescope, an `evict` distinct from `remove`) is **ADR 2's

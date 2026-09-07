@@ -26,7 +26,7 @@ reload, backgrounding, and power loss.
 | Outbox still has a legacy localStorage key constant | `packages/client-core/src/outbox.ts` — `OUTBOX_LS_KEY = 'podium.outbox.v1'` |
 | Current replica adapter size (TanStack-backed) | `packages/client-core/src/replica/replica.ts` = **1145** lines (re-counted; POD-307’s “1,114” is stale) |
 | Replica entity kinds today | `ReplicaRows`: `sessions`, `issues`, `conversations`, `automations`, `automationRuns` |
-| Server SQLite is drizzle-kit schema-as-code; runtime repos keep raw SQL | `apps/server/src/migrations/schema.ts` (`[spec:SP-4428]`); applier `runDrizzleMigrations` in `apps/server/src/migrations/index.ts`; migrations under `apps/server/src/migrations/drizzle/` |
+| Server SQLite is drizzle-kit schema-as-code; runtime repositories use typed async drizzle queries (D5.3) | `apps/server/src/migrations/schema.ts` (`[spec:SP-4428]`); applier `runDrizzleMigrations` in `apps/server/src/migrations/index.ts`; migrations under `apps/server/src/migrations/drizzle/` |
 | Daemon has **no** drizzle dependency | `rg drizzle apps/daemon` → empty |
 | Daemon general state is JSON + in-memory; only SQLite is worker `discovery.db` | `apps/daemon/src/identity.ts` → `daemon.json`; `apps/daemon/src/discovery-worker.ts` owns `discovery.db` |
 | Codex retain-until-ack state under instance runtime namespace | `apps/daemon/src/binding-store.ts` — `SessionBinding.observations[].pendingServerAck`; the historical `runtime/codex-identity-receipts` directory is migration input only |
@@ -212,7 +212,26 @@ Three version lines stay **strictly separate** (ADR 2 must also enforce the wire
 
 #### D5.3 Server remains the sole drizzle-kit consumer (today)
 
-**Decision:** No change to [spec:SP-4428]. Server repositories keep raw SQL; drizzle is schema-authoring + migration apply only (`runDrizzleMigrations`). Clients and the daemon binding store do not join that journal.
+**Decision — amended 2026-09-07 (POD-3221 / POD-3266):** The query-layer
+confirmation in POD-3221 step 0.0 chose **drizzle with the SQLite dialect**. Server
+repositories now use typed builder queries over the existing schema, replacing the
+former “keep raw SQL” decision. The landed async adapter uses `drizzle-orm/sqlite-proxy`
+over the executor's routed `QueryClient`; bun:sqlite remains the local engine and
+the libsql remote driver implements the same executor contract for Turso. Services
+receive domain rows, and drizzle stays inside persistence.
+
+The executor owns transaction boundaries and ambient routing. Repositories use its
+transaction port, including savepoints for nesting; the query-layer type omits
+drizzle's own `transaction` method. Bound `sql` fragments may extend builder queries.
+Whole statements are confined to the search port and the marked SQLite UPDATE
+conflict-clause exception that the builder cannot express (POD-3221 spec §6 rule 1);
+identifiers are literal and runtime values are bound parameters.
+
+[spec:SP-4428]'s server schema-authoring and migration journal remain in force
+(`runDrizzleMigrations`). This changes runtime querying, not the wire version or
+client replica schema version. Clients and the daemon binding store do not join the
+server journal; D5.1 and D5.2 remain unchanged. The design and remote acceptance scope
+are recorded in [POD-3221 §3 and §5](../internal/pod-3221-spec.md).
 
 ### D6 — Migration from today’s localStorage / AsyncStorage replicas
 

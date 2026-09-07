@@ -161,9 +161,17 @@ Consequences that are the *point* of stating it this way, not side effects:
    the slice in D16.
 5. **D9 is unchanged.** A slow replica is still demoted to resync; D13 adds the rule that
    watermark-only traffic must not be what demotes it.
-6. **D10 is unchanged.** The authority still appends one change row inside one transaction.
-   Scoping happens at *read/fan-out*, never at *append* — which is precisely why global seq
-   can stay global.
+6. **D12.6 — D10's atomicity survives the async store (amended 2026-09-07,
+   POD-3221 / POD-3266).** The entity write and change append share the scheduler's
+   write unit of work. Scoping happens at *read/fan-out*, never at *append*, so seq
+   stays global. Publication follows the outermost commit through the post-commit
+   mechanisms and ordered broadcast pipe described in [D10](0002-sync-protocol.md#d10--entity--cursor--outbox-commit-in-one-transaction-on-both-sides).
+   A savepoint release cannot publish a sequence that an enclosing rollback may
+   revoke. Certified reads pair rows, head and floor in one read scope; authorization
+   is read under the lease that applies or publishes the decision (ADR 9 D2 rule 4).
+   Across Turso writers, the platform serializes per database and D10's bounded,
+   acquisition-only busy policy applies; a second process does not get an independent
+   right to interleave appends.
 7. **The authorization boundary moves inside the feed, and stays server-side.** The
    authority evaluates visibility; the replica never filters, never re-checks, and never
    receives a row it may not see. ADR 3 D7 (principal from authenticated transport only) is

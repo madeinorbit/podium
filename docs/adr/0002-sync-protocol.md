@@ -704,19 +704,66 @@ consumer, and this ADR requires it to assert *convergence*, not merely survival.
 
 **Decide.** On **both** sides of every hop, the state that must agree commits together.
 
-**Authority side** — already shipped and hereby ratified: `Ledger.commit()` runs the
-entity write and the change append in one `transact()` span, and it actively refuses
-an async `write()` because a thenable "would smuggle a Promise past transact()'s
-thenable check (it's wrapped in this object, not returned directly): the change row
-would commit now while the entity write ran later, OUTSIDE the transaction — exactly
-the torn state commit() exists to prevent" (`ledger.ts:122`). This is [spec:SP-3fe2]'s "tables as truth + transactional change
-log" realized, and it is why the feed can never disagree with the tables.
+**Authority side — amended 2026-09-07 (POD-3221 / POD-3266).** The async
+`Authority.commit()` runs authorization, arbitration, the entity write and the change
+append through the same unit of work. Awaiting a database operation does not release
+that unit. This supersedes the former `Ledger.commit()` refusal of async writes:
+[spec:SP-3fe2]'s “tables as truth + transactional change log” is now enforced by the
+executor's transaction scope and scheduler, rather than synchronous execution.
 
-Corollary, also shipped and now named: **durable messages may only be produced by the
-funnel's publish tail** — oplog append *before* fan-out — so `sync.changesSince` never
-has a hole. `message-class.ts` enforces this at the type level via `LiveServerMessage`
-(durable messages fail the raw fan-out helper's type). Type-enforced is the right
-strength for this invariant; a comment would have rotted.
+The scheduler's **write lane is the in-process single writer**. On bun:sqlite, read,
+write and exclusive work share one connection queue; a top-level write owns it from
+`BEGIN IMMEDIATE` through commit or rollback and the ordered post-commit drain.
+Ambient root-store calls join the active unit; nested transactions use savepoints,
+never a second `BEGIN`. Transaction tokens reject work after the scope closes, and
+the query-layer scope omits drizzle's `transaction` method. A savepoint release
+merges its post-commit registrations into its parent; rollback discards them. Neither
+publication nor a committed baseline may expose a sequence from a revocable span.
+
+**Commit precedes publication.** The SQL transaction closes before the post-commit
+tail runs. The executor retains the scheduler lease for ordered commit application
+and durable follow-ups; those run in a distinct post-commit context, with a follow-up
+write opening a fresh transaction on that lease. The three contracts are:
+
+- **Internal commit application:** baseline folds and mandatory cache invalidation
+  are ordered and awaited. An invariant failure marks the store unhealthy and
+  requires reseeding or restart.
+- **Durable follow-up writes:** awaited by the outer transaction promise, including
+  follow-ups they register. Their batches queue behind the current batch. A failure
+  is reported with `committed: true`, as is a failed commit application after commit;
+  neither is a rollback of the original write.
+- **External effects:** dispatched after commit, isolated per effect and reported
+  to a sink. They run at the root and are not awaited by the outer transaction
+  promise. Runner retirement likewise does not hold the write lane waiting for an
+  effect that needs a new lease; `effectsSettled()` is the separate settlement seam.
+
+Feed publication uses this post-commit boundary and the Authority's ordered broadcast
+pipe: batch N reaches its subscribers before N+1. Completion of a transaction does
+not promise settlement of asynchronous external delivery. Durable messages still
+originate from the publish tail — committed append before fan-out — rather than raw
+fan-out helpers. This preserves the type-level `LiveServerMessage` boundary and
+keeps the feed consistent with durable tables.
+
+**Turso multi-writer contract.** Each process retains one write lane; across processes,
+Turso's single writer per database supplies serialization. The
+[POD-3250 append proof](../internal/pod-3250-turso-append-proof.md#the-multi-writer-answer-and-the-retry-policy)
+measured no interleaving and gap-free sequences, including rollback of the
+AUTOINCREMENT counter. It did **not** observe a fast busy rejection: the contender
+blocked until the idle holder was reaped, then succeeded; the holder lost its span.
+
+The measured policy is acquisition-only busy retry: **3 attempts total, 50 ms initial
+backoff, doubling up to a 500 ms cap**, also bounded by the driver's write budget.
+Only classified `SQLITE_BUSY` is retryable at acquisition; `TRANSACTION_CLOSED` and
+unknown failures are fatal. A body that has begun, or an ambiguous commit, is never
+replayed by this policy. The budget and watchdog concern the idle gap between database
+statements, not total transaction duration; no non-database I/O belongs inside a write
+span. These are the remote driver's contract and measured proof, not a claim that
+Phase E's hosted backend acceptance has already shipped.
+
+Implementation: `apps/server/src/store/executor/{scheduler,executor,post-commit}.ts`,
+`sync-drizzle.ts` and `synchronous-span.ts`; kernel publication:
+`packages/sync/src/authority/authority.ts`. See also **D12.6** in
+[Amendment 1](0002-sync-protocol-amendment-1.md#d12--the-feed-is-per-principal-d2s-unscoped-clause-is-overturned-everything-else-in-d2-survives).
 
 **Replica side** — the new requirement. Entity data, the cursor `(feedId, epoch, seq)`,
 and outbox state persist in ONE transaction. A crash mid-transaction leaves the
