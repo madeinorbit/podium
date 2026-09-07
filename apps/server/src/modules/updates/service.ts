@@ -350,17 +350,23 @@ export class UpdatesService {
   private readonly terminalStatusesBeforeMachine = new Map<string, UpdateStatusMessage>()
   /** Reserved before planning, including when this host is not connected yet.
    * A missing/inactive operation handler holds the host; it never falls back to /grant. */
-  private readonly coordinatorUpdates = new Map<string, { active(): boolean; dispatch(grant: UpdateGrantMessage): void } | undefined>()
+  private readonly coordinatorUpdates = new Map<
+    string,
+    { active(): boolean | Promise<boolean>; dispatch(grant: UpdateGrantMessage): void } | undefined
+  >()
 
   reserveCoordinatorUpdate(machineId: string): void {
     if (!this.coordinatorUpdates.has(machineId)) this.coordinatorUpdates.set(machineId, undefined)
   }
 
-  handleCoordinatorUpdate(machineId: string, handler: { active(): boolean; dispatch(grant: UpdateGrantMessage): void }): void {
+  async handleCoordinatorUpdate(
+    machineId: string,
+    handler: { active(): boolean | Promise<boolean>; dispatch(grant: UpdateGrantMessage): void },
+  ): Promise<void> {
     this.coordinatorUpdates.set(machineId, handler)
     const pending = this.pendingGrants.get(machineId)
     const grant = pending?.coordinatorGrant
-    if (grant && handler.active() && this.coordinatorGrantActive(machineId, grant))
+    if (grant && (await handler.active()) && this.coordinatorGrantActive(machineId, grant))
       handler.dispatch(grant)
   }
 
@@ -378,7 +384,7 @@ export class UpdatesService {
       id: machineId, version: '', state: 'current' as const, online: false, busy: false,
       coordinator: true, presenceSource: 'supervisor' as const,
     }
-    return this.issueGrants(channel, target, [machine], [machineId], cause).length > 0
+    return (await this.issueGrants(channel, target, [machine], [machineId], cause)).length > 0
   }
 
   coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): boolean {
@@ -1346,7 +1352,7 @@ export class UpdatesService {
       canaryHealthy: true,
     })
     const issued = this.issueGrants(channel, target, [planned], selected, cause)
-    return issued.includes(machineId)
+    return (await issued).includes(machineId)
       ? { result: 'granted', version: target.version }
       : { result: 'offline' }
   }
@@ -1379,7 +1385,7 @@ export class UpdatesService {
     if (!machine.online) return { result: 'offline' }
     this.clearMachineVerdicts(channel, [machineId], { keepCanaryProof: true })
     const issued = this.issueGrants(channel, target, [machine], [machine.id], cause, true)
-    return issued.includes(machineId)
+    return (await issued).includes(machineId)
       ? { result: 'granted', version: target.version }
       : { result: 'offline' }
   }
@@ -1452,8 +1458,8 @@ export class UpdatesService {
      * log line, and recording every one of them would bury the handful of rounds
      * that constitute the wave under hundreds that changed nothing.
      */
-    if (issued.length > 0) {
-      const granted = issued.map((machineId) => {
+    if ((await issued).length > 0) {
+      const granted = (await issued).map(async (machineId) => {
         const machine = channelMachines.find((candidate) => candidate.id === machineId)
         return { id: machineId, ...(machine?.name ? { name: machine.name } : {}) }
       })
@@ -1819,14 +1825,14 @@ export class UpdatesService {
    * site cannot compile without answering "on whose authority", which is the
    * half a log line can never enforce.
    */
-  private issueGrants(
+  private async issueGrants(
     channel: UpdateChannel,
     target: UpdateTarget,
     machines: readonly WaveMachine[],
     selected: readonly string[],
     cause: GrantCause,
     repair = false,
-  ): string[] {
+  ): Promise<string[]> {
     this.assertPersistence()
     if (this.deps.recoveryOnly)
       throw new Error('Update grants are disabled during recovery-only startup')
@@ -1838,7 +1844,7 @@ export class UpdatesService {
       // assembled its context. A supervisor coordinator never receives /grant.
       const coordinatorOwned = this.coordinatorUpdates.has(machineId) ||
         (machine?.coordinator === true && machine.presenceSource === 'supervisor')
-      if (coordinatorOwned && !coordinatorHandler?.active()) continue
+      if (coordinatorOwned && !(await coordinatorHandler?.active())) continue
       if (coordinatorOwned) {
         if (!this.coordinatorUpdateApproved(channel, target))
           throw new Error('Coordinator update requires approval of the exact target.')

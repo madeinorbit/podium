@@ -693,7 +693,7 @@ export class SessionRegistry {
       recoveryOnly,
       targetVersion: async (machineId) =>
         updates ? await updates.targetVersion(machineId) : options.targetVersion?.(),
-      targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
+      targetUnavailableReason: async (machineId) => await updates?.targetUnavailableReasonFor(machineId),
       // POD-1882: read per call, not captured — Settings → Updates writes the fleet
       // default into config.json, and an unpinned machine must follow the CURRENT
       // value rather than whatever it was when this server booted.
@@ -822,7 +822,7 @@ export class SessionRegistry {
       approvedTarget: async (channel) => await this.store.operations.approvedTarget(channel),
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      onTargetChanged: (channel) => targetChanged?.(channel),
+      onTargetChanged: async (channel) => await targetChanged?.(channel),
       /**
        * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
        *
