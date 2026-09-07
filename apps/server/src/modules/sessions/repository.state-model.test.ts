@@ -13,11 +13,11 @@
  *    change while persistence is awaiting, and does: a pty does not stop
  *    producing output because a metadata row is being written.
  *
- * HOW AN INTERLEAVING IS PRODUCED HERE. `persist` is synchronous top to bottom,
- * so there is no await to park on. The ledger port is the seam: re-entering the
- * repository from inside an open `commit` is the window an awaited commit will
- * open, and it is the only one available today. Same technique, and same
- * reason, as POD-3258's guard tests.
+ * HOW AN INTERLEAVING IS PRODUCED HERE. The async ledger fixture awaits the
+ * row write and a one-shot hook before returning or rejecting the commit.
+ * A racing hook awaits the winning persist before the losing commit rejects,
+ * so rollback must observe the winner's installed baseline. Tests await every
+ * persist/write and assert rejected promises, matching the repository contract.
  *
  * The ports object follows the idiom of `repository.single-flight.test.ts` next
  * door: only the ports this path touches are real.
@@ -50,7 +50,7 @@ function fixture() {
   const session = makeSession()
   const sessions = new Map([[session.sessionId, session]])
   const upserted: { id: string; title: string | null; name: string | null }[] = []
-  let during: { fn: () => void; when: 'before' | 'after' } | null = null
+  let during: { fn: () => void | Promise<void>; when: 'before' | 'after' } | null = null
   let fail = false
   const repo = new SessionRepository({
     sessions,
@@ -61,14 +61,14 @@ function fixture() {
       },
     },
     ledger: {
-      commit: ({ write }: { write: () => void }) => {
+      commit: async ({ write }: { write: () => Promise<void> }) => {
         const hook = during
         during = null
         const shouldFail = fail
         fail = false
-        if (hook?.when === 'before') hook.fn()
-        write()
-        if (hook?.when === 'after') hook.fn()
+        if (hook?.when === 'before') await hook.fn()
+        await write()
+        if (hook?.when === 'after') await hook.fn()
         if (shouldFail) throw new Error('commit failed')
         return { changes: [] }
       },
@@ -91,7 +91,7 @@ function fixture() {
     repo,
     session,
     upserted,
-    duringNextWrite(fn: () => void, when: 'before' | 'after' = 'after') {
+    duringNextWrite(fn: () => void | Promise<void>, when: 'before' | 'after' = 'after') {
       during = { fn, when }
     },
     failNextWrite() {
@@ -101,7 +101,7 @@ function fixture() {
 }
 
 describe('the committed baseline is the draft, not a later re-capture', () => {
-  it('installs what was written, even when the live object moves during the write', () => {
+  it('installs what was written, even when the live object moves during the write', async () => {
     // Re-reading the session AFTER the commit — which is what this did before
     // POD-3259 — bakes whatever changed during the write into the baseline. The
     // next rollback then restores a state no commit ever saw.
@@ -110,22 +110,22 @@ describe('the committed baseline is the draft, not a later re-capture', () => {
     f.duringNextWrite(() => {
       f.session.title = 'changed mid-write'
     })
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     expect(f.upserted).toEqual([{ id: 'model-1', title: 'written title', name: null }])
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('written title')
   })
 
-  it('does not move the baseline until the commit returns', () => {
+  it('does not move the baseline until the commit returns', async () => {
     const f = fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
     f.session.title = 'second write'
 
     let observed: string | undefined
     f.duringNextWrite(() => {
       observed = f.repo.committedDurableState(f.session.sessionId)?.title
     })
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     expect(observed, 'a reader inside the span sees the previous baseline').toBe(
       'committed title',
@@ -135,29 +135,29 @@ describe('the committed baseline is the draft, not a later re-capture', () => {
 })
 
 describe('a rollback racing a successful persist', () => {
-  it('restores the LATEST baseline, so the winner survives the loser rolling back', () => {
+  it('restores the LATEST baseline, so the winner survives the loser rolling back', async () => {
     // spec §2.5 item 9's session half, and the case that settles which baseline
     // a rollback restores. The tempting answer — stand down when another
     // persist committed while this one was in flight — loses here: the failed
     // write's own uncommitted fields would stay on the live object. Restoring
     // the latest committed state undoes them AND keeps the winner's.
     const f = fixture()
-    f.repo.persist(f.session) // baseline: 'committed title'
+    await f.repo.persist(f.session) // baseline: 'committed title'
 
     f.session.title = 'loser'
-    f.duringNextWrite(() => {
+    f.duringNextWrite(async () => {
       // The winner runs inside the loser's span and commits first.
       f.session.title = 'winner'
-      f.repo.persist(f.session)
+      await f.repo.persist(f.session)
     })
     f.failNextWrite()
-    expect(() => f.repo.persist(f.session)).toThrow('commit failed')
+    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
 
     expect(f.session.title, 'the winner survives the loser rolling back').toBe('winner')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('winner')
   })
 
-  it("a winner writes only its OWN fields, not the loser's uncommitted ones", () => {
+  it("a winner writes only its OWN fields, not the loser's uncommitted ones", async () => {
     // THE CASE POD-3330 EXISTS FOR, and until POD-3330 this test stood here as a
     // named CHARACTERIZATION of the opposite behaviour.
     //
@@ -175,20 +175,20 @@ describe('a rollback racing a successful persist', () => {
     // same field the two behaviours are indistinguishable, which is why it took
     // this arm to find it.
     const f = fixture()
-    f.repo.persist(f.session) // baseline: title 'committed title', name ''
+    await f.repo.persist(f.session) // baseline: title 'committed title', name ''
 
-    f.duringNextWrite(() => {
+    f.duringNextWrite(async () => {
       // The winner runs inside the loser's span and commits first.
-      f.repo.write(f.session, (draft) => {
+      await f.repo.write(f.session, (draft) => {
         draft.title = 'winner'
       })
     })
     f.failNextWrite()
-    expect(() =>
+    await expect(
       f.repo.write(f.session, (draft) => {
         draft.name = 'loser name'
       }),
-    ).toThrow('commit failed')
+    ).rejects.toThrow('commit failed')
 
     expect(f.session.title, "the winner's field survives").toBe('winner')
     expect(
@@ -201,16 +201,16 @@ describe('a rollback racing a successful persist', () => {
     ).toBe('')
   })
 
-  it('still rolls the durable half back when nothing else committed', () => {
+  it('still rolls the durable half back when nothing else committed', async () => {
     // The arm the case above does not walk: with no racing write, the rollback
     // must still happen, or the guard would be indistinguishable from deleting
     // the restore altogether.
     const f = fixture()
-    f.repo.persist(f.session) // baseline: 'committed title'
+    await f.repo.persist(f.session) // baseline: 'committed title'
 
     f.session.title = 'never committed'
     f.failNextWrite()
-    expect(() => f.repo.persist(f.session)).toThrow('commit failed')
+    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
 
     expect(f.session.title).toBe('committed title')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('committed title')
@@ -218,14 +218,14 @@ describe('a rollback racing a successful persist', () => {
 })
 
 describe('a drafted write is invisible until its commit returns [POD-3330]', () => {
-  it('the row and the declared change describe the DRAFT, not the live object', () => {
+  it('the row and the declared change describe the DRAFT, not the live object', async () => {
     // The row is built from the draft, so a write that assigns inside the
     // TRANSACTION has to assign into the draft too — that is what the ref
     // allocation, the observation rebind and the runtime state projection all
     // do. If `toRow` read the live object instead, this row would be written
     // with the previous name and nothing would fail anywhere else.
     const f = fixture()
-    f.repo.write(
+    await f.repo.write(
       f.session,
       (draft) => {
         draft.title = 'drafted title'
@@ -237,19 +237,19 @@ describe('a drafted write is invisible until its commit returns [POD-3330]', () 
     expect(f.upserted).toEqual([{ id: 'model-1', title: 'drafted title', name: null }])
   })
 
-  it('a reader inside the span still sees the previous state on the live session', () => {
+  it('a reader inside the span still sees the previous state on the live session', async () => {
     // The whole point of the draft: between the write and its commit, the
     // shared object says what the last commit said. A second writer entering
     // here — which is what the interleaving above does — captures that, and not
     // this writer's half-finished change.
     const f = fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     let observedLive: string | undefined
     f.duringNextWrite(() => {
       observedLive = f.session.title
     })
-    f.repo.write(f.session, (draft) => {
+    await f.repo.write(f.session, (draft) => {
       draft.title = 'in flight'
     })
 
@@ -261,19 +261,19 @@ describe('a drafted write is invisible until its commit returns [POD-3330]', () 
 })
 
 describe('the live terminal half may change while persistence is awaiting', () => {
-  it('is not rolled back with the durable metadata', () => {
+  it('is not rolled back with the durable metadata', async () => {
     // The field classification, asserted rather than only documented: activity
     // recorded while the write was open survives the rollback that undoes the
     // metadata beside it.
     const f = fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     f.session.title = 'never committed'
     f.duringNextWrite(() => {
       f.session.terminal.recordResumeActivity()
     })
     f.failNextWrite()
-    expect(() => f.repo.persist(f.session)).toThrow('commit failed')
+    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
 
     expect(f.session.title, 'the durable half rolled back').toBe('committed title')
     expect(
