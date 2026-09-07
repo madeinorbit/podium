@@ -122,7 +122,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
       // gateway's own renegotiation reads back (`conn.caps.has(CAP_METADATA_DELTA)`).
       // Applying caps is a transport fact, not the thing under test; without it
       // every peer here would stay pre-hello and never reach the v2 frames.
-      onSessionClientFrame: async (_principal, conn: ClientConn, msg) => {
+      onSessionClientFrame: (_principal, conn: ClientConn, msg) => {
         if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
       },
       onSessionClientInput: vi.fn(),

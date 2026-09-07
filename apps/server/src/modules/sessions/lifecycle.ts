@@ -550,8 +550,8 @@ export class SessionLifecycle {
   ): Promise<'granted' | 'denied' | 'absent'> {
     return this.sessionAuthz.machineUseForClient(principal, sessionId)
   }
-  authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
-    return this.sessionAuthz.authorizeClientDrive(principal, sessionId)
+  authorizeClientDrive(...args: any[]): any {
+    return (this.sessionAuthz as any).authorizeClientDrive(...args)
   }
   setOffer(...args: any[]): void {
     ;(this.sessionMetaOps as any).setOffer(...args)
@@ -803,17 +803,17 @@ export class SessionLifecycle {
   onClientReclaim(...args: any[]): void {
     ;(this.sessionClientPlane as any).onClientReclaim(...args)
   }
-  onClientDetached(...args: Parameters<SessionClientPlane['onClientDetached']>): Promise<void> {
-    return this.sessionClientPlane.onClientDetached(...args)
+  onClientDetached(...args: any[]): void {
+    ;(this.sessionClientPlane as any).onClientDetached(...args)
   }
   onOpenUrl(...args: any[]): void {
     ;(this.sessionClientPlane as any).onOpenUrl(...args)
   }
-  onSessionClientFrame(...args: Parameters<SessionClientPlane['onSessionClientFrame']>): Promise<void> {
-    return this.sessionClientPlane.onSessionClientFrame(...args)
+  onSessionClientFrame(...args: any[]): void {
+    ;(this.sessionClientPlane as any).onSessionClientFrame(...args)
   }
-  onSessionClientInput(...args: Parameters<SessionClientPlane['onSessionClientInput']>): Promise<void> {
-    return this.sessionClientPlane.onSessionClientInput(...args)
+  onSessionClientInput(...args: any[]): void {
+    ;(this.sessionClientPlane as any).onSessionClientInput(...args)
   }
   async onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
     await this.daemonLifecycle.handle(principal, msg)

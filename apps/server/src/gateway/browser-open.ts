@@ -19,7 +19,7 @@ export interface BrowserOpenGatewayDeps {
   clients: ClientRegistry
   subscriptions: SubscriptionRegistry
   session(sessionId: SessionId): BrowserOpenSession | undefined
-  sessionOwner(sessionId: SessionId): Promise<BrowserOpenOwnership | undefined>
+  sessionOwner(sessionId: SessionId): BrowserOpenOwnership | undefined
   toMachine(machineId: MachineId, message: ControlMessage): void
 }
 
@@ -86,11 +86,10 @@ export class BrowserOpenGateway {
     this.deliverResult({ ...result, ...(resolvedBy ? { resolvedBy } : {}) })
   }
 
-  async submitCallback(
+  submitCallback(
     client: ClientConn,
     message: Extract<ClientMessage, { type: 'sessionOpenUrlCallback' }>,
-  ): Promise<void> {
-    const maySee = await this.clientMaySeeSession(client, message.sessionId)
+  ): void {
     const requestKey = this.key(message.sessionId, message.requestId)
     const request = this.pending.get(requestKey)
     const session = this.deps.session(message.sessionId)
@@ -100,7 +99,7 @@ export class BrowserOpenGateway {
       !session ||
       request.expiresAt <= this.deps.now() ||
       !this.clientInSessionRoom(client, message.sessionId) ||
-      !maySee
+      !this.clientMaySeeSession(client, message.sessionId)
     ) {
       this.deps.clients.deliver(client, {
         type: 'sessionOpenUrlResult',
@@ -121,16 +120,15 @@ export class BrowserOpenGateway {
     })
   }
 
-  async dismiss(
+  dismiss(
     client: ClientConn,
     message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>,
-  ): Promise<void> {
-    const maySee = await this.clientMaySeeSession(client, message.sessionId)
+  ): void {
     const requestKey = this.key(message.sessionId, message.requestId)
     if (
       !this.pending.has(requestKey) ||
       !this.clientInSessionRoom(client, message.sessionId) ||
-      !maySee
+      !this.clientMaySeeSession(client, message.sessionId)
     )
       return
     const session = this.deps.session(message.sessionId)
@@ -192,10 +190,10 @@ export class BrowserOpenGateway {
     })
   }
 
-  private async clientMaySeeSession(client: ClientConn, sessionId: SessionId): Promise<boolean> {
+  private clientMaySeeSession(client: ClientConn, sessionId: SessionId): boolean {
     // Use the same live owner/grant facts the feed visibility policy reads; no
     // connection-cached authorization copy can outlive a grant revocation.
-    const ownership = await this.deps.sessionOwner(sessionId)
+    const ownership = this.deps.sessionOwner(sessionId)
     if (!ownership) return false
     return (
       ownership.owner === client.principal.user || ownership.grants.includes(client.principal.user)

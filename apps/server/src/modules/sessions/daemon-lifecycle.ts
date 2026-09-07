@@ -809,7 +809,7 @@ export class SessionDaemonLifecycle {
         ) {
           this.ports.onSessionTurnEnd(session.sessionId)
         }
-        await this.inbox.stateChanged({
+        this.inbox.stateChanged({
           sessionId: session.sessionId,
           prev,
           next,
@@ -914,7 +914,7 @@ export class SessionDaemonLifecycle {
         }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
-        await this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
+        this.inbox.stateChanged({ sessionId: msg.sessionId, prev, next })
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
           await this.state.clearAllSnoozes(msg.sessionId)
         }

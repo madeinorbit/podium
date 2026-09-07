@@ -15,7 +15,7 @@ import {
 } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
-import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipFromMachines, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
 import type { IssueRow, SessionRow } from '../../store/types'
@@ -61,11 +61,11 @@ export interface SessionAuthzStorePort {
 }
 
 export interface SessionAuthzPorts {
-  clientControl: import('./client-control').SessionClientControl
+  clientControl: any
   deps: any
   listSessions: any
   sessionById: any
-  machines: import('../../machine-access').AsyncMachineRowSource
+  machines: any
   /** The LIVE registry — an in-memory map, synchronous and staying that way.
    *  Typed rather than `any` because every durable fallback in this file is
    *  spelled `live ?? store.sessions.getSession(id)`, and an `any` on the left
@@ -267,7 +267,7 @@ export class SessionAuthz {
       (await this.ports.store.sessions.getSession(sessionId))
     if (!session) return 'absent'
     const command = userCommandPrincipal(asUserId(principal.user), principal.role)
-    const ownership = await ownershipSnapshotFromMachines(this.ports.machines)
+    const ownership = ownershipFromMachines(this.ports.machines)
     // machineUseDecision collapses absent+denied to 'denied' when the principal
     // cannot see the machine; attach maps both to terminalOutcome unauthorized.
     return machineUseDecision(command, session.machineId, ownership) === 'granted'
@@ -276,7 +276,7 @@ export class SessionAuthz {
   }
 
   /** Live drive gate for requestControl / controller input (POD-1081 §3). */
-  authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
+  authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
     return this.ports.clientControl.authorizeDrive(principal, sessionId)
   }
 

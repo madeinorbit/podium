@@ -28,11 +28,7 @@ import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
 
 /** `Promise.withResolvers` needs lib es2024; this package targets lower (POD-3509). */
-function deferred<T = void>(): {
-  promise: Promise<T>
-  resolve: (v: T) => void
-  reject: (e: unknown) => void
-} {
+function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
   let resolve!: (v: T) => void
   let reject!: (e: unknown) => void
   const promise = new Promise<T>((res, rej) => {
@@ -41,6 +37,7 @@ function deferred<T = void>(): {
   })
   return { promise, resolve, reject }
 }
+
 
 /**
  * The two lookups the gate ANDs together are independently forceable to `null`
@@ -343,11 +340,9 @@ describe('the connection lifecycle', () => {
 
   it('acknowledges binary input only after hello and routes bytes under transport identity', async () => {
     const h = await harness()
-    vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation(
-      async (_principal, conn, msg) => {
-        if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
-      },
-    )
+    vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation((_principal, conn, msg) => {
+      if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
+    })
     const hello = {
       type: 'hello' as const,
       clientId: 'forged-client-id',
@@ -365,7 +360,7 @@ describe('the connection lifecycle', () => {
     expect(h.mux.acceptsClientInputBinary(h.id)).toBe(true)
 
     const bytes = Uint8Array.of(0, 0xff, 0x1b, 0x0d)
-    await h.mux.routeClientInputBytes(h.id, asSessionId('s1'), bytes)
+    h.mux.routeClientInputBytes(h.id, asSessionId('s1'), bytes)
     expect(h.ports.sessions.onSessionClientInput).toHaveBeenCalledWith(
       h.mux.principalOf(h.id),
       h.registry.get(h.id),
@@ -376,7 +371,7 @@ describe('the connection lifecycle', () => {
 
   it('removes the connection BEFORE the sweep, and hands the sweep its record', async () => {
     const h = await harness()
-    vi.mocked(h.ports.sessions.onClientDetached).mockImplementation(async () => {
+    vi.mocked(h.ports.sessions.onClientDetached).mockImplementation(() => {
       // Asserted from INSIDE the port call: a re-entrant fan-out during the sweep
       // must not reach a socket that is already gone.
       expect(h.registry.get(h.id)).toBeUndefined()
@@ -508,35 +503,4 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
     f.registry.broadcast(NOTE)
     expect([...f.inboxes.values()].every((inbox) => inbox.length === 1)).toBe(true)
   })
-})
-
-it('holds control and both input encodings behind a pending attach', async () => {
-  const h = await harness()
-  const attach = deferred()
-  const seen: string[] = []
-  h.registry.get(h.id)!.caps.add(CAP_TERMINAL_INPUT_BINARY_V1)
-  vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation(
-    async (_principal, _conn, msg) => {
-      seen.push(msg.type)
-      if (msg.type === 'attach') await attach.promise
-    },
-  )
-  vi.mocked(h.ports.sessions.onSessionClientInput).mockImplementation(async () => {
-    seen.push('binary')
-  })
-  const attached = h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
-  const controlled = h.mux.routeClientFrame(h.id, {
-    type: 'requestControl',
-    sessionId: A_ROUTABLE_FRAME.sessionId,
-  })
-  const text = h.mux.routeClientFrame(h.id, {
-    type: 'input',
-    sessionId: A_ROUTABLE_FRAME.sessionId,
-    data: 'eA==',
-  })
-  const binary = h.mux.routeClientInputBytes(h.id, A_ROUTABLE_FRAME.sessionId, Buffer.from('y'))
-  expect(seen).toEqual(['attach'])
-  attach.resolve()
-  await Promise.all([attached, controlled, text, binary])
-  expect(seen).toEqual(['attach', 'requestControl', 'input', 'binary'])
 })

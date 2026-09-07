@@ -256,7 +256,7 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
   function realInbox(session: Session): SessionInbox {
     return new SessionInbox({
       getSession: (id: SessionId) => (id === SESSION ? session : undefined),
-      authorizeDrive: async () => true,
+      authorizeDrive: () => true,
     } as never)
   }
 
@@ -272,17 +272,17 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
       pushPriorities: vi.fn(),
       setDraft: vi.fn(),
       editDraft: vi.fn(),
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
-      machineUseFor: async () => 'granted' as const,
+      sessionOwner: () => ({ owner: OWNER, grants: [] }),
+      machineUseFor: () => 'granted' as const,
     } as never)
   }
 
-  it('leaving VISIBLE deletes the viewport', async () => {
+  it('leaving VISIBLE deletes the viewport', () => {
     const session = makeSession()
     const ctl = control(session, realInbox(session))
     const client = makeClient('c-view')
-    await ctl.onFrame(client.principal, client, { type: 'attach', sessionId: SESSION })
-    await ctl.onFrame(client.principal, client, {
+    ctl.onFrame(client.principal, client, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(client.principal, client, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -290,16 +290,16 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
     })
     client.viewports.set(SESSION, { cols: 150, rows: 50 })
 
-    await ctl.onFrame(client.principal, client, { type: 'viewState', visible: [], focused: null })
+    ctl.onFrame(client.principal, client, { type: 'viewState', visible: [], focused: null })
     expect(client.viewports.has(SESSION)).toBe(false)
   })
 
-  it('staying visible but switching OFF native (chat) also deletes the viewport', async () => {
+  it('staying visible but switching OFF native (chat) also deletes the viewport', () => {
     const session = makeSession()
     const ctl = control(session, realInbox(session))
     const client = makeClient('c-chat')
-    await ctl.onFrame(client.principal, client, { type: 'attach', sessionId: SESSION })
-    await ctl.onFrame(client.principal, client, {
+    ctl.onFrame(client.principal, client, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(client.principal, client, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -307,7 +307,7 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
     })
     client.viewports.set(SESSION, { cols: 150, rows: 50 })
 
-    await ctl.onFrame(client.principal, client, {
+    ctl.onFrame(client.principal, client, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -316,7 +316,7 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
     expect(client.viewports.has(SESSION)).toBe(false)
   })
 
-  it('reconcileActiveRenderer refuses to promote a sole renderer whose viewport was just deleted', async () => {
+  it('reconcileActiveRenderer refuses to promote a sole renderer whose viewport was just deleted', () => {
     const session = makeSession()
     const inbox = realInbox(session)
     const ctl = control(session, inbox)
@@ -325,8 +325,8 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
     const desktop = makeClient('c-desktop')
     const phone = makeClient('c-phone')
     for (const c of [desktop, phone]) {
-      await ctl.onFrame(c.principal, c, { type: 'attach', sessionId: SESSION })
-      await ctl.onFrame(c.principal, c, {
+      ctl.onFrame(c.principal, c, { type: 'attach', sessionId: SESSION })
+      ctl.onFrame(c.principal, c, {
         type: 'viewState',
         visible: [SESSION],
         focused: SESSION,
@@ -338,14 +338,14 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
     // The phone HAS a viewport, so it would be promotable...
     phone.viewports.set(SESSION, { cols: 62, rows: 36 })
     // ...but its own viewState (going to chat, then back to native) deletes it.
-    await ctl.onFrame(phone.principal, phone, {
+    ctl.onFrame(phone.principal, phone, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
       modes: { [SESSION]: 'chat' },
     })
     expect(phone.viewports.has(SESSION)).toBe(false)
-    await ctl.onFrame(phone.principal, phone, {
+    ctl.onFrame(phone.principal, phone, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -354,20 +354,20 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
 
     // The desktop leaves native. The phone is now the SOLE native renderer —
     // and is refused, because it has no recorded viewport.
-    await ctl.onFrame(desktop.principal, desktop, {
+    ctl.onFrame(desktop.principal, desktop, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
       modes: { [SESSION]: 'chat' },
     })
     expect(session.terminal.activeNativeRenderers().map((c) => c.id)).toEqual(['c-phone'])
-    expect(await inbox.reconcileActiveRenderer(SESSION)).toBe(false)
+    expect(inbox.reconcileActiveRenderer(SESSION)).toBe(false)
     expect(session.terminal.controllerId).toBe('c-desktop')
 
     // With a viewport it promotes — proving the refusal above is the viewport
     // guard and not some other precondition.
     phone.viewports.set(SESSION, { cols: 62, rows: 36 })
-    expect(await inbox.reconcileActiveRenderer(SESSION)).toBe(true)
+    expect(inbox.reconcileActiveRenderer(SESSION)).toBe(true)
     expect(session.terminal.controllerId).toBe('c-phone')
   })
 })

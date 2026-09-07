@@ -50,7 +50,7 @@ export interface SessionClientControlPorts {
    * away from being an unwired one. A fixture that does not care now says so
    * explicitly — see the test helpers in session-control-identity.test.ts.
    */
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
   /**
    * Machine `use` for this principal on the session's host. REQUIRED — see
    * `sessionOwner` above. `MachineUseDecision` deliberately has no `'unknown'`
@@ -60,7 +60,7 @@ export interface SessionClientControlPorts {
   machineUseFor(
     principal: ClientPrincipal,
     sessionId: SessionId,
-  ): Promise<SessionControlContext['machineUse']>
+  ): SessionControlContext['machineUse']
   /**
    * Room occupancy count for a session (presence plane). When provided,
    * `clientCount` is derived from it rather than from the attach-set size.
@@ -101,16 +101,16 @@ export class SessionClientControl {
     })
   }
 
-  async onDetached(_principal: ClientPrincipal, client: ClientConn): Promise<void> {
+  onDetached(_principal: ClientPrincipal, client: ClientConn): void {
     for (const sessionId of client.attached) {
       this.ports.mutate(
         sessionId,
         (session) => {
           session.terminal.detachClient(client.id)
+          this.ports.inbox.reconcileActiveRenderer(sessionId)
         },
         false,
       )
-      await this.ports.inbox.reconcileActiveRenderer(sessionId)
       this.ports.sessionRoomLeave?.(client, sessionId)
     }
     for (const sessionId of client.transcriptSubs) {
@@ -120,20 +120,16 @@ export class SessionClientControl {
     this.ports.broadcastSessions()
   }
 
-  async onInputBytes(
+  onInputBytes(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     bytes: Uint8Array,
-  ): Promise<void> {
-    await this.ports.inbox.handleControllerInputBytes(principal, client, sessionId, bytes)
+  ): void {
+    this.ports.inbox.handleControllerInputBytes(principal, client, sessionId, bytes)
   }
 
-  async onFrame(
-    principal: ClientPrincipal,
-    client: ClientConn,
-    message: SessionsClientFrame,
-  ): Promise<void> {
+  onFrame(principal: ClientPrincipal, client: ClientConn, message: SessionsClientFrame): void {
     const id = client.id
     switch (message.type) {
       case 'hello':
@@ -165,8 +161,8 @@ export class SessionClientControl {
         // Visibility + machine use both gate attach (POD-1081 §4). Absent session
         // and denied rights share the same unauthorized outcome — no existence
         // oracle (ADR 3 Amendment 1 D20).
-        const allowed = await this.authorizeAttach(principal, message.sessionId, session)
-        if (!allowed || !session || this.ports.sessions.get(message.sessionId) !== session) {
+        const allowed = this.authorizeAttach(principal, message.sessionId, session)
+        if (!allowed || !session) {
           client.send({
             type: 'terminalOutcome',
             sessionId: message.sessionId,
@@ -189,10 +185,10 @@ export class SessionClientControl {
           message.sessionId,
           (current) => {
             current.terminal.attachClient(client, message.sinceSeq)
+            this.ports.inbox.reconcileActiveRenderer(message.sessionId)
           },
           false,
         )
-        await this.ports.inbox.reconcileActiveRenderer(message.sessionId)
         // Watching a terminal is room membership — clientCount derives from it.
         this.ports.sessionRoomJoin?.(client, message.sessionId)
         this.ports.broadcastSessions()
@@ -212,10 +208,10 @@ export class SessionClientControl {
           message.sessionId,
           (session) => {
             session.terminal.detachClient(id)
+            this.ports.inbox.reconcileActiveRenderer(message.sessionId)
           },
           false,
         )
-        await this.ports.inbox.reconcileActiveRenderer(message.sessionId)
         this.ports.sessionRoomLeave?.(client, message.sessionId)
         this.ports.broadcastSessions()
         this.ports.pushPriorities()
@@ -228,34 +224,30 @@ export class SessionClientControl {
         break
       }
       case 'input':
-        await this.onInputBytes(
-          principal,
-          client,
-          message.sessionId,
-          Buffer.from(message.data, 'base64'),
-        )
+        this.onInputBytes(principal, client, message.sessionId, Buffer.from(message.data, 'base64'))
         break
       case 'resize':
         {
-          const controllerChanged = await this.ports.inbox.handleResize(
-            principal,
-            client,
-            message.sessionId,
-            message.cols,
-            message.rows,
-          )
-          this.ports.mutate(message.sessionId, () => {})
+          let controllerChanged = false
+          this.ports.mutate(message.sessionId, () => {
+            controllerChanged = this.ports.inbox.handleResize(
+              principal,
+              client,
+              message.sessionId,
+              message.cols,
+              message.rows,
+            )
+          })
           if (controllerChanged) this.ports.broadcastSessions()
         }
         break
       case 'requestControl':
-        await this.ports.inbox.requestControl(
-          principal,
-          client,
+        this.ports.mutate(
           message.sessionId,
-          message.geometry,
+          () =>
+            this.ports.inbox.requestControl(principal, client, message.sessionId, message.geometry),
+          false,
         )
-        this.ports.mutate(message.sessionId, () => {}, false)
         this.ports.broadcastSessions()
         break
       case 'viewportRequest':
@@ -263,13 +255,15 @@ export class SessionClientControl {
           // THE ONE ASK (POD-3239 B4/B6). One frame, one server path: the
           // watermark, the counted refusal, and forward-don't-write all live in
           // `SessionTerminal.handleViewportRequest`.
-          const controllerChanged = await this.ports.inbox.handleViewportRequest(
-            principal,
-            client,
-            message.sessionId,
-            message,
-          )
-          this.ports.mutate(message.sessionId, () => {})
+          let controllerChanged = false
+          this.ports.mutate(message.sessionId, () => {
+            controllerChanged = this.ports.inbox.handleViewportRequest(
+              principal,
+              client,
+              message.sessionId,
+              message,
+            )
+          })
           if (controllerChanged) this.ports.broadcastSessions()
         }
         break
@@ -303,9 +297,9 @@ export class SessionClientControl {
         }
         for (const sessionId of affected) {
           if (!this.ports.sessions.has(sessionId)) continue
-          controllerChanged =
-            (await this.ports.inbox.reconcileActiveRenderer(sessionId)) || controllerChanged
           this.ports.mutate(sessionId, () => {
+            controllerChanged =
+              this.ports.inbox.reconcileActiveRenderer(sessionId) || controllerChanged
             this.ports.inbox.reconcileGeometry(principal, client, sessionId)
           })
         }
@@ -320,10 +314,10 @@ export class SessionClientControl {
         this.ports.editDraft(message, id)
         break
       case 'sessionOpenUrlCallback':
-        await this.ports.browserOpen.submitCallback(client, message)
+        this.ports.browserOpen.submitCallback(client, message)
         break
       case 'sessionOpenUrlDismiss':
-        await this.ports.browserOpen.dismiss(client, message)
+        this.ports.browserOpen.dismiss(client, message)
         break
     }
   }
@@ -338,26 +332,26 @@ export class SessionClientControl {
    * Attach requires session visibility AND machine `use`. Session share alone
    * must not open a PTY on a machine the principal cannot use.
    */
-  private async authorizeAttach(
+  private authorizeAttach(
     principal: ClientPrincipal,
     sessionId: SessionId,
     session: Session | undefined,
-  ): Promise<boolean> {
+  ): boolean {
     if (!session) return false
-    const owner = await this.ports.sessionOwner(sessionId)
+    const owner = this.ports.sessionOwner(sessionId)
     // No resolvable owner ⇒ denied. Not "unknown, probably fine": a session
     // whose owner cannot be resolved is indistinguishable from one that does not
     // exist, which is also the consistent-error rule (§3.1.5).
     if (!owner) return false
-    const ctx = contextFromOwnership(owner, await this.ports.machineUseFor(principal, sessionId))
+    const ctx = contextFromOwnership(owner, this.ports.machineUseFor(principal, sessionId))
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
   }
 
   /** Drive rights for requestControl — owner / write grantee / admin + machine use. */
-  async authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
-    const owner = await this.ports.sessionOwner(sessionId)
+  authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
+    const owner = this.ports.sessionOwner(sessionId)
     if (!owner) return false
-    const ctx = contextFromOwnership(owner, await this.ports.machineUseFor(principal, sessionId))
+    const ctx = contextFromOwnership(owner, this.ports.machineUseFor(principal, sessionId))
     return mayDrive(controlSubjectFromClient(principal), ctx) === true
   }
 }

@@ -83,7 +83,7 @@ export interface RuntimeEventGatePorts {
   }): RuntimeStateProjection | undefined
   /** Publish the committed state to the same consumers as the compatibility
    * agentState frame. This is deliberately downstream of {@link state}. */
-  stateChanged?(input: RuntimeStateProjection & { sessionId: SessionId }): Promise<void>
+  stateChanged?(input: RuntimeStateProjection & { sessionId: SessionId }): void
   /**
    * COARSE TURN BOUNDARIES, for the failure→interaction gate (POD-2414).
    *
@@ -247,7 +247,7 @@ export class RuntimeEventGate {
     this.readySessions.add(sessionId)
     await this.ports.events.announceEvent(eventId)
     if (stateProjection) {
-      await this.ports.stateChanged?.({ sessionId, ...stateProjection })
+      this.ports.stateChanged?.({ sessionId, ...stateProjection })
     }
     await this.scheduleBoardProjection()
     return { kind: 'accepted', eventId }

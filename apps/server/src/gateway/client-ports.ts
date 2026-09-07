@@ -46,18 +46,18 @@ export interface SessionsClientPort {
    * it held, then recompute priorities. The registry entry is ALREADY removed
    * when this runs — see `client-mux.ts` for why that ordering is safe.
    */
-  onClientDetached(principal: ClientPrincipal, conn: ClientConn): Promise<void>
+  onClientDetached(principal: ClientPrincipal, conn: ClientConn): void
   /** A stream room join succeeded; apply feature-owned join consequences. */
   onRoomJoined(conn: ClientConn, room: RoomRef): void
   /** One session-owned frame, attributed to the connection it arrived on. */
-  onSessionClientFrame(principal: ClientPrincipal, conn: ClientConn, msg: SessionsClientFrame): Promise<void>
+  onSessionClientFrame(principal: ClientPrincipal, conn: ClientConn, msg: SessionsClientFrame): void
   /** Canonical terminal input bytes, authenticated by the transport before delivery. */
   onSessionClientInput(
     principal: ClientPrincipal,
     conn: ClientConn,
     sessionId: SessionId,
     bytes: Uint8Array,
-  ): Promise<void>
+  ): void
 }
 
 /** Everything the client mux is given. */

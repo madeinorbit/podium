@@ -25,7 +25,7 @@ const log = createLogger('server:sessions')
 
 export interface SessionClientPlanePorts {
   browserOpen: any
-  clientControl: import('./client-control').SessionClientControl
+  clientControl: any
   clients: any
   headless: any
   machineReconciler: any
@@ -215,8 +215,8 @@ export class SessionClientPlane {
    * read below is off the connection object or the per-session client maps, and
    * the two recomputes at the end always ran after the removal anyway).
    */
-  onClientDetached(principal: ClientPrincipal, client: ClientConn): Promise<void> {
-    return this.ports.clientControl.onDetached(principal, client)
+  onClientDetached(principal: ClientPrincipal, client: ClientConn): void {
+    this.ports.clientControl.onDetached(principal, client)
   }
   /** Gateway/control-plane entrypoint for the typed session.openUrl event. */
   onOpenUrl(request: SessionOpenUrlMessage): void {
@@ -278,8 +278,8 @@ export class SessionClientPlane {
     principal: ClientPrincipal,
     client: ClientConn,
     message: SessionsClientFrame,
-  ): Promise<void> {
-    return this.ports.clientControl.onFrame(principal, client, message)
+  ): void {
+    this.ports.clientControl.onFrame(principal, client, message)
   }
 
   onSessionClientInput(
@@ -287,8 +287,8 @@ export class SessionClientPlane {
     client: ClientConn,
     sessionId: SessionId,
     bytes: Uint8Array,
-  ): Promise<void> {
-    return this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
+  ): void {
+    this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
   }
   /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
    *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its

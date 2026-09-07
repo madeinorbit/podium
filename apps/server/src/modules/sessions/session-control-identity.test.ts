@@ -78,22 +78,22 @@ function control(opts: {
   let ctl!: SessionClientControl
   const inbox = {
     handleControllerInput: vi.fn(),
-    requestControl: async (
+    requestControl: (
       principal: ClientPrincipal,
       client: ClientConn,
       sessionId: SessionId,
       geometry?: { cols: number; rows: number },
     ) => {
       // Mirror production: policy gate then transfer.
-      if (!(await ctl.authorizeDrive(principal, sessionId))) {
+      if (!ctl.authorizeDrive(principal, sessionId)) {
         client.send({ type: 'terminalOutcome', sessionId, outcome: 'unauthorized' })
         return
       }
       opts.session.terminal.requestControl(client.id, geometry)
     },
-    reconcileActiveRenderer: async (sessionId: SessionId) => {
+    reconcileActiveRenderer: (sessionId: SessionId) => {
       const [sole, second] = opts.session.terminal.activeNativeRenderers()
-      if (!sole || second || !(await ctl.authorizeDrive(sole.principal, sessionId))) return
+      if (!sole || second || !ctl.authorizeDrive(sole.principal, sessionId)) return
       opts.session.terminal.requestControl(sole.id)
     },
     handleResize: vi.fn(),
@@ -116,15 +116,15 @@ function control(opts: {
     // `sessionOwner` used to get an OPEN attach; now it must say who the owner
     // is, and `owner: undefined` means "absent or invisible" — which denies,
     // rather than skipping the check.
-    sessionOwner: async () => opts.owner,
-    machineUseFor: async () => opts.machineUse ?? 'granted',
+    sessionOwner: () => opts.owner,
+    machineUseFor: () => opts.machineUse ?? 'granted',
     sessionOccupancyCount: () => opts.occupancy,
   } as never)
   return ctl
 }
 
 describe('POD-1081 attach + take-control policy', () => {
-  it('FAILS CLOSED when no owner can be resolved — even for the admin (POD-333)', async () => {
+  it('FAILS CLOSED when no owner can be resolved — even for the admin (POD-333)', () => {
     // The half-migration this replaced: `sessionOwner` and `machineUseFor` were
     // OPTIONAL ports, and an unwired `sessionOwner` returned `true` from
     // authorizeAttach outright while `machineUseFor` defaulted to `'granted'`.
@@ -140,7 +140,7 @@ describe('POD-1081 attach + take-control policy', () => {
     const session = makeSession()
     const ctl = control({ session, owner: undefined, machineUse: 'granted' })
     const admin = makeClient('c-admin', OWNER, 'admin')
-    await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
     expect(admin.sent).toContainEqual({
       type: 'terminalOutcome',
       sessionId: SESSION,
@@ -149,14 +149,14 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
-  it('denies DRIVE with an unresolvable owner, so requestControl cannot bypass attach', async () => {
+  it('denies DRIVE with an unresolvable owner, so requestControl cannot bypass attach', () => {
     const session = makeSession()
     const ctl = control({ session, owner: undefined, machineUse: 'granted' })
     const admin = makeClient('c-admin2', OWNER, 'admin')
-    expect(await ctl.authorizeDrive(admin.principal, SESSION)).toBe(false)
+    expect(ctl.authorizeDrive(admin.principal, SESSION)).toBe(false)
   })
 
-  it('denies attach when the principal cannot see the session', async () => {
+  it('denies attach when the principal cannot see the session', () => {
     const session = makeSession()
     const ctl = control({
       session,
@@ -164,7 +164,7 @@ describe('POD-1081 attach + take-control policy', () => {
       machineUse: 'granted',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
     expect(alice.sent).toContainEqual({
       type: 'terminalOutcome',
       sessionId: SESSION,
@@ -173,7 +173,7 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
-  it('denies attach when session is shared but machine use is refused', async () => {
+  it('denies attach when session is shared but machine use is refused', () => {
     // THE back-door test: session grant alone must not open a PTY.
     const session = makeSession()
     const ctl = control({
@@ -182,7 +182,7 @@ describe('POD-1081 attach + take-control policy', () => {
       machineUse: 'denied',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
     expect(alice.sent).toContainEqual({
       type: 'terminalOutcome',
       sessionId: SESSION,
@@ -191,7 +191,7 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
-  it('returns a typed reason instead of attaching a Claude SDK Native view', async () => {
+  it('returns a typed reason instead of attaching a Claude SDK Native view', () => {
     const session = makeSession()
     session.driverId = 'claude-sdk'
     session.attachKinds = []
@@ -202,7 +202,7 @@ describe('POD-1081 attach + take-control policy', () => {
     })
     const owner = makeClient('c-owner-native-gap', OWNER, 'admin')
 
-    await ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
 
     expect(owner.sent).toContainEqual({
       type: 'terminalOutcome',
@@ -214,7 +214,7 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
-  it('allows attach for a grantee with machine use and stamps controller identity', async () => {
+  it('allows attach for a grantee with machine use and stamps controller identity', () => {
     const session = makeSession()
     const ctl = control({
       session,
@@ -222,13 +222,13 @@ describe('POD-1081 attach + take-control policy', () => {
       machineUse: 'granted',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
     expect(session.terminal.controllerId).toBe('c-alice')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
     expect(alice.sent.some((m) => m.type === 'attached')).toBe(true)
   })
 
-  it('refuses requestControl when the principal may only watch', async () => {
+  it('refuses requestControl when the principal may only watch', () => {
     const session = makeSession()
     // Owner attaches first and holds control.
     const owner = makeClient('c-owner', OWNER, 'admin')
@@ -248,7 +248,7 @@ describe('POD-1081 attach + take-control policy', () => {
     session.terminal.attachClient(alice)
     alice.sent.length = 0
 
-    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
     expect(alice.sent).toContainEqual({
       type: 'terminalOutcome',
       sessionId: SESSION,
@@ -257,7 +257,7 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.controllerId).toBe('c-owner')
   })
 
-  it('preempts control for a drive-authorized grantee and broadcasts identity', async () => {
+  it('preempts control for a drive-authorized grantee and broadcasts identity', () => {
     const session = makeSession()
     const owner = makeClient('c-owner', OWNER, 'admin')
     session.terminal.attachClient(owner)
@@ -273,7 +273,7 @@ describe('POD-1081 attach + take-control policy', () => {
     owner.sent.length = 0
     alice.sent.length = 0
 
-    await ctl.onFrame(alice.principal, alice, {
+    ctl.onFrame(alice.principal, alice, {
       type: 'requestControl',
       sessionId: SESSION,
       geometry: { cols: 62, rows: 36 },
@@ -290,7 +290,7 @@ describe('POD-1081 attach + take-control policy', () => {
     )
   })
 
-  it('auto-controls only for the sole active native renderer, not a chat-only peer', async () => {
+  it('auto-controls only for the sole active native renderer, not a chat-only peer', () => {
     const session = makeSession()
     const ctl = control({
       session,
@@ -299,16 +299,16 @@ describe('POD-1081 attach + take-control policy', () => {
     })
     const desktop = makeClient('c-desktop', OWNER, 'admin')
     const phone = makeClient('c-phone', OWNER, 'admin')
-    await ctl.onFrame(desktop.principal, desktop, { type: 'attach', sessionId: SESSION })
-    await ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(desktop.principal, desktop, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
 
-    await ctl.onFrame(desktop.principal, desktop, {
+    ctl.onFrame(desktop.principal, desktop, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
       modes: { [SESSION]: 'native' },
     })
-    await ctl.onFrame(phone.principal, phone, {
+    ctl.onFrame(phone.principal, phone, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -320,7 +320,7 @@ describe('POD-1081 attach + take-control policy', () => {
     // The same person's desktop remains in the session room but switches to
     // structured Chat. Only the phone consumes native geometry, so it becomes
     // controller automatically.
-    await ctl.onFrame(desktop.principal, desktop, {
+    ctl.onFrame(desktop.principal, desktop, {
       type: 'viewState',
       visible: [SESSION],
       focused: SESSION,
@@ -331,7 +331,7 @@ describe('POD-1081 attach + take-control policy', () => {
 })
 
 describe('POD-1081 two-principal identity (not "the only connection")', () => {
-  it('records the DRIVER principal, not merely the first or only socket', async () => {
+  it('records the DRIVER principal, not merely the first or only socket', () => {
     // Vacuity trap: a fixture with one principal cannot tell "records driver"
     // from "records the only connection" (POD-1424 class). Two distinct users.
     const session = makeSession()
@@ -343,18 +343,18 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     const owner = makeClient('c-owner', OWNER, 'admin')
     const alice = makeClient('c-alice', ALICE, 'member')
 
-    await ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
 
     // Alice attaches as spectator — still owner's identity.
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
     expect(session.terminal.controllerId).toBe('c-owner')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
 
     // Alice takes control — identity MUST flip to alice, not stay owner.
     owner.sent.length = 0
     alice.sent.length = 0
-    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
     expect(session.terminal.controllerId).toBe('c-alice')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
     // Current driver observes the transfer (not a silent takeover).
@@ -367,7 +367,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     )
   })
 
-  it('two authorized claimants: second preemption wins; first observes controllerChanged', async () => {
+  it('two authorized claimants: second preemption wins; first observes controllerChanged', () => {
     // THE policy content is what happens with TWO claimants, not one.
     const session = makeSession()
     const ctl = control({
@@ -377,15 +377,15 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     })
     const owner = makeClient('c-owner', OWNER, 'admin')
     const alice = makeClient('c-alice', ALICE, 'member')
-    await ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
 
     // Race: both request control. Last apply wins (preemption); both see the outcome.
     owner.sent.length = 0
     alice.sent.length = 0
-    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
-    await ctl.onFrame(owner.principal, owner, { type: 'requestControl', sessionId: SESSION })
+    ctl.onFrame(owner.principal, owner, { type: 'requestControl', sessionId: SESSION })
     expect(session.terminal.controllerId).toBe('c-owner')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
     // Alice (previous driver) observed the reclamation.
@@ -398,7 +398,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     )
   })
 
-  it('payload attribution is inert — transport principal wins (ADR 3 D7)', async () => {
+  it('payload attribution is inert — transport principal wins (ADR 3 D7)', () => {
     const session = makeSession()
     const owner = makeClient('c-owner', OWNER, 'admin')
     session.terminal.attachClient(owner)
@@ -429,12 +429,12 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       pushPriorities: vi.fn(),
       setDraft: vi.fn(),
       editDraft: vi.fn(),
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
-      machineUseFor: async () => 'granted',
+      sessionOwner: () => ({ owner: OWNER, grants: [] }),
+      machineUseFor: () => 'granted',
     })
 
     // Forged payload half — must never reach the inbox as a fifth argument.
-    await ctl.onFrame(owner.principal, owner, {
+    ctl.onFrame(owner.principal, owner, {
       type: 'input',
       sessionId: SESSION,
       data: 'eA==',
@@ -476,7 +476,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
 })
 
 describe('POD-1081 agent control drops at next apply (no reaper)', () => {
-  it('revokes control when a previously-authorized principal applies after rights loss', async () => {
+  it('revokes control when a previously-authorized principal applies after rights loss', () => {
     const session = makeSession()
     const owner = makeClient('c-owner', OWNER, 'admin')
     session.terminal.attachClient(owner)
@@ -519,12 +519,12 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
       editDraft: vi.fn(),
       // Stated, not defaulted (POD-333): this case is about input attribution
       // after a revoke, so it grants both — but it has to SAY so.
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
-      machineUseFor: async () => 'granted',
+      sessionOwner: () => ({ owner: OWNER, grants: [] }),
+      machineUseFor: () => 'granted',
     })
 
     // Still authorized — input lands.
-    await ctl.onFrame(owner.principal, owner, {
+    ctl.onFrame(owner.principal, owner, {
       type: 'input',
       sessionId: SESSION,
       data: 'eA==',
@@ -534,7 +534,7 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
     // Rights revoked. Next apply drops control with no reaper.
     allowed = false
     owner.sent.length = 0
-    await ctl.onFrame(owner.principal, owner, {
+    ctl.onFrame(owner.principal, owner, {
       type: 'input',
       sessionId: SESSION,
       data: 'eA==',
@@ -545,46 +545,4 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
       expect.objectContaining({ type: 'controllerChanged', controllerId: null }),
     )
   })
-})
-
-it('attaches, transfers control, and delivers input through the real async ownership wiring', async () => {
-  const { SessionRegistry } = await import('../../relay')
-  const { attachTestClient } = await import('../../test-support/client-transport')
-  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-  try {
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/tmp',
-    })
-    const first: ServerMessage[] = []
-    const second: ServerMessage[] = []
-    const firstId = attachTestClient(reg.clientGateway, (message) => first.push(message))
-    const secondId = attachTestClient(reg.clientGateway, (message) => second.push(message))
-    await reg.clientGateway.routeClientFrame(firstId, { type: 'attach', sessionId })
-    expect(first).toContainEqual(
-      expect.objectContaining({ type: 'attached', sessionId, controllerId: firstId }),
-    )
-    await reg.clientGateway.routeClientFrame(secondId, { type: 'attach', sessionId })
-    await reg.clientGateway.routeClientFrame(secondId, { type: 'requestControl', sessionId })
-    daemon.length = 0
-    await reg.clientGateway.routeClientFrame(secondId, {
-      type: 'input',
-      sessionId,
-      data: Buffer.from('echo ready\r').toString('base64'),
-    })
-    expect(daemon).toContainEqual(
-      expect.objectContaining({
-        type: 'input',
-        sessionId,
-        data: Buffer.from('echo ready\r').toString('base64'),
-      }),
-    )
-    expect([...first, ...second]).not.toContainEqual(
-      expect.objectContaining({ type: 'terminalOutcome', outcome: 'unauthorized' }),
-    )
-  } finally {
-    reg.dispose()
-  }
 })

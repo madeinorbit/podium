@@ -238,7 +238,7 @@ function harness(
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: vi.fn(),
-    ownerOf: async () => (options.owner === undefined ? ALICE : options.owner),
+    ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     setSessionDraft,
     draftText: () => draft,
     resurrect,
@@ -864,14 +864,14 @@ describe('SessionInbox authorization and identity', () => {
     expect(decode(h.sent[1])).toBe(String.fromCharCode(13))
   })
 
-  it('carries the browser principal through controller gating into PTY attribution', async () => {
+  it('carries the browser principal through controller gating into PTY attribution', () => {
     const h = harness()
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
     // Real base64: this path decodes to bytes now, and 'x' on its own is not a
     // decodable payload — it would arrive as zero bytes and be dropped.
-    await h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
+    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
     expect(h.handleInput).toHaveBeenCalledWith('client-1', Buffer.from('x').toString('base64'), {
       actor: { kind: 'user', id: principal.user },
@@ -905,7 +905,7 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
       queued: true,
     })
-    await h.inbox.handleControllerInput(
+    h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -940,7 +940,7 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    await h.inbox.handleControllerInput(
+    h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -959,7 +959,7 @@ describe('SessionInbox authorization and identity', () => {
     const client = { id: 'client-2' } as ClientConn
 
     await h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
-    await h.inbox.handleControllerInput(
+    h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -2555,7 +2555,7 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     // bind, which a healthy long-lived session never performs, so an offer
     // clicked during a permission prompt hung indefinitely.
     h.setPhase('idle')
-    await h.inbox.stateChanged({
+    h.inbox.stateChanged({
       sessionId: SID,
       prev: { phase: 'needs_user', since: 't' } as never,
       next: { phase: 'idle', since: 't' } as never,
