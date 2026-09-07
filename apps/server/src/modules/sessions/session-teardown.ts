@@ -72,7 +72,7 @@ export interface SessionTeardownPorts {
   rpc: DaemonRpcService
   daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
-  listSessions(): SessionMeta[]
+  listSessions(): Promise<SessionMeta[]>
   setArchived(input: { sessionId: SessionId; archived: boolean }): void | Promise<void>
   rearmUnread(sessionId: SessionId): void
   toMachine(machineId: MachineId, message: ControlMessage): void
@@ -353,7 +353,7 @@ export class SessionTeardown {
     if (issueId && worktreePath) {
       const stillUsing = liveSessionsUsingWorktree(
         worktreePath,
-        this.ports.listSessions(),
+        await this.ports.listSessions(),
         input.sessionId,
       )
       if (stillUsing.length === 0) {
@@ -482,7 +482,7 @@ export class SessionTeardown {
     const current = await this.ports.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
-      const stillUsing = liveSessionsUsingWorktree(wt, this.ports.listSessions())
+      const stillUsing = liveSessionsUsingWorktree(wt, await this.ports.listSessions())
       if (stillUsing.length === 0) {
         const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,

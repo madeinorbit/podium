@@ -54,7 +54,7 @@ async function harness({
   const daemon: ControlMessage[] = []
   const registry = await SessionRegistry.create(store, undefined, { instanceId })
   registries.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
     daemon.push(message),
   )
   const { sessionId } = await registry.modules.sessions.createSession({
@@ -156,7 +156,7 @@ async function harness({
 describe('durable terminal hibernation proof', () => {
   it('keeps explicit legacy hibernation proof-free', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
@@ -268,7 +268,7 @@ describe('durable terminal hibernation proof', () => {
       registry = await SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
       registries.push(registry)
     }
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
       controls.push(message),
     )
     const reattach = controls.find(
@@ -445,7 +445,7 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = await SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
       controls.push(message),
     )
     const continues = () =>
@@ -485,7 +485,7 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = await SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
       controls.push(message),
     )
     restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {

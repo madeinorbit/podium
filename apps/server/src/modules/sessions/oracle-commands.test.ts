@@ -499,7 +499,7 @@ describe('oracle: kill', () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -507,17 +507,25 @@ describe('oracle: kill', () => {
     o.daemon.length = 0
 
     let release!: (result: { ok: true; cwd: string }) => void
+    const preparation = new Promise<{ ok: true; cwd: string }>((resolve) => {
+      release = resolve
+    })
+    let enter!: () => void
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve
+    })
     vi.spyOn(o.reg.modules.sessions.workspace, 'ensureSessionWorktree').mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          release = resolve
-        }),
+      () => {
+        enter()
+        return preparation
+      },
     )
 
     const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
 
+    await entered
     release({ ok: true, cwd: '/p' })
     expect(await first).toEqual({ ok: true })
     expect(await second).toEqual({ ok: true })

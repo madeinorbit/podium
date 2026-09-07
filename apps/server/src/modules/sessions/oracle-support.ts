@@ -248,7 +248,7 @@ export async function makeOracle(
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  reg.gateway.attachDaemon(machineId, (msg) => {
+  await reg.gateway.attachDaemon(machineId, (msg) => {
     daemon.push(msg)
     for (const waiter of relayWaiters) waiter(msg)
     // Answer the one RPC a session write makes of its daemon: `stop` inspects the

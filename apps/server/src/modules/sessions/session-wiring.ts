@@ -88,6 +88,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   const bag = life as any
   // The store is read through its own typed binding, not through `bag`: every
   // repository call below is then checked by the compiler (POD-3515).
+  const machines: SessionLifecycleDeps['machines'] = deps.machines
   const store: SessionStore = deps.store
   const ownership: Pick<
     SessionLifecycle,
@@ -100,7 +101,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.mutations = deps.mutations ?? new MutationLedger(store.sync, () => bag.now())
   bag.clients = deps.clients ?? new ClientRegistry()
   bag.bus = deps.bus
-  bag.machines = deps.machines
+  bag.machines = machines
   bag.rpc = deps.rpc
   bag.activityFlushTimer.unref?.()
   bag.funnel = deps.funnel
@@ -133,14 +134,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     session: (sessionId) => bag.sessions.get(sessionId),
     mutate: (sessionId, write) => bag.mutateSessionMeta(sessionId, write),
   })
-  bag.machineReconciler = new SessionMachineReconciler({
+  const machineReconciler = new SessionMachineReconciler({
     sessions: () => bag.sessions.values(),
     drainInbox: (sessionId) => bag.inbox.drain(sessionId),
     triggerLakeSweep: (machineId) => bag.deps.memory.triggerLakeSweep(machineId),
     resetPriorities: () => bag.state.resetPriorities(),
     pushPriorities: () => bag.pushPriorities(),
     parkArchivedSession: (sessionId) => bag.parkArchivedSession(sessionId),
-    reattachMessage: (session, machineId) => bag.reattachMessageFor(session, machineId),
+    reattachMessage: (session, machineId) => sessionClientPlane.reattachMessageFor(session, machineId),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     viewTiers: (sessionIds) => computePriorities([...bag.clients.values()], sessionIds),
     rebindHeadless: (session) => bag.rebindHeadless(session),
@@ -149,6 +150,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
   })
+  bag.machineReconciler = machineReconciler
   // Emergency rollback for the bridge rollout; sampled once at composition.
   const unslicedVolatile = process.env.PODIUM_UNSLICED_VOLATILE === '1'
   bag.broadcasts = new SessionBroadcastCoordinator({
@@ -212,7 +214,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.workspace = new SessionWorkspace({
     store,
     rpc: bag.rpc,
-    machines: bag.machines,
+    machines,
     issueAccess: bag.deps.issueAccess,
     getSession: (sessionId) => bag.sessions.get(sessionId),
     settingsViewer: () => bag.settingsViewer(),
@@ -266,7 +268,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.view = new SessionView({
     sessions: bag.sessions,
     store,
-    machines: bag.machines,
+    machines,
     state: bag.state,
     sessionOccupancyCount: bag.deps.sessionOccupancyCount
       ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)
@@ -288,7 +290,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     autoContinue: () => bag.autoContinue,
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
-    machineSupports: (machineId, cap) => bag.machines.daemonSupports(machineId, cap),
+    machineSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
@@ -318,16 +320,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.sessions.set(session.sessionId, session)
     },
     sessionMachineId: (sessionId) => bag.sessions.get(sessionId)?.machineId,
-    defaultMachine: () => bag.machines.defaultMachine(),
-    machineName: (machineId) => bag.machines.machineName(machineId),
+    defaultMachine: () => machines.defaultMachine(),
+    machineName: (machineId) => machines.machineName(machineId),
     nativeAccountIdForMachine: (machineId, agentKind, accountId) =>
-      bag.machines.nativeAccountIdForMachine(machineId, agentKind, accountId),
+      machines.nativeAccountIdForMachine(machineId, agentKind, accountId),
     resolveMachineForAgent: (requested, cwd, agentKind, use) =>
-      bag.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
+      machines.resolveMachineForAgent(requested, cwd, agentKind, use),
     onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
-    machineSupports: (machineId, cap) => bag.machines.daemonSupports(machineId, cap),
+    machineSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
@@ -342,8 +344,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     registerSession: (session) => bag.sessions.set(session.sessionId, session),
     resolveMachine: (requested, cwd, agentKind) =>
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind),
+    // Headless selection ports remain tracked separately in POD-3605.
     defaultMachine: () => bag.machines.defaultMachine(),
-    toMachine: (machineId, message) => bag.machines.toMachine(machineId, message),
+    toMachine: (machineId, message) => machines.toMachine(machineId, message),
     nextRequestId: (prefix) => bag.rpc.nextRequestId(prefix),
     defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
     persist: (session) => bag.persist(session),
@@ -572,7 +575,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     inbox,
     machinesForPrincipal: async (principal) =>
       await projectMachinesForPrincipal(
-        { machines: bag.machines },
+        { machines },
         userCommandPrincipal(asUserId(principal.user), principal.role),
       ),
     browserOpen: bag.browserOpen,
@@ -882,9 +885,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Liveness repair belongs to the reconciler (POD-1953) — the module whose
     // rule is that the durable host, not the row, decides what is running.
     reviveParkedButAlive: (session, machineId, reason) =>
-      bag.machineReconciler.reviveParkedButAlive(session, machineId, reason),
+      machineReconciler.reviveParkedButAlive(session, machineId, reason),
     onDurableSessionCensus: (principal, labels) =>
-      bag.machineReconciler.onDurableSessionCensus(principal, labels),
+      machineReconciler.onDurableSessionCensus(principal, labels),
     runtimeEvents: bag.runtimeGateway,
     queueDrainAbandoned: {
       record: (msg) =>
@@ -926,11 +929,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     clients: bag.clients,
     bus: bag.bus,
-    machines: bag.machines,
+    machines,
     rpc: bag.rpc,
     daemonProjection: bag.daemonProjection,
     now: () => bag.now(),
-    listSessions: () => bag.listSessions(),
+    listSessions: () => life.listSessions(),
     setArchived: (input) => bag.setArchived(input),
     rearmUnread: (sessionId) => bag.rearmUnread(sessionId),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
@@ -946,7 +949,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     clients: bag.clients,
     bus: bag.bus,
-    machines: bag.machines,
+    machines,
     daemonProjection: bag.daemonProjection,
     now: () => bag.now(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
@@ -954,24 +957,25 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     ledger: bag.deps.ledger,
   })
 
-  bag.sessionClientPlane = new SessionClientPlane({
+  const sessionClientPlane = new SessionClientPlane({
     browserOpen: bag.browserOpen,
     clientControl: bag.clientControl,
     clients: bag.clients,
     headless: bag.headless,
-    machineReconciler: bag.machineReconciler,
-    machines: bag.machines,
+    machineReconciler,
+    machines,
     repository: bag.repository,
     rpc: bag.rpc,
     state: bag.state,
     terminalProof: bag.terminalProof,
   })
+  bag.sessionClientPlane = sessionClientPlane
   bag.sessionAuthz = new SessionAuthz({
     clientControl: bag.clientControl,
     deps: bag.deps,
-    listSessions: () => bag.listSessions(),
+    listSessions: () => life.listSessions(),
     sessionById: (sessionId: SessionId) => bag.view.byId(sessionId),
-    machines: bag.machines,
+    machines,
     sessions: bag.sessions,
     store,
   })
@@ -1002,9 +1006,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     workspace: bag.workspace,
     autoContinue: bag.autoContinue,
     sessions: bag.sessions,
-    machines: bag.machines,
+    machines,
     rpc: bag.rpc,
-    listSessions: () => bag.listSessions(),
+    listSessions: () => life.listSessions(),
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     spawn: (input) => bag.sessionStart.spawn(input),

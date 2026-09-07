@@ -71,9 +71,9 @@ export interface SessionDaemonLifecyclePorts {
   broadcastToClients(message: LiveServerMessage): void
   clearOffer(sessionId: SessionId): Promise<void>
   /** A parked row whose durable host turned out to be alive [POD-1953]. */
-  reviveParkedButAlive(session: Session, machineId: string, reason: string): void
+  reviveParkedButAlive(session: Session, machineId: MachineId, reason: string): Promise<void>
   /** This machine's live durable labels, pushed on connect [POD-1953]. */
-  onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void
+  onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): Promise<void>
   /**
    * The Agent Runtime contract's inbound event sink (POD-1761 W3).
    *
@@ -520,11 +520,11 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         if (!s || s.machineId !== machineId) break
         if (msg.killed) break
-        this.ports.reviveParkedButAlive(s, machineId, msg.reason ?? 'kill unconfirmed')
+        await this.ports.reviveParkedButAlive(s, machineId, msg.reason ?? 'kill unconfirmed')
         break
       }
       case 'durableSessionCensus': {
-        this.ports.onDurableSessionCensus(principal, msg.labels)
+        await this.ports.onDurableSessionCensus(principal, msg.labels)
         break
       }
       case 'reattachFailed': {

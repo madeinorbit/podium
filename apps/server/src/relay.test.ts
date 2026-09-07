@@ -88,7 +88,7 @@ describe('SessionRegistry', () => {
   it('create spawns via the daemon and lists the session as starting', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -254,7 +254,7 @@ describe('SessionRegistry', () => {
       cwd: '/proj',
     })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
@@ -263,7 +263,7 @@ describe('SessionRegistry', () => {
   it('create can spawn a shell session', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'shell', cwd: '/proj' }),
@@ -277,7 +277,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store = await openTestStore(file, TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -304,7 +304,7 @@ describe('SessionRegistry', () => {
   it('createSession honors a client-provided sessionId verbatim (optimistic row reconciliation)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const clientId = 'client-picked-id-123'
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -320,7 +320,7 @@ describe('SessionRegistry', () => {
 
   it('createSession mints a random uuid when sessionId is omitted (unchanged default behavior)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -333,7 +333,7 @@ describe('SessionRegistry', () => {
     // so a collision must be rejected rather than overwrite the live Session (which
     // would orphan its PTY/daemon binding) or re-fire a spawn.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const clientId = 'dup-id-xyz'
     await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -355,7 +355,7 @@ describe('SessionRegistry', () => {
 
   it('restamps session cwd when the agent moves into a worktree (hook cwd change)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
@@ -372,7 +372,7 @@ describe('SessionRegistry', () => {
 
   it('ignores a sessionCwd that is empty or unchanged', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
@@ -397,7 +397,7 @@ describe('SessionRegistry', () => {
 
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const issue = await reg.modules.issues.create({
       repoPath: '/repo',
       title: 'Adopt me',
@@ -497,7 +497,7 @@ describe('SessionRegistry', () => {
     // swallowed live main, the failure [spec:SP-595b] exists to prevent. Verified with
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const issue = await reg.modules.issues.create({
       repoPath: '/link/repo', // registered through a symlink…
       title: 'Symlinked',
@@ -532,7 +532,7 @@ describe('SessionRegistry', () => {
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -554,7 +554,7 @@ describe('SessionRegistry', () => {
       experimental: { workflows: true, specs: true },
     })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
@@ -648,7 +648,7 @@ describe('SessionRegistry', () => {
   it('delivers worker checkpoints through the durable system:workflow message ledger', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const coordinator = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -747,7 +747,7 @@ describe('SessionRegistry', () => {
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const client = sink()
     attachTestClient(reg.clientGateway, client.send)
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -779,7 +779,7 @@ describe('SessionRegistry', () => {
     // session list on every client.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'auto' as unknown as 'claude-code',
       cwd: '/proj',
@@ -833,7 +833,7 @@ describe('SessionRegistry', () => {
   it('resume spawns with the resume ref + resume origin', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -863,7 +863,7 @@ describe('SessionRegistry', () => {
     // the visible row revealed a masked one (its own title/transcript/stage).
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const first = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -887,7 +887,7 @@ describe('SessionRegistry', () => {
   it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const first = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -910,7 +910,7 @@ describe('SessionRegistry', () => {
 
   it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     // An issue-spawned session that later learned its resume ref.
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -949,7 +949,7 @@ describe('SessionRegistry', () => {
 
   it('resume still spawns a fresh row when no session exists for that conversation', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -975,7 +975,7 @@ describe('SessionRegistry', () => {
 
   it('routes frames only to clients attached to that session (ISOLATION)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
@@ -1002,7 +1002,7 @@ describe('SessionRegistry', () => {
 
   it('replays buffered output to a client that attaches after frames were produced', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
@@ -1027,7 +1027,7 @@ describe('SessionRegistry', () => {
 
   it('resets the replay buffer on a screen clear so replay starts from the clear', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -1053,7 +1053,7 @@ describe('SessionRegistry', () => {
   it('routes controller input to the daemon tagged with the right sessionId', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     const c = sink()
@@ -1074,7 +1074,7 @@ describe('SessionRegistry', () => {
 
   it('takeover on one session leaves another session epoch untouched', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
@@ -1089,7 +1089,7 @@ describe('SessionRegistry', () => {
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     const c = sink()
@@ -1110,7 +1110,7 @@ describe('SessionRegistry', () => {
   it('never reconciles one session viewport into another visible session', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
@@ -1131,7 +1131,7 @@ describe('SessionRegistry', () => {
   it('kill removes the session and tells the daemon', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     await reg.modules.sessions.killSession({ sessionId: s1 })
     expect(daemon).toContainEqual({
@@ -1146,7 +1146,7 @@ describe('SessionRegistry', () => {
 
   it('agentExit marks the session exited but keeps it listed', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -1199,7 +1199,18 @@ describe('SessionRegistry', () => {
     await store.sessions.upsertSession(exitedRow(id))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const rows = await reg.modules.machines.ownershipRows()
+    let release!: (value: typeof rows) => void
+    const pendingRows = new Promise<typeof rows>((resolve) => {
+      release = resolve
+    })
+    const read = vi.spyOn(reg.modules.machines, 'ownershipRows').mockReturnValue(pendingRows)
+    const attached = reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    expect(read).toHaveBeenCalled()
+    expect(daemon.some((m) => m.type === 'reattach')).toBe(false)
+    release(rows)
+    await attached
+    read.mockRestore()
 
     const probe = daemon.find((m) => m.type === 'reattach' && m.sessionId === id)
     expect(probe && 'binding' in probe ? probe.binding : undefined).toMatchObject({
@@ -1214,7 +1225,7 @@ describe('SessionRegistry', () => {
     await store.sessions.upsertSession(exitedRow(id))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // Boot probes the exited row against the durable host.
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'reattach', sessionId: id, durableLabel: `podium-${id}` }),
@@ -1252,7 +1263,7 @@ describe('SessionRegistry', () => {
     const id = 'dead-1'
     await store.sessions.upsertSession(exitedRow(id))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
     // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -1271,7 +1282,7 @@ describe('SessionRegistry', () => {
     await store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     expect(daemon.some((m) => m.type === 'reattach' && m.sessionId === 'arch-1')).toBe(false)
   })
 
@@ -1283,7 +1294,7 @@ describe('SessionRegistry', () => {
     await store.sessions.upsertSession(exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const order = daemon.filter((m) => m.type === 'reattach').map((m) => m.sessionId)
     expect(order).toEqual(['newest', 'mid', 'oldest'])
   })
@@ -1308,14 +1319,14 @@ describe('SessionRegistry', () => {
       focused: asSessionId('focused'),
     })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const order = daemon.filter((m) => m.type === 'reattach').map((m) => m.sessionId)
     expect(order).toEqual(['focused', 'visible', 'recent', 'idle'])
   })
 
   it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -1327,13 +1338,13 @@ describe('SessionRegistry', () => {
     expect((await reg.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting')
     // A fresh daemon attaches with no bridges → it must be asked to reattach.
     const daemon2: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
     expect(daemon2.some((m) => m.type === 'reattach' && m.sessionId === sessionId)).toBe(true)
   })
 
   it('attachClient sends welcome plus session and conversation snapshots', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1461,7 +1472,7 @@ describe('SessionRegistry', () => {
 
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const c = sink()
     attachCurrent(reg, c.send)
@@ -1481,7 +1492,7 @@ describe('SessionRegistry', () => {
 
   it('lets exact Codex identity evidence heal a stale heuristic sibling projection', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const first = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const second = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const meta = async (sessionId: string) =>
@@ -1514,7 +1525,7 @@ describe('SessionRegistry', () => {
 
   it('broadcasts daemon conversation changes to current clients', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1552,7 +1563,7 @@ describe('SessionRegistry', () => {
   it('scanResult updates the latest conversation snapshot and broadcasts it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
@@ -1588,7 +1599,7 @@ describe('SessionRegistry', () => {
   it('scan correlates the daemon scanResult back to the caller', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
@@ -1605,7 +1616,7 @@ describe('SessionRegistry', () => {
   it('scanRepos correlates the daemon scanReposResult back to the caller', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const p = reg.modules.rpc.scanRepos(['/home/u/src'])
     const req = daemon.find((m) => m.type === 'scanReposRequest') as
       | { requestId: string; roots: string[] }
@@ -1624,7 +1635,7 @@ describe('SessionRegistry', () => {
 
   it('a daemon title updates the session and pushes sessionTitleChanged to clients', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -1660,7 +1671,7 @@ describe('SessionRegistry', () => {
 
   it('says nothing more while only the spinner frame turns', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -1691,7 +1702,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store = await openTestStore(file, TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -1708,7 +1719,7 @@ describe('SessionRegistry', () => {
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     const c = sink()
     attachTestClient(reg2.clientGateway, c.send)
 
@@ -1736,7 +1747,7 @@ describe('SessionRegistry', () => {
 
   it('ignores a title for an unknown session', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c = sink()
     attachTestClient(reg.clientGateway, c.send)
     c.sent.length = 0
@@ -1751,7 +1762,7 @@ describe('SessionRegistry', () => {
   it('write-through: a spawned session is persisted, live/exit/title update the row', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1783,7 +1794,7 @@ describe('SessionRegistry', () => {
   it('write-through: an agentState change persists lastActiveAt so recency survives a restart', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1801,7 +1812,7 @@ describe('SessionRegistry', () => {
   it('write-through: running-shell activity persists the row (recency is durable)', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const cid = attachTestClient(reg.clientGateway, sink().send) // first client → controller
@@ -1822,7 +1833,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(await openTestStore(':memory:', TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1834,7 +1845,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -1872,7 +1883,7 @@ describe('SessionRegistry', () => {
     })
     // Attaching the daemon fires a reattach for the reconnecting session.
     const control: import('@podium/protocol/daemon').ControlMessage[] = []
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => control.push(m))
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => control.push(m))
     expect(control).toContainEqual(
       expect.objectContaining({
         type: 'reattach',
@@ -1898,7 +1909,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -1908,7 +1919,7 @@ describe('SessionRegistry', () => {
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting')
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('live')
@@ -1933,7 +1944,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/a',
@@ -1968,7 +1979,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/a',
@@ -1997,7 +2008,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/a',
@@ -2032,7 +2043,7 @@ describe('SessionRegistry', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/a',
@@ -2042,7 +2053,7 @@ describe('SessionRegistry', () => {
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting') // handler must drive the transition
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
@@ -2162,8 +2173,8 @@ describe('host metrics relay', () => {
       ownerUserId: asUserId('user:sole'),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon('m-alpha', () => {})
-    reg.gateway.attachDaemon('m-beta', () => {})
+    await reg.gateway.attachDaemon('m-alpha', () => {})
+    await reg.gateway.attachDaemon('m-beta', () => {})
     const a = sink()
     attachTestClient(reg.clientGateway, a.send)
     reg.gateway.routeDaemonFrame('m-alpha', sample('alpha'))
@@ -2188,7 +2199,7 @@ describe('host metrics relay', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const a = sink()
     attachTestClient(reg.clientGateway, a.send)
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(metricsMsgs(a.sent).at(-1)?.hosts).toEqual([])
@@ -2201,7 +2212,7 @@ describe('memory breakdown relay', () => {
   it('forwards the request to the daemon and resolves with its answer', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const pending = reg.modules.hosts.memoryBreakdown(['/src/app'])
     const req = daemon.find(
       (m): m is Extract<ControlMessage, { type: 'memoryBreakdownRequest' }> =>
@@ -2229,7 +2240,7 @@ describe('memory breakdown relay', () => {
     vi.useFakeTimers()
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const pending = reg.modules.hosts.memoryBreakdown([])
       vi.advanceTimersByTime(10_500)
       await expect(pending).resolves.toBeUndefined()
@@ -2249,7 +2260,7 @@ describe('agent state', () => {
 
   it('agentState from the daemon pushes a per-session message and lands on SessionMeta', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -2273,7 +2284,7 @@ describe('agent state', () => {
   })
   it('rebases daemon tracker resets and broadcasts the canonical persisted total', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -2310,7 +2321,7 @@ describe('agent state', () => {
 
   it('agentState for an unknown session is ignored', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     expect(() =>
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
@@ -2323,7 +2334,7 @@ describe('agent state', () => {
   it('continueSession writes "continue\\r" to the PTY only while errored', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -2382,7 +2393,7 @@ describe('agent state', () => {
           onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       })
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
@@ -2611,7 +2622,7 @@ describe('agent state', () => {
           onBehalfOf: FIRST_ADMIN_USER_ID,
         },
       })
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
@@ -2676,7 +2687,7 @@ describe('agent state', () => {
 describe('structured transcript channel', () => {
   it('replays nothing on an empty subscribe, then streams live deltas', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2720,7 +2731,7 @@ describe('structured transcript channel', () => {
 
   it('replays only cached items after `since`, and the whole cache when since is unknown', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2773,7 +2784,7 @@ describe('structured transcript channel', () => {
 
   it('a subscriber needs no PTY attachment, and unsubscribe stops the stream', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2797,7 +2808,7 @@ describe('structured transcript channel', () => {
 
   it('a daemon transcriptDelta drives the Claude first-prompt title', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2822,7 +2833,7 @@ describe('structured transcript channel', () => {
 
   it('a leading slash command never titles the session — the first REAL prompt does', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2863,7 +2874,7 @@ describe('structured transcript channel', () => {
 
   it('refuses a command-wrapper title arriving over the OSC title channel', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -2883,7 +2894,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('a LIVE session with an EMPTY cache still round-trips to the daemon (the bug fix)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // A live, bound session whose recent-delta cache is empty (e.g. right after a
     // server restart). The OLD code short-circuited and returned [] without ever
     // asking the daemon — the core bug. The new code MUST round-trip to disk.
@@ -2922,7 +2933,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('passes anchor/direction/limit + agentKind/cwd/resume through to the daemon message', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
       cwd: '/repo',
@@ -2972,7 +2983,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('resolves an empty page for an unknown session (no daemon round-trip)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await expect(
       reg.modules.rpc.readTranscript(
         { sessionId: asSessionId('nope'), direction: 'before', limit: 10 },
@@ -3040,7 +3051,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'grok',
         cwd: '/w',
@@ -3062,7 +3073,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3097,7 +3108,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3123,7 +3134,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3157,7 +3168,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3185,7 +3196,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3214,7 +3225,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3243,7 +3254,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3270,7 +3281,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3313,7 +3324,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3342,7 +3353,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3383,7 +3394,7 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -3413,7 +3424,7 @@ describe('sendText (chat send path)', () => {
 
   it('refuses for exited sessions', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -3439,7 +3450,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // -> live
       await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
@@ -3473,7 +3484,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
       await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
       vi.advanceTimersByTime(5000)
@@ -3488,7 +3499,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // live, but never emits output
       await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
@@ -3521,7 +3532,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     const spy = vi.spyOn(store.sessions, 'upsertSession')
     for (let i = 0; i < 50; i++) {
@@ -3544,7 +3555,7 @@ describe('hibernation', () => {
       const store = await openTestStore(':memory:', TEST_MACHINE)
       const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const sessionId = await liveSession(reg, daemon)
       // Mark the session dirty so a timer tick WOULD persist it if the timer still ran.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3569,7 +3580,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
@@ -3588,7 +3599,7 @@ describe('hibernation', () => {
   it('hibernate kills the process, keeps the row, survives the agentExit echo', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
 
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
@@ -3614,7 +3625,7 @@ describe('hibernation', () => {
   it('revives a parked row whose kill the daemon could not confirm', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
@@ -3642,7 +3653,7 @@ describe('hibernation', () => {
   it('holds the park on an unconfirmed kill of a SERVER-family session — no reattach, no spawn loop', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -3683,7 +3694,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -3707,7 +3718,7 @@ describe('hibernation', () => {
     // resume kind survives in the row.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon2: ControlMessage[] = []
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
 
     daemon2.length = 0
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
@@ -3729,7 +3740,7 @@ describe('hibernation', () => {
   it('the census still revives a PTY-driven codex row the hold would otherwise catch', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -3810,7 +3821,7 @@ describe('hibernation', () => {
   it('holds the park for a driver id no manifest declares — no reattach, no adopt [POD-2456]', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // A newer daemon's server driver. This build has never heard of it.
     const sessionId = await parkedCodexRow(
       reg,
@@ -3835,7 +3846,7 @@ describe('hibernation', () => {
   it('holds the park for an EMBEDDED driver id too — it has no PTY either [POD-2456]', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -3865,7 +3876,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await parkedCodexRow(
       reg,
       { driverId: 'codex-app-server-v2', runtimeContract: true },
@@ -3877,7 +3888,7 @@ describe('hibernation', () => {
     // the two facts have to compose, not mask each other.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon2: ControlMessage[] = []
-    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+    await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
 
     daemon2.length = 0
     unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
@@ -3894,7 +3905,7 @@ describe('hibernation', () => {
   it('still revives a row bound to a manifest-declared TERMINAL driver [POD-2456]', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await parkedCodexRow(
       reg,
       { driverId: 'generic-pty' },
@@ -3911,7 +3922,7 @@ describe('hibernation', () => {
   it('leaves a parked row alone when the daemon confirms the kill', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
@@ -3933,7 +3944,7 @@ describe('hibernation', () => {
   it('revives only the parked rows the census says are still running', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const ghost = await liveSession(reg, daemon)
     const reallyParked = await liveSession(reg, daemon)
     expect(await reg.modules.sessions.hibernateSession({ sessionId: ghost })).toEqual({ ok: true })
@@ -3959,7 +3970,7 @@ describe('hibernation', () => {
 
   it('refuses to hibernate a session with no resume ref (would be a kill)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg.modules.sessions.hibernateSession({ sessionId })).ok).toBe(false)
@@ -3973,7 +3984,7 @@ describe('hibernation', () => {
   it('a refused wake says so instead of dropping the request silently', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     await reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
@@ -4000,7 +4011,7 @@ describe('hibernation', () => {
   it('resurrect respawns under the same id with the resume ref', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     await reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
@@ -4029,7 +4040,7 @@ describe('hibernation', () => {
   it('resurrect carries a relaunch spawn binding', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     await reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
@@ -4048,7 +4059,7 @@ describe('hibernation', () => {
   it('resurrect revives an exited (crashed) session with a resume ref', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     // The process dies out from under us (crash / external kill).
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4075,7 +4086,7 @@ describe('hibernation', () => {
   it('rejects a fenced Grok exit when both live and durable leases are absent', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'grok',
       cwd: '/w',
@@ -4140,7 +4151,7 @@ describe('hibernation', () => {
     })
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'grok',
         cwd: '/w',
@@ -4324,7 +4335,7 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     const lifecycle: string[] = []
     let target: SessionId | undefined
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
       daemon.push(m)
       if (m.type === 'spawn' && m.sessionId === target) lifecycle.push('spawn')
     })
@@ -4519,7 +4530,7 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     const lifecycle: string[] = []
     let target: SessionId | undefined
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => {
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => {
       daemon.push(message)
       if (message.type === 'spawn' && message.sessionId === target) lifecycle.push('spawn')
     })
@@ -4624,7 +4635,7 @@ describe('hibernation', () => {
   it('deduplicates legacy unfenced exits and clears their guard on spawnError', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'grok',
       cwd: '/w',
@@ -4686,7 +4697,7 @@ describe('hibernation', () => {
   it('keeps a revoked delegated row durable without waking after exit', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const actorSessionId = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/actor',
@@ -4746,7 +4757,7 @@ describe('hibernation', () => {
   it('restarts an exited shell fresh in the same cwd — no resume ref needed', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4793,7 +4804,7 @@ describe('hibernation', () => {
   it('starts a never-bound agent again, fresh and with no resume ref', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await exitedCodex(reg, daemon)
     expect((await reg.modules.sessions.listSessions())[0]).toMatchObject({
       status: 'exited',
@@ -4812,7 +4823,7 @@ describe('hibernation', () => {
   it('still refuses one that HAD a ref and lost it to identity arbitration', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
     // A heuristic binding — a real thread, identified by inference.
@@ -4858,7 +4869,7 @@ describe('hibernation', () => {
     const frames: ControlMessage[] = []
     const machineId = (await reg.modules.sessions.listSessions())[0]?.machineId
     if (!machineId) throw new Error('the rebooted registry loaded no placed session')
-    reg.gateway.attachDaemon(machineId, (m) => frames.push(m))
+    await reg.gateway.attachDaemon(machineId, (m) => frames.push(m))
     frames.length = 0 // reattach probes are not what these tests are reading
     return { reg, frames }
   }
@@ -4868,7 +4879,7 @@ describe('hibernation', () => {
     const store = await openTestStore(file)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await exitedCodex(reg, daemon)
     // Forge the pre-POD-2392 shape: the column is NULL, which is "no claim".
     // (Only a 'never' claim can be erased this way; the upsert refuses to walk
@@ -4890,7 +4901,7 @@ describe('hibernation', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-never-bound-')), 'state.sqlite')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await exitedCodex(reg, daemon)
 
     const { reg: rebooted, frames } = await reboot(file)
@@ -4904,7 +4915,7 @@ describe('hibernation', () => {
   it('treats resurrecting a live session as an idempotent no-op', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     const daemonFrames = daemon.length
     expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
@@ -4917,7 +4928,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const settings = await store.settings.getSettings()
     await store.settings.setSettings({
       ...settings,
@@ -4969,7 +4980,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await store.settings.setSettings({
       ...await store.settings.getSettings(),
       hibernation: {
@@ -5012,7 +5023,7 @@ describe('hibernation', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await store.settings.setSettings({
       ...await store.settings.getSettings(),
       hibernation: {
@@ -5060,7 +5071,7 @@ describe('reconnect identity (hello reclaim)', () => {
   it('a reconnecting client reclaims its prior controller role and evicts the stale one', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
 
@@ -5107,7 +5118,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
   it('hello with an unknown prior id is a harmless no-op', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
     expect(() =>
@@ -5395,7 +5406,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
 
   it('a daemon nativeDraft is sequenced as an origin=native versioned broadcast', async () => {
     const { reg } = await flaggedReg()
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c: ServerMessage[] = []
     attachTestClient(reg.clientGateway, (m) => c.push(m))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -5415,7 +5426,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     try {
       const { reg } = await flaggedReg()
       const daemonMsgs: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -5442,7 +5453,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       vi.setSystemTime(new Date('2026-07-17T12:00:00.000Z'))
       const { reg } = await flaggedReg()
       const daemonMsgs: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -5587,7 +5598,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     try {
       const { reg } = await plainReg()
       const daemonMsgs: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -5760,7 +5771,7 @@ describe('SessionRegistry read state (#124)', () => {
   it('a fresh session is unread; markSessionRead clears it and persists across reload', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5785,7 +5796,7 @@ describe('SessionRegistry read state (#124)', () => {
 
   it('markSessionRead broadcasts a fresh sessionsChanged marking it read', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5807,7 +5818,7 @@ describe('SessionRegistry read state (#124)', () => {
   it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5851,7 +5862,7 @@ describe('SessionRegistry snooze', () => {
 
   it('set/list/clear round-trips and shows on the session meta', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5871,7 +5882,7 @@ describe('SessionRegistry snooze', () => {
 
   it('a submitted prompt (sendText) clears the snooze', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5885,7 +5896,7 @@ describe('SessionRegistry snooze', () => {
 
   it('leaving the attention phase clears it; staying in attention keeps it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -5977,7 +5988,7 @@ describe('SessionRegistry — auto-continue', () => {
   it('does NOT auto-send continue when the setting is off', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
@@ -5994,7 +6005,7 @@ describe('SessionRegistry — auto-continue', () => {
   it('auto-sends continue when an enabled session hits a retryable error', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await enableAutoContinue(reg)
     const sessionId = await liveSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -6013,7 +6024,7 @@ describe('SessionRegistry — auto-continue', () => {
   it('arms already-errored sessions when the setting is switched on', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
@@ -6040,7 +6051,7 @@ describe('output-relay priority + frame batch', () => {
   it('a client viewState{visible:[s],focused:s} pushes sessionPriority{priority:0} to the daemon', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6066,7 +6077,7 @@ describe('output-relay priority + frame batch', () => {
   it('stores the rendered-mode map and signals chat without changing relay priority', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6099,7 +6110,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('defaults viewModes to {} when a viewState omits modes (backward compatible)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6125,7 +6136,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('a fresh client starts with empty viewModes', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
     expect((reg as any).modules.sessions.clients.get(id).viewModes).toEqual({})
@@ -6134,7 +6145,7 @@ describe('output-relay priority + frame batch', () => {
   it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // Two sessions: the second would wrongly read as tier 3 if the clients iterator
     // were single-use (it exhausts after the first session) — the array-materialize
     // guard is what keeps this correct.
@@ -6163,7 +6174,7 @@ describe('output-relay priority + frame batch', () => {
   it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6188,7 +6199,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('a fresh daemon (re)connect gets the current priority of every live session', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6204,7 +6215,7 @@ describe('output-relay priority + frame batch', () => {
     // current map must be re-pushed (lastPriority.clear() + pushPriorities()).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     const daemon2: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
     expect(priorities(daemon2)).toContainEqual({
       type: 'sessionPriority',
       sessionId,
@@ -6215,7 +6226,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('agentFrameBatch stays coalesced through the client broadcast', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -6244,7 +6255,7 @@ describe('listDir routing', () => {
   it('routes listDir to the worktree machine and resolves entries', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
 
     const p = reg.modules.rpc.listDir({
       machineId: reg.sessionStore.hostMachineId,
@@ -6276,7 +6287,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6373,7 +6384,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6435,7 +6446,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6522,7 +6533,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6564,7 +6575,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6602,7 +6613,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6673,7 +6684,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6720,7 +6731,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6776,7 +6787,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -6823,7 +6834,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -6853,7 +6864,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -6873,7 +6884,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -6911,7 +6922,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const issue = await registry.issues.create({
@@ -6987,7 +6998,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -7053,7 +7064,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),
       )
       const parent = await registry.modules.issues.create({
@@ -7138,7 +7149,7 @@ describe('pending interrupt retraction wiring', () => {
   it('propagates the wired pending cancellation write failure', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+      await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex', cwd: '/repo',
       })

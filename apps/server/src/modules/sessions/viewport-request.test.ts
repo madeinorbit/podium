@@ -572,7 +572,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(
+    await reg.gateway.attachDaemon(
       reg.sessionStore.hostMachineId,
       (m: ControlMessage) => daemon.push(m),
       caps,
@@ -655,7 +655,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
 
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
       CAP_DAEMON_GEOMETRY_APPLIED,
     ])
     const session = (restarted as unknown as InternalRegistry).modules.sessions.sessions.get(

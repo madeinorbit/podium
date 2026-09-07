@@ -112,7 +112,7 @@ async function registryFor(): Promise<{ reg: SessionRegistry; daemon: ControlMes
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 const spawns = (daemon: ControlMessage[]) =>
@@ -694,7 +694,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     watcher.sent.length = 0
 
     const send: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => send.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => send.push(m))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
     // The session comes back LIVE — the bind is still proof the agent is there.
@@ -713,7 +713,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     const revision = session.terminal.geometryRevision
     watcher.sent.length = 0
 
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bareBind(sessionId),
       // A daemon that DID apply something at bind — a resize it was holding for
@@ -738,7 +738,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
   it('the published row says `unknown` after a bare bind — the claim the panel reads', async () => {
     const { reg, sessionId, session } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
     const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)

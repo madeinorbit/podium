@@ -427,14 +427,11 @@ export class SessionLifecycle {
   sessionsChangedForMachine(...args: any[]): void {
     ;(this.sessionClientPlane as any).sessionsChangedForMachine(...args)
   }
-  onMachineAttached(...args: any[]): void {
-    ;(this.sessionClientPlane as any).onMachineAttached(...args)
+  onMachineAttached(principal: MachinePrincipal): Promise<void> {
+    return this.sessionClientPlane.onMachineAttached(principal)
   }
   onMachineDetached(...args: any[]): void {
     ;(this.sessionClientPlane as any).onMachineDetached(...args)
-  }
-  private reattachMessageFor(...args: any[]): any {
-    return (this.sessionClientPlane as any).reattachMessageFor(...args)
   }
   private rebindHeadless(...args: any[]): void {
     ;(this.sessionClientPlane as any).rebindHeadless(...args)

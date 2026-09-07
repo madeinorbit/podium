@@ -366,10 +366,10 @@ describe('machine scope and the writer class', () => {
 })
 
 describe('attach / detach orchestration', () => {
-  it('runs the attach steps in the order the old inline body ran them', () => {
+  it('runs the attach steps in the order the old inline body ran them', async () => {
     const { ports, calls } = fakePorts()
     const bus = { emit: vi.fn() }
-    new DaemonMux({ ports, bus: bus as never }).attachDaemon('local', () => {})
+    await new DaemonMux({ ports, bus: bus as never }).attachDaemon('local', () => {})
     expect(calls.map((c) => `${c.port}.${c.method}`)).toEqual([
       'machines.attach',
       // No adoption step: POD-318 writes every row under a real machine id from
@@ -381,11 +381,11 @@ describe('attach / detach orchestration', () => {
     expect(bus.emit).toHaveBeenCalledWith('machine.connected', { machineId: 'local' })
   })
 
-  it('claims nothing on attach — no machine is special any more', () => {
+  it('claims nothing on attach — no machine is special any more', async () => {
     // The step used to fire for the hard-coded local machine and for nothing else.
     // Both halves of that are gone; an attach is an attach.
     const { ports, calls } = fakePorts()
-    muxWith(ports).attachDaemon('m2', () => {})
+    await muxWith(ports).attachDaemon('m2', () => {})
     expect(calls.map((c) => c.method)).not.toContain('adoptPlaceholderRows')
   })
 

@@ -68,7 +68,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     nativeId: string,
     lakeContent: string,
   ): Promise<string> {
-    registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m1', () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -110,7 +110,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const sessionId = await seedMirroredSession(registry, store, lakeDir, 'native-pruned', LAKE_LINES)
     // Re-attach a daemon that answers every transcriptRead with zero items — the
     // native file is gone from its disk.
-    registry.gateway.attachDaemon('m1', (m) => {
+    await registry.gateway.attachDaemon('m1', (m) => {
       if (m.type === 'transcriptRead') {
         registry.gateway.routeDaemonFrame('m1', {
           type: 'transcriptReadResult',
@@ -143,7 +143,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     const sessionId = await seedMirroredSession(registry, store, lakeDir, 'native-live', lakeOnly)
     registry.gateway.detachDaemon('m1')
-    registry.gateway.attachDaemon('m1', (m) => {
+    await registry.gateway.attachDaemon('m1', (m) => {
       if (m.type === 'transcriptRead') {
         registry.gateway.routeDaemonFrame('m1', {
           type: 'transcriptReadResult',
@@ -204,7 +204,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     registry.gateway.detachDaemon('m1')
     // Even with an online daemon returning the replacement file, the lake owns
     // this read because it is the only source that can page across predecessors.
-    registry.gateway.attachDaemon('m1', (message) => {
+    await registry.gateway.attachDaemon('m1', (message) => {
       if (message.type !== 'transcriptRead') return
       registry.gateway.routeDaemonFrame('m1', {
         type: 'transcriptReadResult',
@@ -245,7 +245,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       path: sourcePath,
       sizeBytes: source.length,
     })
-    registry.gateway.attachDaemon('m1', (message) => {
+    await registry.gateway.attachDaemon('m1', (message) => {
       if (message.type !== 'transcriptMirrorRead') return
       const bytes = source.subarray(message.offset, message.offset + message.maxBytes)
       registry.gateway.routeDaemonFrame('m1', {
@@ -309,7 +309,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     // The attach trigger runs the backfill sweep (same seam as enqueueMachine).
     registry.gateway.detachDaemon('m1')
-    registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m1', () => {})
     await vi.waitFor(async () => {
       expect(
         (await store.conversations.transcriptIndex
@@ -322,7 +322,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
     const { registry } = await setup()
-    registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m1', () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -344,7 +344,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   it('fails closed before daemon or lake access for another user', async () => {
     const { registry } = await setup()
     const sent: unknown[] = []
-    registry.gateway.attachDaemon('m1', (message) => sent.push(message))
+    await registry.gateway.attachDaemon('m1', (message) => sent.push(message))
     const { sessionId } = await registry.modules.sessions.createSession({
       ownerUserId: asUserId('usr_transcript_owner'),
       agentKind: 'claude-code',

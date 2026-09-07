@@ -66,7 +66,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
   it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -101,7 +101,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
@@ -507,7 +507,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // Populate one row in each family through the real write paths.
     const store1 = await openTestStore(file)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
