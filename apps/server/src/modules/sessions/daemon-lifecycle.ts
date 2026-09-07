@@ -326,6 +326,20 @@ export class SessionDaemonLifecycle {
     }
   }
 
+  /** The existing offer stamp is its identity, as on explicit dismissal. */
+  private offerForUserTurn(
+    session: Session,
+    eventAt: string,
+    origin?: ObservationInputOrigin,
+  ): string | undefined {
+    const offer = session.offer
+    return offer !== undefined &&
+      Date.parse(eventAt) > Date.parse(offer.createdAt) &&
+      this.userOpenedTurn(session, offer.createdAt, origin)
+      ? offer.createdAt
+      : undefined
+  }
+
   handleOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     const session = this.sessions.get(batch.sessionId)
     if (!session || session.machineId !== principal.machine) return
@@ -678,6 +692,14 @@ export class SessionDaemonLifecycle {
         const session = this.sessions.get(observation.podiumSessionId)
         if (!session || session.machineId !== machineId) break
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        // Bind retirement to the offer and input evidence present at ingress.
+        // Persistence and owner notification yield; a later offer must not be
+        // consumed by this earlier transition when those continuations resume.
+        const offerToRetire = this.offerForUserTurn(
+          session,
+          observation.receivedAt,
+          observation.inputOrigin,
+        )
         // Durable state is authoritative: a foreign daemon or reattach may
         // have advanced the lease since this process cached it.
         const lease = await this.store.observationCheckpoints.get(observation.podiumSessionId)
@@ -834,10 +856,9 @@ export class SessionDaemonLifecycle {
         // The event-time guard keeps a late or replayed turn_opened from
         // consuming an offer that was posted after it.
         if (
-          session.offer !== undefined &&
+          offerToRetire !== undefined &&
           observation.transitionKind === 'turn_opened' &&
-          Date.parse(observation.receivedAt) > Date.parse(session.offer.createdAt) &&
-          this.userOpenedTurn(session, session.offer.createdAt, observation.inputOrigin)
+          session.offer?.createdAt === offerToRetire
         ) {
           await this.clearOffer(session.sessionId)
         }
@@ -880,6 +901,7 @@ export class SessionDaemonLifecycle {
           break
         }
         const prev = session.agentState
+        const offerToRetire = this.offerForUserTurn(session, msg.state.since)
         // Persisted so the advanced recency (lastActiveAt) is durable across a
         // server restart — otherwise the row keeps its stale last-persisted time
         // and the ordering jumps backward on every redeploy until events
@@ -934,11 +956,10 @@ export class SessionDaemonLifecycle {
         // on input evidence. The event-time guard keeps a boot replay of the
         // very turn that produced the offer from consuming it.
         if (
-          session.offer !== undefined &&
+          offerToRetire !== undefined &&
           prev?.phase !== 'working' &&
           next.phase === 'working' &&
-          next.since > session.offer.createdAt &&
-          this.userOpenedTurn(session, session.offer.createdAt)
+          session.offer?.createdAt === offerToRetire
         ) {
           await this.clearOffer(msg.sessionId)
         }
