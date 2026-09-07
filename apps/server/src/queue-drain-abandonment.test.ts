@@ -22,7 +22,7 @@
 
 import { asMachineId, asUserId, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -81,6 +81,32 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     return { sessionId, messageId: sent.message.id }
   }
 
+  it('acknowledges only after the durable abandonment completes', async () => {
+    const { sessionId, messageId } = await queuedMessageFor('wait for persistence')
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const original = store.messages.markDeliveryAbandoned.bind(store.messages)
+    const write = vi.spyOn(store.messages, 'markDeliveryAbandoned').mockImplementationOnce(async (...args) => {
+      await pending
+      return await original(...args)
+    })
+    const delivery = registry.gateway.routeDaemonFrame(MACHINE, {
+      type: 'runtimeQueueDrainAbandoned', reportId: 'delayed-report',
+      sessionId, turnIds: [messageId], reason: 'teardown',
+    })
+    try {
+      await vi.waitFor(() => expect(write).toHaveBeenCalled())
+      expect(acksFor('delayed-report')).toHaveLength(0)
+      expect((await store.messages.getMessage(messageId))?.status).toBe('queued')
+    } finally {
+      release()
+      await delivery
+      write.mockRestore()
+    }
+    expect(acksFor('delayed-report')).toHaveLength(1)
+    expect((await store.messages.getMessage(messageId))?.status).toBe('dead_letter')
+  })
+
   it.each([
     'never-live',
     'teardown',
@@ -92,7 +118,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   ] as const)('a %s frame from the owning machine ends the queued receipt', async (reason) => {
     const { sessionId, messageId } = await queuedMessageFor(`abandoned by ${reason}`)
 
-    registry.gateway.routeDaemonFrame(MACHINE, {
+    await registry.gateway.routeDaemonFrame(MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
       sessionId,
       turnIds: [messageId],
@@ -121,9 +147,9 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       reason: 'never-live',
     })
 
-    registry.gateway.routeDaemonFrame(MACHINE, report())
+    await registry.gateway.routeDaemonFrame(MACHINE, report())
     const firstStamp = (await store.messages.getMessage(messageId))?.deadLetteredAt
-    registry.gateway.routeDaemonFrame(MACHINE, report())
+    await registry.gateway.routeDaemonFrame(MACHINE, report())
 
     // The first report is the one that stands: no second stamp, no rewritten
     // reason, and exactly one terminal transition on the ledger.
@@ -145,7 +171,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   it('a frame from a machine that does not own the session moves nothing', async () => {
     const { sessionId, messageId } = await queuedMessageFor('not yours to abandon')
 
-    registry.gateway.routeDaemonFrame(OTHER_MACHINE, {
+    await registry.gateway.routeDaemonFrame(OTHER_MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
       sessionId,
       turnIds: [messageId],
@@ -172,7 +198,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     const { sessionId, messageId } = await queuedMessageFor('tell me why')
     const sentBy = (await store.messages.getMessage(messageId))?.fromKind
 
-    registry.gateway.routeDaemonFrame(MACHINE, {
+    await registry.gateway.routeDaemonFrame(MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
       sessionId,
       turnIds: [messageId],

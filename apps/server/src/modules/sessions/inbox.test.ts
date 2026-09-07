@@ -107,12 +107,12 @@ function harness(
   })
   let authorized = true
   let nativeView = options.nativeView ?? false
-  const applied = vi.fn()
-  const injected = vi.fn()
+  const applied = vi.fn(async () => {})
+  const injected = vi.fn(async () => {})
   const resurrect = vi.fn((sessionId: SessionId, principal: InboxPrincipalReference) => {
     resurrections.push({ sessionId, principal })
   })
-  const interrupted = vi.fn()
+  const interrupted = vi.fn(async () => {})
   const interruptedPending = vi.fn(async () => {})
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
@@ -206,7 +206,7 @@ function harness(
       injected,
       interrupted,
       interruptedPending,
-      rejected: (input) => rejected.push(input),
+      rejected: async (input) => { rejected.push(input) },
     },
     attention: {
       stateChanged: attentionStateChanged,
@@ -1067,6 +1067,28 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
     expect(h.interrupted).not.toHaveBeenCalled()
+  })
+
+  it('waits for physical retraction before resolving an interrupt', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    await h.inbox.sendText({ sessionId: SID, text: 'cancel me', sourceMessageId: 'm1' })
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    h.interrupted.mockImplementationOnce(() => pending)
+    let settled = false
+    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+      .then((value) => { settled = true; return value })
+    await vi.waitFor(() => expect(h.interrupted).toHaveBeenCalled())
+    try { expect(settled).toBe(false) } finally { release(); await result }
+  })
+
+  it('propagates the exact physical retraction failure', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    await h.inbox.sendText({ sessionId: SID, text: 'cancel me', sourceMessageId: 'm1' })
+    const failure = new Error('physical retraction write failed')
+    h.interrupted.mockRejectedValueOnce(failure)
+    await expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() }))
+      .rejects.toBe(failure)
   })
 
   it('waits for pending retraction before resolving an interrupt', async () => {

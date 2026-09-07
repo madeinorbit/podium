@@ -1,7 +1,7 @@
 import type { SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { EventBus } from '../bus'
-import type { MessageDeliveryDeps } from './service'
+import type { MessageDeliveryDeps, MessageDeliveryService } from './service'
 
 /** Durable apply-time guard shared by the session inbox and message delivery. */
 export class QueuedMessageApply {
@@ -15,8 +15,8 @@ export class QueuedMessageApply {
         | { ok: true }
         | { ok: false; reason: string }
         | Promise<{ ok: true } | { ok: false; reason: string }>
-      applied(messageId: string, sessionId: SessionId): void
-      injected(messageId: string, sessionId: SessionId): void
+      applied(messageId: string, sessionId: SessionId): Promise<void>
+      injected(messageId: string, sessionId: SessionId): Promise<void>
       bus: EventBus
       now(): string
     },
@@ -29,14 +29,16 @@ export class QueuedMessageApply {
     return await this.deps.authorize(message)
   }
 
-  applied(messageId: string, sessionId: SessionId): void {
-    this.deps.applied(messageId, sessionId)
+  async applied(messageId: string, sessionId: SessionId): Promise<void> {
+    const completion: Promise<void> = this.deps.applied(messageId, sessionId)
+    await completion
   }
 
   /** The push crossed into the CLI but the agent has not been seen to take it —
    *  short of `applied`, and the point after which nothing is retyped (POD-1242). */
-  injected(messageId: string, sessionId: SessionId): void {
-    this.deps.injected(messageId, sessionId)
+  async injected(messageId: string, sessionId: SessionId): Promise<void> {
+    const completion: Promise<void> = this.deps.injected(messageId, sessionId)
+    await completion
   }
 
   async reject(messageId: string, reason: string): Promise<void> {
@@ -44,22 +46,35 @@ export class QueuedMessageApply {
     if (!message || message.status !== 'queued') return
     const at = this.deps.now()
     if (!await this.deps.messages.markDeadLetter(message.id, at)) return
-    try {
-      await this.deps.events.appendEvent({
-        ts: at,
-        kind: 'message.dead_letter',
-        subject: message.id,
-        payload: {
-          messageId: message.id,
-          threadId: message.threadId,
-          fromKind: message.fromKind,
-          toKind: message.toKind,
-          ...(message.toId ? { toId: message.toId } : {}),
-          status: 'dead_letter',
-          reason,
-        },
-      })
-    } catch {}
+    await this.deps.events.appendEvent({
+      ts: at,
+      kind: 'message.dead_letter',
+      subject: message.id,
+      payload: {
+        messageId: message.id,
+        threadId: message.threadId,
+        fromKind: message.fromKind,
+        toKind: message.toKind,
+        ...(message.toId ? { toId: message.toId } : {}),
+        status: 'dead_letter',
+        reason,
+      },
+    })
     this.deps.bus.emit('message.deadLettered', { messageId, reason })
+  }
+}
+
+/** Retract a physical queued delivery; only a concurrent terminal transition is benign. */
+export async function cancelInterruptedQueuedMessage(
+  messages: Pick<MessageDeliveryService, 'cancel'>,
+  messageId: string,
+): Promise<void> {
+  try {
+    const cancellation: Promise<MessageRow> = messages.cancel(messageId)
+    await cancellation
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'message is no longer queued') {
+      throw error
+    }
   }
 }

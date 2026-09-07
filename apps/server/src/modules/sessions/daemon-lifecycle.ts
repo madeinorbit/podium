@@ -98,7 +98,7 @@ export interface SessionDaemonLifecyclePorts {
    * than assume one report per turn.
    */
   queueDrainAbandoned?: {
-    record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): void
+    record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): Promise<void>
   }
   /**
    * THE PROTOCOL ASK INGRESS (POD-2023).
@@ -984,10 +984,11 @@ export class SessionDaemonLifecycle {
       case 'runtimeQueueDrainAbandoned': {
         const owner = this.sessions.get(msg.sessionId)
         if (owner?.machineId === machineId && this.ports.queueDrainAbandoned) {
-          // `record` is the synchronous durable boundary: it returns only after
+          // `record` is the durable boundary: it returns only after
           // the guarded queued→dead_letter update and its transition/notice work.
           // If it throws, no ack is sent and the daemon retains/replays the report.
-          this.ports.queueDrainAbandoned.record(msg)
+          const completion: Promise<void> = this.ports.queueDrainAbandoned.record(msg)
+          await completion
           if (msg.reportId) {
             this.ports.toMachine(machineId, {
               type: 'runtimeQueueDrainAbandonedAck',
