@@ -3474,6 +3474,18 @@ touched and let B judge. Do that. A neighbour's control arm and a lost working t
 from outside (memory: *a control-arm window looks like lost work*), and the only thing separating a
 probe from vandalism is whether the other side agreed to the window.
 
+**THE STRONGER VERSION, from POD-3511-A after it re-ran the same mutations cleanly.** A lock is
+belt and braces; **not sharing the resource is the mechanism.** It redid both mutants in its own
+detached review worktree at a checkout of the branch head, never writing to the shared tree at all,
+and took the lease anyway only because the neighbour had offered it. Both mutants were then killed
+by exactly one test each, by their own test, with the same isolating reason codes as the original
+measurement — proving the awaits were still load-bearing after a rebase and a round of respellings,
+which is the thing an added await can silently destroy with nothing announcing it.
+
+So the rule is ordered, not alternative: **run it somewhere nobody else is, and lock only what you
+genuinely cannot un-share.** Three mutation results were discarded this epic before anyone reached
+that ordering.
+
 **RESTORE NOTHING.** A did not check out, restore or commit anything, because destroying a
 neighbour's control arm mid-measurement is worse than a missing datapoint. An inconclusive result
 reported as inconclusive is worth more than a clean number that has to be distrusted later.
