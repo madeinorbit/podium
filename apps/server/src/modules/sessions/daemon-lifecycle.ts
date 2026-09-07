@@ -1008,14 +1008,25 @@ export class SessionDaemonLifecycle {
         // until their own vertical slices move; they no longer own board effects
         // for a session that declared the runtime contract.
         const owner = this.sessions.get(msg.sessionId)
+        const runtimeEvents = this.ports.runtimeEvents
         if (msg.type === 'runtimeFineEvent') {
-          if (owner?.machineId === machineId) await this.ports.runtimeEvents?.record(machineId, msg)
+          if (owner?.machineId === machineId && runtimeEvents) {
+            const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
+              runtimeEvents.record(machineId, msg)
+            await completion
+          }
           break
         }
-        const result =
-          owner?.machineId === machineId
-            ? await this.ports.runtimeEvents?.record(machineId, msg)
-            : ({ kind: 'rejected', reason: 'unknown-session' } as const)
+        let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
+        if (owner?.machineId === machineId) {
+          if (runtimeEvents) {
+            const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
+              runtimeEvents.record(machineId, msg)
+            result = await completion
+          }
+        } else {
+          result = { kind: 'rejected', reason: 'unknown-session' }
+        }
         if (!result) break
         if (!msg.deliveryId) break
         if (result.kind === 'rejected') {

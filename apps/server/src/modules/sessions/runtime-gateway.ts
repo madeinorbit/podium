@@ -335,7 +335,11 @@ export class SessionRuntimeGateway {
     _machineId: MachineId,
     msg: { sessionId: SessionId; event: RuntimeEvent },
   ): Promise<RuntimeEventGateResult> {
-    const result = await this.ports.events.record(msg.sessionId, msg.event)
+    const completion: Promise<RuntimeEventGateResult> = this.ports.events.record(
+      msg.sessionId,
+      msg.event,
+    )
+    const result = await completion
     if (result.kind === 'accepted' || result.kind === 'fine-live-only') {
       for (const listener of [...this.listeners]) listener(msg.sessionId, msg.event)
     }
