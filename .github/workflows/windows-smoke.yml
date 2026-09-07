@@ -45,10 +45,11 @@ jobs:
       # checkout is on D:, so each of those links would cross a volume. Put the cache — and so
       # the store — on the checkout's own volume. The global store stays fully in use; this
       # only decides where it lives, which is why it is not a Windows linker override.
+      # Keep its name short too: Metro embeds this path into exported asset names.
       - name: Pin Bun's install cache (and its global store) to the checkout volume
         shell: pwsh
         run: |
-          $cache = Join-Path (Split-Path -Parent (Split-Path -Parent $env:GITHUB_WORKSPACE)) 'bun-install-cache'
+          $cache = 'D:\b'
           New-Item -ItemType Directory -Force -Path $cache | Out-Null
           "BUN_INSTALL_CACHE_DIR=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "workspace volume: $((Split-Path -Qualifier $env:GITHUB_WORKSPACE))"
