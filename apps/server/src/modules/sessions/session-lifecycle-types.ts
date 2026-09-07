@@ -91,7 +91,7 @@ export interface SessionLifecycleDeps {
   /** Lazy source-message re-authorization; resolved on every inbox drain. */
   authorizeQueuedMessage?(
     messageId: string,
-  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
+  ): Promise<import('./inbox').InboxAuthorizationDecision>
   /** Dead-letter the durable source intent after a drain-time refusal. */
   rejectQueuedMessage?(messageId: string, reason: string): Promise<void>
   /** Advance the source intent only after queued input crosses into the PTY. */

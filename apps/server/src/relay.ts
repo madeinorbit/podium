@@ -1262,7 +1262,7 @@ export class SessionRegistry {
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
-      authorizeQueuedMessage: async (messageId) => await queuedMessageApply.authorize(messageId),
+      authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
       rejectQueuedMessage: async (messageId, reason) => await queuedMessageApply.reject(messageId, reason),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
         queuedMessageApply.applied(messageId, sessionId),
@@ -1650,11 +1650,12 @@ export class SessionRegistry {
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
 
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
-      const authorized = await sessionsSvc.authorizeQueuedInputAtApply({
+      const authorization: Promise<import('./modules/sessions/inbox').InboxAuthorizationDecision> = sessionsSvc.authorizeQueuedInputAtApply({
         sessionId,
         principal,
         sourceMessageId: null,
       })
+      const authorized = await authorization
       // REFUSING THE WAKE IS CORRECT — revocation is supposed to stop a parked
       // session being woken by input it may no longer accept, and the queued row
       // stays pending for an explicit later resume. Doing it SILENTLY was not:

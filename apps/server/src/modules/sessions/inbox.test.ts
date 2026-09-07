@@ -39,6 +39,7 @@ const agentPrincipal = (): InboxPrincipalReference => ({
 
 function harness(
   options: {
+    authorizeAtDrain?: () => Promise<import('./inbox').InboxAuthorizationDecision>
     prepareSend?: () => Promise<void>
     owner?: typeof ALICE | null
     ownerOf?: () => Promise<typeof ALICE | null | undefined>
@@ -200,8 +201,8 @@ function harness(
     },
     daemon: { sendInput: (_machineId, message) => sent.push(message) },
     authorization: {
-      authorizeAtDrain: () =>
-        authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
+      authorizeAtDrain: options.authorizeAtDrain ?? (async () =>
+        authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const)),
       applied,
       injected,
       interrupted,
@@ -604,6 +605,47 @@ describe('SessionInbox archived boundary', () => {
 })
 
 describe('SessionInbox authorization and identity', () => {
+  // TEST-pinned: the compiler checks the Promise contract, not whether it is awaited.
+  it.each([1, 2])('holds the row until authorization call %s resolves', async (heldCall) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void
+    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => { resolve = done })
+    let calls = 0
+    const h = harness({
+      authorizeAtDrain: () => ++calls === heldCall ? pending : Promise.resolve({ ok: true }),
+    })
+    await h.inbox.queueText({ sessionId: SID, text: 'wait for the database', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(7_000)
+    expect(calls).toBe(heldCall)
+    expect(h.rows).toHaveLength(1)
+    expect(h.rows[0]?.attempts).toBe(0)
+    expect(h.sent).toEqual([])
+    expect(h.rejected).toEqual([])
+    resolve({ ok: false, reason: 'database revoked' })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(h.sent).toEqual([])
+    expect(h.rows).toEqual([])
+    expect(h.rejected).toEqual([expect.objectContaining({ reason: 'database revoked' })])
+  })
+
+  it('delivers only after the database grants drain authorization', async () => {
+    vi.useFakeTimers()
+    let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void
+    const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => { resolve = done })
+    const h = harness({ serverDriven: true, contractReceipts: [], authorizeAtDrain: () => pending })
+    await h.inbox.queueText({ sessionId: SID, text: 'authorized later', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.rows).toHaveLength(1)
+    expect(h.contractCalls).toEqual([])
+    expect(h.rejected).toEqual([])
+    resolve({ ok: true })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.rows).toEqual([])
+    expect(h.rejected).toEqual([])
+  })
+
   it('stores only a delegation reference and re-authorizes immediately before drain', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
