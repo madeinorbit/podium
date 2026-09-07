@@ -95,7 +95,7 @@ export class MutationLedger {
    * joins the SAME promise instead of re-running — the async analogue of the
    * synchronous check-run-record pass.
    */
-  private readonly inFlight = new Map<string, Promise<unknown>>()
+  private readonly inFlight = new Map<string, Promise<MutationApplication<unknown>>>()
 
   constructor(
     private readonly store: AppliedMutationStore,
@@ -120,7 +120,7 @@ export class MutationLedger {
 
     const inFlight = this.inFlight.get(mutationId)
     if (inFlight !== undefined) {
-      return { outcome: 'replayed', value: (await inFlight) as Awaited<T> }
+      return { outcome: 'replayed', value: (await inFlight).value as Awaited<T> }
     }
 
     // Establish the join point BEFORE the durable lookup yields. Two deliveries
@@ -134,12 +134,13 @@ export class MutationLedger {
       await this.record(mutationId, proc, value)
       return { outcome: 'applied', value: value as Awaited<T> }
     })()
-    const tracked = owner.then(({ value }) => value)
-    this.inFlight.set(mutationId, tracked)
+    // Share the promise the owner awaits: a derived value-only promise would
+    // reject unobserved when no concurrent delivery joins it.
+    this.inFlight.set(mutationId, owner)
     try {
       return await owner
     } finally {
-      if (this.inFlight.get(mutationId) === tracked) this.inFlight.delete(mutationId)
+      if (this.inFlight.get(mutationId) === owner) this.inFlight.delete(mutationId)
     }
   }
 
