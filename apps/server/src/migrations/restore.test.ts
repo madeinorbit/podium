@@ -13,14 +13,14 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import {
   type FeedIdentity,
   FeedIdentityRegistry,
   Ledger,
   SyncRepository,
 } from '@podium/sync'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -33,47 +33,44 @@ const FEED_IDENTITY_SINGLETON_MIGRATION = 'feed-identity-singleton'
 
 const dirs: string[] = []
 afterEach(() => {
+  preparedAuthority?.db.close()
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-/** A file-backed authority on the real drizzle schema. */
-function authority(): { db: SqlDatabase; dbPath: string; dir: string; ledger: LedgerWithIdentity } {
+/** A file-backed database on the real drizzle schema. */
+function database(): { db: SqlDatabase; dbPath: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'podium-restore-'))
   dirs.push(dir)
   const dbPath = join(dir, 'podium.sqlite')
   const db = openDatabase(dbPath)
   applyBaselineSchema(db)
-  const ledger = ledgerOver(db)
-  // Mint NOW, before any backup is taken. Minting is lazy — in production it
-  // happens on the first feed subscribe — so an authority that has ever served a
-  // client has one persisted, which is the situation every case here describes.
-  // Left lazy, the first `feedIdentity()` call in a test would mint AFTER its
-  // backup, and the restore would then be re-minting over a backup that carries
-  // no identity at all: a different scenario, and not the one under test.
-  ledger.feedIdentity()
-  return { db, dbPath, dir, ledger }
+  return { db, dbPath, dir }
 }
 
-/**
- * POD-1246: main's `Ledger` carried a `feedIdentity()` method; this branch keeps
- * feed identity on the repository (`SyncRepository.readFeedIdentity`) rather than
- * on the ledger. The test's assertions are unchanged — only where they read the
- * identity from.
- *
- * Main's `feedIdentity()` minted on first read, which is exactly what cases like
- * "the Ledger mints into it" assert. `FeedIdentityRegistry.current()` is that same
- * mint-if-absent read on this branch, and it is the call `restore.ts` itself makes
- * — so this helper goes through the production path rather than a test-only
- * imitation of it.
- */
+let preparedAuthority: ReturnType<typeof database> & { ledger: LedgerWithIdentity }
+
+beforeEach(async () => {
+  const fixture = database()
+  // Resolve at the async setup boundary, before a test can take a backup.
+  // Every served authority must already have a persisted identity in that backup.
+  preparedAuthority = { ...fixture, ledger: await ledgerOver(fixture.db) }
+})
+
+/** Tests consume an already resolved authority synchronously. */
+function authority(): typeof preparedAuthority {
+  return preparedAuthority
+}
+
+/** Identity reads are synchronous snapshots; only setup resolves or mints. */
 type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
-function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
-  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
+async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
+  const queries = syncQueriesOver(db)
+  const repo = new SyncRepository(queries, syncServerTables)
   const ledger = new Ledger({
     repo,
     now: () => 1_000,
-    transact: (fn) => transaction(db, fn),
+    transact: queries.createOrJoinTransaction,
   }) as LedgerWithIdentity
   const registry = new FeedIdentityRegistry(
     {
@@ -82,6 +79,7 @@ function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
     },
     () => randomUUID(),
   )
+  await registry.resolve()
   ledger.feedIdentity = () => registry.current()
   return ledger
 }
@@ -206,7 +204,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // ---- Act 2: the rollback. -----------------------------------------------
     const restored = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
-    const ledger2 = ledgerOver(db2)
+    const ledger2 = await ledgerOver(db2)
     // The log really did rewind: the client's cursor is now in the future.
     expect(await ledger2.cursor()).toBe(2)
 
@@ -314,7 +312,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     // The replaced database still holds what the restore discarded.
     const saved = openDatabase(r.replacedBackupPath as string)
-    expect(await ledgerOver(saved).cursor()).toBe(3)
+    expect(await (await ledgerOver(saved)).cursor()).toBe(3)
     saved.close()
   })
 
@@ -329,22 +327,22 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // A full disk must fail BEFORE anything is written, with numbers — never by
     // dying mid-copy and leaving a truncated database where the real one was
     // (POD-615's lesson, pointed the other way).
-    expect(() => restoreDatabase({ backupPath, dbPath, freeBytes: () => 1 })).toThrow(
+    await expect(restoreDatabase({ backupPath, dbPath, freeBytes: () => 1 })).rejects.toThrow(
       /not enough free space/,
     )
 
     const db2 = openDatabase(dbPath)
-    expect(await ledgerOver(db2).cursor()).toBe(cursorBefore)
+    expect(await (await ledgerOver(db2)).cursor()).toBe(cursorBefore)
     expect((await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
     db2.close()
   })
 
-  it('refuses a missing backup, and refuses to restore a file over itself', () => {
+  it('refuses a missing backup, and refuses to restore a file over itself', async () => {
     const { dbPath } = authority()
-    expect(() =>
+    await expect(
       restoreDatabase({ backupPath: `${dbPath}.nope`, dbPath, freeBytes: PLENTY }),
-    ).toThrow(/backup not found/)
-    expect(() => restoreDatabase({ backupPath: dbPath, dbPath, freeBytes: PLENTY })).toThrow(
+    ).rejects.toThrow(/backup not found/)
+    await expect(restoreDatabase({ backupPath: dbPath, dbPath, freeBytes: PLENTY })).rejects.toThrow(
       /same file/,
     )
   })
@@ -486,7 +484,7 @@ describe('restoring a backup from before feed identity existed', () => {
    * test actually reads, not the one that shares its name.
    */
   function preFeedIdentityAuthority(): { db: SqlDatabase; dbPath: string; dir: string } {
-    const { db, dbPath, dir } = authority()
+    const { db, dbPath, dir } = database()
     db.exec('DROP TABLE feed_identity')
     db.prepare("DELETE FROM __drizzle_migrations WHERE name LIKE '%add-feed-identity-table%'").run()
     return { db, dbPath, dir }
@@ -535,8 +533,8 @@ describe('restoring a backup from before feed identity existed', () => {
     const booted = openDatabase(dbPath)
     // The pending migration applies cleanly...
     expect(() => applyBaselineSchema(booted)).not.toThrow()
-    // ...and the Ledger's mint-on-construction gives the feed an identity.
-    const identity = ledgerOver(booted).feedIdentity()
+    // ...and resolving identity at boot gives the feed an identity.
+    const identity = (await ledgerOver(booted)).feedIdentity()
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
     booted.close()
@@ -561,9 +559,12 @@ describe('restoring a backup from before feed identity existed', () => {
     await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const booted = openDatabase(dbPath)
     applyBaselineSchema(booted)
-    const fresh = ledgerOver(booted).feedIdentity()
+    const fresh = (await ledgerOver(booted)).feedIdentity()
     // Minted ids, so they cannot collide with what the client holds — on EITHER
     // field. Mismatch -> discard the replica -> re-bootstrap (ADR 2 D7 rung 4).
+    expect(fresh.feedId).toBeTruthy()
+    expect(fresh.epoch).toBeTruthy()
+    expect(await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity()).toEqual(fresh)
     expect(fresh.feedId).not.toBe(staleFeedId)
     expect(fresh.epoch).not.toBe(staleEpoch)
     booted.close()
