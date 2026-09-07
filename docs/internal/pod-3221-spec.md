@@ -3591,3 +3591,40 @@ rejection. State both in a handoff — "12 passed, exit 1" is a complete report 
 promise is not a promise anyone forgot to handle. `owner` is awaited, `tracked` is stored. Every
 individual line is right. Rule 52c's blind half again — no compiler has an opinion about who
 observes a derived promise.
+
+### Rule 65 — "RED ON THE BASE" MEANS **dev/mw**, NOT THE INTEGRATION TIP
+
+The coordinator's error, made four times in one afternoon, and it moved real defects out of the
+gate.
+
+The integration branch is **829 commits ahead of `origin/dev/mw`**. A control arm at a commit on
+*our own branch* — `f55ecf97f`, `7a1445540`, `e4e66e5c7` are all epic commits — answers only:
+
+> did **THIS CHANGE** cause it?
+
+It does **not** answer:
+
+> did the **EPIC** cause it?
+
+Those are different questions and conflating them is how POD-3589 was filed as pre-existing. Its
+control at `f55ecf97f` correctly showed the same failure on both sides — and the responsible line,
+`cached.authorizationRevision = Number.NaN`, came from `380a2708b refactor(POD-3263)`, the B1 flip.
+It had been ours from the beginning. `NaN` equals nothing, so every revision comparison failed and
+the advanced world cache was **disabled outright**, not merely invalidated often.
+
+**THE TWO CLAIMS AND THE EVIDENCE EACH ONE NEEDS:**
+
+| claim | required control |
+|---|---|
+| "my change didn't cause it" | the integration tip **without** my branch — cheap, and usually enough |
+| "the epic didn't cause it, it is inherited" | `origin/dev/mw`, **or** `git log -S` on the responsible line showing its introducing commit is an ancestor of `origin/dev/mw` |
+
+The second is what a post-phase placement asserts, and only the second justifies removing something
+from the gate. The `git log -S` form is nearly free and does not need a second test run.
+
+**AND WEIGH THE MECHANISM, NOT ONLY THE ARM.** A missing `zig` binary cannot be caused by an async
+conversion whatever the arms say; a gateway visibility failure very much can be. When the arm and
+the mechanism disagree, trust the mechanism and go get the better control.
+
+*Filed by the coordinator against itself. POD-3589 is closed as fixed-by-POD-3529; POD-3588 has been
+moved back into the gate pending a real `dev/mw` check.*
