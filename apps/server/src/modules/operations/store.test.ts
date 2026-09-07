@@ -90,6 +90,92 @@ describe('OperationStore round-trip', () => {
   })
 })
 
+describe('claimGroup is single-flight itself', () => {
+  /**
+   * WHY EVERY RACE HERE IS TWO CALLS IN ONE TICK, never `await` then `await`.
+   * The defect this method exists for (POD-3524) was invisible to a sequential
+   * test: run one claim to completion and the second one sees the row and
+   * refuses, on the broken code and the fixed code alike. Only two claims in
+   * flight at once can tell them apart, so `Promise.all` here never holds an
+   * `await` inside the array literal (spec rule 59).
+   */
+  it('writes the row and hands the group to the caller', async () => {
+    const s = store()
+    expect(await s.claimGroup(op())).toEqual({ claimed: true })
+    expect((await s.get('op_1'))?.state).toBe('running')
+  })
+
+  it('writes exactly what an unconditional insert would have written', async () => {
+    // The values travel as eight bound parameters rather than through the
+    // builder's `values()`, so this pins them to `rowFor` — a column dropped or
+    // reordered in the claim would otherwise only show up as a missing field
+    // somewhere downstream.
+    const claimed = store()
+    const inserted = store()
+    const subject = { ...op(), aFieldAddedNextYear: 'keep me' } as PersistedOperation
+    await claimed.claimGroup(subject)
+    await inserted.insert(subject)
+    expect(await claimed.get('op_1')).toEqual(await inserted.get('op_1'))
+  })
+
+  it('gives the group to exactly one of two claims racing in the same tick', async () => {
+    const s = store()
+    const [first, second] = await Promise.all([
+      s.claimGroup(op()),
+      s.claimGroup(op({ id: 'op_2' })),
+    ])
+    expect([first.claimed, second.claimed].filter(Boolean)).toHaveLength(1)
+    expect(await s.history('test')).toHaveLength(1)
+  })
+
+  it('names the operation that took the group', async () => {
+    const s = store()
+    const [, loser] = await Promise.all([s.claimGroup(op()), s.claimGroup(op({ id: 'op_2' }))])
+    expect(loser).toEqual({ claimed: false, heldBy: await s.get('op_1') })
+  })
+
+  it('refuses while any non-terminal state holds the group', async () => {
+    for (const live of ['pending', 'running', 'waiting'] as const) {
+      const s = store()
+      await s.insert(op({ state: live }))
+      expect(await s.claimGroup(op({ id: 'op_2' }))).toMatchObject({ claimed: false })
+    }
+  })
+
+  it('lets the next operation in once the group reaches an outcome', async () => {
+    for (const terminal of ['done', 'failed', 'canceled'] as const) {
+      const s = store()
+      await s.insert(op({ state: terminal, finishedAt: 2000 }))
+      expect(await s.claimGroup(op({ id: 'op_2' }))).toEqual({ claimed: true })
+    }
+  })
+
+  it('treats a state it has never heard of as holding the group', async () => {
+    // The downgrade case, and the direction it has to fail in: a successor
+    // server wrote `quiescing`, this binary cannot say whether that is over, so
+    // it refuses to start a second operation rather than running one alongside.
+    const [s, db] = storeWithHandle()
+    await s.insert(op())
+    // SETUP EDIT: the state COLUMN is what the predicate reads, and no value of
+    // `PersistedOperation.state` can spell a state this binary does not know —
+    // that is the point of the case. The same seam the payload test above uses.
+    db.prepare('UPDATE operations SET state = ? WHERE id = ?').run('quiescing', 'op_1')
+    expect(await s.claimGroup(op({ id: 'op_2' }))).toMatchObject({
+      claimed: false,
+      heldBy: { id: 'op_1', state: 'quiescing' },
+    })
+  })
+
+  it('does not let one group refuse another racing beside it', async () => {
+    const s = store()
+    const [lifecycle, reindex] = await Promise.all([
+      s.claimGroup(op()),
+      s.claimGroup(op({ id: 'op_2', exclusionGroup: 'reindex' })),
+    ])
+    expect([lifecycle, reindex]).toEqual([{ claimed: true }, { claimed: true }])
+  })
+})
+
 describe('activeByGroup is single-flight’s question', () => {
   it('finds the live operation in the group', async () => {
     const s = store()

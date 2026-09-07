@@ -1,5 +1,10 @@
-import { isTerminalOperationState, type Operation, parseOperation } from '@podium/protocol'
-import { desc, eq } from 'drizzle-orm'
+import {
+  isTerminalOperationState,
+  type Operation,
+  parseOperation,
+  TERMINAL_OPERATION_STATES,
+} from '@podium/protocol'
+import { and, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
 import { operations } from '../../migrations/schema'
 import type {
   StoreQueries,
@@ -54,6 +59,13 @@ export interface OperationRow {
    */
   operation: Operation | null
 }
+
+/**
+ * What {@link OperationStore.claimGroup} answers: the group is yours, or here is
+ * the operation that already holds it. There is no third arm — see that method
+ * for why a refusal always carries its holder.
+ */
+export type GroupClaim = { claimed: true } | { claimed: false; heldBy: OperationRow }
 
 /**
  * The stored row as this module's shape.
@@ -128,8 +140,73 @@ export class OperationStore {
     return this.rootDb
   }
 
+  /** Unconditional seeding/restoration write. New starts must use {@link claimGroup}. */
   async insert(operation: PersistedOperation): Promise<void> {
     await this.db.insert(operations).values(rowFor(operation)).run()
+  }
+
+  /**
+   * Claim the exclusion group with the insert itself (P6, POD-3524).
+   *
+   * The NOT EXISTS predicate is load-bearing: an awaited activeByGroup() followed
+   * by insert() lets two starts pass the check before either writes (spec rule 54).
+   * The conditional write lets the database refuse the loser atomically.
+   *
+   * The transaction keeps a refused claim and its holder lookup in one write
+   * lease, so the holder cannot finish between them. It contains only database
+   * work; planning, announcements and runners must stay outside this span.
+   * Terminality comes from the protocol at runtime, avoiding a schema-level
+   * state list that would need a migration when the protocol gains an outcome.
+   */
+  async claimGroup(operation: PersistedOperation): Promise<GroupClaim> {
+    const values = rowFor(operation)
+    // Share activeByGroup's terminal definition. Unknown states remain live,
+    // including rows whose newer payload this binary cannot parse.
+    const terminal = [...TERMINAL_OPERATION_STATES]
+    return await this.createOrJoinTransaction(async () => {
+      const claimed = await this.db
+        .insert(operations)
+        .select(
+          this.db
+            // The eight values as bound parameters, in the column order
+            // {@link rowFor} states. `(SELECT 1)` is the one-row source SQLite
+            // needs to hang a `WHERE` on a constant row — the predicate below is
+            // the whole point of the statement.
+            .select({
+              id: sql`${values.id}`.as('id'),
+              kind: sql`${values.kind}`.as('kind'),
+              exclusionGroup: sql`${values.exclusionGroup}`.as('exclusion_group'),
+              state: sql`${values.state}`.as('state'),
+              createdAt: sql`${values.createdAt}`.as('created_at'),
+              updatedAt: sql`${values.updatedAt}`.as('updated_at'),
+              finishedAt: sql`${values.finishedAt ?? null}`.as('finished_at'),
+              payload: sql`${values.payload}`.as('payload'),
+            })
+            .from(sql`(SELECT 1)`)
+            .where(
+              notExists(
+                this.db
+                  .select({ live: sql`1` })
+                  .from(operations)
+                  .where(
+                    and(
+                      eq(operations.exclusionGroup, operation.exclusionGroup),
+                      notInArray(operations.state, terminal),
+                    ),
+                  ),
+              ),
+            ),
+        )
+        .returning({ id: operations.id })
+      if (claimed.length === 1) return { claimed: true }
+      const held = await this.activeByGroup(operation.exclusionGroup)
+      if (held) return { claimed: false, heldBy: held }
+      // The predicate found a live row in this same transaction. Losing it
+      // means the claim/lookup invariant was broken; never return a missing id.
+      throw new Error(
+        `operations: the group ${operation.exclusionGroup} refused a claim but holds no live operation`,
+      )
+    })
   }
 
   /**
