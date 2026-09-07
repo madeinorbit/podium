@@ -1671,7 +1671,7 @@ describe('the update operation, driven', () => {
   })
 
   it('completes with a visible result when a supervisor advertises no delivery path', async () => {
-    const h = harness({
+    const h = await harness({
       machines: [
         machine({
           id: 'desktop',
@@ -1685,10 +1685,10 @@ describe('the update operation, driven', () => {
       servedWebDigest: () => WEB_DIGEST,
     })
 
-    await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
-    await (await h).engine.whenSettled('op_1')
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
 
-    const operation = (await h).read()
+    const operation = h.read()
     expect((await operation).state).toBe('done')
     expect((await operation).steps).toEqual([
       expect.objectContaining({
@@ -1705,7 +1705,7 @@ describe('the update operation, driven', () => {
       }),
     ])
     expect((await operation).deferred).toEqual([])
-    expect((await h).sent).toEqual([])
+    expect(h.sent).toEqual([])
   })
 })
 
@@ -1780,7 +1780,7 @@ describe('the step runners', () => {
 
   it('prepare: refuses a legacy transfer before packaging or machine delivery', async () => {
     const requestDestBundle = vi.fn(() => Promise.resolve())
-    const h = harness({
+    const h = await harness({
       machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
@@ -1788,15 +1788,15 @@ describe('the step runners', () => {
       legacyTransferActive: () => true,
     })
 
-    await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
-    await (await h).engine.whenSettled('op_1')
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
 
     expect(h.read()).toMatchObject({
       state: 'failed',
       error: { code: 'legacy-transfer-in-progress' },
     })
     expect(requestDestBundle).not.toHaveBeenCalled()
-    expect((await h).sent).toEqual([])
+    expect(h.sent).toEqual([])
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
@@ -3515,7 +3515,7 @@ describe('the fleet bridge', () => {
    */
   it('admits a supervisor when a target offers no delivery filter yet', async () => {
     const fleet = [machine({ id: 'laptop', presenceSource: 'supervisor', deliveryCaps: [] })]
-    const h = harness({ machines: fleet })
+    const h = await harness({ machines: fleet })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,
@@ -3525,7 +3525,7 @@ describe('the fleet bridge', () => {
 
     expect(offeredDeliveries(devTarget())).toEqual([])
     expect(
-      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, (await h).updates),
+      await admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
     ).toEqual([{ id: 'laptop', name: 'laptop', state: 'pending' }])
   })
 })
@@ -4551,7 +4551,7 @@ describe('coordinator snapshot activation boundary', () => {
     const prepare = createInstalledCoordinatorUpdate({
       runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
     })!
-    const h = harness({
+    const h = await harness({
       machines: fleet, target, hostMachineId: 'host', durableRecovery: true,
       approvedTarget: () => approved, servedWebDigest: () => WEB_DIGEST,
       legacyTransferActive: () => transfer,
@@ -4576,8 +4576,8 @@ describe('coordinator snapshot activation boundary', () => {
       }),
       activate: vi.fn(async (grant: UpdateGrantMessage) => {
         // Read the actual SQLite operation row at the external activation boundary.
-        expect((await h).read().details?.databaseSnapshotPath).toBe(snapshotPath)
-        expect((await h).read().details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
+        expect((await h.read()).details?.databaseSnapshotPath).toBe(snapshotPath)
+        expect((await h.read()).details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
         activated.resolve()
       }),
       discard: vi.fn(async () => {}),
@@ -4591,13 +4591,13 @@ describe('coordinator snapshot activation boundary', () => {
     const address = serving.address() as { port: number }
     const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
     const start = async () => {
-      await (await h).engine.start(UPDATE_OPERATION_KIND, (await h).context())
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
       await preparing.promise
     }
     const repeat = async () => {
-      const operation = (await h).read()
+      const operation = h.read()
       const step = (await operation).steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
-      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: (await h).context() })
+      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
     }
     return {
       h, target, executor, adapter, snapshot, snapshotting, preparing, activated, receiptSettled,
@@ -4608,7 +4608,7 @@ describe('coordinator snapshot activation boundary', () => {
       async close() {
         releasePreparation.resolve()
         releaseSnapshot.resolve()
-        (await h).engine.stop()
+        h.engine.stop()
         await control.close()
         await new Promise<void>((resolve) => serving.close(() => resolve()))
         rmSync(runtimeDir, { recursive: true, force: true })
