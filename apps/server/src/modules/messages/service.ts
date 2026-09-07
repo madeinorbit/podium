@@ -25,6 +25,7 @@
  *    operator is an invariant).
  */
 
+import { createLogger } from '@podium/logger'
 import { asThreadId, isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
@@ -85,6 +86,8 @@ import type {
   SendDisposition,
 } from './types'
 import { SUPERAGENT_AGENT_IDENTITY } from './types'
+
+const log = createLogger('server:messages')
 
 export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
 
@@ -2898,6 +2901,9 @@ export class MessageDeliveryService {
           ...extra,
         },
       })
-    } catch {}
+    } catch (error) {
+      // Audit failures must be visible without interrupting message delivery.
+      log.warn('message transition recording failed', { err: error, messageId: message.id, kind })
+    }
   }
 }
