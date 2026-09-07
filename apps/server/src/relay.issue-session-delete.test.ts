@@ -111,6 +111,50 @@ describe('issue/session deletion lifecycle', () => {
     }
   })
 
+  it.each(['tombstone', 'queue'] as const)(
+    'rolls back deletion when the asynchronous %s write rejects',
+    async (failure) => {
+      const { registry, store } = await registryWithDaemon()
+      try {
+        const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed deletion', startNow: false })
+        const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+        const reject = async () => {
+          await new Promise(resolve => setTimeout(resolve, 0))
+          throw new Error('session write failed')
+        }
+        const write = failure === 'tombstone'
+          ? vi.spyOn(store.sessions, 'softDeleteForIssue').mockImplementationOnce(reject)
+          : vi.spyOn(store.sync, 'deleteQueuedMessagesForSession').mockImplementationOnce(reject)
+        await expect(registry.modules.issueSessionLifecycle.deleteIssue(issue.id)).rejects.toThrow('session write failed')
+        expect(write).toHaveBeenCalledOnce()
+        expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
+        expect(await store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
+        expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(true)
+      } finally {
+        await registry.dispose()
+      }
+    },
+  )
+
+  it('keeps both tombstones when the asynchronous session restore rejects', async () => {
+    const { registry, store } = await registryWithDaemon()
+    try {
+      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed restoration', startNow: false })
+      const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+      vi.spyOn(store.sessions, 'restoreDeletedForIssue').mockImplementationOnce(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        throw new Error('session restore failed')
+      })
+      await expect(registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).rejects.toThrow('session restore failed')
+      expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
+      expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(s => s.id)).toEqual([sessionId])
+      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(false)
+    } finally {
+      await registry.dispose()
+    }
+  })
+
   it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', async () => {
     const { registry, store, messages } = await registryWithDaemon()
     const issue = await registry.issues.create({ repoPath: '/repo', title: 'Atomic', startNow: false })
@@ -152,8 +196,14 @@ describe('issue/session deletion lifecycle', () => {
       issueId: issue.id,
     })).sessionId
     await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
-    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
-      throw new Error('restore append failed')
+    // Deletion may still publish its issue projection. Fail the restore's
+    // session upsert specifically, rather than whichever append arrives next.
+    const appendChanges = store.sync.appendChanges.bind(store.sync)
+    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementation(async (rows, eventTime) => {
+      if (rows.some(row => row.entity === 'session' && row.entityId === sessionId && row.op === 'upsert')) {
+        throw new Error('restore append failed')
+      }
+      return appendChanges(rows, eventTime)
     })
 
     await expect(registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).rejects.toThrow(
