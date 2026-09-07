@@ -219,11 +219,11 @@ function appendEnrollment(
  * appends a newer serial; boot must never turn an old enroll line (or a forged
  * database row with no enroll line) into fresh authority.
  */
-export function ensureHostEnrollment(
+export async function ensureHostEnrollment(
   host: EnrollmentHost,
   machineId: MachineId,
   initialOwnerUserId: UserId | null,
-): UserId | null {
+): Promise<UserId | null> {
   const ledger = host.deps.enrollment
   if (!ledger) return initialOwnerUserId
 
@@ -232,7 +232,7 @@ export function ensureHostEnrollment(
     if (recordedOwner === undefined) {
       throw new Error(`host machine '${machineId}' has enrollment without an owner record`)
     }
-    return resolveOwnerForRecovery(host, recordedOwner)
+    return await resolveOwnerForRecovery(host, recordedOwner)
   }
 
   // Any prior serial or revoke is durable negative evidence. In particular, a
@@ -242,7 +242,7 @@ export function ensureHostEnrollment(
   }
 
   appendEnrollment(host, machineId, 1, initialOwnerUserId)
-  return resolveOwnerForRecovery(host, initialOwnerUserId)
+  return await resolveOwnerForRecovery(host, initialOwnerUserId)
 }
 
 function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: string): boolean {

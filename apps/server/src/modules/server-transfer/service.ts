@@ -56,11 +56,10 @@ export interface ServerTransferDeps {
   sourceApplicationVersion: string
   sourceSchemaVersion: () => Promise<string>
   sourceWireSchemaDigest: string
-  sourceCapable?(): boolean
+  sourceCapable?(): Promise<boolean>
   rpc: ServerTransferRpc
   /** Direct endpoint control; absent only in narrow legacy unit seams. */
   endpointHandoff?: ServerEndpointHandoff
-  targetState(machineId: MachineId): ServerTransferTargetState
   targetState(machineId: MachineId): ServerTransferTargetState | Promise<ServerTransferTargetState>
   /** {@link targetState} for a whole fleet: ONE machines read, then a pure
    *  function answering for any id (POD-3257). Total by construction, so a
@@ -918,9 +917,9 @@ export class ServerTransferService {
         `the proposed target URL is not reachable from the server: ${classified(error).message}`,
       )
     }
-    const registered = endpoint
-      .registeredMachineIds()
-      .filter((id) => id !== record.sourceMachineId && id !== record.targetMachineId)
+    const registered = (await endpoint.registeredMachineIds()).filter(
+      (id) => id !== record.sourceMachineId && id !== record.targetMachineId,
+    )
     const online = new Set(endpoint.onlineMachineIds())
     const offlineMachineIds = registered.filter((id) => !online.has(id))
     const required = registered.filter((id) => online.has(id))
@@ -995,7 +994,9 @@ export class ServerTransferService {
   }
 
   private async preflight(input: ServerTransferInput): Promise<void> {
-    if (this.deps.sourceCapable?.() === false) {
+    // AWAITED. With a bare call this reads a Promise, which is never `=== false`,
+    // so the refusal could never fire and an incapable source would proceed.
+    if ((await this.deps.sourceCapable?.()) === false) {
       throw fail(
         TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
         'update this machine to the same Podium version as the target first',

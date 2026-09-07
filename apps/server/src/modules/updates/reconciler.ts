@@ -324,15 +324,15 @@ export class UpdateReconciler {
     if (outcome === 'canceled') return
     if (this.deps.updates.target(channel)?.version !== target.version) return
     this.wokenBy = 'operation-settled'
-    for (const machine of this.deps.updates.fleet()) {
+    for (const machine of await this.deps.updates.fleet()) {
       if (this.deps.updates.channelOf(machine) === channel) this.enqueue(machine.id)
     }
     await this.pump()
   }
 
   /** Recover a sweep lost across coordinator handover; the ordinary guard applies. */
-  onBoot(): void {
-    for (const machine of this.deps.updates.fleet()) {
+  async onBoot(): Promise<void> {
+    for (const machine of await this.deps.updates.fleet()) {
       if (machine.online) this.enqueue(machine.id)
     }
   }

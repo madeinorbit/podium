@@ -557,7 +557,7 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
-    const registry = await SessionRegistry.create(resolvedStore, notificationPushers, options, {
+    const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
     })
     await registry.hydrate()

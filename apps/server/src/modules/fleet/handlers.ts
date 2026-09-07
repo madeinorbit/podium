@@ -222,9 +222,9 @@ export const machineMoveServerHandler = async ({
   const authorizedBy = encodeOperationActor(ctx.principal)
   const durableUsers = ctx.registry.sessionStore.users
   const crash = serverMoveFaultHook()
-  const retryOf = modules.operations.engine
-    .history(SERVER_MOVE_OPERATION_KIND, 1)
-    .find((row) => row.state === 'failed' || row.state === 'canceled')?.id
+  const retryOf = (await modules.operations.engine.history(SERVER_MOVE_OPERATION_KIND, 1)).find(
+    (row) => row.state === 'failed' || row.state === 'canceled',
+  )?.id
   const result = await modules.operations.engine.start(
     SERVER_MOVE_OPERATION_KIND,
     {

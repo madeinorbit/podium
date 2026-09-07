@@ -391,9 +391,10 @@ export class MachinesService {
   }
 
   /** Server intent returned to the parent after every supervisor attach. */
-  serviceAssignment(machineId: MachineId): MachineServiceAssignment {
+  async serviceAssignment(machineId: MachineId): Promise<MachineServiceAssignment> {
     return (
-      this.machineRecords().find((machine) => machine.id === machineId)?.serviceAssignment ?? {
+      (await this.machineRecords()).find((machine) => machine.id === machineId)
+        ?.serviceAssignment ?? {
         server: false,
         agentExecution: true,
       }
@@ -1406,13 +1407,17 @@ export class MachinesService {
     transferredFrom?: MachineId,
   ): Promise<string> {
     const id = this.deps.hostMachineId
-    const existing = this.deps.store.machines.getMachine(id)
+    const existing = await this.deps.store.machines.getMachine(id)
     const enrollmentOwner = this.deps.enrollment
       ? (existing?.ownerUserId ?? deviceGradeSoleOwner())
       : deviceGradeSoleOwner()
     // Ledger first: this is the durable commit point shared with pairing. A
     // revoked host throws before its row or credential can be recreated.
-    const ownerUserId = credentials.ensureHostEnrollment(this.enrollmentHost, id, enrollmentOwner)
+    const ownerUserId = await credentials.ensureHostEnrollment(
+      this.enrollmentHost,
+      id,
+      enrollmentOwner,
+    )
     await this.deps.store.machines.upsertMachine({
       id,
       name: hostname,

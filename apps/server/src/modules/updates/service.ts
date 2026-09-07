@@ -49,7 +49,7 @@ export interface UpdatesDeps {
   recovery?: UpdateRecoveryPersistence
   /** A sealed transfer/recovery candidate may project, but never checkpoint or dispatch. */
   recoveryOnly?: boolean
-  approvedTarget?(channel: UpdateChannel): UpdateTarget | undefined
+  approvedTarget?(channel: UpdateChannel): Promise<UpdateTarget | undefined>
   machines(): Promise<readonly WaveMachine[]>
   channelFor?(machineId: MachineId): Promise<UpdateChannel | undefined>
   send(machineId: MachineId, message: UpdateGrantMessage): void
@@ -373,8 +373,8 @@ export class UpdatesService {
 
   /** The server step may run before its host presence arrives. It uses the
    * same durable issuer as the wave, after that step has drained the fleet. */
-  grantCoordinatorUpdate(machineId: string, channel: UpdateChannel, target: UpdateTarget, cause: GrantCause): boolean {
-    const machine = this.deps.machines().find((candidate) => candidate.id === machineId) ?? {
+  async grantCoordinatorUpdate(machineId: string, channel: UpdateChannel, target: UpdateTarget, cause: GrantCause): Promise<boolean> {
+    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId) ?? {
       id: machineId, version: '', state: 'current' as const, online: false, busy: false,
       coordinator: true, presenceSource: 'supervisor' as const,
     }
@@ -459,8 +459,8 @@ export class UpdatesService {
     }
   }
 
-  approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
-    return this.deps.approvedTarget?.(channel)
+  async approvedTarget(channel: UpdateChannel): Promise<UpdateTarget | undefined> {
+    return await this.deps.approvedTarget?.(channel)
   }
 
   /**

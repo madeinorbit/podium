@@ -191,8 +191,6 @@ export class HostsService {
       return
     }
     this.deferredPressureMachines.delete(machineId)
-    const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
-    this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     // ONE READ SCOPE PER SAMPLE [POD-3261]. `maybeAutoHibernate` asks
     // `deps.sessions()` four to six times per machine — idle-live counting,
     // shell-idle, the backstop, the unobserved report, and once more per
@@ -210,14 +208,14 @@ export class HostsService {
   }
 
   /** Reconsider the newest fenced sample after a recoverable transfer abort. */
-  resumeAfterTransferFence(): void {
+  async resumeAfterTransferFence(): Promise<void> {
     if (this.deps.transferFenceActive()) return
     let changed = false
     for (const machineId of this.deferredPressureMachines) {
       const sample = this.latestHostMetrics.get(machineId)
       this.deferredPressureMachines.delete(machineId)
       if (!sample) continue
-      const idleCapUnmet = this.maybeAutoHibernate(machineId, sample)
+      const idleCapUnmet = await this.maybeAutoHibernate(machineId, sample)
       this.latestHostMetrics.set(machineId, { ...sample, idleCapUnmet })
       changed = true
     }

@@ -6,7 +6,7 @@ import {
   parseOperation,
   TERMINAL_OPERATION_STATES,
 } from '@podium/protocol'
-import { and, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
 import { operations } from '../../migrations/schema'
 import type {
   StoreQueries,
@@ -283,10 +283,12 @@ export class OperationStore {
   }
 
   /** Terminal rows whose kind cleanup still needs an idempotent retry. */
-  pendingCleanup(): OperationRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM operations ORDER BY updated_at ASC')
-      .all() as Record<string, unknown>[]
+  async pendingCleanup(): Promise<OperationRow[]> {
+    const rows = await this.db
+      .select()
+      .from(operations)
+      .orderBy(asc(operations.updatedAt))
+      .all()
     return rows.map(toRow).filter((row) => {
       if (!isTerminalOperationState(row.state) || !row.operation) return false
       const details = row.operation.details
@@ -325,8 +327,8 @@ export class OperationStore {
       ?.details?.target as UpdateTarget | undefined
   }
 
-  private approvalRows(): OperationRow[] {
-    return this.history('update', -1).filter((row) => {
+  private async approvalRows(): Promise<OperationRow[]> {
+    return (await this.history('update', -1)).filter((row) => {
       const operation = row.operation
       const target = operation?.details?.target as UpdateTarget | undefined
       return (

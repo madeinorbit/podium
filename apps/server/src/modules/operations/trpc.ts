@@ -20,7 +20,7 @@ import { familyState } from '../derived-family'
 
 const operationsModule = (ctx: Context) => familyState(ctx).modules.operations
 
-function assertActionAuthorized(ctx: Context, operationId: string): void {
+async function assertActionAuthorized(ctx: Context, operationId: string): Promise<void> {
   const principal = ctx.principal
   if (principal.kind !== 'system' && principal.capability.role !== 'admin') {
     throw new TRPCError({
@@ -29,7 +29,7 @@ function assertActionAuthorized(ctx: Context, operationId: string): void {
     })
   }
 
-  const operation = operationsModule(ctx).engine.get(operationId)?.operation
+  const operation = (await operationsModule(ctx).engine.get(operationId))?.operation
   const details: Record<string, unknown> =
     operation?.details && typeof operation.details === 'object'
       ? (operation.details as Record<string, unknown>)
@@ -93,7 +93,7 @@ export function operationProcedures() {
     settleAsk: t.procedure
       .input(z.object({ id: z.string(), actionId: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        assertActionAuthorized(ctx, input.id)
+        await assertActionAuthorized(ctx, input.id)
         return operationsModule(ctx).engine.dispatchAction(
           input.id,
           input.actionId,
@@ -105,7 +105,7 @@ export function operationProcedures() {
     action: t.procedure
       .input(z.object({ id: z.string(), actionId: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        assertActionAuthorized(ctx, input.id)
+        await assertActionAuthorized(ctx, input.id)
         return operationsModule(ctx).engine.dispatchAction(
           input.id,
           input.actionId,

@@ -239,7 +239,7 @@ export interface ServerTransferRpc {
 }
 
 export interface ServerEndpointHandoff {
-  registeredMachineIds(): MachineId[]
+  registeredMachineIds(): Promise<MachineId[]>
   onlineMachineIds(): MachineId[]
   probeCandidate(input: {
     transferId: string
