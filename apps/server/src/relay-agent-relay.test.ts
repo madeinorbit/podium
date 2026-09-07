@@ -716,7 +716,8 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     proc: string,
     input: unknown,
   ): Promise<RelayResult> => {
-    const reply = await captureReply(registry, machineId)
+    // Keep the reply pending until the request below has been dispatched.
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `t${++requestSeq}`,
@@ -855,7 +856,8 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
     proc: string,
     input: unknown,
   ): Promise<RelayResult> => {
-    const reply = await captureReply(registry, machineId)
+    // Keep the reply pending until the request below has been dispatched.
+    const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `o${++requestSeq}`,

@@ -14,7 +14,7 @@ import { asUserId, asMachineId } from '@podium/model'
  */
 import type { AgentQuotaWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -94,9 +94,19 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('agentQuota(refresh, machineId) sends the request to only that machine', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
-    void await reg.modules.rpc.agentQuota(false, asMachineId('m2'))
-    expect(m2Out.some((m) => m.type === 'agentQuotaRequest')).toBe(true)
+    // Observe dispatch before settling the request; awaiting a silent daemon races the 20s test timeout.
+    const pending = reg.modules.rpc.agentQuota(false, asMachineId('m2'))
+    await vi.waitFor(() => {
+      expect(m2Out.some((m) => m.type === 'agentQuotaRequest')).toBe(true)
+    })
     expect(m1Out.some((m) => m.type === 'agentQuotaRequest')).toBe(false)
+    await reg.gateway.routeDaemonFrame('m2', {
+      type: 'agentQuotaResult',
+      requestId: reqId(m2Out, 'agentQuotaRequest'),
+      hostname: 'vmi',
+      agents: [agent()],
+    } as DaemonMessage)
+    await expect(pending).resolves.toMatchObject({ hostname: 'vmi', agents: [agent()] })
   })
 
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {

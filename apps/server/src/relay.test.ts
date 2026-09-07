@@ -2242,7 +2242,8 @@ describe('memory breakdown relay', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const pending = reg.modules.hosts.memoryBreakdown([])
-      vi.advanceTimersByTime(10_500)
+      // The broker awaits target/build inputs before arming its timeout.
+      await vi.advanceTimersByTimeAsync(10_500)
       await expect(pending).resolves.toBeUndefined()
     } finally {
       vi.useRealTimers()
