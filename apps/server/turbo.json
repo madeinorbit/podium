@@ -627,6 +627,7 @@
         "src/store/executor/state-models.ts",
         "src/store/executor/statement-probe.test.ts",
         "src/store/executor/statement-probe.ts",
+        "src/store/executor/sync-drizzle.test.ts",
         "src/store/executor/sync-drizzle.ts",
         "src/store/executor/synchronous-span.test.ts",
         "src/store/executor/synchronous-span.ts",
