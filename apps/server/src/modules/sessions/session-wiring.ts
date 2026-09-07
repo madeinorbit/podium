@@ -404,7 +404,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         if (sourceMessageId) bag.deps.interruptQueuedMessage?.(sourceMessageId)
       },
       interruptedPending: async ({ sessionId, sourceMessageId }) => {
-        await deps.interruptPendingMessage?.(sessionId, sourceMessageId)
+        const retraction: Promise<void> | undefined =
+          deps.interruptPendingMessage?.(sessionId, sourceMessageId)
+        await retraction
       },
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)

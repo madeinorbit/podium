@@ -1041,10 +1041,11 @@ export class SessionInbox {
       : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
     if (!head) {
       if (includeUnattempted) {
-        await this.deps.authorization.interruptedPending?.({
+        const retraction: Promise<void> | undefined = this.deps.authorization.interruptedPending?.({
           sessionId,
           ...(sourceMessageId ? { sourceMessageId } : {}),
         })
+        await retraction
       }
       return verification
     }

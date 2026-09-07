@@ -1265,7 +1265,9 @@ export class SessionRegistry {
       queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
       interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
       interruptPendingMessage: async (sessionId, messageId) => {
-        await queuedApplyHooks.interruptedPending?.(sessionId, messageId)
+        const retraction: Promise<void> | undefined =
+          queuedApplyHooks.interruptedPending?.(sessionId, messageId)
+        await retraction
       },
       sessions: liveSessions,
       funnel,
