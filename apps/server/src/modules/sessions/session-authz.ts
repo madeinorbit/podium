@@ -83,7 +83,9 @@ export class SessionAuthz {
     if (!target || !ownership) return refused
 
     if (input.sourceMessageId) {
-      const source = await this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
+      const authorization: Promise<import('./inbox').InboxAuthorizationDecision> | undefined =
+        this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
+      const source = await authorization
       if (source && !source.ok) return source
     }
 

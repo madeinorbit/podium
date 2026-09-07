@@ -380,8 +380,12 @@ export class SessionLifecycle {
   prepareInboxSend(...args: Parameters<SessionMetaOps['prepareInboxSend']>): Promise<void> {
     return this.sessionMetaOps.prepareInboxSend(...args)
   }
-  authorizeQueuedInputAtApply(...args: any[]): any {
-    return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
+  authorizeQueuedInputAtApply(
+    input: Parameters<SessionAuthz['authorizeQueuedInputAtApply']>[0],
+  ): Promise<import('./inbox').InboxAuthorizationDecision> {
+    const authorization: Promise<import('./inbox').InboxAuthorizationDecision> =
+      this.sessionAuthz.authorizeQueuedInputAtApply(input)
+    return authorization
   }
   async dispose(): Promise<void> {
     // Ahead of everything else: it owns coalescing timers, and a timer that

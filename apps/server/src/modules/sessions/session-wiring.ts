@@ -374,8 +374,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sourceMessageId: row.sourceMessageId,
         })
       },
-      list: async (sessionId) =>
-        (await store.sync.listQueuedMessages(sessionId)).map((row: QueuedMessageRow) => ({
+      list: async (sessionId) => {
+        const rows: Promise<QueuedMessageRow[]> = store.sync.listQueuedMessages(sessionId)
+        return (await rows).map((row: QueuedMessageRow) => ({
           id: row.id,
           text: row.text,
           attempts: row.attempts,
@@ -390,19 +391,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
             },
           },
           sourceMessageId: row.sourceMessageId,
-        })),
+        }))
+      },
       bumpAttempts: (id) => store.sync.bumpQueuedAttempts(id),
       resetAttempts: (id) => store.sync.resetQueuedAttempts(id),
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).
-      sessionsWithPending: async () => [...(await store.sync.queuedMessageCounts()).keys()],
+      sessionsWithPending: async () => {
+        const counts: Promise<Map<SessionId, number>> = store.sync.queuedMessageCounts()
+        return [...(await counts).keys()]
+      },
     },
     daemon: {
       sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
     },
     authorization: {
-      authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),
+      authorizeAtDrain: (input) => life.authorizeQueuedInputAtApply(input),
       applied: async ({ sourceMessageId, sessionId }) => {
         const completion: Promise<void> | undefined =
           deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId)

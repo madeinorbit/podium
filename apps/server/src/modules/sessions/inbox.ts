@@ -233,13 +233,15 @@ export interface InboxQueuePort {
   sessionsWithPending?(): Promise<SessionId[]>
 }
 
+export type InboxAuthorizationDecision = { ok: true } | { ok: false; reason: string }
+
 export interface InboxAuthorizationPort {
   /** Resolve live; implementations must never memoize this answer. */
   authorizeAtDrain(input: {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
-  }): { ok: true } | { ok: false; reason: string }
+  }): Promise<InboxAuthorizationDecision>
   rejected(input: {
     queueId: string
     sourceMessageId: string | null
@@ -680,7 +682,8 @@ export class SessionInbox {
     ) {
       return false
     }
-    const head = (await this.deps.queue.list(sessionId))[0]
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const head = (await queuedRows)[0]
     if (!head) return false
     this.invalidateDrain(sessionId)
     this.deps.resurrect(sessionId, head.principal)
@@ -1067,7 +1070,8 @@ export class SessionInbox {
     if (!session) return verification
     // Only the head can have crossed into the CLI. Rows behind it have not been
     // part of the interrupted interaction and remain individually retractable.
-    const rows = await this.deps.queue.list(sessionId)
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const rows = await queuedRows
     const head = sourceMessageId
       ? rows.find((row) => row.sourceMessageId === sourceMessageId)
       : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
@@ -1081,7 +1085,8 @@ export class SessionInbox {
       }
       return verification
     }
-    await this.deps.queue.delete(head.id)
+    const deletion: Promise<void> = this.deps.queue.delete(head.id)
+    await deletion
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
     })
@@ -1156,7 +1161,7 @@ export class SessionInbox {
     if (currentRefusal) return { ok: false, reason: currentRefusal }
     if (input.sourceMessageId && (await this.hasQueuedMessage(input.sessionId, input.sourceMessageId)))
       return { ok: true, queued: true }
-    const inserted = await this.deps.queue.enqueue({
+    const insertion: Promise<boolean> = this.deps.queue.enqueue({
       id: input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
       text: input.text,
@@ -1165,6 +1170,7 @@ export class SessionInbox {
       principal,
       sourceMessageId: input.sourceMessageId ?? null,
     })
+    const inserted = await insertion
     if (inserted) {
       if (input.allowErrored) this.recoveryDrains.add(input.sessionId)
       const persistence: Promise<void> = this.deps.write(
@@ -1190,7 +1196,8 @@ export class SessionInbox {
     sessionId: SessionId,
     sourceMessageId: string,
   ): Promise<number | undefined> {
-    const position = (await this.deps.queue.list(sessionId)).findIndex(
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const position = (await queuedRows).findIndex(
       (row) => row.sourceMessageId === sourceMessageId,
     )
     return position >= 0 ? position + 1 : undefined
@@ -1206,7 +1213,8 @@ export class SessionInbox {
       (session.agentKind !== 'shell' && !session.resume)
     )
       return
-    const head = (await this.deps.queue.list(sessionId))[0]
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const head = (await queuedRows)[0]
     if (head) this.deps.resurrect(sessionId, head.principal)
   }
 
@@ -1214,11 +1222,15 @@ export class SessionInbox {
   async cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
     const session = this.deps.getSession(sessionId)
     if (!session) return false
-    const matches = (await this.deps.queue.list(sessionId)).filter(
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const matches = (await queuedRows).filter(
       (row) => row.sourceMessageId === sourceMessageId,
     )
     if (matches.length === 0) return false
-    for (const row of matches) await this.deps.queue.delete(row.id)
+    for (const row of matches) {
+      const deletion: Promise<void> = this.deps.queue.delete(row.id)
+      await deletion
+    }
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - matches.length)
       // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
@@ -1231,7 +1243,8 @@ export class SessionInbox {
   }
 
   async hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
-    return (await this.deps.queue.list(sessionId)).some(
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    return (await queuedRows).some(
       (row) => row.sourceMessageId === sourceMessageId,
     )
   }
@@ -1265,7 +1278,8 @@ export class SessionInbox {
     if (this.sweepingQueuedInputs) return
     this.sweepingQueuedInputs = true
     try {
-      const pending = await this.deps.queue.sessionsWithPending?.()
+      const enumeration: Promise<SessionId[]> | undefined = this.deps.queue.sessionsWithPending?.()
+      const pending = await enumeration
       if (!pending) return
       for (const sessionId of pending) await this.drain(sessionId)
     } finally {
@@ -1305,7 +1319,8 @@ export class SessionInbox {
     // and it is the only case whose readiness the quiet heuristic gets wrong.
     // The status alone cannot see it: the bind that wakes this pass has already
     // flipped the session to 'live' by the time we are called.
-    const firstQueuedRow = (await this.deps.queue.list(sessionId))[0]
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const firstQueuedRow = (await queuedRows)[0]
     const woken =
       session.status !== 'live' ||
       opts?.justBound === true ||
@@ -1323,11 +1338,15 @@ export class SessionInbox {
     const attemptsAreTheFence = this.needsInputReadiness(session) && !session.transcriptAvailable
     const resetAttempts = this.deps.queue.resetAttempts?.bind(this.deps.queue)
     if (woken && resetAttempts && !attemptsAreTheFence) {
-      for (const row of await this.deps.queue.list(sessionId)) {
+      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+      for (const row of await queuedRows) {
         // A creation prompt may already have been typed by the old process. Its
         // durable attempt count is the duplicate-prevention fence; resetting it
         // on bind would put the concatenation bug back after a restart.
-        if (!isInitialPromptRow(sessionId, row)) await resetAttempts(row.id)
+        if (!isInitialPromptRow(sessionId, row)) {
+          const reset: Promise<void> = resetAttempts(row.id)
+          await reset
+        }
       }
     }
     const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
@@ -1340,7 +1359,8 @@ export class SessionInbox {
     }
     const removeHead = async (current: Session, id: string): Promise<void> => {
       if (!isCurrent()) return
-      await this.deps.queue.delete(asSessionId(id))
+      const completion: Promise<void> = this.deps.queue.delete(asSessionId(id))
+      await completion
       const persistence: Promise<void> = this.deps.write(current, (draft) => {
         draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
         if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
@@ -1474,7 +1494,8 @@ export class SessionInbox {
           stop()
           return
         }
-        if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
+        const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+        if (!(await queuedRows).some((row) => row.id === head.id)) {
           afterHead(current)
           return
         }
@@ -1621,18 +1642,20 @@ export class SessionInbox {
        */
       const exactNeedle = firstPromptNeedsProof || needsReadinessProof
       const needle = confirmationNeedle(head.text, exactNeedle)
-      if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
+      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+      if (!(await queuedRows).some((row) => row.id === head.id)) {
         afterHead(current)
         return
       }
       // Re-authorize immediately before EVERY physical attempt. Confirmation
       // can span an agent turn; during that gap an ack, echo, or cancellation
       // can settle the source ledger row and make a retry invalid.
-      const authorized = this.deps.authorization.authorizeAtDrain({
+      const authorization: Promise<InboxAuthorizationDecision> = this.deps.authorization.authorizeAtDrain({
         sessionId,
         principal: head.principal,
         sourceMessageId: head.sourceMessageId,
       })
+      const authorized = await authorization
       if (!authorized.ok) {
         await removeHead(current, head.id)
         const completion: Promise<void> = this.deps.authorization.rejected({
@@ -1692,7 +1715,8 @@ export class SessionInbox {
         )
         return
       }
-      await this.deps.queue.bumpAttempts(head.id)
+      const completion: Promise<void> = this.deps.queue.bumpAttempts(head.id)
+      await completion
       // Baseline: if OUR text is already the last user turn we cannot tell a
       // fresh arrival from the one that is there, so there is nothing to witness.
       const witnessable =
@@ -1751,7 +1775,8 @@ export class SessionInbox {
       }
 
       const current = this.deps.getSession(sessionId)
-      const head = (await this.deps.queue.list(sessionId))[0]
+      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+      const head = (await queuedRows)[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
         if (head) {
           await reportPromptFailure(
@@ -1777,11 +1802,12 @@ export class SessionInbox {
       }
       // The security boundary is HERE, immediately before the daemon gateway.
       // Nothing accepted at enqueue is trusted now.
-      const authorized = this.deps.authorization.authorizeAtDrain({
+      const authorization: Promise<InboxAuthorizationDecision> = this.deps.authorization.authorizeAtDrain({
         sessionId,
         principal: head.principal,
         sourceMessageId: head.sourceMessageId,
       })
+      const authorized = await authorization
       if (!authorized.ok) {
         await removeHead(current, head.id)
         const completion: Promise<void> = this.deps.authorization.rejected({
@@ -1888,7 +1914,8 @@ export class SessionInbox {
             // The delivery was ASYNC, so the row may have been retracted while
             // it was in flight — removeHead on an already-deleted row would
             // decrement `queuedMessageCount` a second time.
-            if ((await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
+            const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+            if ((await queuedRows).some((row) => row.id === head.id)) {
               await removeHead(after, head.id)
             }
             if (after.queuedMessageCount > 0) {
@@ -1946,7 +1973,8 @@ export class SessionInbox {
       }
 
       const current = this.deps.getSession(sessionId)
-      const head = (await this.deps.queue.list(sessionId))[0]
+      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+      const head = (await queuedRows)[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {
         if (head) {
           await reportPromptFailure(
