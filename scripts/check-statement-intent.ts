@@ -45,8 +45,8 @@
  * A RUN THAT CHECKED NOTHING MUST NOT READ AS A PASS
  * ---------------------------------------------------------------------------
  *
- * Repository tests feed the audit through `stageASeam`; executor tests feed it
- * through `openHarness`. Every run prints how
+ * Repository tests feed the audit through the report-enabled executor factory;
+ * executor tests feed it through `openHarness`. Every run prints how
  * many statements it EXAMINED, how many the text was evidence of a write for,
  * and how many it refused to grade. An examined count of zero FAILS: an absence
  * proved by an instrument that ran over nothing is the failure mode a gate like
@@ -336,8 +336,9 @@ export function gateVerdict(report: LaneReport): { code: 0 | 1 | 2; refusal?: st
         ' run started. The FATAL 0 above is a fact about the corpus, not about the code, and' +
         ' this run proves nothing either way.\n\n' +
         '  Check both audit attachment and caller declarations. Repository tests feed the' +
-        ' lane audit through stageASeam; those statements must also carry builder-declared' +
-        ' read intent to establish reach. Neither requirement is fixed by relaxing this refusal.',
+        ' lane audit through the report-enabled executor factory; statements must also carry' +
+        ' read intent and caller attribution to establish reach. Neither requirement is fixed' +
+        ' by relaxing this refusal.',
     }
   }
   return { code: fatal.length === 0 ? 0 : 1 }

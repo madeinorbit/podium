@@ -19,7 +19,7 @@
  */
 
 import { createBunStoreExecutor, statementProbeHubFor } from '../store/executor'
-import { attachLaneIntentAudit } from '../store/executor/harness'
+import { attachLaneIntentAudit } from '../store/executor/lane-intent-audit'
 import type { StoreQueries } from '../store/executor/sync-drizzle'
 
 type BunBackedDatabase = Parameters<typeof createBunStoreExecutor>[0]['database']
