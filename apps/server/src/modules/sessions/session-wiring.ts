@@ -33,7 +33,7 @@ import {
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
-import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
+import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'

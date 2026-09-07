@@ -11,7 +11,7 @@ import {
 } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
-import { afterCommit } from '../../../store/executor/synchronous-span'
+import { afterCommit } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'

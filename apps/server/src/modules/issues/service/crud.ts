@@ -25,7 +25,7 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
-import { followUpAfterCommit } from '../../../store/executor/synchronous-span'
+import { followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'

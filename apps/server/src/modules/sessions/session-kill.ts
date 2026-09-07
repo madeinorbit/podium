@@ -26,7 +26,7 @@ import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podi
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
-import { afterCommit } from '../../store/executor/synchronous-span'
+import { afterCommit } from '../../store/executor/executor'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
 import type { SessionDaemonProjection } from './daemon-projection'

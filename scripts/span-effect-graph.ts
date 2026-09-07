@@ -379,7 +379,7 @@ const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
  * folded into it.
  */
 const POST_COMMIT_REGISTRARS: readonly { readonly file: string; readonly symbol: string }[] = [
-  { file: 'apps/server/src/store/executor/synchronous-span.ts', symbol: 'afterCommit' },
+  { file: 'apps/server/src/store/executor/executor.ts', symbol: 'afterCommit' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'effect' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'followUp' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'commitApplication' },
