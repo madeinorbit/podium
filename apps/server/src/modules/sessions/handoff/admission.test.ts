@@ -156,13 +156,13 @@ describe('handoff admission: one live transfer per session', () => {
   it('a duplicate dispatch to the SAME target joins the running transfer', async () => {
     const admission = admissionFor(makeSession())
     const t = pending()
-    const first = await admission.admit(
+    const first = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
       t.start,
     )
-    const second = await admission.admit(
+    const second = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
@@ -177,7 +177,7 @@ describe('handoff admission: one live transfer per session', () => {
   it('THE JOINING CALLER IS AUTHORIZED WITH ITS OWN GATE, not the initiator`s', async () => {
     const admission = admissionFor(makeSession())
     const t = pending()
-    const first = await admission.admit(
+    const first = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
@@ -200,7 +200,7 @@ describe('handoff admission: one live transfer per session', () => {
   it('a concurrent dispatch to a DIFFERENT target is refused, never raced', async () => {
     const admission = admissionFor(makeSession())
     const t = pending()
-    const first = await admission.admit(
+    const first = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
@@ -218,7 +218,7 @@ describe('handoff admission: one live transfer per session', () => {
     const admission = admissionFor(makeSession())
     const t = pending()
     expect(admission.isTransferring(SESSION)).toBe(false)
-    const first = await admission.admit(
+    const first = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
@@ -233,7 +233,7 @@ describe('handoff admission: one live transfer per session', () => {
   it('a FAILED transfer releases the session too — the guard is not a latch', async () => {
     const admission = admissionFor(makeSession())
     const t = pending()
-    const first = await admission.admit(
+    const first = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
@@ -244,7 +244,7 @@ describe('handoff admission: one live transfer per session', () => {
     expect(admission.isTransferring(SESSION)).toBe(false)
     // And a retry is admitted rather than refused as a duplicate.
     const retry = pending()
-    const second = await admission.admit(
+    const second = admission.admit(
       { sessionId: SESSION, machineId: TARGET },
       caller(),
       gate().assert,
