@@ -277,12 +277,18 @@ export class DeliveryScheduler {
    * whose preferred work this drain owns; the depth counting, the deferral set
    * and the loop bound stay here, because they are this owner's invariant.
    */
-  async runBoundaryDrain(keys: readonly string[], sessionId: SessionId, enqueue: () => void): Promise<void> {
+  async runBoundaryDrain(
+    keys: readonly string[],
+    sessionId: SessionId,
+    enqueue: () => void | Promise<void>,
+  ): Promise<void> {
     for (const key of keys) {
       this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
     }
     try {
-      enqueue()
+      // Enqueue crosses async repository reads. Keep the boundary fence held
+      // until its preferred work exists, before flushing the finite snapshot.
+      await enqueue()
       do {
         await this.flushDeliveryTriggers(sessionId)
         // Each preferred continuation is bounded by the captured high-water.

@@ -1548,7 +1548,7 @@ describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [
       sleep: async () => {
         polls += 1
         if (polls === 1)
-          svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+          await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
       },
     })
     expect(row?.status).toBe('read')
@@ -2006,7 +2006,7 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
     await svc.onSessionIdle(s)
     expect(sent).toHaveLength(1)
     // Reading the inbox is what confirms them (read = the pull-path delivery).
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r1.message.id))!.status).toBe('read')
     expect((await store.messages.getMessage(r2.message.id))!.status).toBe('read')
   })
@@ -2246,13 +2246,13 @@ describe('acks', () => {
 
   it('rejects an ack without in_reply_to / with an unknown original', async () => {
     const { svc } = await harness([session({ sessionId: asSessionId('s1') })])
-    expect(() =>
+    await expect(
       svc.send(
         { kind: 'operator' },
         { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', kind: 'ack' },
       ),
-    ).toThrow(/in_reply_to/)
-    expect(() =>
+    ).rejects.toThrow(/in_reply_to/)
+    await expect(
       svc.send(
         { kind: 'operator' },
         {
@@ -2262,7 +2262,7 @@ describe('acks', () => {
           inReplyTo: 'msg_nope',
         },
       ),
-    ).toThrow(/unknown message/)
+    ).rejects.toThrow(/unknown message/)
   })
 
   it('sendReply routes to the sender session when alive, else the sender issue, else operator', async () => {
@@ -2840,7 +2840,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     await svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished', notificationFact })
     const first = (await systemNotices(store))[0]!
     expect(first).toMatchObject({ factKey: 'settle:s1', factTarget: 's1' })
-    svc.readInbox([{ kind: 'session', id: asSessionId('sX') }], { consume: asSessionId('sX') })
+    await svc.readInbox([{ kind: 'session', id: asSessionId('sX') }], { consume: asSessionId('sX') })
     expect((await store.messages.getMessage(first.id))!.status).toBe('read')
     expect(await arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
 
@@ -2881,14 +2881,14 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain dismiss' },
     )
-    expect(() => svc.dismiss(dismissed.message.id, 's1')).not.toThrow()
+    await expect(svc.dismiss(dismissed.message.id, 's1')).resolves.toMatchObject({ status: 'read' })
     await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain read' },
     )
-    expect(() =>
+    await expect(
       svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') }),
-    ).not.toThrow()
+    ).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 'read' })]))
   })
 })
 
@@ -2913,7 +2913,7 @@ describe('readInbox (podium mail inbox)', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'again' },
     )
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
     expect((await store.messages.getMessage(r2.message.id))!.status).toBe('queued')
   })
 
@@ -2924,7 +2924,7 @@ describe('readInbox (podium mail inbox)', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'for whoever picks this up' },
     )
     // s1 opens the SHARED issue mailbox — the mutating path.
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
     expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(0)
     // …and s2, who never saw it, still has it. The old issue-wide ledger
@@ -2933,7 +2933,7 @@ describe('readInbox (podium mail inbox)', () => {
     // The sender is never nagged about its own message [POD-1365 parity].
     expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('sX'))).toBe(0)
     // s2 reads it in turn, and is then quiet.
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s2') })
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s2') })
     expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s2'))).toBe(0)
   })
 
@@ -3551,7 +3551,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     await svc.onSessionIdle(s)
     expect((await store.messages.getMessage(r1.message.id))!.status).toBe('queued')
     expect((await store.messages.getMessage(r2.message.id))!.status).toBe('queued')
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r1.message.id))!.status).toBe('read')
     expect((await store.messages.getMessage(r2.message.id))!.status).toBe('read')
   })
@@ -3593,7 +3593,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     // ... and the sweep must not nudge again past the echo window.
     await svc.sweep()
     expect(sent).toHaveLength(1)
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
   })
 
@@ -4201,7 +4201,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       expect(recovered.queued).toHaveLength(0)
 
       clock += WAKE_COOLDOWN_MS + 1
-      vi.advanceTimersByTime(WAKE_COOLDOWN_MS + 1)
+      await vi.advanceTimersByTimeAsync(WAKE_COOLDOWN_MS + 1)
       await recovered.svc.flushDeliveryTriggers()
 
       expect(recovered.queued).toHaveLength(1)
@@ -4351,7 +4351,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
 
       await svc.sweep()
       expect(sent).toHaveLength(0)
-      vi.runAllTimers()
+      await vi.runAllTimersAsync()
       await svc.flushDeliveryTriggers()
 
       expect(sent).toHaveLength(1)
@@ -4396,7 +4396,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       await svc.onSessionEligibilityChanged(asSessionId('s1'))
       await svc.flushDeliveryTriggers()
       expect(sent).toHaveLength(0)
-      vi.runAllTimers()
+      await vi.runAllTimersAsync()
       await svc.flushDeliveryTriggers()
 
       expect(sent).toHaveLength(1)
@@ -4448,14 +4448,14 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         sendText: async () => {
           if (!retriggered) {
             retriggered = true
-            store.messages.addMessage(
+            await store.messages.addMessage(
               queuedDeliveryRow(
                 'msg_reentrant_fresh',
                 { kind: 'session', id: asSessionId('s1') },
                 '2026-07-13T00:00:01.000Z',
               ),
             )
-            svc.onSessionEligibilityChanged(asSessionId('s1'), idle)
+            await svc.onSessionEligibilityChanged(asSessionId('s1'), idle)
           }
           return { ok: true }
         },
@@ -4478,7 +4478,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       expect(h.sent).toHaveLength(200)
       expect(pageQuery).toHaveBeenCalledTimes(3)
 
-      vi.runAllTimers()
+      await vi.runAllTimersAsync()
       await svc.flushDeliveryTriggers()
 
       expect(h.sent).toHaveLength(201)
@@ -4505,7 +4505,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       }
 
       await svc.reconcileQueued()
-      vi.runAllTimers()
+      await vi.runAllTimersAsync()
       await svc.flushDeliveryTriggers()
 
       expect((await store.messages.getMessage('msg_restart_2000'))?.status).toBe('dead_letter')
@@ -4572,7 +4572,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       expect(recovered.queued).toHaveLength(0)
 
       clock += WAKE_COOLDOWN_MS
-      vi.advanceTimersByTime(WAKE_COOLDOWN_MS)
+      await vi.advanceTimersByTimeAsync(WAKE_COOLDOWN_MS)
       await recovered.svc.flushDeliveryTriggers()
       expect(recovered.queued).toHaveLength(1)
       recovered.svc.dispose()
@@ -4800,7 +4800,7 @@ describe('delivery trigger isolation and observability [POD-842]', () => {
       ),
     )
 
-    expect(() => svc.reconcileQueued()).not.toThrow()
+    await expect(svc.reconcileQueued()).resolves.toBeUndefined()
     expect((await store.messages.getMessage('msg_good_startup'))?.injectedAt).not.toBeNull()
     expect(svc.deliveryStats()).toMatchObject({
       pendingTargetCount: 0,
