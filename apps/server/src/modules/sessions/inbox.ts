@@ -255,7 +255,7 @@ export interface InboxAuthorizationPort {
   interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
   /** The operator interrupted while a chat message was still held in the
    *  higher-level message ledger and had no physical inbox row yet. */
-  interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): void
+  interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): Promise<void>
 }
 
 export interface InboxAttentionPort {

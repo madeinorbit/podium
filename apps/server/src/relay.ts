@@ -1240,7 +1240,7 @@ export class SessionRegistry {
         reason: QueueDrainAbandonedReason
       }) => void
       interrupted?: (messageId: string) => void
-      interruptedPending?: (sessionId: SessionId, messageId?: string) => void
+      interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
