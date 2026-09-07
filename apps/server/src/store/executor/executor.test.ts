@@ -2855,3 +2855,62 @@ describe('transaction caller contract', () => {
     db.exec('COMMIT')
   })
 })
+
+describe('transaction rollback failure reporting', () => {
+  it('reports the original error when the body commits the transaction itself', async () => {
+    const h = open()
+    const original = new Error('THE-ORIGINAL-ERROR')
+    const thrown = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed underneath')
+        h.raw.exec('COMMIT')
+        throw original
+      })
+      .catch((error: unknown) => error)
+
+    expect(String(thrown)).toContain('THE-ORIGINAL-ERROR')
+    expect(String(thrown)).not.toMatch(/cannot rollback/i)
+    expect(thrown).toBeInstanceOf(AggregateError)
+    expect((thrown as AggregateError).cause).toBe(original)
+    const failures = (thrown as AggregateError).errors
+    expect(failures).toHaveLength(2)
+    expect(failures[0]).toBe(original)
+    expect(String(failures[1])).toMatch(/cannot rollback/i)
+    expect(await noteBodies(h.db)).toEqual(['committed underneath'])
+  })
+
+  it.each([
+    new Error('THE-ORIGINAL-ERROR'),
+    Object.freeze(new Error('THE-ORIGINAL-ERROR', { cause: new Error('upstream cause') })),
+    'THE-ORIGINAL-ERROR',
+  ])('reports the original error when rollback rejects on the transport (%#)', async (original) => {
+    const transportError = new Error('socket dropped during rollback')
+    const driver = asyncFakeDriver({
+      hooks: {
+        rollback: async () => {
+          throw transportError
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    try {
+      const thrown = await executor
+        .transact(async (tx) => {
+          await tx.drizzle.run(insert, 'pending write')
+          throw original
+        })
+        .catch((error: unknown) => error)
+
+      expect(String(thrown)).toContain('THE-ORIGINAL-ERROR')
+      expect(thrown).toBeInstanceOf(AggregateError)
+      expect((thrown as AggregateError).cause).toBe(original)
+      expect((thrown as AggregateError).errors).toEqual([original, transportError])
+      expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual([
+        's1:rollback',
+      ])
+      expect(driver.closes).toBe(1)
+    } finally {
+      await executor.close()
+    }
+  })
+})

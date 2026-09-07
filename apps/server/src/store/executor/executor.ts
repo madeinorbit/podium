@@ -590,7 +590,20 @@ export function createStoreExecutor<TClient>(
       await settleInFlight(frame.unit.inFlight)
       closeFrame(frame)
       registry.discard()
-      if (alive()) await lease.session.rollback()
+      if (alive()) {
+        try {
+          await lease.session.rollback()
+        } catch (rollbackError) {
+          // Cleanup can fail independently (including on a remote transport).
+          // Keep the body failure primary without losing either error or
+          // mutating the caller's error and its existing cause chain.
+          throw new AggregateError(
+            [error, rollbackError],
+            `transaction failed: ${String(error)}; rollback also failed`,
+            { cause: error },
+          )
+        }
+      }
       throw error
     }
     // A statement the body ADMITTED and did not await. The token cannot help
