@@ -190,7 +190,7 @@ describe('operations action authorization', () => {
   it.each(['settleAsk', 'action'] as const)(
     '%s authorizes a managed target through the real machines ownership adapter',
     async (procedure) => {
-      const { registry, caller, operations } = harness()
+      const { registry, caller, operations } = await harness()
       const targetMachineId = registry.modules.machines.ensureHostMachine('Target machine')
       const onAction = vi.fn(async () => ({ outcome: 'recovered' }))
       operations.kinds.register(
