@@ -1478,6 +1478,51 @@ describe('the token during an asynchronous commit', () => {
     ])
     await executor.close()
   })
+
+  it('does not hold the write lease while a post-commit effect asks for one', async () => {
+    // WOULD CATCH rule 57's deadlock, and pins the REASON rather than the
+    // symptom. `retire` waiting for effects is NOT the fault; the fault is
+    // waiting for them while `scheduler.run('write', …)` still holds the slot
+    // the effect must be granted. So this drives two effects that differ in
+    // exactly that: one asks for a lease, one never touches the store. Under
+    // `await retire(runner)` the first hangs and the second settles, which is
+    // what identifies the lease cycle as the cause. It fails in `grace` ms
+    // instead of hanging for the suite timeout.
+    const grace = 1_500
+    const settlesWhileEffectRuns = async (effect: (ex: StoreExecutor<QueryClient>) => Promise<void>) => {
+      const driver = asyncFakeDriver()
+      const executor = createStoreExecutor<QueryClient>({ driver })
+      // NO barrier: the effect is dispatched immediately, so the only thing
+      // that can keep it from finishing is the lease it asks for.
+      const done = executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'body')
+        postCommit().effect(async () => await effect(executor), 'late')
+      })
+      done.catch(() => undefined)
+      const verdict = await Promise.race([
+        done.then(() => 'settled' as const),
+        new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), grace)),
+      ])
+      return { verdict, executor }
+    }
+
+    const takesALease = await settlesWhileEffectRuns(async (ex) => {
+      await ex.drizzle.run(insert, 'from-effect')
+    })
+    expect(takesALease.verdict, 'an effect that issues a root write must not wedge its own transact').toBe(
+      'settled',
+    )
+    await takesALease.executor.effectsSettled()
+    await takesALease.executor.close()
+
+    // The control: same shape, but the effect never asks for a lease. This one
+    // settles even WITH the deadlock present, so a green here alongside a red
+    // above is what tells the two causes apart.
+    const takesNoLease = await settlesWhileEffectRuns(async () => await Promise.resolve())
+    expect(takesNoLease.verdict, 'the no-lease control settles either way').toBe('settled')
+    await takesNoLease.executor.effectsSettled()
+    await takesNoLease.executor.close()
+  })
 })
 
 describe('scopes that outlive the lease they run on', () => {
