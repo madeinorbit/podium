@@ -126,7 +126,7 @@ export interface AgentRelayGateDeps {
     proc: string,
     input: unknown,
   ): Promise<unknown>
-  capabilityForSession(sessionId: SessionId): Capability
+  capabilityForSession(sessionId: SessionId): Capability | Promise<Capability>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop
@@ -194,7 +194,7 @@ export class AgentRelayGate {
               }
             : msg.input
       const result = this.deps.dispatch(
-        this.deps.capabilityForSession(msg.sessionId),
+        await this.deps.capabilityForSession(msg.sessionId),
         msg.outsideScope,
         msg.router,
         msg.proc,

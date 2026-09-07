@@ -685,7 +685,7 @@ describe('SessionRegistry', () => {
       revisionId: created.revision.id,
       onBehalfOf: FIRST_ADMIN_USER_ID,
     })
-    const coordinatorCapability = reg.modules.sessions.capabilityForSession(coordinator)
+    const coordinatorCapability = await reg.modules.sessions.capabilityForSession(coordinator)
     const coordinatorCaller = {
       actor: { kind: 'session' as const, id: coordinator },
       capability: coordinatorCapability,
@@ -701,7 +701,7 @@ describe('SessionRegistry', () => {
       stepId: 'review',
       sessionId: worker,
     })
-    const workerCapability = reg.modules.sessions.capabilityForSession(worker)
+    const workerCapability = await reg.modules.sessions.capabilityForSession(worker)
     await reg.modules.workflows.execute(
       {
         actor: { kind: 'session', id: worker },

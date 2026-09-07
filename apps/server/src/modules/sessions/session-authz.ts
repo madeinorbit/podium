@@ -5,11 +5,10 @@
  */
 
 
-import type { SessionId, UserId, IssueId, UserRole } from '@podium/model'
+import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
-  resolvePrincipal,
   resolvePrincipalAsync,
   userCommandPrincipal,
 } from '../../command-principal'
@@ -18,53 +17,28 @@ import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
-import type { IssueRow, SessionRow } from '../../store/types'
+import type { SessionStore } from '../../store'
+import type { SessionLifecycleDeps } from './session-lifecycle-types'
+import type { SessionAccessDeps } from './session-access'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
 import type { SessionOwnerMemo } from './session-state/service'
 
-/**
- * The store reads this module makes, spelled with the signatures the store
- * ACTUALLY has [POD-3507].
- *
- * This was `store: any` while every one of these methods was synchronous, and
- * `any` cost nothing then. The async flip changed all seven to return promises
- * and `any` was the reason no check anywhere noticed: two sites crashed at
- * runtime (`found.get is not a function`, `edges.filter is not a function`) and
- * three more silently answered "this session has no owner", which is an
- * authorization question decided wrongly with nothing logged. Spec rule 56's
- * lesson is that the PORT is what makes the compiler blind; widen it first and
- * the compiler names the sites. Keep these signatures async — narrowing one
- * back to a bare value re-opens exactly this hole.
- */
+/** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
-  readonly users: {
-    get(userId: UserId): Promise<unknown>
-    roleOf(userId: UserId): Promise<UserRole | undefined>
-  }
-  readonly sessions: {
-    getSession(sessionId: SessionId): Promise<SessionRow | undefined>
-  }
-  readonly issues: {
-    getIssue(id: string): Promise<IssueRow | null>
-    getIssues(ids: readonly string[]): Promise<Map<string, IssueRow>>
-  }
-  readonly grants: {
-    listForResource(resourceKind: string, resourceId: string): Promise<GrantRow[]>
-    listForResources(
-      resourceKind: string,
-      resourceIds: readonly string[],
-    ): Promise<Map<string, GrantRow[]>>
-  }
+  readonly users: Pick<SessionStore['users'], 'get' | 'roleOf'>
+  readonly sessions: Pick<SessionStore['sessions'], 'getSession'>
+  readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
+  readonly grants: Pick<SessionStore['grants'], 'listForResource' | 'listForResources'>
 }
 
 export interface SessionAuthzPorts {
   clientControl: import('./client-control').SessionClientControl
-  deps: any
-  listSessions: any
-  sessionById: any
+  deps: Pick<SessionLifecycleDeps, 'issueAccess' | 'authorizeQueuedMessage'>
+  listSessions: SessionAccessDeps['listSessions']
+  sessionById: NonNullable<SessionAccessDeps['sessionById']>
   machines: import('../../machine-access').AsyncMachineRowSource
   /** The LIVE registry — an in-memory map, synchronous and staying that way.
    *  Typed rather than `any` because every durable fallback in this file is
@@ -172,7 +146,7 @@ export class SessionAuthz {
        */
       let delegated: CommandPrincipal
       try {
-        delegated = await resolvePrincipalAsync(this.capabilityForSession(actorSessionId), {
+        delegated = await resolvePrincipalAsync(await this.capabilityForSession(actorSessionId), {
           parentSessionOf: async (sessionId) =>
             spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
           onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
@@ -287,14 +261,14 @@ export class SessionAuthz {
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
    *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
    *  issue needs --outside-scope). Unknown session → most-restricted. */
-  capabilityForSession(sessionId: SessionId): Capability {
+  async capabilityForSession(sessionId: SessionId): Promise<Capability> {
     const s = this.ports.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     const attribution = { onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
-    const issueId = s.issueId ?? this.ports.deps.issueAccess.issueForCwd(s.cwd)
+    const issueId = s.issueId ?? await this.ports.deps.issueAccess.issueForCwd(s.cwd)
     return issueId
       ? {
           role: 'worker',
