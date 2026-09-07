@@ -300,7 +300,7 @@ export interface IssueDeps {
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
-  clearSessionOffer?(sessionId: SessionId): void
+  clearSessionOffer?(sessionId: SessionId): Promise<void>
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)

@@ -703,7 +703,7 @@ describe('durable terminal hibernation proof', () => {
     ).sessions.get(h.sessionId)
     expect(session).toBeDefined()
     if (session) session.draftUpdatedAt = at(15)
-    h.registry.modules.sessions.setOffer({
+    await h.registry.modules.sessions.setOffer({
       sessionId: h.sessionId,
       message: 'Ready to merge',
       actions: [{ label: 'Merge', prompt: 'merge it' }],

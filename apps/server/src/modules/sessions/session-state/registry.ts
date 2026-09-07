@@ -305,11 +305,11 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.dismissOffer': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
+    handler: async (input, _principal, deps) => {
       // The stale-stamp case returns false and writes nothing — see the contract:
       // a dismissal names ONE offer, so a click aimed at a replaced offer must not
       // clear the one that replaced it.
-      deps.sessions.dismissOffer(sessionIdOf(input.sessionId), str(input.offerCreatedAt))
+      await deps.sessions.dismissOffer(sessionIdOf(input.sessionId), str(input.offerCreatedAt))
     },
   },
   'sessions.markRead': {
