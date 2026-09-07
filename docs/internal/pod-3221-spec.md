@@ -3628,3 +3628,30 @@ the mechanism disagree, trust the mechanism and go get the better control.
 
 *Filed by the coordinator against itself. POD-3589 is closed as fixed-by-POD-3529; POD-3588 has been
 moved back into the gate pending a real `dev/mw` check.*
+
+### Rule 65a — SHARPENS 65: an OLD wrapper is not an INHERITED failure when the epic changed the CALLEE's contract
+
+POD-3602's session census found the case rule 65 as written would have misclassified, and its
+sentence is the rule:
+
+> **An old wrapper is not an inherited failure when the epic changed the callee's contract.**
+
+The broadcast `void` port at `fc270e099` **is** an ancestor of `origin/dev/mw`. A literal reading of
+rule 65 — pickaxe the responsible line, check its introducing commit against `dev/mw` — returns
+"inherited", and the failure would have left the gate. But the port only became *wrong* when
+`9f0d5c33e` (the POD-3263 flip) made its callee async. The wrapper did not change; **the contract
+underneath it did**.
+
+**SO THE PICKAXE MUST FIND THE RIGHT LINE.** For a compatibility failure the responsible line is not
+the site that fails — it is whichever end of the pair moved. Ask: *which side of this call changed?*
+If the caller is ancient and the callee was converted by this epic, the failure is **ours**, however
+old the caller's blame line is.
+
+This is the same shape as the defects that exist **only in the pair** (POD-3552 × POD-3511,
+POD-3569): neither side is wrong alone, so neither side's history explains the failure.
+
+**THE COROLLARY, WHICH IS THE EXPENSIVE HALF.** Rule 65 was written after I moved four issues out of
+the gate on control arms taken at the integration tip. 65a is the opposite error waiting to happen:
+a correct `dev/mw` ancestry check on the *wrong line*, producing a confident "inherited" that is
+wrong. A pickaxe result is evidence about a LINE. Deciding it is evidence about a FAILURE takes one
+more step, and that step is naming which side of the contract moved.
