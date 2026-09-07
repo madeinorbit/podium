@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { type StatementProbeHolder, probeStatements } from './store/executor'
 import type { IssueRow } from './store/types'
+import { withReadScope } from './store/executor/read-scope'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -12,7 +13,7 @@ import { openTestStore } from './test-support/open-test-store'
  * one event-loop frame was measured issuing 242 `getIssues` calls over 94,138
  * rows plus 5,163 `getIssue` calls — the same rows, re-parsed. The cache serves
  * the second read of an id from the first read's answer, for the duration of
- * ONE synchronous turn.
+ * one explicit read scope, including across awaits.
  *
  * The conserved quantity is the NUMBER OF READS, counted with a probe on the
  * table. Each test asserts both a saved read and a read that still happens, so
@@ -28,8 +29,7 @@ import { openTestStore } from './test-support/open-test-store'
  * repository that count is 1 forever however many times the read runs — the
  * probe would report a cache that works whether or not it does. The seam counts
  * EXECUTIONS on whichever feed issued them, so the number survives the
- * conversion. Today the store is unconverted and the two counts coincide, which
- * is exactly why this moves now rather than in a conversion commit.
+ * conversion. The probe continues to count reads through the async store.
  */
 /**
  * SETUP ONLY [POD-3397]: the probe counts by SQL TEXT, and the drizzle
@@ -102,57 +102,54 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
     ...over,
   }) as IssueRow
 
-/**
- * Boot runs its heals through the same write path, which disables caching for
- * the frame that opened the store. Yielding once puts every test in a frame of
- * its own — which is exactly the guarantee under test.
- */
 const freshStore = async (): Promise<SessionStore> => {
-  const store = await openTestStore(':memory:')
-  await Promise.resolve()
-  return store
+  return await openTestStore(':memory:')
 }
 
-describe('issue frame read cache', () => {
-  it('serves a repeat read of the same id from the frame, then re-reads next turn', async () => {
+describe('issue scope read cache', () => {
+  it('serves a repeat read of the same id within a scope, then re-reads in the next scope', async () => {
     const store = await freshStore()
     await store.issues.upsertIssue(issue('iss_a'))
-    await Promise.resolve()
     const reads = readProbe(store)
 
-    expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
-    const afterFirst = reads()
-    expect(afterFirst).toBeGreaterThan(0)
-    await store.issues.getIssue('iss_a')
-    await store.issues.getIssue('iss_a')
-    expect(reads()).toBe(afterFirst)
+    const afterFirst = await withReadScope(async () => {
+      expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
+      const afterFirst = reads()
+      expect(afterFirst).toBeGreaterThan(0)
+      await store.issues.getIssue('iss_a')
+      await store.issues.getIssue('iss_a')
+      expect(reads()).toBe(afterFirst)
+      return afterFirst
+    })
 
-    // The turn ends at the first await: the next read goes back to the table.
-    await Promise.resolve()
-    await store.issues.getIssue('iss_a')
-    expect(reads()).toBeGreaterThan(afterFirst)
+    await withReadScope(async () => {
+      await store.issues.getIssue('iss_a')
+      expect(reads()).toBeGreaterThan(afterFirst)
+    })
   })
 
   it('hands every caller its own object, so one mutation cannot reach another', async () => {
     const store = await freshStore()
     await store.issues.upsertIssue(issue('iss_a'))
-    await Promise.resolve()
-    const first = await store.issues.getIssue('iss_a')
-    expect(first).not.toBeNull()
-    if (first) first.title = 'Mutated by its reader'
-    expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
+    await withReadScope(async () => {
+      const first = await store.issues.getIssue('iss_a')
+      expect(first).not.toBeNull()
+      if (first) first.title = 'Mutated by its reader'
+      expect((await store.issues.getIssue('iss_a'))?.title).toBe('A title')
+    })
   })
 
-  it('a write inside the frame is visible to the read that follows it', async () => {
+  it('a write inside the scope is visible to the read that follows it', async () => {
     const store = await freshStore()
     await store.issues.upsertIssue(issue('iss_a'))
-    await Promise.resolve()
-    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
-    await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
-    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
-    // And a delete is not served from the cache either.
-    await store.issues.deleteIssue(asIssueId('iss_a'))
-    expect(await store.issues.getIssue('iss_a')).toBeNull()
+    await withReadScope(async () => {
+      expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
+      await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+      expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
+      // And a delete is not served from the cache either.
+      await store.issues.deleteIssue(asIssueId('iss_a'))
+      expect(await store.issues.getIssue('iss_a')).toBeNull()
+    })
   })
 
   /**
@@ -171,54 +168,59 @@ describe('issue frame read cache', () => {
   it('does not serve a row a rolled-back transaction put in the cache', async () => {
     const store = await freshStore()
     await store.issues.upsertIssue(issue('iss_a'))
-    await Promise.resolve()
-    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
+    await withReadScope(async () => {
+      expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
 
-    await expect(store.transact(async () => {
-        await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
-        // The read that would fill the cache from inside the transaction.
-        expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
-        throw new Error('rolled back')
-      }),
-    ).rejects.toThrow('rolled back')
+      await expect(
+        store.transact(async () => {
+          await store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+          // The read that would fill the cache from inside the transaction.
+          expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
+          throw new Error('rolled back')
+        }),
+      ).rejects.toThrow('rolled back')
 
-    // Same turn, so the cache is still the one the transaction touched.
-    expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
+      // Same scope, so the cache is still the one the transaction touched.
+      expect((await store.issues.getIssue('iss_a'))?.stage).toBe('backlog')
+    })
   })
 
-  it('getIssues serves the frame and still asks for the ids it has not seen', async () => {
+  it('getIssues serves the scope and still asks for the ids it has not seen', async () => {
     const store = await freshStore()
     await store.issues.upsertIssue(issue('iss_a'))
     await store.issues.upsertIssue(issue('iss_b', { seq: 2, title: 'Second' }))
-    await Promise.resolve()
     const reads = readProbe(store)
 
-    expect((await store.issues.getIssues(['iss_a'])).get('iss_a')?.title).toBe('A title')
-    const afterFirst = reads()
-    // 'iss_a' is known, 'iss_b' is not — the batch still runs, for the miss.
-    const both = await store.issues.getIssues(['iss_a', 'iss_b'])
-    expect(both.get('iss_a')?.title).toBe('A title')
-    expect(both.get('iss_b')?.title).toBe('Second')
-    expect(reads()).toBeGreaterThan(afterFirst)
+    await withReadScope(async () => {
+      expect((await store.issues.getIssues(['iss_a'])).get('iss_a')?.title).toBe('A title')
+      const afterFirst = reads()
+      // 'iss_a' is known, 'iss_b' is not — the batch still runs, for the miss.
+      const both = await store.issues.getIssues(['iss_a', 'iss_b'])
+      expect(both.get('iss_a')?.title).toBe('A title')
+      expect(both.get('iss_b')?.title).toBe('Second')
+      expect(reads()).toBeGreaterThan(afterFirst)
 
-    // Now both are known: no statement at all.
-    const afterSecond = reads()
-    expect((await store.issues.getIssues(['iss_a', 'iss_b'])).size).toBe(2)
-    expect(reads()).toBe(afterSecond)
+      // Now both are known: no statement at all.
+      const afterSecond = reads()
+      expect((await store.issues.getIssues(['iss_a', 'iss_b'])).size).toBe(2)
+      expect(reads()).toBe(afterSecond)
+    })
   })
 
-  it('an absent id is an answer and is not re-asked inside the frame', async () => {
+  it('an absent id is an answer and is not re-asked inside the scope', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
-    expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
-    const afterFirst = reads()
-    // PAIRED WITH THE BOUND BELOW [POD-3407]. `toBe(afterFirst)` is 0 === 0 under
-    // an instrument that sees nothing, so on its own it reports a perfect cache
-    // for a probe that went dead — which is exactly what POD-3397 found. The miss
-    // above DID go to the table, so this number is never legitimately zero.
-    expect(afterFirst).toBeGreaterThan(0)
-    expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
-    expect(await store.issues.getIssue('iss_missing')).toBeNull()
-    expect(reads()).toBe(afterFirst)
+    await withReadScope(async () => {
+      expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
+      const afterFirst = reads()
+      // PAIRED WITH THE BOUND BELOW [POD-3407]. `toBe(afterFirst)` is 0 === 0 under
+      // an instrument that sees nothing, so on its own it reports a perfect cache
+      // for a probe that went dead — which is exactly what POD-3397 found. The miss
+      // above DID go to the table, so this number is never legitimately zero.
+      expect(afterFirst).toBeGreaterThan(0)
+      expect((await store.issues.getIssues(['iss_missing'])).size).toBe(0)
+      expect(await store.issues.getIssue('iss_missing')).toBeNull()
+      expect(reads()).toBe(afterFirst)
+    })
   })
 })

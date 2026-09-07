@@ -6,19 +6,6 @@ import {
   withReadScope,
 } from './read-scope'
 
-/**
- * THE READ SCOPE [POD-3261].
- *
- * The point of this file is the arm the frame caches could never walk. Their
- * suites prove the microtask lifetime — a cache that survives one synchronous
- * turn and dies at the first `await`. That is exactly the property this epic
- * removes, so a test that only checks it would pass while the mechanism that is
- * supposed to replace it does nothing.
- *
- * So every test here that matters ASSERTS ACROSS AN AWAIT: reads separated by a
- * yield, inside one scope, answered once. Under the old mechanism every one of
- * them fails.
- */
 describe('read scope', () => {
   const counting = () => {
     let built = 0
@@ -121,30 +108,22 @@ describe('read scope', () => {
     })
   })
 
-  /**
-   * THE FALLBACK, and the reason it is still here.
-   *
-   * Outside an explicit scope the turn owns the lifetime, which is today's
-   * behaviour exactly and what the landed frame-cache suites assert. It is the
-   * transitional half; the assertion below is what will change when it is
-   * deleted at the flip.
-   */
-  it('falls back to the turn when no scope is open, and the turn ends at an await', async () => {
+  it('unscoped reads never share a slot, even before an await', async () => {
     const { key, built } = counting()
     expect(inExplicitReadScope()).toBe(false)
     currentReadScope().slot(key).set('a', 1)
-    expect(currentReadScope().slot(key).get('a')).toBe(1)
-    expect(built()).toBe(1)
-    await Promise.resolve()
     expect(currentReadScope().slot(key).size).toBe(0)
     expect(built()).toBe(2)
+    await Promise.resolve()
+    expect(currentReadScope().slot(key).size).toBe(0)
+    expect(built()).toBe(3)
   })
 
-  it('an explicit scope does not inherit the turn scope it opened inside', () => {
+  it('an explicit scope does not inherit an unscoped read', () => {
     const { key } = counting()
     currentReadScope().slot(key).set('a', 1)
     withReadScope(() => {
-      // A fresh snapshot, not a continuation of whatever the turn happened to
+      // A fresh snapshot, not a continuation of whatever the unscoped read happened to
       // be holding: the scope is the lease, and a lease starts where it starts.
       expect(currentReadScope().slot(key).size).toBe(0)
     })
