@@ -890,7 +890,9 @@ export async function startServer(
           updates: {
             onStatus: async (machineId, status) => {
               await registry.modules.updates.onStatus(machineId, status)
-              registry.modules.updateFleetBridge?.onFleetChanged()
+              const fleetChanged: Promise<void> | undefined =
+                registry.modules.updateFleetBridge?.onFleetChanged()
+              await fleetChanged
             },
           },
           connected: (machineId) => registry.modules.bus.emit('machine.connected', { machineId }),

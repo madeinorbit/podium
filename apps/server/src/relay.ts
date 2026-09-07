@@ -310,7 +310,7 @@ export interface RegistryModules {
    * set without it is a server whose operations do not learn from local status,
    * not a broken one.
    */
-  updateFleetBridge?: { onFleetChanged(): void }
+  updateFleetBridge?: { onFleetChanged(): Promise<void> }
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -2791,11 +2791,17 @@ export class SessionRegistry {
     })
     const reconciler = updatesReconciler
     this.bus.on('machine.connected', ({ machineId }) => {
-      updateFleetBridge.onFleetChanged()
       // The daemon's hello — and therefore the version it just booted with — is
       // already recorded by the time this fires: `recordHelloBuild` precedes
       // `attachDaemon` in the handshake, and `attachDaemon` is what emits this.
-      return reconciler.onMachineConnected(machineId)
+      // Independent: the bridge projects the active operation; the reconciler
+      // checks operationActive before granting and keeps its queue paused while
+      // that operation owns the fleet. EventBus.emit observes this promise but
+      // deliberately does not wait for either task (rule 51 case 3).
+      return Promise.all([
+        updateFleetBridge.onFleetChanged(),
+        reconciler.onMachineConnected(machineId),
+      ])
     })
     this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
 
