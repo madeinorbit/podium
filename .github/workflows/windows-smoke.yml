@@ -88,72 +88,55 @@ jobs:
           '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Path $config -Encoding utf8
           bun run --cwd apps/desktop build -- --bundles nsis --config $config
 
-      - name: Boot smoke (podium.cmd all-in-one → /health + /version)
+      - name: Payload regression tests on Windows
+        run: cargo test --release --manifest-path apps/desktop/src-tauri/Cargo.toml --bin Podium payload
+
+      - name: Installed desktop starts its own payload
         shell: pwsh
         run: |
-          $env:PODIUM_STATE_DIR = Join-Path $env:RUNNER_TEMP 'podium-state'
-          # A .cmd can't be exec'd directly with stream redirects (UseShellExecute=false
-          # requires a real executable) — run it through cmd.exe like a user would.
-          $proc = Start-Process -FilePath $env:ComSpec `
-            -ArgumentList '/d','/c','dist-bun\headless\podium.cmd' `
-            -RedirectStandardOutput podium-out.log -RedirectStandardError podium-err.log `
-            -PassThru -NoNewWindow
-          # 127.0.0.1 (the server's default bind) rather than localhost — one fewer
-          # resolution variable. Generous window: shared windows-latest runners have
-          # shown multi-minute cold boots (sqlite store + mirror bootstrap on D:).
-          $healthy = $false
-          foreach ($i in 1..90) {
-            try {
-              $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18787/health' -UseBasicParsing -TimeoutSec 2
-              if ($r.StatusCode -eq 200) { $healthy = $true; Write-Host "healthy after poll #$i"; break }
-            } catch { Start-Sleep -Seconds 2 }
-            if ($proc.HasExited) { Write-Host "launcher exited early (poll #$i)"; break }
-          }
-          Write-Host '--- podium stdout ---'; Get-Content podium-out.log -ErrorAction SilentlyContinue
-          Write-Host '--- podium stderr ---'; Get-Content podium-err.log -ErrorAction SilentlyContinue
-          if (-not $healthy) {
-            Write-Host '--- netstat :18787 ---'; netstat -ano | Select-String 18787
-            Write-Error 'podium never became healthy on :18787'; exit 1
-          }
-          $v = Invoke-WebRequest -Uri 'http://localhost:18787/version' -UseBasicParsing
-          Write-Host "version probe: $($v.Content)"
-
-          # Launch the actual Tauri executable in client mode against the healthy local server.
-          # The version marker is written during native setup; staying alive after that proves
-          # WebView2 accepted the remote page and the window build did not fail synchronously.
-          $desktopState = Join-Path $env:RUNNER_TEMP 'podium-desktop-state'
-          New-Item -ItemType Directory -Force -Path $desktopState | Out-Null
-          @{ mode = 'client'; serverUrl = 'ws://127.0.0.1:18787' } |
-            ConvertTo-Json -Compress |
-            Set-Content -Path (Join-Path $desktopState 'config.json') -Encoding utf8
-          $env:PODIUM_STATE_DIR = $desktopState
-          $desktop = Start-Process -FilePath 'apps\desktop\src-tauri\target\release\Podium.exe' `
-            -PassThru
-          $started = $false
-          foreach ($i in 1..30) {
-            if (Test-Path (Join-Path $desktopState 'running-version')) {
-              $started = $true
-              break
+          $installer = @(Get-ChildItem 'apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe')
+          if ($installer.Count -ne 1) { throw 'Expected one NSIS installer' }
+          $installDir = 'D:\Podium App'
+          $setup = Start-Process -FilePath $installer[0].FullName -ArgumentList '/S',"/D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer exited $($setup.ExitCode)" }
+          $executable = Join-Path $installDir 'Podium.exe'
+          if (-not (Test-Path $executable)) { throw 'Installed desktop executable is missing' }
+          $env:PODIUM_STATE_DIR = 'D:\podium-state'
+          $env:PODIUM_PAYLOAD_HOME = 'D:\podium-payload'
+          $env:PODIUM_INSTANCE = 'windows-preview'
+          $env:PODIUM_NO_RELAY = '1'
+          $env:PODIUM_ADOPT_STATE = '1'
+          $env:PODIUM_PORT = '18787'
+          New-Item -ItemType Directory -Force $env:PODIUM_STATE_DIR | Out-Null
+          @{ mode = 'all-in-one'; port = 18787 } | ConvertTo-Json -Compress |
+            Set-Content (Join-Path $env:PODIUM_STATE_DIR 'config.json') -Encoding utf8
+          $desktop = Start-Process -FilePath $executable -WorkingDirectory $env:RUNNER_TEMP -PassThru
+          $nativeLog = Join-Path $env:PODIUM_STATE_DIR 'logs/desktop-native.ndjson'
+          try {
+            $healthy = $false
+            foreach ($i in 1..90) {
+              if ($desktop.HasExited) { throw 'Installed desktop exited before its payload became healthy' }
+              if (Select-String -Path $nativeLog -Pattern 'payload spawn failed|payload seed failed|payload is not executable|window build failed' -Quiet -ErrorAction SilentlyContinue) {
+                throw 'Installed desktop reported a payload or window failure'
+              }
+              try {
+                $health = Invoke-WebRequest 'http://127.0.0.1:18787/health' -UseBasicParsing -TimeoutSec 2
+                if ($health.StatusCode -eq 200) { $healthy = $true; break }
+              } catch {}
+              Start-Sleep -Seconds 2
             }
-            if ($desktop.HasExited) { break }
-            Start-Sleep -Seconds 1
+            if (-not $healthy) { throw 'The installed desktop did not start a healthy payload' }
+            if (-not (Test-Path (Join-Path $env:PODIUM_PAYLOAD_HOME 'podium-cli.exe'))) { throw 'Windows payload executable was not seeded' }
+            if (-not (Select-String -Path $nativeLog -Pattern 'native backend initial host spawn succeeded' -Quiet)) { throw 'Desktop payload spawn was not observed' }
+            $version = Invoke-WebRequest 'http://127.0.0.1:18787/version' -UseBasicParsing
+            Write-Host "Installed payload version: $($version.Content)"
+            Start-Sleep -Seconds 5
+            if ($desktop.HasExited) { throw 'Installed desktop exited after payload startup' }
+          } finally {
+            Get-Content $nativeLog -ErrorAction SilentlyContinue
+            taskkill /PID $desktop.Id /T /F 2>$null | Out-Null
           }
-          Start-Sleep -Seconds 5
-          $nativeLog = Join-Path $desktopState 'logs\desktop-native.ndjson'
-          Write-Host '--- desktop native log ---'
-          Get-Content $nativeLog -ErrorAction SilentlyContinue
-          if (-not $started -or $desktop.HasExited) {
-            Write-Error 'the Windows Tauri app did not remain alive through native setup'
-            exit 1
-          }
-          if (Select-String -Path $nativeLog -Pattern 'window build failed' -Quiet -ErrorAction SilentlyContinue) {
-            Write-Error 'the Windows Tauri webview failed to build'
-            exit 1
-          }
-          taskkill /PID $desktop.Id /T /F 2>$null
-          # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
-          # and would otherwise keep holding :18787.
-          taskkill /PID $proc.Id /T /F 2>$null; exit 0
+          exit 0
 
       - name: Record installer checksum and source
         shell: pwsh

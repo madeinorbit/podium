@@ -1367,6 +1367,16 @@ pub fn payload_home(app_data_dir: &Path) -> PathBuf {
         .unwrap_or_else(|_| app_data_dir.join("payload"))
 }
 
+/// Windows launches the native binary directly; `podium` is a POSIX shell script.
+/// Direct execution also keeps supervision attached to the payload rather than cmd.exe.
+pub fn payload_entrypoint(install: &Path) -> PathBuf {
+    install.join(if cfg!(windows) { "podium-cli.exe" } else { "podium" })
+}
+
+fn payload_cli_name() -> &'static str {
+    if cfg!(windows) { "podium-cli.exe" } else { "podium-cli" }
+}
+
 fn copy_payload_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     use std::fs;
     fs::create_dir(dst)?;
@@ -1419,8 +1429,8 @@ pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bo
     let staging = parent.join(format!(".payload-seed-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging);
     if let Err(error) = copy_payload_tree(seed, &staging)
-        .and_then(|_| ensure_executable(&staging.join("podium")))
-        .and_then(|_| ensure_executable(&staging.join("podium-cli")))
+        .and_then(|_| ensure_executable(&payload_entrypoint(&staging)))
+        .and_then(|_| ensure_executable(&staging.join(payload_cli_name())))
         .and_then(|_| strip_payload_quarantine(&staging))
         .and_then(|_| std::fs::rename(&staging, install))
     {
@@ -1436,10 +1446,14 @@ pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bo
 /// Ensure a payload entrypoint is executable without ever copying or refreshing it.
 /// First-run seeding and fleet grants are the only writers of the payload directory.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "payload entrypoint is not a file"));
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(path)?.permissions();
+        let mut perms = metadata.permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(path, perms)?;
     }
@@ -2713,18 +2727,18 @@ mod tests {
         let install = tmp.join("application-support/payload");
         fs::create_dir_all(seed.join("web")).unwrap();
         fs::write(seed.join("podium"), b"#!/bin/sh\n").unwrap();
-        fs::write(seed.join("podium-cli"), b"seed-binary").unwrap();
+        fs::write(seed.join(payload_cli_name()), b"seed-binary").unwrap();
         fs::write(seed.join("VERSION"), b"0.4.2\n").unwrap();
         fs::write(seed.join("web/index.html"), b"seed-web").unwrap();
 
         assert!(seed_payload_if_absent(&seed, &install).unwrap());
-        assert_eq!(fs::read(install.join("podium-cli")).unwrap(), b"seed-binary");
+        assert_eq!(fs::read(install.join(payload_cli_name())).unwrap(), b"seed-binary");
         assert_eq!(fs::read(install.join("web/index.html")).unwrap(), b"seed-web");
 
-        fs::write(seed.join("podium-cli"), b"new-shell-seed").unwrap();
+        fs::write(seed.join(payload_cli_name()), b"new-shell-seed").unwrap();
         assert!(!seed_payload_if_absent(&seed, &install).unwrap());
         assert_eq!(
-            fs::read(install.join("podium-cli")).unwrap(),
+            fs::read(install.join(payload_cli_name())).unwrap(),
             b"seed-binary",
             "a later shell must never overwrite the fleet-owned payload"
         );
@@ -2745,6 +2759,20 @@ mod tests {
         assert!(!seed_payload_if_absent(&seed, &install).unwrap());
         assert!(fs::read_dir(&install).unwrap().next().is_none());
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn payload_entrypoint_matches_the_packaged_platform_binary() {
+        let root = Path::new("payload with spaces");
+        let expected = if cfg!(windows) { "podium-cli.exe" } else { "podium" };
+        assert_eq!(payload_entrypoint(root), root.join(expected));
+    }
+
+    #[test]
+    fn missing_payload_entrypoint_is_rejected_before_spawn() {
+        let missing = std::env::temp_dir().join(format!("podium-missing-entry-{}", std::process::id()));
+        let _ = std::fs::remove_file(&missing);
+        assert_eq!(ensure_executable(&missing).unwrap_err().kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]

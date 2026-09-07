@@ -235,6 +235,19 @@ fn native_open_bridge_script() -> &'static str {
     include_str!("../native-open.js")
 }
 
+/// Supply the bundle environment even when Windows bypasses the .cmd launcher.
+fn payload_command(runnable: &Path) -> Command {
+    let home = runnable.parent().expect("payload entrypoint has an install directory");
+    let mut command = Command::new(runnable);
+    command.env("PODIUM_HOME", home);
+    for (key, directory) in [("PODIUM_WEB_DIR", "web"), ("PODIUM_MOBILE_WEB_DIR", "mobile")] {
+        if std::env::var_os(key).is_none() {
+            command.env(key, home.join(directory));
+        }
+    }
+    command
+}
+
 fn local_host_sidecar_command(
     runnable: &Path,
     sidecar_args: &[String],
@@ -246,7 +259,7 @@ fn local_host_sidecar_command(
     // A transfer or prior orderly stop may have consumed this marker. Every new child starts
     // from an absent marker; the path is scoped to this shell PID.
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(sidecar_args)
         // The daemon makes this exact fleet-managed CLI authoritative for every session.
@@ -276,7 +289,7 @@ fn replacement_daemon_command(
     shutdown_file: &Path,
 ) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(["daemon", "--server", server_url, "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
@@ -1574,7 +1587,7 @@ fn main() {
                     let web_dir = install.join("web");
                     let mobile_web_dir = install.join("mobile");
                     if payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");
@@ -1677,7 +1690,7 @@ fn main() {
                         .as_ref()
                         .expect("a daemon host has an external payload");
                     if server_transport_error.is_none() && payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");
@@ -2611,6 +2624,14 @@ mod tests {
         *pause.started.lock().unwrap() = Some(started);
         assert!(!pause.should_stand_down_at(false, started + LocalRestartPause::BUDGET));
         assert!(!pause.is_active(), "a wedged restart cannot suppress fallback forever");
+    }
+
+    #[test]
+    fn payload_command_keeps_native_path_and_bundle_home_with_spaces() {
+        let runnable = Path::new("installed payload/podium-cli.exe");
+        let command = payload_command(runnable);
+        assert_eq!(command.get_program(), runnable.as_os_str());
+        assert_eq!(command_env(&command, "PODIUM_HOME").as_deref(), Some("installed payload"));
     }
 
     #[test]
