@@ -456,9 +456,15 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
   })
   const sendEncoded = (message: unknown): void =>
     safeSendEncoded(ws, JSON.stringify(message), DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
-  ws.on('message', (raw) => {
+  let resolved: HandshakeAcceptor | undefined
+  ws.on('message', async (raw) => {
     if (recoveryTransportOnly(registry)) return
-    const outcome = receiveDaemonFrame(acceptor, raw.toString())
+    // Resolve the credential BEFORE the synchronous acceptor sees the frame.
+    const prepared = resolved
+      ? { acceptor: resolved, outcome: receiveDaemonFrame(resolved, raw.toString()) }
+      : await prepareDaemonFrame(acceptor, raw.toString())
+    resolved = prepared.acceptor ?? resolved
+    const outcome = prepared.outcome
     if (principal === undefined) {
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {

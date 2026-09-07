@@ -1797,7 +1797,7 @@ export async function startServer(
             ? null
             : recoveryOnly && new URL(request.url).pathname !== '/daemon'
               ? null
-              : ws.handleRequest(request, nativeServer as never)
+              : await ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)

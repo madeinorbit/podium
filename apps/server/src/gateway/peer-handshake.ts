@@ -32,7 +32,6 @@ import {
   type PeerHelloReply,
 } from '@podium/protocol'
 import {
-  createMachineDirectory,
   type MachineAuthenticationInput,
   type MachineAuthenticator,
   createResolvedMachineDirectory,
@@ -62,11 +61,15 @@ export interface DaemonAcceptorDeps {
   readonly connectionId: string
   /** Recovery-only authenticates durable rows without refreshing them. */
   readonly verifyOnly?: boolean
+  /** Which plane this connection is: the supervisor plane records its own presence. */
+  readonly source?: 'supervisor' | 'legacy-daemon'
 }
 
 interface ResolvedDaemonAcceptorDeps {
   readonly machines: ResolvedMachineAuthenticator
   readonly connectionId: string
+  readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
 }
 
 export interface PreparedDaemonAcceptor {
@@ -91,10 +94,10 @@ export interface PreparedDaemonAcceptor {
 const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
-      machines: createResolvedMachineDirectory(
-        deps.machines,
-        deps.verifyOnly ? { verifyOnly: true } : {},
-      ),
+      machines: createResolvedMachineDirectory(deps.machines, {
+        ...(deps.verifyOnly ? { verifyOnly: true } : {}),
+        ...(deps.source ? { source: deps.source } : {}),
+      }),
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [
@@ -117,19 +120,22 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): PreparedDaemonAc
   deps,
 })
 
-/** The authenticated parent-owned machine plane; no legacy frame adapter. */
-export const createMachineSupervisorAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
-  createHandshakeAcceptor({
-    registry: createDefaultAuthRegistry({
-      machines: createMachineDirectory(deps.machines, { source: 'supervisor' }),
-      mint: gatewayCapabilityMinter,
-    }),
-    supportedCaps: [],
-    transport: {
-      endpoint: '/machine',
-      connectionId: deps.connectionId,
-    },
-  })
+/**
+ * The authenticated parent-owned machine plane; no legacy frame adapter.
+ *
+ * PREPARED, not eager. The acceptor this resolves to is synchronous, and the
+ * authenticator behind it is not — so the credential is resolved once by
+ * {@link prepareDaemonFrame} before the frame enters the acceptor, exactly as the
+ * daemon plane does. Handing the async authenticator straight to the acceptor
+ * would put a promise in the slot admission is decided on, and a promise is
+ * always truthy (POD-3469).
+ */
+export const createMachineSupervisorAcceptor = (
+  deps: DaemonAcceptorDeps,
+): PreparedDaemonAcceptor => ({
+  kind: 'preparedDaemonAcceptor',
+  deps: { ...deps, source: 'supervisor' },
+})
 
 export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }
