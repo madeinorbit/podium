@@ -60,6 +60,7 @@ async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
   await commit(p, 's2')
   const cold = new Peer('cold')
   p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
+  await p.serving.admissionSettled()
   const identity = await p.serving.identity()
   const held: FeedCursorField = {
     feedId: identity.feedId,
@@ -72,13 +73,16 @@ async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
 /** Reconnect a NEW peer presenting `cursor`. A reconnect is a new socket and
  *  therefore a new peer id; reusing the old one would take the idempotent
  *  re-attach path and prove nothing. */
-function reconnect(
+async function reconnect(
   ctx: Awaited<ReturnType<typeof servedOnce>>,
   cursor: FeedCursorField | undefined,
   wireVersion: number = WIRE_VERSION,
-): Peer {
+): Promise<Peer> {
   const peer = new Peer(`resumed-${wireVersion}-${cursor?.seq ?? 'none'}`, wireVersion)
   ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), cursor)
+  // The admission is DEFERRED [POD-3523]: `renegotiate` is synchronous because its
+  // production caller is, so an observer waits for it explicitly.
+  await ctx.p.serving.admissionSettled()
   return peer
 }
 
@@ -90,7 +94,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     // of the cursor and not of an empty server.
     expect(ctx.cold.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
 
-    const peer = reconnect(ctx, ctx.held)
+    const peer = await reconnect(ctx, ctx.held)
 
     expect(peer.types()).toEqual(['feedResume'])
     expect(peer.of('feedResume')[0]).toEqual({
@@ -103,7 +107,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
 
   it('frames the next delta from the position it granted', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, ctx.held)
+    const peer = await reconnect(ctx, ctx.held)
 
     commit(ctx.p, 's3')
     const delivery = await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
@@ -124,7 +128,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     const ctx = await servedOnce()
     // The head moves BEFORE the reconnect: the replica's cursor is now behind.
     commit(ctx.p, 's3')
-    const peer = reconnect(ctx, ctx.held)
+    const peer = await reconnect(ctx, ctx.held)
 
     // Still nothing but the grant. `(cursor, head]` is `sync.feedChangesSince`'s
     // — the read this client performs on every reconnect anyway — and a server
@@ -138,7 +142,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
 describe('a cursor the log cannot serve is refused, and the refusal is the world', () => {
   it('refuses a cursor from a foreign feed', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, { ...ctx.held, feedId: 'someone-elses-feed' })
+    const peer = await reconnect(ctx, { ...ctx.held, feedId: 'someone-elses-feed' })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
@@ -146,7 +150,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
 
   it('refuses a cursor presented against a rolled epoch', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, { ...ctx.held, epoch: 'epoch-from-before-the-reset' })
+    const peer = await reconnect(ctx, { ...ctx.held, epoch: 'epoch-from-before-the-reset' })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap')).not.toHaveLength(0)
@@ -154,7 +158,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
 
   it('refuses a cursor from the future — the database was restored behind it', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, { ...ctx.held, seq: ctx.held.seq + 1 })
+    const peer = await reconnect(ctx, { ...ctx.held, seq: ctx.held.seq + 1 })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap')).not.toHaveLength(0)
@@ -167,16 +171,20 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
     // Head above the floor, so the boundary being tested is the FLOOR and not
     // the "cursor from the future" refusal sitting in front of it.
-    for (let i = 3; i <= 6; i += 1) commit(compacted.p, `s${i}`)
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
     expect(await compacted.p.authority.cursor()).toBe(6)
 
-    expect(reconnect(compacted, { ...compacted.held, seq: 3 }).types()).not.toContain('feedResume')
-    expect(reconnect(compacted, { ...compacted.held, seq: 4 }).types()).toEqual(['feedResume'])
+    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).not.toContain(
+      'feedResume',
+    )
+    expect((await reconnect(compacted, { ...compacted.held, seq: 4 })).types()).toEqual([
+      'feedResume',
+    ])
   })
 
   it('refuses a cursor from a wire that cannot be told it was accepted', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, ctx.held, 1)
+    const peer = await reconnect(ctx, ctx.held, 1)
 
     // A v1 peer cannot send a cursor and its adapter has nothing to translate a
     // grant into, so a cursor arriving on one is answered the way it was before
@@ -187,7 +195,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
 
   it('serves the world to a hello that presents nothing — the pre-POD-2061 client', async () => {
     const ctx = await servedOnce()
-    const peer = reconnect(ctx, undefined)
+    const peer = await reconnect(ctx, undefined)
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
@@ -201,6 +209,7 @@ describe('the transfer a reconnect actually costs', () => {
 
     const cold = new Peer('cold')
     p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
+    await p.serving.admissionSettled()
     const identity = await p.serving.identity()
     const resumed = new Peer('resumed')
     p.serving.renegotiate(resumed, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(resumed.id), {
@@ -208,6 +217,7 @@ describe('the transfer a reconnect actually costs', () => {
       epoch: identity.epoch,
       seq: await p.authority.cursor(),
     })
+    await p.serving.admissionSettled()
 
     // Counted in ROWS and in BYTES, because the point of the finding was both: a
     // world is read, serialized and transferred, and the resumed peer pays for

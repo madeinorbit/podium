@@ -78,6 +78,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       DEVICE_GRADE_PRINCIPAL,
       rescoped.routingPrincipal(rescopePeer.id),
     )
+    await rescoped.serving.admissionSettled()
     await rescoped.serving.publish(DEVICE_GRADE_PRINCIPAL, {
       kind: 'rescope',
       throughSeq: 1,
@@ -89,6 +90,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       DEVICE_GRADE_PRINCIPAL,
       rescoped.routingPrincipal(afterRescope.id),
     )
+    await rescoped.serving.admissionSettled()
     expect(rescopeBootstrap).toHaveBeenCalledTimes(2)
 
     const evicted = await feedTestPlumbing({ onVisibilityChanged: notify })
@@ -98,6 +100,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       DEVICE_GRADE_PRINCIPAL,
       evicted.routingPrincipal(evictPeer.id),
     )
+    await evicted.serving.admissionSettled()
     await evicted.serving.publish(DEVICE_GRADE_PRINCIPAL, {
       kind: 'batch',
       throughSeq: 1,
@@ -119,6 +122,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
     const peer = new Peer('legacy', 1)
     expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
+    await p.serving.admissionSettled()
 
     // ORDER IS LOAD-BEARING: `onClientAttached` sent sessions → issues →
     // automations → runs → conversations, and a client that applies lists in
@@ -141,6 +145,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
     const peer = new Peer('legacy', 1)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
     const issues = peer.last('issuesChanged') as { issues: { title: string }[] }
     expect(issues.issues).toEqual([{ id: 'i1', title: 'second' }])
   })
@@ -156,6 +161,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 
     const peer = new Peer('legacy', 1)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
     const issues = peer.last('issuesChanged') as { issues: { id: string }[] }
     expect(issues.issues.map((i) => i.id)).toEqual(['i2'])
   })
@@ -165,6 +171,7 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     await commit(p, 'session', 's1', { sessionId: 's1' })
     const peer = new Peer('modern-v1', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
     const bootstrapSeq = await p.authority.cursor()
 
     await commit(p, 'session', 's2', { sessionId: 's2' })
@@ -192,7 +199,9 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     const modern = new Peer('v2', WIRE_VERSION, true)
     const legacy = new Peer('v1', 1, true)
     p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
+    await p.serving.admissionSettled()
     p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
+    await p.serving.admissionSettled()
 
     await commit(p, 'issue', 'i1', { id: 'i1' })
     await publishPending(p, 0)
@@ -225,7 +234,9 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     const peer = new Peer('v2-large', WIRE_VERSION, true)
     const legacy = new Peer('v1-large', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
     p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
+    await p.serving.admissionSettled()
 
     const frames = peer.received.filter((message) => message.type === 'feedBootstrap') as {
       feedId: string
@@ -271,11 +282,13 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       DEVICE_GRADE_PRINCIPAL,
       p.routingPrincipal(ancient.id),
     )
+    await p.serving.admissionSettled()
     const newRefusal = p.serving.attach(
       future,
       DEVICE_GRADE_PRINCIPAL,
       p.routingPrincipal(future.id),
     )
+    await p.serving.admissionSettled()
 
     expect(oldRefusal?.status).toBe(426)
     expect(newRefusal?.status).toBe(426)
@@ -297,10 +310,12 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
 
       const first = new Peer('first', WIRE_VERSION, true)
       p.serving.attach(first, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(first.id))
+      await p.serving.admissionSettled()
       expect(bootstrap).toHaveBeenCalledTimes(1)
 
       const sameHead = new Peer('same-head', WIRE_VERSION, true)
       p.serving.attach(sameHead, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(sameHead.id))
+      await p.serving.admissionSettled()
       expect(bootstrap).toHaveBeenCalledTimes(1)
 
       // The Authority subscription advances the retained world synchronously,
@@ -309,6 +324,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       await commit(p, 'session', 's2', { sessionId: 's2' })
       const advanced = new Peer('advanced', WIRE_VERSION, true)
       p.serving.attach(advanced, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(advanced.id))
+      await p.serving.admissionSettled()
       expect(bootstrap).toHaveBeenCalledTimes(1)
       const advancedWorld = advanced.last('feedBootstrap') as {
         seq: number
@@ -323,6 +339,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       })
       const afterRemove = new Peer('after-remove', WIRE_VERSION, true)
       p.serving.attach(afterRemove, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(afterRemove.id))
+      await p.serving.admissionSettled()
       const removedWorld = afterRemove.last('feedBootstrap') as {
         changes: { entityId: string }[]
       }
@@ -336,6 +353,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       p.serving.detach(afterRemove.id)
       const reconnected = new Peer('reconnected', WIRE_VERSION, true)
       p.serving.attach(reconnected, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(reconnected.id))
+      await p.serving.admissionSettled()
       expect(bootstrap).toHaveBeenCalledTimes(1)
       expect(reconnected.types()).toContain('feedBootstrap')
 
@@ -346,6 +364,7 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       await commit(p, 'session', 's3', { sessionId: 's3' })
       const afterGap = new Peer('after-gap', WIRE_VERSION, true)
       p.serving.attach(afterGap, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(afterGap.id))
+      await p.serving.admissionSettled()
       expect(bootstrap).toHaveBeenCalledTimes(2)
       const afterGapWorld = afterGap.last('feedBootstrap') as { changes: { entityId: string }[] }
       expect(afterGapWorld.changes.map((change) => change.entityId)).toEqual(['s2', 's3'])
@@ -358,8 +377,10 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       const peer = new Peer('stable', WIRE_VERSION, true)
 
       p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+      await p.serving.admissionSettled()
       const received = peer.received.length
       p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+      await p.serving.admissionSettled()
 
       expect(peer.received).toHaveLength(received)
       expect(bootstrap).toHaveBeenCalledTimes(1)
@@ -369,7 +390,9 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
   it('reports the window and the connected versions', async () => {
     const p = await feedTestPlumbing()
     p.serving.attach(new Peer('a', 1), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('a'))
+    await p.serving.admissionSettled()
     p.serving.attach(new Peer('b', WIRE_VERSION), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('b'))
+    await p.serving.admissionSettled()
     expect(p.serving.support()).toEqual({ wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
     // The rollout's "may I raise the floor" question, answerable.
     expect(p.serving.versions().minimum).toBe(1)
@@ -400,6 +423,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
       expect(
         await p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id)),
       ).toBeNull()
+      await p.serving.admissionSettled()
       bootstrapSeq.set(peer.id, await p.authority.cursor())
     }
     expect(new Set(bootstrapSeq.values()).size).toBeGreaterThan(1)
@@ -443,6 +467,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     const peers = Array.from({ length: 5 }, (_, i) => new Peer(`c${i}`, 1, true))
     for (const peer of peers)
       p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+      await p.serving.admissionSettled()
     expect(p.serving.connectionCount()).toBe(5)
     for (const peer of peers) p.serving.detach(peer.id)
     expect(p.serving.connectionCount()).toBe(0)
@@ -462,7 +487,9 @@ describe('advisories that are not feed content', () => {
     const legacy = new Peer('v1', 1, true)
     const modern = new Peer('v2', WIRE_VERSION, true)
     p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
+    await p.serving.admissionSettled()
     p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
+    await p.serving.admissionSettled()
     const legacyBefore = legacy.received.length
     const modernBefore = modern.received.length
 
@@ -479,5 +506,68 @@ describe('advisories that are not feed content', () => {
     // v2 does not carry them at all — the advisory is v1 debt and reaches no
     // current-wire peer, which is the resting state this mechanism should have.
     expect(modern.received.length).toBe(modernBefore)
+  })
+})
+
+/**
+ * THE DEFERRED ADMISSION'S CONTRACT (POD-3523).
+ *
+ * `attach` and `renegotiate` are synchronous because their production callers are
+ * — Bun's `websocket.open` and `websocket.message`, which cannot yield (rule 51
+ * case 2; the caller census is `docs/internal/pod-3523-attach-caller-census.md`).
+ * So the admission is deferred, and these are the three promises that deferral
+ * makes. Each one was FALSE on the integration tip, where the promise was simply
+ * dropped, and each failure below was measured there before the fix was written.
+ */
+describe('an admission is deferred, and the deferral is a contract', () => {
+  it('serves ONE world to a hello that arrives inside the attach admission', async () => {
+    const p = await feedTestPlumbing()
+    await commit(p, 'session', 's1', { sessionId: 's1' })
+    const peer = new Peer('double', WIRE_VERSION, true)
+
+    // Both in one tick, which is what a browser does: connect, then `hello` on
+    // the very next frame. The admission started by the first has not installed a
+    // position yet, so a guard that consults only `connections` says "not admitted"
+    // and admits again — measured on the tip as two `feedBootstrap` frames.
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
+
+    expect(peer.types().filter((type) => type === 'feedBootstrap')).toHaveLength(1)
+    expect(p.serving.connectionCount()).toBe(1)
+  })
+
+  it('abandons a peer that detaches inside its admission — no frames, no position', async () => {
+    const p = await feedTestPlumbing()
+    await commit(p, 'session', 's1', { sessionId: 's1' })
+    const peer = new Peer('gone', WIRE_VERSION, true)
+
+    // The socket closes while the world is still being read. On the tip the
+    // admission carried on regardless: the peer was sent its whole world and a
+    // `FeedConnection` was installed for it, so the publisher went on framing for
+    // a socket nothing could deliver to.
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    p.serving.detach(peer.id)
+    await p.serving.admissionSettled()
+
+    expect(peer.received).toEqual([])
+    expect(p.serving.connectionCount()).toBe(0)
+  })
+
+  it('reports a failed world read instead of leaking an unhandled rejection', async () => {
+    const p = await feedTestPlumbing()
+    await commit(p, 'session', 's1', { sessionId: 's1' })
+    vi.spyOn(p.authority, 'bootstrap').mockRejectedValue(new Error('PROBE: the world read failed'))
+    const peer = new Peer('doomed', WIRE_VERSION, true)
+
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    // RESOLVES, does not reject: the rejection is caught and logged at the one
+    // place the deferral is spelled. Before the fix it reached no `catch` at all,
+    // because nothing held the promise — the client waited forever for a bootstrap
+    // and the only trace was an unhandled rejection on a later tick.
+    await expect(p.serving.admissionSettled()).resolves.toBeUndefined()
+
+    expect(peer.received).toEqual([])
+    expect(p.serving.connectionCount()).toBe(0)
   })
 })
