@@ -197,7 +197,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const before = delta.inbox.length
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await registry.issues.create({ repoPath: '/r', title: 'interleaved', startNow: false })
-    registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
     registry.modules.sessions.flushBroadcasts() // drain the coalesced pipeline
     const received = batches(delta.inbox.slice(before)).flatMap((b) => b.changes)
     expect(received.length).toBeGreaterThanOrEqual(2)
@@ -294,12 +294,15 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // batch carries a LATER seq than the one being announced. Bus-before-pipe
     // delivered [N+1, N] and the client's cursor jumped past N without healing.
     let reentered = false
+    let innerRename: Promise<void> | undefined
     registry.bus.on('oplog.appended', () => {
       if (reentered) return
       reentered = true
-      registry.modules.sessions.renameSession({ sessionId: b.sessionId, name: 'inner-commit' })
+      innerRename = registry.modules.sessions.renameSession({ sessionId: b.sessionId, name: 'inner-commit' })
     })
-    registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'outer-commit' })
+    await registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'outer-commit' })
+    registry.modules.sessions.flushBroadcasts()
+    await innerRename
     registry.modules.sessions.flushBroadcasts()
     const seqs = batches(delta.inbox.slice(before))
       .flatMap((m) => m.changes)
@@ -537,8 +540,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     current.inbox.length = 0
     const cursorBefore = (await registry.modules.sessions.syncChangesSince(null)).cursor
 
-    registry.modules.sessions.renameSession({ sessionId, name: 'temporary' })
-    registry.modules.sessions.renameSession({ sessionId, name: original ?? '' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'temporary' })
+    await registry.modules.sessions.renameSession({ sessionId, name: original ?? '' })
     registry.modules.sessions.flushBroadcasts()
 
     const projected = sessionChanges(current.inbox).filter(
@@ -724,9 +727,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         throw new Error('rename append failed')
       })
 
-    expect(() =>
+    await expect(
       registry.modules.sessions.renameSession({ sessionId, name: 'phantom-name' }),
-    ).toThrow('rename append failed')
+    ).rejects.toThrow('rename append failed')
     append.mockRestore()
     expect(
       (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.name,
@@ -749,7 +752,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       changes: [],
     })
 
-    registry.modules.sessions.renameSession({ sessionId, name: 'committed-name' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'committed-name' })
     expect(events).toHaveLength(1)
     expect(events[0]?.changes).toHaveLength(1)
     expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.name).toBe('committed-name')
@@ -893,7 +896,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const a = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
     const b = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w2' })
-    registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'kept' })
+    await registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'kept' })
     await registry.modules.sessions.killSession({ sessionId: b.sessionId })
     const healed = await registry.modules.sessions.syncChangesSince(0)
     expect(healed.kind).toBe('delta')

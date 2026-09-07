@@ -93,7 +93,7 @@ describe('oracle: rename (the curated name slot)', () => {
     expect((await o.meta(sessionId)).name).toBeUndefined()
     expect((await o.meta(sessionId)).nameSource).toBeUndefined()
     // The precedence rule that depends on it: with the stamp gone, the agent wins.
-    expect(o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })).toEqual({
+    expect(await o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })).toEqual({
       ok: true,
       name: 'agent pick',
     })
@@ -105,7 +105,7 @@ describe('oracle: rename (the curated name slot)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'Human pick' })
 
-    const refused = o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })
+    const refused = await o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })
 
     expect(refused.ok).toBe(false)
     expect(refused.name).toBe('Human pick')
@@ -116,9 +116,9 @@ describe('oracle: rename (the curated name slot)', () => {
   it(`${MUST_NOT_CHANGE}: an agent may overwrite its OWN earlier agent-set name`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.setAgentName({ sessionId, name: 'first guess' })
+    await o.reg.modules.sessions.setAgentName({ sessionId, name: 'first guess' })
 
-    expect(o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' }).ok).toBe(true)
+    expect((await o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' })).ok).toBe(true)
     expect(await o.meta(sessionId)).toMatchObject({ name: 'second guess', nameSource: 'agent' })
   })
 })

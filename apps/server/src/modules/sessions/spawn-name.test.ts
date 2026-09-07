@@ -4,7 +4,7 @@
  * Reuses setAgentName rules: user-set names stay sovereign.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
 const registries: SessionRegistry[] = []
@@ -48,13 +48,13 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
 
   it('rejects empty / whitespace-only names before spawning', async () => {
     const reg = await makeRegistry()
-    expect(() =>
+    await expect(
       reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd: '/proj',
         name: '   ',
       }),
-    ).toThrow(/title is empty/)
+    ).rejects.toThrow(/title is empty/)
     expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
   })
 
@@ -65,8 +65,8 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
       cwd: '/proj',
       name: 'Agent first name',
     })
-    reg.modules.sessions.renameSession({ sessionId, name: 'Mike’s pet session' })
-    const r = reg.modules.sessions.setAgentName({
+    await reg.modules.sessions.renameSession({ sessionId, name: 'Mike’s pet session' })
+    const r = await reg.modules.sessions.setAgentName({
       sessionId,
       name: 'Something the agent prefers',
     })
@@ -84,10 +84,65 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
       cwd: '/proj',
       name: 'First cut',
     })
-    const r = reg.modules.sessions.setAgentName({ sessionId, name: 'Clearer name' })
+    const r = await reg.modules.sessions.setAgentName({ sessionId, name: 'Clearer name' })
     expect(r).toEqual({ ok: true, name: 'Clearer name' })
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Clearer name')
     expect(meta?.nameSource).toBe('agent')
+  })
+})
+
+
+describe('session naming write completion', () => {
+  it.each(['human', 'agent'] as const)('%s naming waits for persistence', async (actor) => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
+    let markEntered!: () => void
+    const entered = new Promise<void>((resolve) => { markEntered = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    const store = reg.sessionStore.sessions
+    const upsert = store.upsertSession.bind(store)
+    const spy = vi.spyOn(store, 'upsertSession').mockImplementationOnce(async (...args) => {
+      markEntered()
+      await released
+      return upsert(...args)
+    })
+    let settled = false
+    const pending = (actor === 'human'
+      ? reg.modules.sessions.renameSession({ sessionId, name: 'New curated name' })
+      : reg.modules.sessions.setAgentName({ sessionId, name: 'New curated name' })
+    ).finally(() => { settled = true })
+    try {
+      await entered
+      expect(settled).toBe(false)
+    } finally {
+      release()
+      await pending
+      spy.mockRestore()
+    }
+    expect((await store.loadSessions()).find((row) => row.id === sessionId)).toMatchObject({
+      name: 'New curated name', nameSource: actor === 'human' ? 'user' : 'agent',
+    })
+    expect((await reg.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId))
+      .toMatchObject({ name: 'New curated name' })
+  })
+
+  it.each(['human', 'agent'] as const)('%s naming rejects a failed write without publishing the name', async (actor) => {
+    const reg = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
+    const store = reg.sessionStore.sessions
+    const spy = vi.spyOn(store, 'upsertSession').mockRejectedValueOnce(new Error('naming write failed'))
+    try {
+      await expect(actor === 'human'
+        ? reg.modules.sessions.renameSession({ sessionId, name: 'Unstored name' })
+        : reg.modules.sessions.setAgentName({ sessionId, name: 'Unstored name' })
+      ).rejects.toThrow('naming write failed')
+    } finally {
+      spy.mockRestore()
+    }
+    expect((await store.loadSessions()).find((row) => row.id === sessionId)?.name).toBeFalsy()
+    expect((await reg.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId)?.name)
+      .toBeUndefined()
   })
 })

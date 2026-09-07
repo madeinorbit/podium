@@ -766,7 +766,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('REFUSES to overwrite a name the user set — with a reason, not a throw', async () => {
-    registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession({
       sessionId: asSessionId(sA),
       name: 'Mike’s pet session',
     })
@@ -796,7 +796,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('primes an UNNAMED session to title itself, listing its siblings', async () => {
-    registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession({
       sessionId: asSessionId(sB),
       name: 'Merge lock lease expiry',
     })
@@ -821,7 +821,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('says nothing about titles once the session HAS a name', async () => {
-    registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Already named' })
+    await registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Already named' })
 
     const prime = String((await relay(asSessionId(sA), 'issues', 'prime', { repoPath })).result)
     expect(prime).not.toContain('This session has no name')

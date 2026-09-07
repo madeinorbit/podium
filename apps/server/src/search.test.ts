@@ -45,7 +45,7 @@ describe('MemoryService omni-search', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -364,7 +364,7 @@ describe('search.query tRPC', () => {
       agentKind: 'claude-code',
       cwd: '/classifiedneedle',
     })
-    registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -515,7 +515,7 @@ describe('search.query tRPC', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)
     expect(results[0]?.sessionId).toBe(sessionId)
