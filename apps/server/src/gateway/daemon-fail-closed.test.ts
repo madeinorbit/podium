@@ -69,7 +69,7 @@ async function harness(machines: { id: string; token: string }[]) {
   }
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const attach = vi.spyOn(reg.gateway, 'attachDaemon')
-  const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+  const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
   const ws = fakeWs()
   wireDaemonSocket(ws as never, reg)
   return { store, reg, ws, attach, route }

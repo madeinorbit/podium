@@ -1692,7 +1692,9 @@ export async function startServer(
           // `inventoryReport` used to be special-cased at both socket call
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
-          deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
+          deliver: (msg) => queueMicrotask(() => {
+            void registry.gateway.routeDaemonFrame(principal, msg)
+          }),
           deliverOutput: (batch) => {
             perf.record(
               'phase',
