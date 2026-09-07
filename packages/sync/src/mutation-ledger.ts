@@ -31,16 +31,17 @@ import type { MutationId } from '@podium/model'
  * THE SEMANTICS, PRESERVED EXACTLY
  * ---------------------------------------------------------------------------
  *
- * This is a RELOCATION, not a redesign: every behaviour below was characterized
- * before the move and is asserted after it.
+ * The original relocation preserved these behaviors. Async store admission now
+ * uses an in-flight reservation rather than an uninterrupted event-loop turn.
  *
  *   - No `mutationId` ⇒ no dedup at all. The write runs, every time, and NOTHING
  *     is recorded. (POD-379 pins this as must-not-change: the client outbox stamps
  *     an id only for the entries it queues.)
  *   - A recorded id returns its RECORDED result without running the body. The
  *     result travels through JSON, so a replay is deep-equal and not identical.
- *   - Check-run-record is one synchronous pass for a synchronous body, so a replay
- *     cannot interleave with the original.
+ *   - Check-run-record may yield at lookup, body, and receipt recording. The id is
+ *     reserved before the lookup yields, so a replay joins rather than re-runs
+ *     throughout that span, including for a synchronous body.
  *   - An async body records its RESOLVED value, and a REJECTED body records
  *     nothing — a failed mutation must be retryable, and recording it as applied
  *     would durably convert a transient failure into a permanent one.
@@ -91,9 +92,9 @@ export interface MutationApplication<T> {
 
 export class MutationLedger {
   /**
-   * Async mutations in flight, so a replay arriving before the original resolves
-   * joins the SAME promise instead of re-running — the async analogue of the
-   * synchronous check-run-record pass.
+   * Mutations admitted by this ledger instance, held through durable recording.
+   * A replay joins the SAME result instead of re-running. This is process-local
+   * admission, not a database claim across independently constructed ledgers.
    */
   private readonly inFlight = new Map<string, Promise<MutationApplication<unknown>>>()
 

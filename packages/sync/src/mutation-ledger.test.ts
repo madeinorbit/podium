@@ -251,3 +251,64 @@ describe('MutationLedger', () => {
     expect(store.rows.get(asMutationId('m-void'))?.result).toBe('null')
   })
 })
+
+/** Each gate is an actual suspension in the check-run-record pass. The replay
+ * enters before releasing the owner, never Promise.all([await a, await b]). */
+describe('MutationLedger async suspension admission', () => {
+  it.each(['lookup', 'body', 'record'] as const)(
+    'joins a replay while the original is suspended at %s',
+    async (stage) => {
+      let release = () => {}
+      const blocked = new Promise<void>((resolve) => { release = resolve })
+      let entered = () => {}
+      const atGate = new Promise<void>((resolve) => { entered = resolve })
+      const pause = async () => {
+        entered()
+        await blocked
+      }
+      const rows = new Map<MutationId, string>()
+      let lookups = 0
+      let runs = 0
+      let records = 0
+      const store: AppliedMutationStore = {
+        getAppliedMutation: async (id) => {
+          lookups += 1
+          const prior = rows.get(id)
+          if (stage === 'lookup') await pause()
+          return prior
+        },
+        recordAppliedMutation: async (id, _proc, result) => {
+          records += 1
+          if (stage === 'record') await pause()
+          if (!rows.has(id)) rows.set(id, result)
+        },
+      }
+      const led = new MutationLedger(store, () => 1_000)
+      const id = asMutationId(`suspended-${stage}`)
+      // Lookup and recording cases deliberately use a synchronous body: it is
+      // the store's awaits, not just an async handler, that need admission.
+      const body = () => {
+        runs += 1
+        const value = { run: runs }
+        return stage === 'body' ? pause().then(() => value) : value
+      }
+      const original = led.apply(id, 'issues.create', body)
+      await atGate
+      const replay = led.apply(id, 'issues.create', body)
+      const lookupsWhileBlocked = lookups
+      release()
+      const [first, second] = await Promise.all([original, replay])
+
+      expect(lookupsWhileBlocked, 'replay must join before a second durable lookup').toBe(1)
+      expect(runs, 'one mutation body despite concurrent delivery').toBe(1)
+      expect(records, 'one durable receipt').toBe(1)
+      expect(first).toEqual({ outcome: 'applied', value: { run: 1 } })
+      expect(second).toEqual({ outcome: 'replayed', value: { run: 1 } })
+      expect(rows.get(id)).toBe('{"run":1}')
+      // Cleanup of the reservation must hand the next replay to durable storage.
+      expect(await led.apply(id, 'issues.create', body)).toEqual(second)
+      expect(lookups).toBe(2)
+      expect(runs).toBe(1)
+    },
+  )
+})
