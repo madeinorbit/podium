@@ -19,7 +19,8 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
-import type { SessionRow } from '../../store'
+import type { SessionRow, SessionStore } from '../../store'
+import type { SessionRepository } from './repository'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
@@ -30,12 +31,12 @@ export interface SessionMetaOpsPorts {
   mutations: any
   now: any
   removeSessionRuntime: any
-  repository: any
+  repository: SessionRepository
   sessionRemovalSpecs: any
   sessionTeardown: any
   sessions: any
   state: any
-  store: any
+  store: SessionStore
   toMachine: any
   toPtyInput: any
   view: any
