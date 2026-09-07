@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type {
   ActorRef,
   AgentKind,
@@ -65,6 +66,8 @@ export type InterruptOutcome =
    *  delivery that did not happen. */
   | { ok: true; requested: 'keystroke' | 'protocol' | 'retraction'; reason?: undefined }
   | { ok: false; reason: string; requested?: undefined }
+
+const log = createLogger('server:session-inbox')
 
 const SUBMIT_CR_DELAY_MS = 90
 /** Gap between two keystrokes typed into a native menu — see
@@ -2180,7 +2183,10 @@ export class SessionInbox {
       // yield. Left non-blocking, which is exactly today's behaviour — the
       // submitVerificationGeneration delete that must beat the 90ms delayed
       // Enter (POD-1733) runs before the callee's first await.
-      void this.cancelInterruptedDelivery(sessionId, true)
+      // Report a failed retraction without delaying the terminal input frame.
+      void this.cancelInterruptedDelivery(sessionId, true).catch((error) => {
+        log.warn('native interrupt retraction failed', { err: error, sessionId })
+      })
     }
     session.terminal.handleInputBytes(
       client.id,

@@ -1793,9 +1793,12 @@ export class SessionRegistry {
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
         await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
-      } catch {
-        // A concurrent boundary delivery or explicit retraction already made
-        // the row final.
+      } catch (error) {
+        // A concurrent boundary delivery or retraction can win the guarded
+        // cancellation. Storage and notification failures must reach the caller.
+        if (!(error instanceof Error) || error.message !== 'message is no longer queued') {
+          throw error
+        }
       }
     }
     this.bus.on('message.deadLettered', async ({ messageId, reason }) =>
