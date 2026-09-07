@@ -3477,3 +3477,35 @@ probe from vandalism is whether the other side agreed to the window.
 **RESTORE NOTHING.** A did not check out, restore or commit anything, because destroying a
 neighbour's control arm mid-measurement is worse than a missing datapoint. An inconclusive result
 reported as inconclusive is worth more than a clean number that has to be distrusted later.
+
+### Rule 56b, CONFIRMED THREE TIMES — and the negative case that shows what it is NOT
+
+Rule 56b was written from one worked example. It has now been measured independently by three
+issues on the same day, in both directions, and the negative case is the more instructive half.
+
+**THE POSITIVE RESULTS.** In each, the *same* reversion produced nothing before the structural
+binding was added, and a named diagnostic after:
+
+| issue | mutation | before | after |
+|---|---|---|---|
+| POD-3520 | three `void` port reversions | **0** | 3 × TS2322 (`inbox.ts:1044`, `session-wiring.ts:407`, `relay.ts:1268`) |
+| POD-3552 | narrow both ownership ports | — | 3 × TS2739 + 3 × TS2322 at production bindings |
+| POD-3552 | drop the call-site awaits | — | 2 × TS2739 |
+| POD-3264 | narrow `SnapshotVerifier.verify` to `void` | — | 6 (TS1064 ×1, TS2322 ×5, **including at the `deferBackground` thunk call**) |
+
+**THE NEGATIVE CASE, which is the one to remember.** POD-3264 widened
+`oracle-support.ts`'s `dispose()` from `void` to `Promise<void>` and then removed the `await` in
+`disposeOracles` — and got **zero diagnostics**. That is not a failure of the fix; it is the
+mechanism being demonstrated. **Widening an interface member does not make a `() => Promise<void>`
+in a `() => void` slot an error** — TypeScript accepts that assignment — so a widening alone buys
+you *permission* to await, never *enforcement* of it. POD-3264 responded correctly: it added an
+explicit oracle-disposal test to pin the omission the compiler cannot see.
+
+**SO THE RULE HAS A TEST OF ITS OWN.** After any widening, revert the await and read the count.
+Zero means you have a test-pinned site, and you must say so in your handoff in those words —
+*test-pinned, not compiler-pinned*. A green with no stated pin is the thing this epic keeps
+mistaking for a result.
+
+**AND STATE THE LIMITS YOU PREDICT.** POD-3520 predicted in advance that reverting a blanket
+`catch` would be compiler-invisible, then ran it and confirmed nothing appeared. A limit predicted
+and then confirmed is evidence; the identical silence found by accident is a false clearance.
