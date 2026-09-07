@@ -3228,7 +3228,9 @@ export class SessionRegistry {
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,
-      bootstrap: async (client) => {
+      // This task is independent of session replay and feed admission. Only
+      // its own approvals -> host snapshot sequence is ordered (POD-3509).
+      bootstrap: async (client): Promise<void> => {
         client.send({
           type: 'approvalsChanged',
           pending: await approvals.listPending(),
