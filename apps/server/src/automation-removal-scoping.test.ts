@@ -41,7 +41,7 @@
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { asAutomationRunId, asUserId, SOLE_USER_ID } from '@podium/model'
 import type { Ledger, ScopedDelivery } from '@podium/sync'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import type { AutomationRunRow } from './store/automations'
@@ -74,10 +74,11 @@ interface Row {
  *  reach-in, rather than a cast repeated at every call site. */
 const ledgerOf = (reg: SessionRegistry): Ledger => (reg as unknown as { ledger: Ledger }).ledger
 
-/** Durable writes return before subscription delivery. Only delivery assertions
- * need the executor's existing effects boundary. */
-const effectsSettled = (reg: SessionRegistry): Promise<void> =>
-  (reg.sessionStore as unknown as { executor: { effectsSettled(): Promise<void> } }).executor.effectsSettled()
+/** The fixture observes its real subscription, not the store's private executor.
+ * A durable commit alone does not establish that this principal received a row. */
+async function waitForDelivery(delivered: Row[], row: Row): Promise<void> {
+  await vi.waitFor(() => expect(delivered).toContainEqual(row))
+}
 
 /** Every row this principal was actually DELIVERED, flattened across batches. A
  *  watermark (`changes: []`) contributes nothing, which is precisely the bug's
@@ -112,7 +113,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
 
     // CONTROL: the arm that always worked. If this is empty the subscription is
     // wrong and the remove assertion below would pass for the wrong reason.
-    await effectsSettled(reg)
+    await waitForDelivery(delivered, { entity: 'automation', entityId: created.id, op: 'upsert' })
     expect(delivered).toContainEqual({
       entity: 'automation',
       entityId: created.id,
@@ -124,7 +125,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     // THE ASSERTION THAT WAS FAILING. Before the fix this array held the upsert
     // and nothing else: the removal was evaluated, refused, and turned into a
     // watermark the client could not distinguish from an idle tick.
-    await effectsSettled(reg)
+    await waitForDelivery(delivered, { entity: 'automation', entityId: created.id, op: 'remove' })
     expect(delivered).toContainEqual({
       entity: 'automation',
       entityId: created.id,
@@ -173,7 +174,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     // must be stamped explicitly — and its removal is scoped through
     // `runOwnerOf`, which is a SECOND lookup that reads past a tombstone. Without
     // this arm that line is never entered by any test.
-    await effectsSettled(reg)
+    await waitForDelivery(delivered, { entity: 'automationRun', entityId: 'run_pod1509', op: 'remove' })
     expect(delivered).toContainEqual({
       entity: 'automationRun',
       entityId: 'run_pod1509',
