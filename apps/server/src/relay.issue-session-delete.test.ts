@@ -222,4 +222,61 @@ describe('issue/session deletion lifecycle', () => {
     ])
     await registry.dispose()
   })
+
+  it('rolls back a failed restore after its append writes inside an enclosing span', async () => {
+    const { registry, store } = await registryWithDaemon()
+    let spy: ReturnType<typeof vi.spyOn> | undefined
+    try {
+      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Nested restore', startNow: false })
+      const { sessionId } = await registry.modules.sessions.createSession({
+        agentKind: 'shell', cwd: '/repo', issueId: issue.id,
+      })
+      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+      const before = await store.sync.maxChangeSeq()
+      const appendChanges = store.sync.appendChanges.bind(store.sync)
+      const failure = new Error('restore failed after append')
+      let injected = 0
+      spy = vi.spyOn(store.sync, 'appendChanges').mockImplementation(async (rows, eventTime) => {
+        const result = await appendChanges(rows, eventTime)
+        if (rows.some(row => row.entity === 'session' && row.entityId === sessionId && row.op === 'upsert')) {
+          // Prove the failing path performed real writes before rejecting.
+          expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
+          expect((await store.sessions.loadSessions()).some(row => row.id === sessionId)).toBe(true)
+          expect(await store.sync.maxChangeSeq()).toBeGreaterThan(before)
+          injected++
+          throw failure
+        }
+        return result
+      })
+
+      await store.transact(async () => {
+        // Catch inside the enclosing span: its successful commit must not save
+        // any writes or commit callbacks left behind by the failed restore.
+        await expect(registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).rejects.toBe(failure)
+        expect(injected).toBe(1)
+        expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
+        expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(row => row.id)).toEqual([sessionId])
+      })
+      spy.mockRestore()
+
+      expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
+      expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
+      expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(row => row.id)).toEqual([sessionId])
+      expect((await store.sessions.loadSessions()).some(row => row.id === sessionId)).toBe(false)
+      expect((await registry.modules.sessions.listSessions()).some(row => row.sessionId === sessionId)).toBe(false)
+      // The delete may publish a tombstoned issueProjection after the baseline.
+      // Reject restored state, rather than treating that valid publication as a leak.
+      const remaining = await store.sync.changesSince(before)
+      expect(remaining.filter(row => row.entity === 'session' && row.entityId === sessionId)).toEqual([])
+      for (const row of remaining.filter(row => row.entityId === issue.id)) {
+        expect(row.payload).not.toBeNull()
+        expect(JSON.parse(row.payload!).deletedAt).toBeTruthy()
+      }
+      expect(await store.events.listEventsSince(0, { kinds: ['issue.restored'], subject: issue.id })).toEqual([])
+    } finally {
+      spy?.mockRestore()
+      await registry.dispose()
+    }
+  })
+
 })
