@@ -720,12 +720,9 @@ export class FeedServing {
       }
     }
     cached.throughSeq = delivery.throughSeq
-    // This delivery was scoped under the authority state that exists now. If a
-    // visibility-only mutation produced no delivery, this assignment never runs
-    // and worldFor rejects the stale revision on the next connection.
-    // The delivery callback cannot yield. Force the next serving pass to re-read
-    // the revision rather than blessing this cache with an unresolved value.
-    cached.authorizationRevision = Number.NaN
+    // Preserve the revision that certified the whole cached world. A scoped
+    // delivery only advances its changed rows; worldFor re-reads the revision
+    // under the admission read scope and rebuilds if visibility has changed.
     if (changed) cached.materialized = undefined
   }
 

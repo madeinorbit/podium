@@ -371,6 +371,40 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       expect(afterGapWorld.changes.map((change) => change.entityId)).toEqual(['s2', 's3'])
     })
 
+    it.each(['before', 'after'] as const)(
+      'rebuilds an advanced world when authorization changes %s delivery',
+      async (timing) => {
+        let revision = 0
+        const p = await feedTestPlumbing({ authorizationRevision: () => revision })
+        await commit(p, 'session', 's1', { sessionId: 's1' })
+        const bootstrap = vi.spyOn(p.authority, 'bootstrap')
+        const first = new Peer('first', WIRE_VERSION, true)
+        p.serving.attach(first, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(first.id))
+        await p.serving.admissionSettled()
+        expect(bootstrap).toHaveBeenCalledTimes(1)
+
+        // A delivery must neither poison an unchanged revision nor bless a new
+        // revision for rows it did not rescope. Keep the subscription active so
+        // the cache reaches the head and only the revision can reject reuse.
+        if (timing === 'before') revision += 1
+        await commit(p, 'session', 's2', { sessionId: 's2' })
+        if (timing === 'after') revision += 1
+        const reconnected = new Peer('reconnected', WIRE_VERSION, true)
+        p.serving.attach(reconnected, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(reconnected.id))
+        await p.serving.admissionSettled()
+        expect(bootstrap).toHaveBeenCalledTimes(2)
+        expect(reconnected.last('feedBootstrap')).toMatchObject({
+          seq: await p.authority.cursor(),
+          changes: [{ entityId: 's1' }, { entityId: 's2' }],
+        })
+
+        const sameRevision = new Peer('same-revision', WIRE_VERSION, true)
+        p.serving.attach(sameRevision, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(sameRevision.id))
+        await p.serving.admissionSettled()
+        expect(bootstrap).toHaveBeenCalledTimes(2)
+      },
+    )
+
     it('the existing-peer guard sends no second world for a repeated attach', async () => {
       const p = await feedTestPlumbing()
       await commit(p, 'session', 's1', { sessionId: 's1' })
