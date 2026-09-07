@@ -42,6 +42,50 @@ order as a sequence — is wrong and misleads the operator about when the branch
 8. **flatblock: push the reconciled branch to `origin/dev/mw`.** Force-push if needed.
 9. **ludovico: pull the new `origin/dev/mw`.**
 
+## How to split the merge across workers
+
+The operator asked whether the merge can be parallelised across gpt-6-astra MEDIUM workers, split by
+code area. Answer: the conflict resolution cannot and does not need to be; the semantic review can
+and should be.
+
+**A git merge is ONE operation on ONE index.** N agents cannot each resolve conflicts in their own
+worktree and have the results combined — that yields N different merge commits, not one merged tree.
+One agent owns the merge and the index. That part is not negotiable and not parallel.
+
+**Measured on 2026-09-07 (snapshot — RE-DERIVE at merge time, `origin/dev/mw` moves in steps 1–4):**
+
+- 930 commits ahead of `origin/dev/mw`; it has 11 we lack. Merge base `f910e2671`.
+- `git merge-tree --write-tree HEAD origin/dev/mw` → **exit 0, ZERO textual conflicts.**
+- **6 files both sides touched** — and they merge cleanly, which is worse than conflicting:
+  `apps/daemon/src/grant-apply.e2e.test.ts`, `apps/server/src/modules/sessions/machine-reconciler.ts`,
+  `apps/server/src/relay.test.ts`, `scripts/managed-account-spawn.integration.test.ts`,
+  `scripts/multi-instance-runtime.integration.bun.test.ts`, `scripts/rearch-audit.ts`
+- **72 files only THEY touched**, merging silently: 33 `apps/daemon`, 19 `packages/pty`, 8 `scripts`,
+  2 `tests`, 2 `packages/runtime`, 1 `packages/protocol`, plus configs and docs.
+
+**So the whole risk is semantic, and it is concentrated where git will say nothing.** This epic changed
+callee contracts from sync to async. Their 33 daemon files and 19 pty files were written against the
+OLD contract and will merge without a murmur. That is the POD-3569 class exactly: a call site on one
+branch depending on a binding the other branch changed, which no gate on either branch can find.
+
+**The split, one MEDIUM worker per area, all read-only analysis:**
+
+| Worker | Scope | Looking for |
+|---|---|---|
+| A | `apps/daemon` (33 + `grant-apply.e2e.test.ts`) | calls into contracts this epic made async |
+| B | `packages/pty` (19) | same |
+| C | `scripts` (8 + its 3 test files) + `packages/runtime`, `packages/protocol`, configs | same |
+| D | the 6 both-touched files, `machine-reconciler.ts` first | what each side was trying to make true |
+
+Each reports findings; **I apply them serially** to the single index, then build and typecheck.
+
+**Then verification, parallel by shard** — the five lanes are disjoint and have an explicit file
+manifest: `contracts` (99), `store` (94), `services` (139), `boundary` (123), `normalized-wire` (2).
+One worker per lane, each reporting newly-red BY NAME against a control, never a count.
+
+MEDIUM effort is right for A–D: it is judgment, not mechanism. Low has repeatedly produced correct
+fixes in this epic with no stated verification.
+
 ## The instruction that matters most
 
 **DO NOT MECHANICALLY MERGE.** Look at every conflict and make sure the INTENT of each change is
