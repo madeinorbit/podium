@@ -2247,7 +2247,7 @@ async function runCoordinatorReplacement(
     context.legacyTransferActive?.() !== true &&
     (!grant ||
       (context.hostMachineId !== undefined &&
-        context.updates.coordinatorGrantActive(context.hostMachineId, grant)))
+        (await context.updates.coordinatorGrantActive(context.hostMachineId, grant))))
   if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
   if (grant && grant.target.version !== originalDetails?.target.version)

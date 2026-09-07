@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { syncQueriesOver } from '../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../apps/server/src/modules/operations/store'
 import { UpdateRecoveryStore } from '../apps/server/src/modules/updates/recovery-store'
 import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
@@ -68,10 +69,10 @@ class Group {
   journal(id: string) {
     return readMachineUpdateJournal(this.runtime(id))
   }
-  operation(operationId: string) {
+  async operation(operationId: string) {
     const db = openDatabase(join(this.state('coordinator'), 'operations.db'), { readOnly: true })
     try {
-      return new OperationStore(db).get(operationId)?.operation
+      return (await new OperationStore(syncQueriesOver(db)).get(operationId))?.operation
     } finally {
       db.close()
     }
@@ -103,16 +104,17 @@ class Group {
       events.findIndex((event) => event.type === 'activated'),
     )
     expect(events.filter((event) => event.type === 'activated')).toHaveLength(1)
-    const details = this.operation(operationId)!.details!
+    const details = (await this.operation(operationId))!.details!
     expect(details.databaseSnapshotPath).toBe(receipts[0].detail.databaseSnapshotPath)
     expect(details.coordinatorSnapshotGrantId).toBe(journal!.grant.grantId)
     // The actual backup contains the operation and exact grant from before activation.
     const snapshot = openDatabase(details.databaseSnapshotPath as string, { readOnly: true })
     try {
       expect(snapshot.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
-      expect(new OperationStore(snapshot).get(operationId)?.operation?.details?.target).toEqual(
-        target,
-      )
+      expect(
+        (await new OperationStore(syncQueriesOver(snapshot)).get(operationId))?.operation?.details
+          ?.target,
+      ).toEqual(target)
       expect(
         new UpdateRecoveryStore(snapshot)
           .read()
@@ -133,7 +135,7 @@ class Group {
         ),
       ).toBe(true)
     await until(
-      () => this.operation(operationId),
+      async () => await this.operation(operationId),
       (operation) => operation?.state === 'done',
       'replacement coordinator adopts and completes its durable operation',
     )
@@ -626,8 +628,8 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     expect(group.journal('coordinator')?.activationHeld).toBe(true)
     expect(group.journal('coordinator')?.grant.target).toEqual(target)
     expect(await socketRequest(group.socket, '/identity')).toEqual(oldIdentity)
-    expect(group.operation(operationId)?.details?.databaseSnapshotPath).toBeUndefined()
-    expect(group.operation(operationId)?.details?.coordinatorSnapshotGrantId).toBeUndefined()
+    expect((await group.operation(operationId))?.details?.databaseSnapshotPath).toBeUndefined()
+    expect((await group.operation(operationId))?.details?.coordinatorSnapshotGrantId).toBeUndefined()
     expect(
       group
         .events('coordinator')

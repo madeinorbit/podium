@@ -28,6 +28,7 @@ import { DRIZZLE_MIGRATIONS } from '../../apps/server/src/migrations/drizzle-man
 import { SnapshotVerifier } from '../../apps/server/src/migrations/snapshot-verifier'
 import { OperationEngine, systemOperationClock } from '../../apps/server/src/modules/operations/engine'
 import { OperationKindRegistry } from '../../apps/server/src/modules/operations/kinds'
+import { syncQueriesOver } from '../../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../../apps/server/src/modules/operations/store'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../../apps/server/src/modules/operations/lifecycle'
 import { UpdateRecoveryStore } from '../../apps/server/src/modules/updates/recovery-store'
@@ -196,22 +197,25 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     }
-    const store = db ? new OperationStore(db) : undefined
+    const store = db ? new OperationStore(syncQueriesOver(db)) : undefined
     const verifier = db ? new SnapshotVerifier(dbPath) : undefined
     let engine: OperationEngine | undefined
     let bridge: ReturnType<typeof createUpdateFleetBridge> | undefined
     const updates = new UpdatesService({
-      machines: () =>
+      machines: async () =>
         Object.values(fleet).map((machine) => ({
           ...machine,
           online: Date.now() - machine.seenAt < 1500,
         })),
-      approvedTarget: () => policy.approved,
+      approvedTarget: async () => policy.approved,
       ...(db ? { recovery: new UpdateRecoveryStore(db) } : {}),
-      exclusiveOperationActive: () => engine?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
-      exclusiveOperationVersion: (channel) =>
-        exclusiveUpdateVersion(engine?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      onTargetChanged: () => bridge?.onTargetChanged(),
+      exclusiveOperationActive: async () =>
+        (await engine?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+      exclusiveOperationVersion: async (channel) =>
+        exclusiveUpdateVersion(await engine?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: async () => {
+        await bridge?.onTargetChanged()
+      },
       send: (machineId, grant) => {
         queues.set(machineId, grant)
         event('grant', { machineId, grant })
@@ -248,10 +252,13 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           .get() as { name: string }
         return verifier!.verify(path, schema.name)
       },
-      recordOperationDetails: (operationId, patch) => {
-        engine!.recordDetails(operationId, patch)
+      recordOperationDetails: async (operationId, patch) => {
+        await engine!.recordDetails(operationId, patch)
         if (patch.coordinatorSnapshotGrantId)
-          event('snapshot-receipt', { operationId, ...store!.get(operationId)!.operation!.details })
+          event('snapshot-receipt', {
+            operationId,
+            ...(await store!.get(operationId))!.operation!.details,
+          })
       },
       report: (operationId, stepId, patch) => {
         void engine!.recordProgress(operationId, stepId, patch)
@@ -328,7 +335,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
-            const machine = updates.fleet().find((candidate) => candidate.id === body.id)
+            const machine = (await updates.fleet()).find((candidate) => candidate.id === body.id)
             const verdict = decideReconciliation({
               machine,
               target: policy.published,
@@ -509,7 +516,8 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       // Read another connection: an in-memory flag cannot prove the operation's receipt.
       const db = openDatabase(join(state, 'operations.db'), { readOnly: true })
       try {
-        const operation = new OperationStore(db).history(UPDATE_OPERATION_KIND)[0]?.operation
+        const operation = (await new OperationStore(syncQueriesOver(db)).history(UPDATE_OPERATION_KIND))[0]
+          ?.operation
         const details = operation?.details
         const grant = args[0]
         const recovered = new UpdateRecoveryStore(db)

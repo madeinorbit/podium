@@ -14,7 +14,7 @@ import { attachWebSockets, serveNative } from '../../apps/server/src/gateway/ws-
 import type { UpdateOperationContext } from '../../apps/server/src/modules/updates/operation'
 
 console.error('[machine-events] constructing registry')
-const registry = new SessionRegistry(undefined, undefined, { instanceId: 'blue' })
+const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'blue' })
 console.error('[machine-events] registry ready')
 const { machines, updates, operations } = registry.modules
 const machineId = asMachineId(randomUUID())
@@ -60,8 +60,8 @@ const server = serveNative({
   port: 0,
   hostname: '127.0.0.1',
   websocket: transport.websocket,
-  fetch: (request, native) => {
-    const upgrade = transport.handleRequest(request, native)
+  fetch: async (request, native) => {
+    const upgrade = await transport.handleRequest(request, native)
     return upgrade === null ? new Response('not found', { status: 404 }) : upgrade
   },
 })
@@ -145,13 +145,13 @@ try {
   await until(() => disconnects === 1, 'initial disconnect')
   assert.equal(machines.hasSupervisor(machineId), false)
   await until(
-    () => machines.listMachines().find((m) => m.id === machineId)?.online === false,
+    async () => (await machines.listMachines()).find((m) => m.id === machineId)?.online === false,
     'presence grace expires before offline approval',
     35_000,
   )
   updates.setTarget('dev', target)
   const offlineOperation = await start()
-  assert.equal(registry.sessionStore.operations.get(offlineOperation)?.state, 'done')
+  assert.equal((await registry.sessionStore.operations.get(offlineOperation))?.state, 'done')
   assert.deepEqual(registry.sessionStore.operations.approvedTarget('dev'), target)
   assert.deepEqual(registry.modules.updatesReconciler?.pending(), [])
 
@@ -172,14 +172,14 @@ try {
     }),
   )
   await until(
-    () => updates.fleet().find((m) => m.id === machineId)?.state === 'rejected',
+    async () => (await updates.fleet()).find((m) => m.id === machineId)?.state === 'rejected',
     'catch-up refusal',
   )
 
   const activeOperation = await start()
   await until(() => reconnected.grants().length === 2, 'operation grant')
   const grant = reconnected.grants()[1]!
-  const read = () => registry.sessionStore.operations.get(activeOperation)?.operation
+  const read = async () => (await registry.sessionStore.operations.get(activeOperation))?.operation
   for (const percent of [10, 65]) {
     reconnected.socket.send(
       JSON.stringify({
@@ -192,8 +192,8 @@ try {
       }),
     )
     await until(
-      () =>
-        read()?.steps?.some((s) =>
+      async () =>
+        (await read())?.steps?.some((s) =>
           s.places?.some((p) => p.id === machineId && p.percent === percent),
         ) === true,
       `persisted operation preparation ${percent}%`,
@@ -209,8 +209,8 @@ try {
       detail: 'Invalid signature',
     }),
   )
-  await until(() => read()?.state === 'failed', 'prompt operation rejection')
-  assert.notEqual(read()?.error?.code, 'stalled')
+  await until(async () => (await read())?.state === 'failed', 'prompt operation rejection')
+  assert.notEqual((await read())?.error?.code, 'stalled')
 
   // Same machine, new sender. The old transport close must not emit a death.
   const replacement = await connect()

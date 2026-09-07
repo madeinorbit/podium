@@ -366,13 +366,20 @@ export class UpdatesService {
     this.coordinatorUpdates.set(machineId, handler)
     const pending = this.pendingGrants.get(machineId)
     const grant = pending?.coordinatorGrant
-    if (grant && (await handler.active()) && this.coordinatorGrantActive(machineId, grant))
+    if (grant && (await handler.active()) && (await this.coordinatorGrantActive(machineId, grant)))
       handler.dispatch(grant)
   }
 
-  coordinatorUpdateApproved(channel: UpdateChannel, target: UpdateTarget): boolean {
+  /**
+   * ASYNC because {@link approvedTarget} is. Unawaited, `approved` is a promise:
+   * `!== undefined` is then always true, and `updateFingerprint` takes `unknown`,
+   * so it happily fingerprints the promise -- `Object.entries` of one is empty,
+   * giving the fingerprint of `{}`, which never matches a real target. The guard
+   * compiled clean and refused every coordinator update.
+   */
+  async coordinatorUpdateApproved(channel: UpdateChannel, target: UpdateTarget): Promise<boolean> {
     this.assertPersistence()
-    const approved = this.approvedTarget(channel)
+    const approved = await this.approvedTarget(channel)
     return !this.deps.recoveryOnly && approved !== undefined &&
       updateFingerprint(approved) === updateFingerprint(target)
   }
@@ -387,9 +394,9 @@ export class UpdatesService {
     return (await this.issueGrants(channel, target, [machine], [machineId], cause)).length > 0
   }
 
-  coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): boolean {
+  async coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): Promise<boolean> {
     const pending = this.pendingGrants.get(machineId)
-    return pending !== undefined && this.coordinatorUpdateApproved(pending.channel, grant.target) &&
+    return pending !== undefined && (await this.coordinatorUpdateApproved(pending.channel, grant.target)) &&
       pending?.grantId === grant.grantId &&
       pending.targetFingerprint === updateFingerprint(grant.target) &&
       this.target(pending.channel) !== undefined &&
@@ -1846,7 +1853,7 @@ export class UpdatesService {
         (machine?.coordinator === true && machine.presenceSource === 'supervisor')
       if (coordinatorOwned && !(await coordinatorHandler?.active())) continue
       if (coordinatorOwned) {
-        if (!this.coordinatorUpdateApproved(channel, target))
+        if (!(await this.coordinatorUpdateApproved(channel, target)))
           throw new Error('Coordinator update requires approval of the exact target.')
       }
       const pending = this.pendingGrants.get(machineId)

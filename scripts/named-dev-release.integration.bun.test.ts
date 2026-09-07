@@ -709,7 +709,7 @@ describe('named-instance development releases', () => {
 
       let approved: UpdateTarget | undefined
       const updates = new UpdatesService({
-        approvedTarget: () => approved,
+        approvedTarget: async () => approved,
         machines: async () => [
           {
             id: HOST,

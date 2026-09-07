@@ -737,7 +737,7 @@ exec "$CANARY_REAL_CLI" "$@"
       ]
       const grants: UpdateGrantMessage[] = []
       const updates = new UpdatesService({
-        machines: () => machines,
+        machines: async () => machines,
         send: (_id, message) => {
           if (message.type === 'updateGrant') grants.push(message)
         },
@@ -751,7 +751,7 @@ exec "$CANARY_REAL_CLI" "$@"
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
       })
-      expect(updates.authorize()).toEqual([machineId])
+      expect(await updates.authorize()).toEqual([machineId])
       const runtimeDir = join(spec.stateDir, 'runtime')
       // Seed the already-activated predecessor journal through the executor.
       // Artifact preparation/activation are fixtures; this test owns BOOT, not delivery.
@@ -807,7 +807,7 @@ exec "$CANARY_REAL_CLI" "$@"
         }, 'real supervisor target hello while daemon launch is held')
         expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
         for (let i = 0; i < 5; i++) {
-          expect(updates.fleet()[0]?.state).toBe('restarting')
+          expect((await updates.fleet())[0]?.state).toBe('restarting')
           updates.tick()
           expect(grants).toHaveLength(1)
           await Bun.sleep(50)
@@ -826,7 +826,7 @@ exec "$CANARY_REAL_CLI" "$@"
             adapter: { ...adapter, runningVersion: () => '9.9.9' },
             report: (message) => updates.onStatus(machineId, message),
           }).replay()
-          expect(updates.fleet()[0]?.state).toBe('current')
+          expect((await updates.fleet())[0]?.state).toBe('current')
           expect(grants).toHaveLength(2)
         } else {
           await waitUntil(
@@ -834,7 +834,7 @@ exec "$CANARY_REAL_CLI" "$@"
             'failed production child launch',
           )
           expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
-          expect(updates.fleet()[0]?.state).toBe('restarting')
+          expect((await updates.fleet())[0]?.state).toBe('restarting')
           updates.tick()
           expect(grants).toHaveLength(1)
         }
