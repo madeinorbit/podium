@@ -3429,6 +3429,11 @@ The open half is unreachable, so the closed half is what ships: **every terminal
 `terminal.handleInputBytes` returns early when `clientId !== controllerId`, a client that cannot
 attach also cannot type — keystrokes are dropped with no error anywhere.
 
+**WHERE TO LOOK, in POD-3511's wording, which is sharper than mine:** look for it wherever a
+guard's answer is **COMPARED rather than awaited** — `=== true`, `!== undefined`, `?? fallback`.
+Those are exactly the spellings TS2801 cannot see (rule 52c), and **a single function can fail
+open at one and closed at the next**.
+
 **THE CENSUS RULE, RESTATED.** Enumerate every port member reached through an `any` bag or a cast,
 *whatever its declared return type*. The declaration is not evidence — it is the thing the `any`
 made unenforceable. A port whose binding is typed needs no census entry; a port whose binding is
@@ -3442,3 +3447,33 @@ the compiler's error codes and count. Zero means you have a test, not a pin.
 
 *Found by POD-3511 while testing something else, off the wire rather than from the type system;
 verified against tip `889e579a0`; fixed under POD-3552.*
+
+### Rule 62 — ANNOUNCING IS NOT SERIALISING: a probe in a shared tree needs a LOCK, not a heads-up
+
+POD-3511-A's sentence, and it is the root cause of the third mutation result this epic has had to
+throw away.
+
+It re-applied a mutant and measured it killing **two** tests instead of one — apparently a
+discrimination change, which would have been a real finding. It disbelieved its own result,
+diffed the working tree against `HEAD` rather than trusting the run, and found **all 32 POD-3511
+files reverted pre-fix with a test file deleted**: POD-3511-B was mid control arm and the mutation
+run straddled the revert. With the file pre-fix both defects are live, so both tests fail for the
+ordinary reason and the mutation had nothing to do with it. The number was void.
+
+Rule 47 already said to *announce* a probe in a live worktree, and A did announce it. **That is not
+enough and rule 47 is hereby narrowed.** Announcing tells the neighbour what you are doing; it does
+not stop the two of you from doing it at the same time. Take a named lease over the file set —
+`podium lock acquire pod<issue>-<file>` — and require it of BOTH sides, because a lease only works
+if both take it.
+
+**AND THE CONTAMINATION RUNS BOTH WAYS, which is the half that gets forgotten.** A's probe may have
+corrupted *B's* arm, not only the reverse: any read B started before the probe's timestamp may have
+measured the fixed file with one await removed, **which is neither arm**. A could not check this
+itself — only B knows its own read times — so it reported the exact minute and the exact line it
+touched and let B judge. Do that. A neighbour's control arm and a lost working tree look identical
+from outside (memory: *a control-arm window looks like lost work*), and the only thing separating a
+probe from vandalism is whether the other side agreed to the window.
+
+**RESTORE NOTHING.** A did not check out, restore or commit anything, because destroying a
+neighbour's control arm mid-measurement is worse than a missing datapoint. An inconclusive result
+reported as inconclusive is worth more than a clean number that has to be distrusted later.
