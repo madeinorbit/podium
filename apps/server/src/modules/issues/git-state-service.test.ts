@@ -26,8 +26,8 @@ async function harness(sessions: SessionMeta[], repoOpScript: Record<string, str
   const plumbing = issueTestPlumbing((msg) => broadcast(msg))
   const deps: IssueDeps = {
     store,
-    listSessions: () => sessions,
-    getSettings: () =>
+    listSessions: async () => sessions,
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -36,7 +36,7 @@ async function harness(sessions: SessionMeta[], repoOpScript: Record<string, str
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),

@@ -16,8 +16,8 @@ import { openTestStore } from './test-support/open-test-store'
 function deps(store: SessionStore): IssueDeps {
   return {
     store,
-    listSessions: () => [],
-    getSettings: () =>
+    listSessions: async () => [],
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -26,7 +26,7 @@ function deps(store: SessionStore): IssueDeps {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
   }

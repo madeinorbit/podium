@@ -34,8 +34,8 @@ async function harness() {
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
-    listSessions: () => [],
-    getSettings: () =>
+    listSessions: async () => [],
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -44,7 +44,7 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-06-30T00:00:00.000Z',

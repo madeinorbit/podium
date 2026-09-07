@@ -257,8 +257,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
 
   const issueDeps: IssueDeps = {
     store,
-    listSessions: () => sessions,
-    getSettings: () =>
+    listSessions: async () => sessions,
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
@@ -267,7 +267,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
+    spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     ...issueTestPlumbing(),
     now,

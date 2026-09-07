@@ -14,8 +14,8 @@ describe('issue tracker capability composition', () => {
   it('exposes all capability interfaces over the same live store', async () => {
     const deps: IssueDeps = {
       store: await openTestStore(':memory:'),
-      listSessions: () => [],
-      getSettings: () =>
+      listSessions: async () => [],
+      getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
@@ -24,7 +24,7 @@ describe('issue tracker capability composition', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: () => ({
+      spawnSession: async () => ({
         sessionId: asSessionId('composition-test'),
         machine: 'machine-under-test',
       }),

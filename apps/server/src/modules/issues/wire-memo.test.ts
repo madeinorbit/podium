@@ -16,13 +16,13 @@ async function harness(sessions: SessionMeta[]) {
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
-    listSessions: () => sessions,
-    getSettings: () =>
+    listSessions: async () => sessions,
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived: vi.fn(),

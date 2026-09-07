@@ -26,14 +26,14 @@ async function harness(sessions: SessionMeta[] = []) {
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
-    listSessions: () =>
+    listSessions: async () =>
       sessions.map((s) => ({
         ...s,
         ...(issueBySession.get(s.sessionId)
           ? { issueId: asIssueId(issueBySession.get(s.sessionId)!) }
           : {}),
       })),
-    getSettings: () =>
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -42,9 +42,9 @@ async function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    resolveMachine: vi.fn(() => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',

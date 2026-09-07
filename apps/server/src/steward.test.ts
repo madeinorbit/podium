@@ -50,9 +50,9 @@ async function harness(
   }
   const issueDeps: IssueDeps = {
     store,
-    listSessions: () => sessions,
-    getSettings: () => settings,
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    listSessions: async () => sessions,
+    getSettings: async () => settings,
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,

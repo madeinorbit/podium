@@ -41,8 +41,8 @@ async function harness(sessions: SessionMeta[] = []) {
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
-    listSessions: () => sessions,
-    getSettings: () =>
+    listSessions: async () => sessions,
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -51,9 +51,9 @@ async function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    resolveMachine: vi.fn(() => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
@@ -233,7 +233,7 @@ describe('IssueService CRUD', () => {
 
   it('resets omitted model and effort when the default agent changes', async () => {
     const { svc, deps } = await harness()
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         roles: {
           coding: {
@@ -298,7 +298,7 @@ describe('IssueService CRUD', () => {
 
   it('scopes configured model and effort defaults to the configured harness', async () => {
     const { svc, deps } = await harness()
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         roles: {
           coding: {
@@ -491,8 +491,8 @@ describe('IssueService unread (#124)', () => {
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
-      listSessions: () => [],
-      getSettings: () =>
+      listSessions: async () => [],
+      getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
@@ -501,7 +501,7 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -593,8 +593,8 @@ describe('IssueService tuck-away (POD-333)', () => {
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
-      listSessions: () => [],
-      getSettings: () =>
+      listSessions: async () => [],
+      getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
@@ -603,7 +603,7 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -1515,7 +1515,7 @@ describe('IssueService.start', () => {
   it('records and reuses the resolver-selected remote machine', async () => {
     const { svc, deps } = await harness()
     const selected = asMachineId('repo-affine-remote')
-    deps.resolveMachine = vi.fn(() => selected)
+    deps.resolveMachine = vi.fn(async () => selected)
     const created = await svc.create({
       repoPath: '/remote/repo',
       title: 'Repo affine',
@@ -1803,7 +1803,7 @@ describe('IssueService.start', () => {
   it('add-session guards against the path the repo has ON THE PIN, not the issue path', async () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
-    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+    deps.findRepoOnMachine = vi.fn(async (repoPath: string, machineId: string) =>
       repoPath === '/r' && machineId === 'mach-b' ? '/home/till/src/podium' : null,
     )
     const created = await svc.create({
@@ -1825,7 +1825,7 @@ describe('IssueService.start', () => {
     // the actionable message names.
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
-    deps.findRepoOnMachine = vi.fn(() => null)
+    deps.findRepoOnMachine = vi.fn(async () => null)
     const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
@@ -1849,7 +1849,7 @@ describe('IssueService.start', () => {
   it('worktree recreate resolves the repo on the pin and runs git THERE', async () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
-    deps.findRepoOnMachine = vi.fn(() => '/home/till/src/podium')
+    deps.findRepoOnMachine = vi.fn(async () => '/home/till/src/podium')
     const created = await svc.create({
       repoPath: '/r',
       title: 'Remote',
@@ -1876,7 +1876,7 @@ describe('IssueService.start', () => {
   it('resume rehomes a stale source-machine worktree onto the session machine', async () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
-    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+    deps.findRepoOnMachine = vi.fn(async (repoPath: string, machineId: string) =>
       repoPath === '/home/alice/src/podium' && machineId === 'mach-b'
         ? '/home/bob/src/podium'
         : null,
@@ -1927,7 +1927,7 @@ describe('IssueService.start', () => {
   it('resume reuses the present worktree when the pin keeps the repo at another path', async () => {
     const { svc, deps } = await harness()
     deps.requireMachineForRepo = vi.fn()
-    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+    deps.findRepoOnMachine = vi.fn(async (repoPath: string, machineId: string) =>
       repoPath === '/home/mgw/src/podium' && machineId === 'mach-b'
         ? '/home/mgw/src/other/podium'
         : null,
@@ -2000,7 +2000,7 @@ describe('IssueService.start', () => {
 
   it('an unpinned issue never consults the cross-machine resolver', async () => {
     const { svc, deps } = await harness()
-    deps.findRepoOnMachine = vi.fn(() => null)
+    deps.findRepoOnMachine = vi.fn(async () => null)
     const created = await svc.create({ repoPath: '/r', title: 'Local', startNow: false })
     await svc.start(created.id)
     await svc.addSession(created.id)
@@ -2092,7 +2092,7 @@ describe('IssueService.start', () => {
 
   it('uses an explicitly selected agent when starting an unstarted issue', async () => {
     const { svc, deps, store } = await harness()
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         roles: {
           coding: {
@@ -2120,7 +2120,7 @@ describe('IssueService.start', () => {
 
   it('sanitizes legacy coding defaults stored on another harness', async () => {
     const { svc, deps } = await harness()
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         roles: {
           coding: {
@@ -2263,7 +2263,7 @@ describe('IssueService.start', () => {
      */
     it('survives the legacy-defaults sanitizer that drops an inherited value', async () => {
       const { svc, deps } = await harness()
-      deps.getSettings = () =>
+      deps.getSettings = async () =>
         normalizeSettings({
           roles: { coding: { accountId: 'native:claude-code', model: 'opus', effort: 'high' } },
         })
@@ -2377,7 +2377,7 @@ describe('IssueService.start', () => {
 
   it('addSession/addShell use issue provenance as the direct-service fallback', async () => {
     const { svc, deps, store } = await harness()
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         roles: {
           coding: {
@@ -2682,7 +2682,7 @@ describe('IssueService assistant', () => {
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
     })) as never
-    deps.getSettings = () =>
+    deps.getSettings = async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -5855,7 +5855,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     sessions: SessionMeta[] = [],
   ) => {
     const h = await harness(sessions)
-    h.deps.getSettings = () => normalizeSettings({ worktreeGc })
+    h.deps.getSettings = async () => normalizeSettings({ worktreeGc })
     return { ...h, svc: await IssueService.create(h.deps) }
   }
 
@@ -6253,5 +6253,115 @@ describe('POD-3500 — async guards behind void ports', () => {
       /would create a containment cycle/,
     )
     expect((await svc.get(parent.id))!.parentId).toBeFalsy()
+  })
+})
+
+/** Promise-only ports constrain implementations; these assertions also protect
+ * consumers that can silently inspect a promise as though it were its value.
+ * The narrow session helpers forward promises, so their consuming awaits are
+ * the meaningful mutation sites (removing only `return await` is equivalent).
+ */
+describe('POD-3504 — promise-only issue ports', () => {
+  it('listSessions: tree includes the resolved member list', async () => {
+    const { svc, deps } = await harness()
+    const issue = await svc.create({ repoPath: '/r', title: 'Members', startNow: false })
+    await svc.update(issue.id, { stage: 'planning' })
+    const member = { ...sess('/elsewhere'), issueId: issue.id }
+    deps.listSessions = vi.fn(async () => [member])
+
+    expect((await svc.tree(issue.id)).root.sessions).toEqual([
+      expect.objectContaining({ sessionId: member.sessionId }),
+    ])
+  })
+
+  it('sessionById: attention clears the resolved member issue defer', async () => {
+    const { svc, deps } = await harness()
+    const issue = await svc.create({ repoPath: '/r', title: 'Attention', startNow: false })
+    await svc.defer(issue.id, 'next-message')
+    const member = { ...sess('/elsewhere', 'awaiting_input'), issueId: issue.id }
+    deps.sessionById = vi.fn(async () => member)
+    deps.listSessions = vi.fn(async () => { throw new Error('unexpected full-list fallback') })
+
+    await svc.onSessionAttention(member.sessionId)
+
+    expect(deps.sessionById).toHaveBeenCalledWith(member.sessionId)
+    expect((await svc.get(issue.id))!.deferred).toBe(false)
+    expect(deps.listSessions).not.toHaveBeenCalled()
+  })
+
+  it('listSessionsForIssue: start reuses resolved members without spawning', async () => {
+    const { svc, deps } = await harness()
+    const issue = await svc.create({ repoPath: '/r', title: 'Existing', startNow: false })
+    const member = { ...sess('/r'), issueId: issue.id, machineName: 'existing-machine' }
+    deps.listSessionsForIssue = vi.fn(async () => [member])
+
+    const started = await svc.start(issue.id)
+
+    expect(deps.listSessionsForIssue).toHaveBeenCalledWith(started.worktreePath, issue.id)
+    expect(started.machine).toBe('existing-machine')
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+  })
+
+  it('getSettings: the enabled assistant reaches the session lookup', async () => {
+    const { svc, deps } = await harness()
+    const settings = await deps.getSettings()
+    deps.getSettings = vi.fn(async () => ({ ...settings, issues: { assistantEnabled: true } }))
+    // No member means no debounce timer; reaching this lookup proves the
+    // negated enabled guard inspected settings rather than a promise.
+    deps.sessionById = vi.fn(async () => undefined)
+
+    await svc.onSessionActivity(asSessionId('missing'))
+
+    expect(deps.sessionById).toHaveBeenCalledWith(asSessionId('missing'))
+  })
+
+  it('spawnSession: start returns resolved spawn metadata', async () => {
+    const { svc, deps } = await harness()
+    const issue = await svc.create({ repoPath: '/r', title: 'Spawn', startNow: false })
+    deps.spawnSession = vi.fn(async () => ({
+      sessionId: asSessionId('resolved-session'),
+      agentId: 'resolved-agent',
+      machine: 'resolved-machine',
+      harness: 'codex',
+      model: 'resolved-model',
+      effort: 'resolved-effort',
+    }))
+
+    expect(await svc.start(issue.id)).toMatchObject({
+      agentId: 'resolved-agent',
+      machine: 'resolved-machine',
+      harness: 'codex',
+      model: 'resolved-model',
+      effort: 'resolved-effort',
+    })
+  })
+
+  it('resolveMachine: update stores the resolved machine identity', async () => {
+    const { svc, deps, store } = await harness()
+    const issue = await svc.create({ repoPath: '/r', title: 'Machine', startNow: false })
+    const machine = asMachineId('resolved-machine')
+    deps.resolveMachine = vi.fn(async () => machine)
+
+    const updated = await svc.update(issue.id, { worktreePath: '/r/wt' })
+
+    expect(updated.machineId).toBe(machine)
+    expect((await store.issues.getIssue(issue.id))!.machineId).toBe(machine)
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
+  })
+
+  it.each([null, '/remote/repo'])('findRepoOnMachine: resolved %s selects the guard path', async (found) => {
+    const { svc, deps } = await harness()
+    const machine = asMachineId('remote-machine')
+    const issue = await svc.create({
+      repoPath: '/r', title: 'Repository', startNow: false, machineId: machine,
+    })
+    await svc.start(issue.id)
+    deps.findRepoOnMachine = vi.fn(async () => found)
+    deps.requireMachineForRepo = vi.fn(async () => {})
+
+    await svc.addSession(issue.id)
+
+    expect(deps.findRepoOnMachine).toHaveBeenCalledWith('/r', machine)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith(machine, found ?? '/r')
   })
 })
