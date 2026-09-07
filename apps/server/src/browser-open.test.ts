@@ -90,7 +90,7 @@ describe('remote browser-open routing', () => {
     expect(first).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
     expect(second).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
 
-    registry.clientGateway.routeClientFrame(c0, {
+    await registry.clientGateway.routeClientFrame(c0, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
@@ -101,7 +101,7 @@ describe('remote browser-open routing', () => {
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
 
-    registry.clientGateway.routeClientFrame(c1, {
+    await registry.clientGateway.routeClientFrame(c1, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
@@ -120,7 +120,7 @@ describe('remote browser-open routing', () => {
       expect.objectContaining({ type: 'sessionOpenUrlResult', requestId: 'open-parked' }),
     )
 
-    registry.clientGateway.routeClientFrame(c0, {
+    await registry.clientGateway.routeClientFrame(c0, {
       type: 'presenceUnsubscribe',
       room: { kind: 'session', id: sessionId },
     })
@@ -172,7 +172,7 @@ describe('remote browser-open routing', () => {
     unrelated.length = 0
 
     for (const clientId of [ownerId, granteeId, unrelatedId]) {
-      registry.clientGateway.routeClientFrame(clientId, {
+      await registry.clientGateway.routeClientFrame(clientId, {
         type: 'presenceSubscribe',
         room: { kind: 'session', id: sessionId },
       })
@@ -202,7 +202,7 @@ describe('remote browser-open routing', () => {
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
     expect(messages).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrl' }))
 
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
@@ -215,14 +215,14 @@ describe('remote browser-open routing', () => {
     const { registry, sessionId, m1, m2 } = await setup()
     const messages: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
     messages.length = 0
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-callback'))
 
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'sessionOpenUrlCallback',
       sessionId,
       requestId: 'open-callback',
@@ -254,7 +254,7 @@ describe('remote browser-open routing', () => {
     })
 
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-dismiss'))
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'sessionOpenUrlDismiss',
       sessionId,
       requestId: 'open-dismiss',
@@ -279,7 +279,7 @@ describe('remote browser-open routing', () => {
     const { registry, sessionId } = await setup()
     const messages: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })

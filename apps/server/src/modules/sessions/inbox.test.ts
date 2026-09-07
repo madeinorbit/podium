@@ -237,7 +237,7 @@ function harness(
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: options.prepareSend ?? vi.fn(async () => {}),
-    ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
+    ownerOf: async () => (options.owner === undefined ? ALICE : options.owner),
     setSessionDraft,
     draftText: () => draft,
     resurrect,
@@ -876,14 +876,14 @@ describe('SessionInbox authorization and identity', () => {
     expect(decode(h.sent[1])).toBe(String.fromCharCode(13))
   })
 
-  it('carries the browser principal through controller gating into PTY attribution', () => {
+  it('carries the browser principal through controller gating into PTY attribution', async () => {
     const h = harness()
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
     // Real base64: this path decodes to bytes now, and 'x' on its own is not a
     // decodable payload — it would arrive as zero bytes and be dropped.
-    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
+    await h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
     expect(h.handleInput).toHaveBeenCalledWith('client-1', Buffer.from('x').toString('base64'), {
       actor: { kind: 'user', id: principal.user },
@@ -917,7 +917,12 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
       queued: true,
     })
-    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('\x1b').toString('base64'))
+    await h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(
@@ -947,7 +952,12 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('\x1b').toString('base64'))
+    await h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
@@ -961,7 +971,12 @@ describe('SessionInbox authorization and identity', () => {
     const client = { id: 'client-2' } as ClientConn
 
     await h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
-    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('\x1b').toString('base64'))
+    await h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(h.rows).toHaveLength(1)
@@ -2566,7 +2581,7 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     // bind, which a healthy long-lived session never performs, so an offer
     // clicked during a permission prompt hung indefinitely.
     h.setPhase('idle')
-    h.inbox.stateChanged({
+    await h.inbox.stateChanged({
       sessionId: SID,
       prev: { phase: 'needs_user', since: 't' } as never,
       next: { phase: 'idle', since: 't' } as never,

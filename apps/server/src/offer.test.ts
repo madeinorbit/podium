@@ -458,15 +458,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // Raw PTY keystrokes from the controlling client — bumps lastInputAtMs.
     // Pinned a minute after the offer: same-ms input would not count as "after"
     // (strictly-greater, matching the boot reconcile).
-    function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
+    async function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
       const clientId = attachTestClient(reg.clientGateway, () => {})
-      reg.clientGateway.routeClientFrame(clientId, {
+      await reg.clientGateway.routeClientFrame(clientId, {
         type: 'attach',
         sessionId: asSessionId(sessionId),
       })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
       try {
-        reg.clientGateway.routeClientFrame(clientId, {
+        await reg.clientGateway.routeClientFrame(clientId, {
           type: 'input',
           sessionId: asSessionId(sessionId),
           data: Buffer.from('fix it\r').toString('base64'),
@@ -480,7 +480,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('entering working after the user typed into the PTY consumes it', async () => {
       const { reg, sessionId, createdAt } = await seed()
-      typeIntoPty(reg, sessionId, createdAt)
+      await typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
@@ -501,7 +501,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', async () => {
       const { reg, sessionId, createdAt } = await seed()
-      typeIntoPty(reg, sessionId, createdAt)
+      await typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
@@ -512,7 +512,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('non-working phases and continued working do not clear', async () => {
       const { reg, sessionId, createdAt } = await seed()
-      typeIntoPty(reg, sessionId, createdAt)
+      await typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
@@ -528,7 +528,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         state: working(plusMinute(createdAt)),
       })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-      typeIntoPty(reg, sessionId, createdAt)
+      await typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
@@ -610,15 +610,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     // Raw PTY keystrokes from the controlling client — the continuation the
     // chat composer never sees, and the one that left cards standing.
-    function typeIntoPty(reg: SessionRegistry, sessionId: string, atIso: string) {
+    async function typeIntoPty(reg: SessionRegistry, sessionId: string, atIso: string) {
       const clientId = attachTestClient(reg.clientGateway, () => {})
-      reg.clientGateway.routeClientFrame(clientId, {
+      await reg.clientGateway.routeClientFrame(clientId, {
         type: 'attach',
         sessionId: asSessionId(sessionId),
       })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(atIso))
       try {
-        reg.clientGateway.routeClientFrame(clientId, {
+        await reg.clientGateway.routeClientFrame(clientId, {
           type: 'input',
           sessionId: asSessionId(sessionId),
           data: Buffer.from('fix it\r').toString('base64'),
@@ -659,7 +659,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect((await metaOffer(withoutTyping.reg, withoutTyping.sessionId))?.message).toBe(OFFER.message)
 
       const withTyping = await seed('codex')
-      typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
+      await typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
       withTyping.observe(withTyping.turnOpened('provider'))
       expect(await metaOffer(withTyping.reg, withTyping.sessionId)).toBeUndefined()
     })
