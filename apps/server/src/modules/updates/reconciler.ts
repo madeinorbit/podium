@@ -535,10 +535,10 @@ export class UpdateReconciler {
       machine,
       target,
       approvedTargetVersion: machine
-        ? this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))?.version
+        ? (await this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine)))?.version
         : undefined,
       approvedTarget: machine
-        ? this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))
+        ? await this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))
         : undefined,
       operationActive: await this.deps.operationActive(),
       attempts,

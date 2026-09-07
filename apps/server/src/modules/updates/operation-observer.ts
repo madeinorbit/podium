@@ -12,7 +12,7 @@ export function updateOperationObserver(
   updatesService: UpdatesService,
   reconciler: () => UpdateReconciler | undefined,
 ) {
-  return (row: OperationRow, previousState: string | undefined): void => {
+  return async (row: OperationRow, previousState: string | undefined): Promise<void> => {
     if (row.kind !== 'update' || previousState === row.state) return
     if (!isTerminalOperationState(row.state)) {
       // An operation is live, so whatever background convergence did before
@@ -37,7 +37,7 @@ export function updateOperationObserver(
     log.info('update operation settled', {
       operationId: row.id,
       channel,
-      approvedVersion: channel ? updatesService.approvedTarget(channel)?.version : undefined,
+      approvedVersion: channel ? (await updatesService.approvedTarget(channel))?.version : undefined,
       previousState,
       state: row.state,
     })

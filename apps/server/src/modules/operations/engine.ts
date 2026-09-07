@@ -465,8 +465,8 @@ export class OperationEngine {
       throw new Error('handoff may only be sealed by the active runner')
     }
 
-    const operation = this.require(operationId)
-    const steps = (await operation).steps ?? []
+    const operation = await this.require(operationId)
+    const steps = operation.steps ?? []
     const index = steps.findIndex((step) => step.id === stepId)
     if (index < 0 || inFlightStep(operation)?.id !== stepId) {
       throw new Error('handoff may only seal the step in flight')
@@ -480,8 +480,8 @@ export class OperationEngine {
 
     const at = this.now()
     const details: Record<string, unknown> =
-      (await operation).details && typeof (await operation).details === 'object'
-        ? ((await operation).details as Record<string, unknown>)
+      operation.details && typeof operation.details === 'object'
+        ? (operation.details as Record<string, unknown>)
         : {}
     const withStep = this.applyPatch(operation, stepId, { ...patch.step, state: 'running' }, at)
     const sealed: PersistedOperation = {
@@ -779,7 +779,7 @@ export class OperationEngine {
     }
     return {
       canceled: true,
-      operation: this.finish(this.persistable(canceled, def), 'canceled', finishedAt),
+      operation: await this.finish(await this.persistable(canceled, def), 'canceled', finishedAt),
     }
   }
 
@@ -1099,7 +1099,7 @@ export class OperationEngine {
     contextFor: (row: OperationRow) => unknown | Promise<unknown> = () => undefined,
   ): Promise<number> {
     let completed = 0
-    for (const pending of this.deps.store.pendingCleanup()) {
+    for (const pending of await this.deps.store.pendingCleanup()) {
       completed += await this.enqueueResult(pending.id, async () => {
         const row = (await this.deps.store.get(pending.id))
         const operation = row?.operation

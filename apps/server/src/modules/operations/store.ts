@@ -322,9 +322,9 @@ export class OperationStore {
   }
 
   /** Durable consent comes only from a user-started, non-canceled update. */
-  approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
-    return this.approvalRows().find((row) => row.operation?.details?.channel === channel)?.operation
-      ?.details?.target as UpdateTarget | undefined
+  async approvedTarget(channel: UpdateChannel): Promise<UpdateTarget | undefined> {
+    return (await this.approvalRows()).find((row) => row.operation?.details?.channel === channel)
+      ?.operation?.details?.target as UpdateTarget | undefined
   }
 
   private async approvalRows(): Promise<OperationRow[]> {
