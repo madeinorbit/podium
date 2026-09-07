@@ -8,6 +8,9 @@ name: windows-smoke
 # on Windows, and put the push trigger back when Windows becomes a platform we ship.
 on:
   workflow_dispatch:
+permissions:
+  contents: read
+
 concurrency:
   group: windows-smoke-${{ github.ref }}
   cancel-in-progress: true
@@ -62,14 +65,13 @@ jobs:
       - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
         run: bun --conditions=@podium/source scripts/conpty-smoke.ts
 
-      # This compiles and boots the desktop executable but deliberately does not make an
-      # installer on every main push. Installers remain an explicit desktop release action.
-      # KNOWN RED (POD-3203), and a different failure from the install one that used to mask it:
-      # @podium/mobile#build fails here because Metro cannot resolve react/jsx-runtime through
-      # the isolated linker's symlinked node_modules. The install itself is green.
-      - name: Build Windows desktop executable and headless bundle
-        run: bun run --cwd apps/desktop build -- --no-bundle
-
+      # Preview installers are CI artifacts only: no release or updater feed is changed.
+      - name: Build Windows preview installer and headless bundle
+        shell: pwsh
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP 'tauri-preview.json'
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Path $config -Encoding utf8
+          bun run --cwd apps/desktop build -- --bundles nsis --config $config
 
       - name: Boot smoke (podium.cmd all-in-one → /health + /version)
         shell: pwsh
@@ -137,3 +139,32 @@ jobs:
           # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
           # and would otherwise keep holding :18787.
           taskkill /PID $proc.Id /T /F 2>$null; exit 0
+
+      - name: Record installer checksum and source
+        shell: pwsh
+        run: |
+          $bundle = 'apps/desktop/src-tauri/target/release/bundle/nsis'
+          $installers = @(Get-ChildItem "$bundle/*-setup.exe")
+          if ($installers.Count -ne 1) { throw "Expected one Windows installer, found $($installers.Count)" }
+          $hash = Get-FileHash $installers[0].FullName -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $($installers[0].Name)" | Set-Content "$bundle/SHA256SUMS.txt"
+          @(
+            'Podium Windows x64 preview installer',
+            "Source commit: $env:GITHUB_SHA",
+            "Build: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            'Extract this archive and run the -setup.exe installer.',
+            'This experimental installer is not Authenticode-signed. Windows may show an unknown-publisher warning.',
+            'This build is a CI artifact, not a published release or updater promotion.'
+          ) | Set-Content "$bundle/README.txt"
+
+      - name: Upload Windows preview installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: podium-windows-x64-preview-${{ github.run_number }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            apps/desktop/src-tauri/target/release/bundle/nsis/SHA256SUMS.txt
+            apps/desktop/src-tauri/target/release/bundle/nsis/README.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
