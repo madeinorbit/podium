@@ -1046,6 +1046,7 @@
         "src/modules/sessions/concurrency-history.test.ts",
         "src/modules/sessions/concurrency-history.ts",
         "src/modules/sessions/daemon-lifecycle.ts",
+        "src/modules/sessions/daemon-projection.test.ts",
         "src/modules/sessions/daemon-projection.ts",
         "src/modules/sessions/deterministic-status.test.ts",
         "src/modules/sessions/ensure-ref-on-machine.test.ts",

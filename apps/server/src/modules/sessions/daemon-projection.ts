@@ -37,13 +37,13 @@ export interface SessionDaemonProjectionPorts {
   ): void
   binding: SessionBindingReceipts
   /** Persist a session whose durable half this pass did not change. */
-  persist(session: Session): void
+  persist(session: Session): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  write(session: Session, mutate: (draft: SessionDurableState) => void): Promise<void>
   /** A draft for the sites that must ask "did this actually change?" before
    *  deciding to write at all. */
   draft(session: Session): SessionDurableState
-  persistDraft(session: Session, draft: SessionDurableState): void
+  persistDraft(session: Session, draft: SessionDurableState): Promise<void>
   broadcastSessions(): void
   broadcastToClients(message: LiveServerMessage): void
   transcriptDelta(sessionId: SessionId, items: TranscriptItem[], reset?: boolean): void
@@ -90,7 +90,8 @@ export class SessionDaemonProjection {
         if (!session) break
         const draft = this.ports.draft(session)
         if (session.setAgentColor(message.color, draft)) {
-          this.ports.persistDraft(session, draft)
+          const result: Promise<void> = this.ports.persistDraft(session, draft)
+          await result
           this.ports.broadcastSessions()
         }
         break
@@ -100,7 +101,8 @@ export class SessionDaemonProjection {
         if (!session) break
         const draft = this.ports.draft(session)
         if (session.setObservedModel(message.model, message.effort, draft)) {
-          this.ports.persistDraft(session, draft)
+          const result: Promise<void> = this.ports.persistDraft(session, draft)
+          await result
           this.ports.broadcastSessions()
         }
         break
@@ -110,7 +112,8 @@ export class SessionDaemonProjection {
         if (!session) break
         const draft = this.ports.draft(session)
         if (session.setContextUsagePercent(message.percent, draft)) {
-          this.ports.persistDraft(session, draft)
+          const result: Promise<void> = this.ports.persistDraft(session, draft)
+          await result
           this.ports.broadcastSessions()
         }
         break
@@ -129,9 +132,10 @@ export class SessionDaemonProjection {
           // even when the durable title already matches.
           if (!isGenericClaudeTitle(title)) session.titleLocked = true
           if (session.title !== title) {
-            this.ports.write(session, (draft) => {
+            const result: Promise<void> = this.ports.write(session, (draft) => {
               session.setTitle(title, draft)
             })
+            await result
           }
         }
         this.publishTitle(message.sessionId, title)
@@ -145,9 +149,10 @@ export class SessionDaemonProjection {
         if (!session || session.machineId !== machineId) break
         if (message.cwd && session.cwd !== message.cwd) {
           const cwd = message.cwd
-          this.ports.write(session, (draft) => {
+          const result: Promise<void> = this.ports.write(session, (draft) => {
             draft.cwd = cwd
           })
+          await result
           this.ports.broadcastSessions()
         }
         if (message.cwd && session.issueId)
@@ -174,7 +179,8 @@ export class SessionDaemonProjection {
           // binding on the session itself. Nothing in this span assigned a
           // durable field, so the row restates what the live object already
           // says rather than carrying a write of its own.
-          this.ports.persist(session)
+          const result: Promise<void> = this.ports.persist(session)
+          await result
           this.ports.broadcastSessions()
         }
         if (session) this.ports.transcriptDelta(message.sessionId, message.items, message.reset)
@@ -190,9 +196,10 @@ export class SessionDaemonProjection {
           const title = firstUser ? titleFromPrompt(firstUser.text) : undefined
           if (title) {
             session.titleLocked = true
-            this.ports.write(session, (draft) => {
+            const result: Promise<void> = this.ports.write(session, (draft) => {
               session.setTitle(title, draft)
             })
+            await result
             this.publishTitle(message.sessionId, title)
           }
         }
