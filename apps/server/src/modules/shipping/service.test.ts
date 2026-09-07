@@ -71,8 +71,8 @@ async function harness(
   })
   const issues = await IssueService.create({
     store,
-    listSessions: () => [],
-    getSettings: () =>
+    listSessions: async () => [],
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
@@ -81,7 +81,7 @@ async function harness(
         },
         sessionDefaults: { agent: 'codex' },
       }),
-    spawnSession: () => ({
+    spawnSession: async () => ({
       sessionId: 'session-1' as never,
       machine: 'machine-1',
     }),

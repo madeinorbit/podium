@@ -7,11 +7,11 @@ import { issueTestPlumbing } from './service/test-plumbing'
 
 async function harness() {
   const store = await openTestStore(':memory:')
-  const listSessions = vi.fn(() => [])
+  const listSessions = vi.fn(async () => [])
   const deps: IssueDeps = {
     store,
     listSessions,
-    getSettings: () =>
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -20,7 +20,7 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     setSessionArchived: vi.fn(),

@@ -33,8 +33,8 @@ async function harness() {
   const plumbing = issueTestPlumbing()
   const deps: IssueDeps = {
     store,
-    listSessions: () => [],
-    getSettings: () =>
+    listSessions: async () => [],
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
@@ -43,7 +43,7 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
+    spawnSession: async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
@@ -284,9 +284,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const plumbing2 = issueTestPlumbing()
     const svc2 = await IssueService.create({
       store,
-      listSessions: () => [],
-      getSettings: () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
-      spawnSession: () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
+      listSessions: async () => [],
+      getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
+      spawnSession: async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,

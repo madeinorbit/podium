@@ -15,8 +15,8 @@ async function harness() {
   const store = await openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
-    listSessions: () => [],
-    getSettings: () =>
+    listSessions: async () => [],
+    getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
@@ -25,7 +25,7 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}),
     setSessionArchived: vi.fn(),
