@@ -630,9 +630,6 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     await run(engine, 'test')
 
     expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
-    expect(store.get('op_1')?.state).toBe('canceled')
-    expect(store.get('op_1')?.finishedAt).not.toBeNull()
-    expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect((await store.get('op_1'))?.state).toBe('canceled')
     expect((await store.get('op_1'))?.finishedAt).not.toBeNull()
   })
@@ -1510,10 +1507,6 @@ describe('restating a deferred promise (POD-3040)', () => {
 
     h.clock.advance(5_000)
     await h.engine.recordDeferred(id, [
-    await h.engine.recordDeferred(id, [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
-
-    const after = (await h.store.get(id))?.operation
-    expect(after?.deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
 
@@ -1561,13 +1554,10 @@ describe('observers', () => {
       registry,
       clock: fakeClock().clock,
       newId: () => 'op_1',
-      onChanged: (row, previousState) => {
-      onChanged: async (row) => {
+      onChanged: async (row, previousState) => {
         // What an observer reads must already be what the database holds.
-        expect(row.state).toBe(store.get(row.id)?.state)
-        seen.push([row.state, previousState])
         expect(row.state).toBe((await store.get(row.id))?.state)
-        seen.push(row.state)
+        seen.push([row.state, previousState])
       },
     })
 

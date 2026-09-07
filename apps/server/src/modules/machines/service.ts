@@ -1233,7 +1233,7 @@ export class MachinesService {
     }
   }
 
-  private persistInventory(machineId: MachineId, inventoryJson: string): void {
+  private async persistInventory(machineId: MachineId, inventoryJson: string): void {
     this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
@@ -1399,7 +1399,7 @@ export class MachinesService {
    * edges forward rather than inserting a rival. Idempotent. Tests omit `secret`
    * (a random throwaway — they attach via the registry without authenticating).
    */
-  ensureHostMachine(
+  async ensureHostMachine(
     hostname: string,
     secret: string = randomUUID(),
     assignment?: MachineServiceAssignment,

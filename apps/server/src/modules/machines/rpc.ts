@@ -1865,7 +1865,7 @@ export class DaemonRpcService {
   }
 
   /** Read target-side recovery state through the same authenticated machine broker. */
-  inspectServerTransfer(
+  async inspectServerTransfer(
     transferId: string | undefined,
     machineId: MachineId,
     manifestDigest?: string,

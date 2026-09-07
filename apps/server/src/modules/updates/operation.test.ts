@@ -453,8 +453,6 @@ describe('planUpdateOperation', () => {
 
   /** Supervisor presence owns the installed payload and advertises its delivery path. */
   it('includes a capable supervisor in the ordinary fleet wave', () => {
-  /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
-  it('includes a desktop-supervised daemon in the ordinary fleet wave', async () => {
     const plan = planUpdateOperation(
       planInput({
         fleet: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
@@ -699,7 +697,6 @@ describe('planUpdateOperation', () => {
   })
 
   it('plans the coordinator server step after the fleet when its desktop host is absent', () => {
-  it('recognises a desktop-supervised server with no local daemon row', async () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'desktop-server',
@@ -1429,8 +1426,6 @@ async function harness(options: HarnessOptions = {}) {
       : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
     ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
-    recordOperationDetails: (id, patch) => {
-      driver().recordDetails(id, patch)
     // Wired exactly as `updateOperationContext` wires it: the `…Locked` form,
     // because a runner already holds the chain this context is used from.
     recordOperationDetails: async (id, patch) => {
@@ -3518,12 +3513,9 @@ describe('the fleet bridge', () => {
    * The supervisor's empty capability list is irrelevant when the target itself
    * has no machine delivery descriptor to select.
    */
-  it('admits a supervisor when a target offers no delivery filter yet', () => {
+  it('admits a supervisor when a target offers no delivery filter yet', async () => {
     const fleet = [machine({ id: 'laptop', presenceSource: 'supervisor', deliveryCaps: [] })]
     const h = harness({ machines: fleet })
-  it('admits a supervised daemon when a target offers no delivery filter yet', async () => {
-    const fleet = [machine({ id: 'laptop', supervised: true })]
-    const h = await harness({ machines: fleet })
     const operation = {
       id: 'op_1',
       kind: UPDATE_OPERATION_KIND,

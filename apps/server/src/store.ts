@@ -342,8 +342,6 @@ export class SessionStore {
       this.hostMachineId,
       this.tableWrites,
     )
-    await this.conversations.ensureFts(this.searchIndexEnabled)
-    await this.superagent.seedGlobalThread()
     this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)

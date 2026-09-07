@@ -303,6 +303,16 @@ export class ServerTransferService {
       )
       this.deps.afterRecoveredAbort?.()
       return { outcome: 'resolved-aborted' }
+    }
+    if (entry.state !== 'committing' && entry.state !== 'commit-uncertain') {
+      return { outcome: 'still-uncertain' }
+    }
+    const result = await this.inspectUncertain(entry.record, { reauthorize: async () => {} })
+    return { outcome: result.state === 'committed' ? 'resolved-committed' : 'still-uncertain' }
+  }
+
+  async publicStatus(machines: ReadonlyArray<{ id: string }>) {
+    const entry = this.journal.read()
     const promoted = entry ? undefined : await this.deps.localPromotedTransfer()
     const promotedSourceConnected = promoted
       ? (await this.deps.targetState(promoted.sourceMachineId)).online
@@ -365,13 +375,7 @@ export class ServerTransferService {
             }
           : null,
     }
-    if (entry.state !== 'committing' && entry.state !== 'commit-uncertain') {
-      return { outcome: 'still-uncertain' }
-    }
-    const result = await this.inspectUncertain(entry.record, { reauthorize: async () => {} })
-    return { outcome: result.state === 'committed' ? 'resolved-committed' : 'still-uncertain' }
   }
-
   async transfer(
     input: ServerTransferInput,
     authorization: ServerTransferAuthorization,
@@ -508,21 +512,21 @@ export class ServerTransferService {
           this.journal.transition('staged')
           hooks.onPhase?.('stage', 'done', record)
         }
-        await authorization.reauthorize('validate')
-        await this.assertTarget(input.targetMachineId)
-        await this.validate(initialManifest, input.targetMachineId)
-        this.journal.transition('validated')
 
         if (this.journal.read()?.state === 'staged') {
           record = { ...record, phase: 'validating' }
           this.journal.updateRecord(record)
           hooks.onPhase?.('validate', 'running', record)
           await authorization.reauthorize('validate')
-          this.assertTarget(input.targetMachineId)
+          await this.assertTarget(input.targetMachineId)
           await this.validate(initialManifest, input.targetMachineId)
           this.journal.transition('validated')
           hooks.onPhase?.('validate', 'done', record)
         }
+        await authorization.reauthorize('validate')
+        await this.assertTarget(input.targetMachineId)
+        await this.validate(initialManifest, input.targetMachineId)
+        this.journal.transition('validated')
 
         if (hooks.canceled?.()) {
           throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')

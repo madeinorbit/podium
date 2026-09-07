@@ -244,7 +244,7 @@ describe('UpdatesService', () => {
     describe('retired supervised grants', () => {
       it.each(['abandon', 'release', 'stuck', 'rejected'] as const)(
         'records late exact completion after %s, live and after reconstruction, without widening',
-        (retirement) => {
+        async (retirement) => {
           for (const reboot of [false, true]) {
             const recovery = memoryRecovery()
             const h = start({ recovery })
@@ -288,7 +288,7 @@ describe('UpdatesService', () => {
         { phaseDetail: 'restarting' },
         { state: 'restarting' as const },
         { state: 'downloading' as const, grantId: undefined },
-      ])('ignores incomplete or unrelated retired evidence: %j', (override) => {
+      ])('ignores incomplete or unrelated retired evidence: %j', async (override) => {
         const { svc, send } = start()
         svc.abandonWait(['a'], 'Deadline expired')
         svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
@@ -300,7 +300,7 @@ describe('UpdatesService', () => {
 
       it.each(['publication', 'approval', 'approval-version', 'channel'] as const)(
         'fences retired proof when %s changes, before or after confirmation',
-        (replacement) => {
+        async (replacement) => {
           for (const confirmFirst of [false, true]) {
             const recovery = memoryRecovery()
             const h = start({ recovery })
@@ -489,7 +489,7 @@ describe('UpdatesService', () => {
       { version: '0.4.1' },
       { phaseDetail: undefined },
       { phaseDetail: 'restarting' },
-    ])('does not accept incomplete or stale execution evidence: %j', (override) => {
+    ])('does not accept incomplete or stale execution evidence: %j', async (override) => {
       const { svc, send } = start()
       svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
       expect(svc.fleet()[0]?.state).not.toBe('current')
@@ -504,7 +504,7 @@ describe('UpdatesService', () => {
     it.each([
       'stuck',
       'rejected',
-    ] as const)('preserves %s after a target-version hello', (state) => {
+    ] as const)('preserves %s after a target-version hello', async (state) => {
       const { svc, send } = start()
       svc.onStatus(asMachineId('a'), {
         ...confirmed,

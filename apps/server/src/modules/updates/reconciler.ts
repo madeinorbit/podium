@@ -320,7 +320,7 @@ export class UpdateReconciler {
   }
 
   /** Settlement may converge only the channel and exact target the user approved. */
-  onOperationSettled(channel: UpdateChannel, target: UpdateTarget, outcome?: string): void {
+  async onOperationSettled(channel: UpdateChannel, target: UpdateTarget, outcome?: string): void {
     if (outcome === 'canceled') return
     if (this.deps.updates.target(channel)?.version !== target.version) return
     this.wokenBy = 'operation-settled'
