@@ -5,6 +5,28 @@ integration branch is ready to soak on the primary instance. Not before.
 
 `ludovico` is reachable over SSH. `flatblock` is this box.
 
+## The PHASE ORDER of the whole epic, which is not the same as the steps below
+
+Written down because I got it wrong three times in a row from memory, each time putting Turso
+earlier than it belongs. The operator corrected it three times. READ THIS RATHER THAN RECALLING IT.
+
+1. **Finish the flip work.** Every sub-issue that blocks POD-3649. That is the only thing gating
+   the merge.
+2. **DO THE MERGE.** The nine steps below. Nothing else is a prerequisite for it.
+3. **Review and tests.** The post-flip checkpoint (POD-3287), the gates run properly against the
+   merged result.
+4. **Fix the issues that review and testing find.** Whatever comes out of step 3.
+5. **Later-phase fixes.** The known post-phase work: POD-3572 (pre-existing failures), POD-3654
+   (watchdog default invariant), POD-3522 (the four apps/mobile typecheck errors).
+6. **ONLY THEN Turso.** POD-3270 (durability port), POD-3271 (database import), POD-3272 (backend
+   enablement), POD-3343 (delete the append spike). Then the post-flip-and-Turso review (POD-3296)
+   and the epic close checkpoint (POD-3288).
+
+**Turso is LAST.** It does not gate the merge and it never did: POD-3649 has no blocking edge to any
+Turso issue, and I have verified that by resolving its edges rather than assuming. Listing the Turso
+phase anywhere before step 6 — including in a "what is left" summary where the reader will take the
+order as a sequence — is wrong and misleads the operator about when the branch can land.
+
 ## The steps, in order
 
 1. **ludovico: refresh main.** `git pull --rebase origin main` into local `main`.
