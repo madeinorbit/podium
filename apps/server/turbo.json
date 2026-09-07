@@ -1115,6 +1115,7 @@
         "src/modules/sessions/session-authz.drain-mail.test.ts",
         "src/modules/sessions/session-authz.owner-await.test.ts",
         "src/modules/sessions/session-authz.ts",
+        "src/modules/sessions/session-binding.test.ts",
         "src/modules/sessions/session-binding.ts",
         "src/modules/sessions/session-by-id.ts",
         "src/modules/sessions/session-client-plane.ts",
