@@ -6,12 +6,13 @@ import {
   type RoomRef,
   SubscriptionRegistry,
 } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { userClientPrincipal } from './client-principal'
 import type { ClientConn } from './client-registry'
 import { ClientRegistry } from './client-registry'
 import {
   PresenceRouting,
+  type PresenceRoutingDeps,
   STREAM_EVICT_AFTER_DROPS,
   STREAM_QUEUE_MAX_FRAMES,
 } from './presence-routing'
@@ -49,39 +50,81 @@ function connection(
 }
 
 function setup(
-  opts: { visible?: boolean | ((principal: Principal) => boolean); now?: () => number } = {},
+  opts: {
+    visible?: boolean | ((principal: Principal) => boolean)
+    now?: () => number
+    prepareVisibility?: PresenceRoutingDeps['prepareVisibility']
+  } = {},
 ) {
   const subscriptions = new SubscriptionRegistry()
   const clients = new ClientRegistry()
   const presence = new PresenceRouting({
     subscriptions,
     clients,
-    visibility: {
+    prepareVisibility: opts.prepareVisibility ?? (async () => ({
       canSee: (principal) =>
         typeof opts.visible === 'function' ? opts.visible(principal) : (opts.visible ?? true),
-    },
+    })),
     ...(opts.now ? { now: opts.now } : {}),
   })
   return { subscriptions, clients, presence }
 }
 
 describe('production presence routing', () => {
-  it('joins with a transport-stamped identity and echoes the stream token', () => {
+  it('joins with a transport-stamped identity and echoes the stream token', async () => {
     const { clients, presence } = setup()
     const alice = connection('alice')
     clients.add(alice.conn)
 
-    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM, token: 'join-1' })
+    // Observe the direct join answer before the separately queued fan-out,
+    // even though snapshot preparation now yields to the microtask queue.
+    const flush = vi.spyOn(presence, 'flushNow').mockImplementation(() => {})
+    try {
+      await presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM, token: 'join-1' })
 
-    expect(alice.sent.at(-1)).toEqual({
-      type: 'presenceRoomState',
-      room: ROOM,
-      members: [{ identity: { kind: 'user', user: FIRST_ADMIN_USER_ID } }],
-      token: 'join-1',
-    })
+      expect(alice.sent.at(-1)).toEqual({
+        type: 'presenceRoomState',
+        room: ROOM,
+        members: [{ identity: { kind: 'user', user: FIRST_ADMIN_USER_ID } }],
+        token: 'join-1',
+      })
+    } finally {
+      flush.mockRestore()
+      presence.flushNow()
+    }
   })
 
-  it('answers hidden and nonexistent rooms with the same non-distinguishing shape', () => {
+  it('waits for preparation and does not revive a connection closed during the read', async () => {
+    let resolve!: (value: Awaited<ReturnType<PresenceRoutingDeps['prepareVisibility']>>) => void
+    const prepared = new Promise<Awaited<ReturnType<PresenceRoutingDeps['prepareVisibility']>>>((done) => { resolve = done })
+    const prepareVisibility = vi.fn(() => prepared)
+    const { clients, presence } = setup({ prepareVisibility })
+    const alice = connection('alice')
+    clients.add(alice.conn)
+    const pending = presence.ensureJoined(alice.conn, ROOM)
+    expect(prepareVisibility).toHaveBeenCalledWith([ROOM])
+    expect(alice.sent).toEqual([])
+    expect(presence.occupancy(ROOM)).toEqual([])
+    presence.disconnect(alice.conn)
+    clients.delete(alice.conn.id)
+    resolve({ canSee: () => true })
+    expect(await pending).toBe(false)
+    expect(presence.occupancy(ROOM)).toEqual([])
+    expect(alice.sent).toEqual([])
+  })
+
+  it('admits nobody when snapshot preparation fails', async () => {
+    const { clients, presence } = setup({
+      prepareVisibility: async () => { throw new Error('snapshot unavailable') },
+    })
+    const alice = connection('alice')
+    clients.add(alice.conn)
+    await expect(presence.ensureJoined(alice.conn, ROOM)).rejects.toThrow('snapshot unavailable')
+    expect(presence.occupancy(ROOM)).toEqual([])
+    expect(alice.sent).toEqual([])
+  })
+
+  it('answers hidden and nonexistent rooms with the same non-distinguishing shape', async () => {
     const hidden = setup({ visible: false })
     const unknown = setup({ visible: false })
     const a = connection('a')
@@ -89,14 +132,14 @@ describe('production presence routing', () => {
     hidden.clients.add(a.conn)
     unknown.clients.add(b.conn)
 
-    hidden.presence.route(a.conn, { type: 'presenceSubscribe', room: ROOM })
-    unknown.presence.route(b.conn, { type: 'presenceSubscribe', room: ROOM })
+    await hidden.presence.route(a.conn, { type: 'presenceSubscribe', room: ROOM })
+    await unknown.presence.route(b.conn, { type: 'presenceSubscribe', room: ROOM })
 
     expect(a.sent.at(-1)).toEqual({ type: 'presenceRoomClosed', room: ROOM })
     expect(b.sent.at(-1)).toEqual(a.sent.at(-1))
   })
 
-  it('does not reveal a present user to a second user who cannot see the room', () => {
+  it('does not reveal a present user to a second user who cannot see the room', async () => {
     const aliceId = asUserId('user:alice')
     const bobId = asUserId('user:bob')
     const { clients, presence } = setup({
@@ -107,9 +150,9 @@ describe('production presence routing', () => {
     clients.add(alice.conn)
     clients.add(bob.conn)
 
-    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
     alice.sent.length = 0
-    presence.route(alice.conn, {
+    void presence.route(alice.conn, {
       type: 'presenceUpdate',
       room: ROOM,
       payload: { cursor: 7 },
@@ -125,12 +168,12 @@ describe('production presence routing', () => {
       member: { identity: { kind: 'user', user: aliceId }, payload: { cursor: 7 } },
     })
 
-    presence.route(bob.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(bob.conn, { type: 'presenceSubscribe', room: ROOM })
 
     expect(bob.sent).toEqual([{ type: 'presenceRoomClosed', room: ROOM }])
   })
 
-  it('shares one registry with the principal feed and derives all leaves on disconnect', () => {
+  it('shares one registry with the principal feed and derives all leaves on disconnect', async () => {
     const { subscriptions, clients, presence } = setup()
     const alice = connection('alice')
     clients.add(alice.conn)
@@ -138,7 +181,7 @@ describe('production presence routing', () => {
       subscriberId: asSubscriberId(alice.conn.id),
       principal: alice.conn.principal,
     })
-    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
 
     expect(subscriptions.keyCount).toBe(2)
     presence.disconnect(alice.conn)
@@ -148,7 +191,7 @@ describe('production presence routing', () => {
     expect(presence.occupancy(ROOM)).toEqual([])
   })
 
-  it('evicts stale rooms when the durable feed reports a rights change', () => {
+  it('evicts stale rooms when the durable feed reports a rights change', async () => {
     let visible = true
     const { subscriptions, clients, presence } = setup({ visible: () => visible })
     const alice = connection('alice')
@@ -157,11 +200,11 @@ describe('production presence routing', () => {
       subscriberId: asSubscriberId(alice.conn.id),
       principal: alice.conn.principal,
     })
-    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
     alice.sent.length = 0
 
     visible = false
-    presence.revalidateSubscribers([asSubscriberId(alice.conn.id)])
+    await presence.revalidateSubscribers([asSubscriberId(alice.conn.id)])
     presence.flushNow()
 
     expect(
@@ -176,7 +219,7 @@ describe('production presence routing', () => {
     expect(alice.sent).toContainEqual({ type: 'presenceRoomClosed', room: ROOM })
   })
 
-  it('drops a pressured stream and evicts only its room subscription', () => {
+  it('drops a pressured stream and evicts only its room subscription', async () => {
     let now = 0
     const { subscriptions, clients, presence } = setup({ now: () => now })
     const slow = connection('slow', () => false)
@@ -187,13 +230,13 @@ describe('production presence routing', () => {
       subscriberId: asSubscriberId(slow.conn.id),
       principal: slow.conn.principal,
     })
-    presence.route(slow.conn, { type: 'presenceSubscribe', room: ROOM })
-    presence.route(actor.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(slow.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(actor.conn, { type: 'presenceSubscribe', room: ROOM })
     slow.sent.length = 0
 
     for (let i = 0; i < STREAM_EVICT_AFTER_DROPS; i += 1) {
       now += 20
-      presence.route(actor.conn, {
+      void presence.route(actor.conn, {
         type: 'presenceUpdate',
         room: ROOM,
         payload: { cursor: i },
@@ -210,7 +253,7 @@ describe('production presence routing', () => {
     expect(clients.get('slow')).toBe(slow.conn)
   })
 
-  it('bounds the undrained outbound queue so a busy room drops rather than buffers', () => {
+  it('bounds the undrained outbound queue so a busy room drops rather than buffers', async () => {
     // Production policy: STREAM_QUEUE_MAX_FRAMES is the depth bound that keeps
     // presence from starving the control plane (ADR 7 Am1 / readiness 3.4).
     // A mutation that raises it to 1e6 must fail this test — so the flood size
@@ -223,7 +266,7 @@ describe('production presence routing', () => {
     // above; frames pile up only because we refuse to drain.
     const watcher = connection('watcher', () => true, asUserId('user:watcher'))
     clients.add(watcher.conn)
-    presence.route(watcher.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(watcher.conn, { type: 'presenceSubscribe', room: ROOM })
     presence.flushNow()
     watcher.sent.length = 0
 
@@ -231,17 +274,18 @@ describe('production presence routing', () => {
     // the flood into one slot. 80 sits between the real bound (64) and any
     // million-scale mutant.
     const flood = 80
-    const actors = Array.from({ length: flood }, (_, i) => {
+    const actors = []
+    for (let i = 0; i < flood; i += 1) {
       const actor = connection(`actor-${i}`, () => true, asUserId(`user:actor-${i}`))
       clients.add(actor.conn)
-      presence.route(actor.conn, { type: 'presenceSubscribe', room: ROOM })
+      await presence.route(actor.conn, { type: 'presenceSubscribe', room: ROOM })
       // Drain join fan-out so the depth bound is measured on the update storm.
       presence.flushNow()
-      return actor
-    })
+      actors.push(actor)
+    }
 
     for (let i = 0; i < flood; i += 1) {
-      presence.route(actors[i]!.conn, {
+      void presence.route(actors[i]!.conn, {
         type: 'presenceUpdate',
         room: ROOM,
         payload: { cursor: i },
@@ -262,21 +306,21 @@ describe('production presence routing', () => {
     expect(watcher.sent).toContainEqual({ type: 'presenceRoomClosed', room: ROOM })
   })
 
-  it('caps inbound cursor publication at 60Hz instead of buffering it', () => {
+  it('caps inbound cursor publication at 60Hz instead of buffering it', async () => {
     const now = 10
     const { clients, presence } = setup({ now: () => now })
     const alice = connection('alice')
     clients.add(alice.conn)
-    presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    await presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
     alice.sent.length = 0
 
-    presence.route(alice.conn, {
+    void presence.route(alice.conn, {
       type: 'presenceUpdate',
       room: ROOM,
       payload: { cursor: 1 },
     })
     for (let cursor = 2; cursor < 100; cursor += 1) {
-      presence.route(alice.conn, {
+      void presence.route(alice.conn, {
         type: 'presenceUpdate',
         room: ROOM,
         payload: { cursor },
@@ -288,11 +332,11 @@ describe('production presence routing', () => {
     expect(alice.sent.filter((message) => message.type === 'presenceRoomDelta')).toHaveLength(1)
   })
 
-  it('retains no presence across disconnect or a fresh registry', () => {
+  it('retains no presence across disconnect or a fresh registry', async () => {
     const first = setup()
     const alice = connection('alice')
     first.clients.add(alice.conn)
-    first.presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
+    await first.presence.route(alice.conn, { type: 'presenceSubscribe', room: ROOM })
     first.presence.disconnect(alice.conn)
 
     const restarted = setup()

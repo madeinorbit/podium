@@ -67,7 +67,7 @@ export interface SessionClientControlPorts {
    */
   sessionOccupancyCount?(sessionId: SessionId): number | undefined
   /** Join/leave session presence room with PTY attach (POD-1081 §5). */
-  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): void
+  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): Promise<boolean>
   sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
 }
 
@@ -194,7 +194,7 @@ export class SessionClientControl {
         )
         await this.ports.inbox.reconcileActiveRenderer(message.sessionId)
         // Watching a terminal is room membership — clientCount derives from it.
-        this.ports.sessionRoomJoin?.(client, message.sessionId)
+        await this.ports.sessionRoomJoin?.(client, message.sessionId)
         this.ports.broadcastSessions()
         this.ports.pushPriorities()
         perf.record(

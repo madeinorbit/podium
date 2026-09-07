@@ -31,7 +31,7 @@ export const STREAM_PUBLISH_MAX_HZ = 60
 export interface PresenceRoutingDeps {
   readonly subscriptions: SubscriptionRegistry
   readonly clients: ClientRegistry
-  readonly visibility: VisibilityResolver
+  readonly prepareVisibility: (rooms: readonly RoomRef[]) => Promise<VisibilityResolver>
   readonly now?: () => number
 }
 
@@ -63,6 +63,7 @@ export class PresenceRouting {
   private readonly lastUpdateAt = new Map<string, number>()
   private readonly pressureDrops = new Map<string, number>()
   private flushScheduled = false
+  private joiningVisibility: VisibilityResolver | undefined
 
   constructor(private readonly deps: PresenceRoutingDeps) {
     this.now = deps.now ?? (() => performance.now())
@@ -71,7 +72,9 @@ export class PresenceRouting {
       streamLiveDelivery(STREAM_QUEUE_MAX_FRAMES, presenceCoalesceKey, STREAM_EVICT_AFTER_DROPS),
     )
     this.port = new StreamPlanePort(deps.subscriptions, this.router, {
-      visibility: deps.visibility,
+      visibility: {
+        canSee: (principal, room) => this.joiningVisibility?.canSee(principal, room) === true,
+      },
       identityOf,
       emit: (subscriberId, frame) => {
         deps.clients.deliverStream(subscriberId, frame)
@@ -83,11 +86,11 @@ export class PresenceRouting {
     return { subscriberId: asSubscriberId(conn.id), principal: conn.principal }
   }
 
-  route(conn: ClientConn, frame: PresenceRoomClientMessage): RoomRef | undefined {
+  async route(conn: ClientConn, frame: PresenceRoomClientMessage): Promise<RoomRef | undefined> {
     const target = this.target(conn)
     switch (frame.type) {
       case 'presenceSubscribe':
-        if (this.port.join(target, frame.room, frame.token)) {
+        if (await this.join(conn, frame.room, frame.token)) {
           this.scheduleFlush()
           return frame.room
         }
@@ -135,10 +138,25 @@ export class PresenceRouting {
    * terminal joins the session room so `clientCount` can be derived from
    * occupancy rather than a second attach counter. Idempotent.
    */
-  ensureJoined(conn: ClientConn, room: RoomRef): boolean {
-    const joined = this.port.join(this.target(conn), room)
+  async ensureJoined(conn: ClientConn, room: RoomRef): Promise<boolean> {
+    const joined = await this.join(conn, room)
     this.scheduleFlush()
     return joined
+  }
+
+  private async join(conn: ClientConn, room: RoomRef, token?: string): Promise<boolean> {
+    const visibility = await this.deps.prepareVisibility([room])
+    // The read may outlive the socket. Never resurrect a disconnected member.
+    if (this.deps.clients.get(conn.id) !== conn) return false
+    // Only the synchronous port pass can see this request's snapshot. No await
+    // inside this scope, and no cached grant survives into the next admission.
+    const previous = this.joiningVisibility
+    this.joiningVisibility = visibility
+    try {
+      return this.port.join(this.target(conn), room, token)
+    } finally {
+      this.joiningVisibility = previous
+    }
   }
 
   /** Inverse of {@link ensureJoined} — detach leaves the session room. */
@@ -152,15 +170,24 @@ export class PresenceRouting {
   }
 
   /** Re-check live rooms after the durable feed reports an evict or rescope. */
-  revalidateSubscribers(subscriberIds: readonly SubscriberId[]): void {
-    for (const subscriberId of subscriberIds) {
+  async revalidateSubscribers(subscriberIds: readonly SubscriberId[]): Promise<void> {
+    const candidates = subscriberIds.flatMap((subscriberId) => {
       const conn = this.deps.clients.get(String(subscriberId))
-      if (!conn) continue
-      for (const key of this.deps.subscriptions.keysOf(subscriberId)) {
+      if (!conn) return []
+      return this.deps.subscriptions.keysOf(subscriberId).flatMap((key) => {
         const room = roomRefFromRoutingKey(key)
-        if (!room || this.deps.visibility.canSee(conn.principal, room) === true) continue
-        this.port.evict(this.target(conn), room)
-      }
+        return room ? [{ conn, subscriberId, key, room }] : []
+      })
+    })
+    if (candidates.length === 0) return
+    const visibility = await this.deps.prepareVisibility(candidates.map(({ room }) => room))
+    for (const { conn, subscriberId, key, room } of candidates) {
+      if (
+        this.deps.clients.get(conn.id) !== conn ||
+        !this.deps.subscriptions.has(key, subscriberId)
+      ) continue
+      if (visibility.canSee(conn.principal, room) === true) continue
+      this.port.evict(this.target(conn), room)
     }
     this.scheduleFlush()
   }

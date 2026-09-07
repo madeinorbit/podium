@@ -182,6 +182,6 @@ export interface SessionLifecycleDeps {
    * Join/leave the session presence room when a PTY attaches or detaches so
    * occupancy and attach stay one mechanism (POD-1081 §5).
    */
-  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): void
+  sessionRoomJoin?(client: ClientConn, sessionId: SessionId): Promise<boolean>
   sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
 }

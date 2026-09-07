@@ -945,15 +945,23 @@ export class SessionRegistry {
     //
     // The entity-kind narrowing stays: it is a fact about what rooms address,
     // not a refusal of a principal.
-    const roomVisibility: VisibilityResolver = {
-      canSee: (principal, ref) =>
-        (ref.kind === 'session' || ref.kind === 'issue') &&
-        kernelVisibilityResolver(visibility).canSee(principal, ref),
+    const prepareRoomVisibility = async (
+      rooms: readonly import('@podium/protocol').RoomRef[],
+    ): Promise<VisibilityResolver> => {
+      const prepared = await visibility.forBatch(rooms.map((room) => ({
+        entity: room.kind,
+        entityId: room.id,
+      })))
+      const resolver = kernelVisibilityResolver(prepared)
+      return {
+        canSee: (principal, ref) =>
+          (ref.kind === 'session' || ref.kind === 'issue') && resolver.canSee(principal, ref),
+      }
     }
     const presence = new PresenceRouting({
       subscriptions,
       clients: clientRegistry,
-      visibility: roomVisibility,
+      prepareVisibility: prepareRoomVisibility,
       now: this.now,
     })
     const feedServing = new FeedServing({

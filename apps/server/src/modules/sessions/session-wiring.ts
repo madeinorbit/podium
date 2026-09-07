@@ -621,7 +621,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)
       : undefined,
     sessionRoomJoin: bag.deps.sessionRoomJoin
-      ? (client, sessionId) => bag.deps.sessionRoomJoin?.(client, sessionId)
+      ? async (client, sessionId) => (await bag.deps.sessionRoomJoin?.(client, sessionId)) === true
       : undefined,
     sessionRoomLeave: bag.deps.sessionRoomLeave
       ? (client, sessionId) => bag.deps.sessionRoomLeave?.(client, sessionId)

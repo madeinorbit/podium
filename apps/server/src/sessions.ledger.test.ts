@@ -619,6 +619,56 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     off()
   })
 
+  it('prepares room grants without admitting unauthorized viewers or counting duplicate tabs', async () => {
+    const registry = await makeRegistry()
+    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const room = { kind: 'session' as const, id: sessionId }
+    const viewer = asUserId('room-viewer')
+    const stranger = asUserId('room-stranger')
+    const ownerMessages: ServerMessage[] = []
+    const viewerMessages: ServerMessage[] = []
+    const deniedMessages: ServerMessage[] = []
+    const owner = attachTestClient(registry.clientGateway, (msg) => ownerMessages.push(msg))
+    const tab = attachTestClient(registry.clientGateway, () => {})
+    const granted = attachTestClient(registry.clientGateway, {
+      userId: viewer, userRole: 'member', send: (msg) => viewerMessages.push(msg),
+    })
+    const denied = attachTestClient(registry.clientGateway, {
+      userId: stranger, userRole: 'member', send: (msg) => deniedMessages.push(msg),
+    })
+    await registry.sessionStore.grants.upsert({
+      resourceKind: 'session', resourceId: sessionId, grantee: viewer, verb: 'read',
+      owner: FIRST_ADMIN_USER_ID, visibility: 'personal', createdAt: new Date().toISOString(),
+      actorKind: 'user', actorId: FIRST_ADMIN_USER_ID, onBehalfOf: null,
+    })
+    for (const id of [owner, tab, granted]) {
+      await registry.clientGateway.routeClientFrame(id, { type: 'presenceSubscribe', room })
+    }
+    expect(ownerMessages).toContainEqual(expect.objectContaining({ type: 'presenceRoomState', room }))
+    expect(viewerMessages).toContainEqual(expect.objectContaining({
+      type: 'presenceRoomState', room,
+      members: [
+        expect.objectContaining({ identity: { kind: 'user', user: FIRST_ADMIN_USER_ID } }),
+        expect.objectContaining({ identity: { kind: 'user', user: viewer } }),
+      ],
+    }))
+    deniedMessages.length = 0
+    await registry.clientGateway.routeClientFrame(denied, { type: 'presenceSubscribe', room, token: 'denied' })
+    expect(deniedMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
+    await registry.modules.sessions.flushBroadcasts()
+    expect((await registry.modules.sessions.listSessions())
+      .find((row) => row.sessionId === sessionId)?.clientCount).toBe(2)
+
+    // A fresh join must read current grants, never reuse the earlier allowance.
+    await registry.clientGateway.routeClientFrame(granted, { type: 'presenceUnsubscribe', room })
+    await registry.sessionStore.grants.remove('session', sessionId, viewer, 'read')
+    viewerMessages.length = 0
+    await registry.clientGateway.routeClientFrame(granted, { type: 'presenceSubscribe', room })
+    expect(viewerMessages).toEqual([{ type: 'presenceRoomClosed', room }])
+    await registry.clientGateway.routeClientFrame(denied, { type: 'attach', sessionId })
+    expect(deniedMessages).toContainEqual({ type: 'terminalOutcome', sessionId, outcome: 'unauthorized' })
+  })
+
   it('retains dirty live-view and machine patches across one append failure', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
