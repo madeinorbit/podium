@@ -71,7 +71,16 @@ never could, so an absolute green is not the bar and never was.
 - Compare **names, not counts**. A count can rise because a fix WORKS — a test that used to time
   out before reaching its assertion now reaches it and fails there.
 - Capture BOTH reporters. The JSON reporter DESTROYS timeout messages (rule 63), so a JSON-only
-  classifier reports zero timeouts however many there are.
+  classifier reports zero timeouts however many there are. And pass the reporters EXPLICITLY on the
+  command line (`--reporter default --reporter json`) with a unique report directory: config-only
+  JSON reporting was observed keeping only ONE file's results out of four while the console printed
+  all 59 tests (POD-3664). A report holding one file of four does not fail — it produces a short,
+  plausible roster in which every missing name reads as "not failing".
+- VERIFY IN YOUR OWN DETACHED CHECKOUT, at the committed SHA, with a clean working tree you have
+  confirmed. Never run a verification arm inside a live worker's worktree: HEAD does not pin the
+  tested content, and a worker mid-mutation will hand you its mutant while `git rev-parse HEAD`
+  still reads correct. I did exactly this on 2026-09-07 and reported a worker's own mutation back
+  to it as a failure of its fix.
 - Read the exit code AND the assertion results; they are independent (rule 64).
 - Regenerate the shard manifest (`bun scripts/server-test-shards.ts --write`) before believing any
   lane result — a new test file in no shard passes directly and never runs in the lanes (rule 41).
