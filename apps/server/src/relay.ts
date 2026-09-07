@@ -1932,7 +1932,7 @@ export class SessionRegistry {
           if (workflowPrincipal.actor.startsWith('session:')) {
             const sessionId = asSessionId(workflowPrincipal.actor.slice('session:'.length))
             try {
-              principal = await principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+              principal = await principalForCapability(await sessionsSvc.capabilityForSession(sessionId))
             } catch {
               principal = undefined
             }
@@ -2157,7 +2157,7 @@ export class SessionRegistry {
       machineName: async (machineId) => (await machines.listMachines()).find((m) => m.id === machineId)?.name,
       notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
       executeServerOp: async (op, sessionId) => {
-        const caller = await workflowCallerForCapability(sessionsSvc.capabilityForSession(sessionId))
+        const caller = await workflowCallerForCapability(await sessionsSvc.capabilityForSession(sessionId))
         if (op.kind === 'workflow-publish') {
           // The approval broker's server-side ops enter by the SAME door every
           // transport uses (POD-732) — the deleted `publish`/`assign` shims were
@@ -2189,7 +2189,7 @@ export class SessionRegistry {
             throw new Error(`unknown target session: ${existingSessionId}`)
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
-          const principal = await resolvePrincipalAsync(sessionsSvc.capabilityForSession(sessionId), {
+          const principal = await resolvePrincipalAsync(await sessionsSvc.capabilityForSession(sessionId), {
             parentSessionOf: async (candidate) =>
               spawnedByParentSessionId(await sessionsSvc.sessionSpawnedBy(candidate)),
             onBehalfOfFor: async (candidate) => (await sessionsSvc.sessionOwner(candidate))?.owner,
@@ -2496,7 +2496,7 @@ export class SessionRegistry {
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
             const sessionId = asSessionId(attribution.actor.id)
-            principal = await principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+            principal = await principalForCapability(await sessionsSvc.capabilityForSession(sessionId))
             if (principal.kind !== 'agent' || principal.onBehalfOf !== userId) {
               throw new Error('shipping requester delegation no longer matches its original actor')
             }

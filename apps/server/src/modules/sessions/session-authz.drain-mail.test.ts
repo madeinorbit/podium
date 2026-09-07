@@ -74,7 +74,7 @@ const WORKER = row('worker', CHILD_ISSUE, 'session:coordinator')
 const STRAY = row('stray', undefined, 'user')
 const ROWS = [COORDINATOR, WORKER, STRAY]
 
-function harness() {
+function harness(issueForCwd: () => Promise<string | null> = async () => null) {
   const get = (sessionId: SessionId) => ROWS.find((s) => s.sessionId === sessionId)
   return new SessionAuthz({
     clientControl: {},
@@ -82,7 +82,7 @@ function harness() {
       issueAccess: {
         has: (id: string) => id === PARENT_ISSUE || id === CHILD_ISSUE,
         ancestorIds: (id: string) => (id === CHILD_ISSUE ? [PARENT_ISSUE] : []),
-        issueForCwd: () => null,
+        issueForCwd,
       },
     },
     listSessions: () => ROWS,
@@ -146,5 +146,34 @@ describe('drain-time authorization of mail rows [POD-3226]', () => {
       sourceMessageId: 'msg_ghost',
     })
     expect(verdict).toEqual({ ok: false, reason: 'session no longer exists' })
+  })
+})
+
+
+describe('session capability resolves async cwd ownership', () => {
+  it('uses the resolved issue ID for a session without an explicit attachment', async () => {
+    const authz = harness(async () => CHILD_ISSUE)
+    expect(await authz.capabilityForSession(STRAY.sessionId)).toEqual({
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: CHILD_ISSUE },
+      actorSessionId: STRAY.sessionId,
+      onBehalfOf: USER,
+    })
+  })
+
+  it('keeps an unowned cwd unscoped', async () => {
+    expect(await harness().capabilityForSession(STRAY.sessionId)).toEqual({
+      role: 'worker',
+      scope: { kind: 'none' },
+      actorSessionId: STRAY.sessionId,
+      onBehalfOf: USER,
+    })
+  })
+
+  it('prefers the explicit attachment without reading cwd ownership', async () => {
+    const authz = harness(async () => { throw new Error('unexpected cwd lookup') })
+    expect((await authz.capabilityForSession(WORKER.sessionId)).scope).toEqual({
+      kind: 'subtree', rootId: CHILD_ISSUE,
+    })
   })
 })

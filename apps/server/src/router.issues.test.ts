@@ -266,7 +266,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       cwd: wt,
       agentKind: 'shell',
     })
-    const cap = registry.modules.sessions.capabilityForSession(sid)
+    const cap = await registry.modules.sessions.capabilityForSession(sid)
     // actorSessionId is stamped so close/unblock events can name their causer (#116).
     expect(cap).toEqual({
       role: 'worker',
@@ -279,7 +279,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       cwd: '/unowned',
       agentKind: 'shell',
     })
-    expect(registry.modules.sessions.capabilityForSession(sid2)).toEqual({
+    expect(await registry.modules.sessions.capabilityForSession(sid2)).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
       actorSessionId: sid2,
@@ -287,7 +287,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     // No session behind the id → no actor to name.
-    expect(registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
+    expect(await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })
