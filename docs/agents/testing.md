@@ -185,8 +185,9 @@ Three admission classes, and the shape of each follows what it is protecting:
   (floored, minimum one) and accepts a positive integer, or `off` on a dedicated host with
   nothing else to protect. A run that finds every slot taken **queues** and prints one line to
   stderr; it is never refused. The slots are files under
-  `$TMPDIR/podium-validation-slots` (override with `PODIUM_VALIDATION_SLOT_DIR`), so the
-  budget is per HOST — every worktree under `.claude/worktrees/*` competes for the same cores
+  `~/.cache/podium/<hostname>/validation-slots` (override with
+  `PODIUM_VALIDATION_SLOT_DIR` for deliberate isolation), independent of task `TMPDIR`. The
+  budget is per user and host — every worktree under `.claude/worktrees/*` competes for the same cores
   and therefore for the same slots. A slot whose holder process is gone, or whose lease
   expired, is reclaimed by the next run that wants it.
 - Full package, integration, acceptance, E2E, browser, performance, agent-smoke,

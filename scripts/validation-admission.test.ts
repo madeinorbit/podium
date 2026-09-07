@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decideTestAdmission } from './test'
 import {
@@ -403,4 +404,81 @@ describe('focused/typecheck slot pool', () => {
       /positive integer/,
     )
   })
+})
+
+// Exercise admission in separate Bun processes: changing options.env alone does
+// not change node:os.tmpdir() in the admission process (the original defect).
+describe('default pool across task temporary directories', () => {
+  it('queues across TMPDIRs, and detects the old split-pool implementation', async () => {
+    const root = temporaryDirectory('podium-default-pool-')
+    const source = fileURLToPath(new URL('./validation-admission.ts', import.meta.url))
+    const original = readFileSync(source, 'utf8')
+    const defaultExpression = "join(homedir(), '.cache', 'podium', hostname(), 'validation-slots')"
+    expect(original).toContain(defaultExpression)
+    const mutant = join(root, 'old-admission.ts')
+    writeFileSync(mutant, original
+      .replace('availableParallelism, homedir, hostname', 'availableParallelism, homedir, hostname, tmpdir')
+      .replace(defaultExpression, "join(tmpdir(), 'podium-validation-slots')"))
+
+    async function observe(module: string, name: string): Promise<string> {
+      const dir = join(root, name)
+      const home = join(dir, 'home')
+      const release = join(dir, 'release')
+      for (const path of [home, join(dir, 'a'), join(dir, 'b')]) mkdirSync(path, { recursive: true })
+      const runner = join(dir, 'runner.ts')
+      writeFileSync(runner, `
+        import { runWithValidationAdmission } from ${JSON.stringify(module)};
+        process.exit(await runWithValidationAdmission('focused',
+          [process.execPath, '-e', process.env.BODY],
+          { cwd: process.cwd(), env: process.env, slotPollIntervalMs: 10 }));
+      `)
+      const children: ReturnType<typeof Bun.spawn>[] = []
+      function start(task: string, body: string) {
+        const child = Bun.spawn([process.execPath, runner], {
+          env: { ...process.env, HOME: home, USERPROFILE: home,
+            TMPDIR: join(dir, task), TMP: join(dir, task), TEMP: join(dir, task),
+            PODIUM_VALIDATION_SLOT_DIR: undefined, PODIUM_VALIDATION_RESOURCE_HELD: undefined,
+            PODIUM_VALIDATION_SLOTS: '1', BODY: body },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        children.push(child)
+        return child
+      }
+      let deadline: ReturnType<typeof setTimeout>
+      const timeout = new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(new Error('admission child made no progress')), 10_000)
+      })
+      const holder = start('a', `console.log('holding');
+        while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(10);`)
+      async function firstOutput(stream: ReadableStream<Uint8Array>): Promise<string> {
+        const reader = stream.getReader()
+        try {
+          const result = await Promise.race([reader.read(), timeout])
+          return new TextDecoder().decode(result.value)
+        } finally { reader.releaseLock() }
+      }
+      try {
+        expect(await firstOutput(holder.stdout as ReadableStream<Uint8Array>)).toContain('holding')
+        const waiter = start('b', "console.log('entered')")
+        const observation = await Promise.race([
+          firstOutput(waiter.stderr as ReadableStream<Uint8Array>),
+          firstOutput(waiter.stdout as ReadableStream<Uint8Array>),
+        ])
+        writeFileSync(release, '')
+        expect(await holder.exited).toBe(0)
+        expect(await waiter.exited).toBe(0)
+        return observation
+      } finally {
+        clearTimeout(deadline!)
+        writeFileSync(release, '')
+        for (const child of children) child.kill('SIGTERM')
+        await Promise.all(children.map(child => child.exited))
+      }
+    }
+
+    // Positive fault injection: the same observer sees entry while the holder
+    // still owns its slot, so the acceptance assertion would reject old code.
+    expect(await observe(mutant, 'negative-control')).toContain('entered')
+    expect(await observe(source, 'candidate')).toContain('validation queued: all 1 validation slots are in use')
+  }, 20_000)
 })

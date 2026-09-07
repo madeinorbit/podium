@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { availableParallelism, tmpdir } from 'node:os'
+import { availableParallelism, homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 
 const HEAVY_TEST_LOCK = 'test:heavy'
@@ -105,10 +105,11 @@ export function resolveValidationSlots(
   return Math.max(1, Math.floor(Math.max(1, cpuCount) / 2))
 }
 
-/** One directory per HOST, not per checkout: agents work in git worktrees under
- *  `.claude/worktrees/*` and every one of them competes for the same cores. */
+/** One directory per user and host, independent of checkout and task TMPDIR.
+ *  Include the hostname because a home directory may be shared between hosts.
+ *  The explicit override is reserved for deliberate pool isolation. */
 function slotDirectory(env: Record<string, string | undefined>): string {
-  return env[VALIDATION_SLOT_DIR_ENV] || join(tmpdir(), 'podium-validation-slots')
+  return env[VALIDATION_SLOT_DIR_ENV] || join(homedir(), '.cache', 'podium', hostname(), 'validation-slots')
 }
 
 function processIsAlive(pid: number): boolean {
