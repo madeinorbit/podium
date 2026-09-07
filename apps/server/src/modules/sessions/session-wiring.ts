@@ -159,17 +159,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.broadcasts = new SessionBroadcastCoordinator({
     hasPendingVolatile: () => bag.repository.hasPendingVolatile(),
     scheduleVolatileCapture: () => bag.repository.scheduleVolatileSessionCapture(),
-    drainVolatileSlice: () => {
+    drainVolatileSlice: async () => {
       if (unslicedVolatile) {
-        bag.repository.flushVolatileSessionCaptures()
+        await bag.repository.flushVolatileSessionCaptures()
         return { remaining: 0 }
       }
-      const result = bag.repository.drainVolatileCaptureSlice()
+      const result = await bag.repository.drainVolatileCaptureSlice()
       return { remaining: result.remaining }
     },
-    flushVolatileCaptures: () => {
-      bag.repository.flushVolatileSessionCaptures()
-    },
+    flushVolatileCaptures: () => bag.repository.flushVolatileSessionCaptures(),
     flushDeltas: () => bag.funnel.flushDeltas(),
   })
   bag.browserOpen = new BrowserOpenGateway({

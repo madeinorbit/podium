@@ -402,7 +402,7 @@ export class SessionRepository {
     return this.durableBaselineFor(sessionId)
   }
 
-  /** Synchronous dispose/test barrier: drain the complete pending set. */
+  /** Async dispose/test barrier: drain the complete pending set. */
   async flushVolatileSessionCaptures(): Promise<MetadataChange[]> {
     const startedAt = performance.now()
     this.clearVolatileSessionCaptureTimer()

@@ -408,7 +408,7 @@ export class SessionLifecycle {
     // Run any coalesced session broadcast + pending delta batch. The durable
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
-    this.flushBroadcasts()
+    await this.flushBroadcasts()
   }
   sessionsGeneration(): number {
     return this.repository.sessionsGeneration()
@@ -828,8 +828,8 @@ export class SessionLifecycle {
   broadcastSessions(): void {
     this.broadcasts.broadcast()
   }
-  flushBroadcasts(): void {
-    this.broadcasts.flush()
+  flushBroadcasts(): Promise<void> {
+    return this.broadcasts.flush()
   }
   async syncChangesSince(
     cursor: number | null,

@@ -24,8 +24,8 @@ const log = createLogger('server:sessions')
 export interface SessionBroadcastPorts {
   hasPendingVolatile(): boolean
   scheduleVolatileCapture(): void
-  drainVolatileSlice(): { remaining: number }
-  flushVolatileCaptures(): void
+  drainVolatileSlice(): Promise<{ remaining: number }>
+  flushVolatileCaptures(): Promise<unknown>
   flushDeltas(): void
 }
 
@@ -33,7 +33,7 @@ export interface SessionBroadcastPorts {
 export class SessionBroadcastCoordinator {
   private cooldown: ReturnType<typeof setTimeout> | null = null
   private pending = false
-  private runningGeneration = -1
+  private running: Promise<void> | null = null
 
   constructor(private readonly ports: SessionBroadcastPorts) {}
 
@@ -47,7 +47,7 @@ export class SessionBroadcastCoordinator {
       this.pending = true
       return
     }
-    this.run()
+    void this.runScheduled()
     this.cooldown = setTimeout(() => {
       this.cooldown = null
       if (!this.pending) return
@@ -61,46 +61,45 @@ export class SessionBroadcastCoordinator {
     this.cooldown.unref?.()
   }
 
-  /** Entry point for the repository's zero-delay slice timer. */
-  runScheduled(): void {
+  /** Background work owns its errors; the repository retains and retries dirty entries. */
+  async runScheduled(): Promise<void> {
     this.pending = false
-    this.run()
+    try {
+      await this.capture(false)
+    } catch (error) {
+      log.warn('coalesced session broadcast failed', { err: error })
+    }
   }
 
-  flush(): void {
+  /** Explicit callers own completion and failure of the full-drain barrier. */
+  async flush(): Promise<void> {
     if (this.cooldown) {
       clearTimeout(this.cooldown)
       this.cooldown = null
     }
     this.pending = false
-    if (this.runningGeneration !== -1) {
-      this.pending = true
-      return
-    }
-    this.runningGeneration = -2
-    try {
-      this.ports.flushVolatileCaptures()
-    } finally {
-      this.runningGeneration = -1
-    }
-    this.ports.flushDeltas()
+    if (this.running) await this.running
+    await this.capture(true)
   }
 
-  private run(): void {
-    const startedAt = performance.now()
-    if (this.runningGeneration !== -1) {
-      this.pending = true
-      perf.record('phase', 'sessionsBroadcast.total', performance.now() - startedAt, DEPLOYMENT)
-      return
+  private capture(full: boolean): Promise<void> {
+    if (this.running) return this.running
+    const run = async () => {
+      const startedAt = performance.now()
+      try {
+        if (full) {
+          await this.ports.flushVolatileCaptures()
+        } else {
+          const { remaining } = await this.ports.drainVolatileSlice()
+          if (remaining > 0) this.ports.scheduleVolatileCapture()
+        }
+        this.ports.flushDeltas()
+      } finally {
+        this.running = null
+        perf.record('phase', 'sessionsBroadcast.total', performance.now() - startedAt, DEPLOYMENT)
+      }
     }
-    this.runningGeneration = -2
-    try {
-      const { remaining } = this.ports.drainVolatileSlice()
-      this.ports.flushDeltas()
-      if (remaining > 0) this.ports.scheduleVolatileCapture()
-    } finally {
-      this.runningGeneration = -1
-    }
-    perf.record('phase', 'sessionsBroadcast.total', performance.now() - startedAt, DEPLOYMENT)
+    this.running = Promise.resolve().then(run)
+    return this.running
   }
 }
