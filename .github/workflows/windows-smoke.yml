@@ -132,7 +132,12 @@ jobs:
             Start-Sleep -Seconds 5
             if ($desktop.HasExited) { throw 'Installed desktop exited after payload startup' }
           } finally {
-            Get-Content $nativeLog -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $env:PODIUM_STATE_DIR 'logs') -Filter '*.ndjson' -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "--- $($_.Name) ---"
+              Get-Content $_.FullName -Tail 80 -ErrorAction SilentlyContinue
+            }
+            Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('Podium.exe', 'podium-cli.exe') } |
+              Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
             taskkill /PID $desktop.Id /T /F 2>$null | Out-Null
           }
           exit 0

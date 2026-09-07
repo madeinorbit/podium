@@ -13,6 +13,7 @@
 
 import { renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
   ApprovalChannelTarget,
@@ -43,6 +44,19 @@ import {
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
+
+/** Source-only parent invocation overrides. Windows Bun binaries use B:/~BUN,
+ * including a percent-encoded tilde in import.meta.url, rather than /$bunfs. */
+export function parentSourceOverrides(moduleUrl: string, executable: string): NodeJS.ProcessEnv {
+  const url = moduleUrl.replaceAll('\\', '/').toLowerCase()
+  if (url.includes('/$bunfs/') || url.includes('/~bun/') || url.includes('/%7ebun/')) {
+    return {}
+  }
+  return {
+    PODIUM_PARENT_BIN: executable,
+    PODIUM_PARENT_CLI: fileURLToPath(new URL('../../../scripts/cli.ts', moduleUrl)),
+  }
+}
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -1523,9 +1537,6 @@ export async function main(
       const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import('@podium/runtime/parent-process')
       const { createParentUpdateSwap } = await import('@podium/runtime/parent-update-swap')
       const { resolveInstallDir } = await import('@podium/runtime/config')
-      const { fileURLToPath } = await import('node:url')
-      const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
-      const compiled = import.meta.url.includes('/$bunfs/')
       const children: Array<'server' | 'daemon'> = [
         ...(plan.includeServer ? (['server'] as const) : []),
         ...(plan.includeDaemon ? (['daemon'] as const) : []),
@@ -1548,12 +1559,7 @@ export async function main(
           : undefined,
         env: {
           ...process.env,
-          ...(compiled
-            ? {}
-            : {
-                PODIUM_PARENT_BIN: process.execPath,
-                PODIUM_PARENT_CLI: cliPath,
-              }),
+          ...parentSourceOverrides(import.meta.url, process.execPath),
         },
         // Disposition 11: schema-gate → verified fetch → swap → VERSION re-read
         // run HERE, in the parent, not in the server that is about to be replaced.

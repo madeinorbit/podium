@@ -7,6 +7,7 @@ import {
   helpText,
   type LaunchPlan,
   portInUseMessage,
+  parentSourceOverrides,
   resolveCliFeatures,
   resolveModePlan,
   resolvePlan,
@@ -942,5 +943,24 @@ describe('portInUseMessage', () => {
     expect(msg).toContain('18787')
     expect(msg.toLowerCase()).toContain('already')
     expect(msg).toContain('http://localhost:18787')
+  })
+})
+
+
+describe('parent compiled runtime', () => {
+  it.each([
+    'file:///$bunfs/root/podium-cli',
+    'file:///B:/~BUN/root/podium-cli.exe',
+    'file:///B:/%7EBUN/root/podium-cli.exe',
+    'file:///B:/%7ebun/root/podium-cli.exe',
+  ])('does not pass virtual source paths to children of %s', (url) => {
+    expect(parentSourceOverrides(url, 'podium-cli.exe')).toEqual({})
+  })
+
+  it('still launches a source checkout through Bun and the real CLI script', () => {
+    expect(parentSourceOverrides('file:///repo/apps/cli/src/cli.ts', '/bin/bun')).toEqual({
+      PODIUM_PARENT_BIN: '/bin/bun',
+      PODIUM_PARENT_CLI: '/repo/scripts/cli.ts',
+    })
   })
 })
