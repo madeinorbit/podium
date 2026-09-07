@@ -127,19 +127,24 @@ const run = async (
 }
 
 /** Start a plan whose first runner never returns; there is nothing to settle. */
-const startOnly = async (engine: OperationEngine) => await engine.start('test')
+const startOnly = async (engine: OperationEngine) => {
+  const result = await engine.start('test')
+  await drainMicrotasks()
+  return result
+}
 
 /**
  * Let the engine's own continuations run, with no clock involved.
  *
  * `whenSettled` is the wrong tool once a runner is deliberately wedged: the
  * work queue is held by that runner on purpose, so waiting for it to drain is
- * waiting for the thing under test not to happen. Draining the microtask queue
- * a bounded number of times is deterministic — every step between a fired fake
- * timer and the resulting persisted state is a promise, never a real timer.
+ * waiting for the thing under test not to happen. An event-loop checkpoint lets
+ * the entire promise chain drain, including asynchronous store continuations,
+ * without counting awaits or advancing the injected clock. No duration elapses
+ * on the fake clock and a deliberately pending runner does not block this.
  */
 const drainMicrotasks = async () => {
-  for (let i = 0; i < 100; i++) await Promise.resolve()
+  await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
 describe('starting an operation', () => {
@@ -387,6 +392,7 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
     await drainMicrotasks()
     expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBe(1)
     expect(ensure).toHaveBeenCalledTimes(2)
+    expect(clock.armed()).toBe(1)
 
     clock.advance(1000)
     await drainMicrotasks()
@@ -405,6 +411,7 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
       }),
     )
     await startOnly(engine)
+    expect(clock.armed()).toBe(1)
 
     clock.advance(400)
     await drainMicrotasks()
@@ -438,7 +445,8 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
         },
       }),
     )
-    await engine.start('test')
+    await startOnly(engine)
+    expect(clock.armed()).toBe(1)
     clock.advance(500)
     release({ state: 'done' })
     await engine.whenSettled('op_1')
@@ -1166,7 +1174,7 @@ describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
         },
       }),
     )
-    await engine.start('test')
+    await startOnly(engine)
     const before = (await store.get('op_1'))?.updatedAt
 
     engine.stop()
