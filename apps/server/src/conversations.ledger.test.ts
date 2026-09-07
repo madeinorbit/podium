@@ -23,8 +23,8 @@ import { openTestStore } from './test-support/open-test-store'
  */
 describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   async function makeRegistry(store?: SessionStore): Promise<SessionRegistry> {
@@ -285,7 +285,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     first.gateway.attachDaemon('m1', () => {})
     push(first, [conv('c1', { title: 't' }), conv('c2')])
-    first.dispose()
+    await first.dispose()
     const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
     // Restart over the same store. Conversations are daemon-fed: boot must NOT
     // reconcile them (an empty list means "not scanned yet", not "all gone").

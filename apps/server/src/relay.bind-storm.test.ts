@@ -108,7 +108,7 @@ describe('bind-storm regression', () => {
     expect(
       new Set([...latest.values()].map((value) => (value as SessionMeta).machineName)),
     ).toEqual(new Set(['one', 'two']))
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
@@ -120,7 +120,7 @@ describe('bind-storm regression', () => {
     expect(
       changes.filter((change) => (change.value as SessionMeta).status === 'live'),
     ).toHaveLength(3)
-    registry.dispose()
+    await registry.dispose()
   })
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', async () => {
@@ -136,6 +136,6 @@ describe('bind-storm regression', () => {
     expect((await registry.modules.machines.listMachines()).find((m) => m.id === 'm1')?.name).toBe(
       'renamed-one',
     )
-    registry.dispose()
+    await registry.dispose()
   })
 })

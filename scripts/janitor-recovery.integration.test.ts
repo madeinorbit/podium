@@ -77,7 +77,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
         expectsResponse: false,
       }
       await seed.messages.addMessage(message)
-      seed.close()
+      await seed.close()
 
       expect(messageStatus(dbPath)).toBe('queued')
       server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })

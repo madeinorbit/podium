@@ -85,7 +85,7 @@ describe('session.exited → lock auto-release wiring', () => {
     expect(
       (await reg.modules.locks.status({ repoPath: REPO, name: 'held-by-survivor' }))[0]?.queue,
     ).toEqual([])
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('killSession releases locks even though the row is deleted before agentExit (finding 1)', async () => {
@@ -94,7 +94,7 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     expect(await lockNames(reg)).toEqual([])
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('kill advances the queue to a live waiter (grant survives the kill)', async () => {
@@ -111,7 +111,7 @@ describe('session.exited → lock auto-release wiring', () => {
     await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     const after = await reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
     expect(after[0]?.holder.sessionId).toBe(waiter)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('hibernation keeps the leases (intentional park, not a death)', async () => {
@@ -132,7 +132,7 @@ describe('session.exited → lock auto-release wiring', () => {
       code: 0,
     })
     expect(await lockNames(reg)).toEqual(['merge:main'])
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('spawnError releases locks too (status flips to exited without an agentExit round-trip)', async () => {
@@ -145,6 +145,6 @@ describe('session.exited → lock auto-release wiring', () => {
       message: 'boom',
     })
     expect(await lockNames(reg)).toEqual([])
-    reg.dispose()
+    await reg.dispose()
   })
 })

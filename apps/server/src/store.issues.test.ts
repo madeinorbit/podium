@@ -264,7 +264,7 @@ describe('per-user issue state (POD-1076)', () => {
     // A write with no identity fails CLOSED; it never falls back to an operator.
     await expect(store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
     ).rejects.toThrow(/no user id/)
-    store.close()
+    await store.close()
   })
 })
 

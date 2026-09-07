@@ -9,8 +9,8 @@ import { REACTIONS } from './reactions'
  * the runtime refuses a principal that would widen visibility.
  */
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterEach(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 const boot = () => REACTIONS.find((reaction) => reaction.id === 'startup.boot-reconcile')!

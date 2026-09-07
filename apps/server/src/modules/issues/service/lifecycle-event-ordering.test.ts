@@ -36,8 +36,8 @@ import { openTestStore } from '../../../test-support/open-test-store'
  */
 describe('issue delete/restore events commit with the row (POD-3505)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const registry of registries.splice(0)) registry.dispose()
+  afterEach(async () => {
+    for (const registry of registries.splice(0)) await registry.dispose()
   })
 
   async function build() {

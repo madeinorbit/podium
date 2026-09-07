@@ -95,7 +95,7 @@ describe('server-owned janitor worker', () => {
         expectsResponse: false,
       }
       await seed.messages.addMessage(message)
-      seed.close()
+      await seed.close()
 
       server = await startServer({
         port: 0,
@@ -177,7 +177,7 @@ describe('server-owned janitor worker', () => {
       expect(version.components?.janitor?.progressVersion).toBeGreaterThan(0)
     } finally {
       await server?.close()
-      worker?.close()
+      await worker?.close()
       if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = priorStateDir
       rmSync(dir, { recursive: true, force: true })

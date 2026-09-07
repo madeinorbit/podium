@@ -45,8 +45,8 @@ const fresh = async (): Promise<SessionRegistry> => {
   registries.push(r)
   return r
 }
-afterAll(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterAll(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 /**

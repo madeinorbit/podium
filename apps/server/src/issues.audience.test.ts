@@ -58,7 +58,7 @@ describe('issues.create provenance (#198)', () => {
       expect(created.needsHuman).toBe(false)
       expect(withWarning(created)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -82,7 +82,7 @@ describe('issues.create provenance (#198)', () => {
       // No orphan-invisible warning: it is board-visible.
       expect(withWarning(created)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -104,7 +104,7 @@ describe('issues.create provenance (#198)', () => {
       expect(created.needsHuman).toBe(false)
       expect(withWarning(created)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -126,7 +126,7 @@ describe('issues.create provenance (#198)', () => {
       expect(created.needsHuman).toBe(false)
       expect(withWarning(created)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -149,7 +149,7 @@ describe('issues.create provenance (#198)', () => {
       // Visible nested under human-audience parent — no orphan warning.
       expect(withWarning(created)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -176,7 +176,7 @@ describe('issues.create provenance (#198)', () => {
       expect(leaf.needsHuman).toBe(false)
       expect(withWarning(leaf)).toBeUndefined()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
   it('rejects agent promotion while allowing operator promotion', async () => {
@@ -202,7 +202,7 @@ describe('issues.create provenance (#198)', () => {
       expect(promoted.stage).toBe('backlog')
       expect(promoted.ready).toBe(true)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })
@@ -256,7 +256,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       )
       expect(dismissed.archived).toBe(true)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -276,7 +276,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
         /operator/i,
       )
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -320,7 +320,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       // Only the two operator-created probes landed — none of the rejected creates.
       expect(after).toBe(before + 2)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -348,7 +348,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
         }),
       ).rejects.toThrow(/operator/i)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })

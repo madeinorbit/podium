@@ -236,7 +236,7 @@ describe('multi-daemon routing', () => {
         machineId: 'm2',
       })
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 

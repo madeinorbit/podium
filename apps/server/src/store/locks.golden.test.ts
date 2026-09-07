@@ -74,7 +74,7 @@ it('reads a lock back exactly as it was written, and reports a missing one as nu
     expect(bare?.holderIssueId).toBeNull()
     expect(bare?.note).toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -90,7 +90,7 @@ it('lists one repo’s locks by name, and leaves another repo’s alone', async 
     expect((await store.locks.listLocks(other)).map((l) => l.name)).toEqual(['aardvark'])
     expect(await store.locks.listLocks(asRepoId('repo-none'))).toEqual([])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -110,7 +110,7 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
       .sort()
     expect(expired).toEqual(['exactly', 'past'])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -131,7 +131,7 @@ it('finds the locks a session holds across repos, and does not count an operator
     expect(await store.locks.listLocksHeldBySession(null as unknown as LockSessionKey)).toEqual([])
     expect(await store.locks.listLocksHeldBySession(OPERATOR_LOCK_SESSION)).toEqual([])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -153,7 +153,7 @@ it('replaces every lease column on a second acquire of the same lock', async () 
     // One row, not two: the conflict target is the whole primary key.
     expect(await store.locks.listLocks(repo)).toHaveLength(1)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -180,7 +180,7 @@ it('renews only for the session that holds the lock, and for the operator whose 
     // A lock that is not there renews as false rather than throwing.
     expect(await store.locks.renewLock(repo, 'absent', s1, later)).toBe(false)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -197,7 +197,7 @@ it('deletes one lock and leaves the rest, and deleting an absent lock is not an 
 
     await store.locks.deleteLock(repo, 'build')
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -226,7 +226,7 @@ it('keeps the waiter queue in arrival order, per lock', async () => {
     expect((await store.locks.listWaiters(repo, 'ship')).map((w) => w.sessionId)).toEqual([s1])
     expect(await store.locks.listWaiters(repo, 'none')).toEqual([])
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -270,7 +270,7 @@ it('re-queueing a waiter updates its ttl and note in place and moves nothing els
     expect(after[0]?.issueId).toBe(asIssueId('iss-1'))
     expect(after[0]?.enqueuedAt).toBe('2026-09-01T00:00:00.000Z')
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -311,6 +311,6 @@ it('removes a waiter by row id and by session, and lists every lock a session wa
       'repo-2/build',
     ])
   } finally {
-    store.close()
+    await store.close()
   }
 })

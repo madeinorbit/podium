@@ -210,6 +210,9 @@ describe('boot-time draft retention', () => {
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('session row missing')
     await store.sessions.upsertSession({ ...row, status: 'exited' })
+    // A restart gives up the old writer before opening the replacement store.
+    await reg1.dispose()
+    await store.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(await reg2.issues.get(draft.id)).not.toBeNull()
     expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)

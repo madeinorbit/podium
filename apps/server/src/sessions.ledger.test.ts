@@ -29,8 +29,8 @@ type ProjectionEvent = {
  */
 describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   async function makeRegistry(store?: SessionStore): Promise<SessionRegistry> {
@@ -266,7 +266,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    first.dispose()
+    await first.dispose()
     const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
     // Offline mutation: rename the row behind the server's back.
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
@@ -496,7 +496,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     first.modules.sessions.flushBroadcasts()
     const generationBeforeRestart = first.modules.sessions.sessionsGeneration()
     const cursorBeforeRestart = (await first.modules.sessions.syncChangesSince(null)).cursor
-    first.dispose()
+    await first.dispose()
 
     const second = await makeRegistry(store)
     const generationAfterRestart = second.modules.sessions.sessionsGeneration()
@@ -964,8 +964,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
  */
 describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   async function makeRegistry(): Promise<SessionRegistry> {

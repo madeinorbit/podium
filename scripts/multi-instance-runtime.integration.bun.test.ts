@@ -114,7 +114,7 @@ function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
 async function seedLegacyNamedState(spec: InstanceSpec): Promise<void> {
   mkdirSync(spec.stateDir, { recursive: true })
   const path = join(spec.stateDir, 'podium.db')
-  ;(await openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734'))).close()
+  ;await (await openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734'))).close()
   const db = openDatabase(path)
   db.prepare('DELETE FROM machines').run()
   db.prepare(

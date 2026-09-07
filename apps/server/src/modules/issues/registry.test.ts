@@ -298,8 +298,8 @@ describe('guardIssueCommand authorization matrix', () => {
     registries.push(r)
     return r
   }
-  afterAll(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterAll(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('reads pass for any role; writes are role-gated (viewer FORBIDDEN)', async () => {
@@ -447,8 +447,8 @@ describe('guardIssueCommand authorization matrix', () => {
 
 describe('Shipping command boundary', () => {
   const registries: SessionRegistry[] = []
-  afterAll(() => {
-    for (const registry of registries.splice(0)) registry.dispose()
+  afterAll(async () => {
+    for (const registry of registries.splice(0)) await registry.dispose()
   })
 
   const harness = async () => {
@@ -840,7 +840,7 @@ describe('issues.get session membership', () => {
       )
       expect(shown.sessions.map((session) => session.agentKind)).not.toContain('shell')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -877,7 +877,7 @@ describe('issue spawn provenance', () => {
         { actor: 'session:comment-agent', onBehalfOf: FIRST_ADMIN_USER_ID },
       ])
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -911,7 +911,7 @@ describe('issue spawn provenance', () => {
       })
       expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user' })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -977,7 +977,7 @@ describe('issue spawn provenance', () => {
       )) as { coordinatorSessionId?: string }
       expect(cleared.coordinatorSessionId).toBeUndefined()
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -1014,7 +1014,7 @@ describe('issue spawn provenance', () => {
       })
       expect((await registry.issues.get(issue.id))?.coordinatorSessionId).toBeUndefined()
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -1080,7 +1080,7 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
       expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
       expect((await pending(sB)).unread).toBe(0)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })

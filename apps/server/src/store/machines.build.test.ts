@@ -21,7 +21,7 @@ describe('machine build report', () => {
     expect(m?.appVersion).toBeNull()
     expect(m?.installKind).toBeNull()
     expect(m?.deliveryCaps).toEqual([])
-    store.close()
+    await store.close()
   })
 
   it('records a reported build', async () => {
@@ -38,7 +38,7 @@ describe('machine build report', () => {
     expect(m?.wireSchemaDigest).toBe('abc')
     expect(m?.installKind).toBe('installed')
     expect(m?.deliveryCaps).toEqual(['update.delivery.feed', 'podium.shipping-train'])
-    store.close()
+    await store.close()
   })
 
   it('overwrites a previous report on reconnect', async () => {
@@ -57,7 +57,7 @@ describe('machine build report', () => {
       '2026-08-04T01:00:00.000Z',
     )
     expect((await store.machines.getMachine('m1'))?.appVersion).toBe('0.4.2')
-    store.close()
+    await store.close()
   })
 
   it('records a partial report from an older daemon', async () => {
@@ -72,7 +72,7 @@ describe('machine build report', () => {
     const m = await store.machines.getMachine('m1')
     expect(m?.appVersion).toBe('0.4.2')
     expect(m?.installKind).toBeNull()
-    store.close()
+    await store.close()
   })
 
   /** POD-2099: the flag the wave planner refuses on has to survive the row. */
@@ -88,7 +88,7 @@ describe('machine build report', () => {
         '2026-08-04T00:00:00.000Z',
       )
       expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
-      store.close()
+      await store.close()
     })
 
     it('records a daemon that reports a desktop shell owns it', async () => {
@@ -101,7 +101,7 @@ describe('machine build report', () => {
         '2026-08-04T00:00:00.000Z',
       )
       expect((await store.machines.getMachine('m1'))?.supervised).toBe(true)
-      store.close()
+      await store.close()
     })
 
     it('clears when a standalone daemon takes the machine over', async () => {
@@ -123,7 +123,7 @@ describe('machine build report', () => {
         '2026-08-04T01:00:00.000Z',
       )
       expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
-      store.close()
+      await store.close()
     })
   })
 })

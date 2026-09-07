@@ -113,8 +113,8 @@ beforeEach(() => {
   process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-oracle-handoff-'))
 })
 
-afterEach(() => {
-  for (const reg of built.splice(0)) reg.dispose()
+afterEach(async () => {
+  for (const reg of built.splice(0)) await reg.dispose()
   if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
   else process.env.PODIUM_STATE_DIR = priorStateDir
 })

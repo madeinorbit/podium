@@ -27,8 +27,8 @@ import { afterCommit } from './synchronous-span'
 
 const stores: SessionStore[] = []
 
-afterEach(() => {
-  for (const store of stores.splice(0)) store.close()
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.close()
 })
 
 /** A store and a Ledger over it, wired the way `relay.ts` wires them. */

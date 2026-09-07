@@ -158,7 +158,7 @@ describe('SessionRegistry', () => {
       await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
       expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -242,7 +242,7 @@ describe('SessionRegistry', () => {
         ),
       ).toHaveLength(1)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -292,7 +292,7 @@ describe('SessionRegistry', () => {
     expect((await metaOf(sessionId))?.spawnedBy).toBe('issue:iss_1')
     // No default at the registry layer: an untagged programmatic create stays unknown.
     expect((await metaOf(anon))?.spawnedBy).toBeUndefined()
-    store.close()
+    await store.close()
     // Survives a restart (round-trips through the sessions table).
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
@@ -741,7 +741,7 @@ describe('SessionRegistry', () => {
     // Notifications never expect an ack, so #468's settle fallback cannot
     // repeatedly nag the coordinator for workflow notices.
     expect(await reg.modules.messages.deliveredUnacked(coordinator)).toEqual([])
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', async () => {
@@ -1701,7 +1701,7 @@ describe('SessionRegistry', () => {
       sessionId,
       title: '✳ rename functionality',
     })
-    store.close()
+    await store.close()
 
     // THE RESTART. The row comes back titled; `titleLocked` does not come back
     // at all, because nothing ever wrote it down.
@@ -1856,8 +1856,8 @@ describe('SessionRegistry', () => {
       cols: 173,
       rows: 47,
     })
-    reg1.dispose() // flushes the coalesced geometry before the graceful restart
-    store1.close()
+    await reg1.dispose() // flushes the coalesced geometry before the graceful restart
+    await store1.close()
 
     // Restart: fresh registry over the same db.
     const store2 = await openTestStore(file, TEST_MACHINE)
@@ -1891,7 +1891,7 @@ describe('SessionRegistry', () => {
         },
       }),
     )
-    store2.close()
+    await store2.close()
   })
 
   it('reattach success: bind on a reconnecting session makes it live', async () => {
@@ -1904,7 +1904,7 @@ describe('SessionRegistry', () => {
       cwd: '/a',
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
-    store1.close()
+    await store1.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
@@ -1946,7 +1946,7 @@ describe('SessionRegistry', () => {
       driverId: 'opencode-server',
     })
     expect((await reg1.modules.sessions.listSessions()).at(0)?.driverFamily).toBe('server')
-    store1.close()
+    await store1.close()
 
     // Restart, and DO NOT attach a daemon — that is the window.
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
@@ -1985,7 +1985,7 @@ describe('SessionRegistry', () => {
       attachKinds: ['engine'],
     })
     expect((await reg1.modules.sessions.listSessions()).at(0)?.attachKinds).toEqual(['engine'])
-    store1.close()
+    await store1.close()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
@@ -2017,7 +2017,7 @@ describe('SessionRegistry', () => {
       message: 'explicit codex-app-server request cannot be honoured',
     })
     expect((await store1.sessions.loadSessions()).at(0)?.selectedDriverId).toBeNull()
-    store1.close()
+    await store1.close()
 
     const store2 = await openTestStore(file, TEST_MACHINE)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
@@ -2025,7 +2025,7 @@ describe('SessionRegistry', () => {
     expect(restored?.status).toBe('exited')
     expect(restored?.driverFamily).toBeUndefined()
     expect((await store2.sessions.loadSessions()).at(0)?.selectedDriverId).toBeNull()
-    store2.close()
+    await store2.close()
   })
 
   it('reattachFailed marks the session exited', async () => {
@@ -2038,7 +2038,7 @@ describe('SessionRegistry', () => {
       cwd: '/a',
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
-    store1.close()
+    await store1.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
@@ -2441,7 +2441,7 @@ describe('agent state', () => {
       expect(telegramRequest).not.toHaveBeenCalled()
       expect(telegram).not.toHaveBeenCalled()
     } finally {
-      store.close()
+      await store.close()
     }
   })
 
@@ -2481,7 +2481,7 @@ describe('agent state', () => {
         notice,
       )
     } finally {
-      store.close()
+      await store.close()
     }
   })
 
@@ -2509,7 +2509,7 @@ describe('agent state', () => {
       expect(ntfy).not.toHaveBeenCalled()
       expect(telegram).not.toHaveBeenCalled()
     } finally {
-      store.close()
+      await store.close()
     }
   })
   it('connects Telegram from a start-code update', async () => {
@@ -2589,7 +2589,7 @@ describe('agent state', () => {
       // the edge.
       expect(resolveTelegramPrincipal(bindings, '99999').ok).toBe(false)
     } finally {
-      store.close()
+      await store.close()
     }
   })
 
@@ -2668,7 +2668,7 @@ describe('agent state', () => {
 
       expect(telegramRequest).not.toHaveBeenCalled()
     } finally {
-      store.close()
+      await store.close()
     }
   })
 })
@@ -3553,9 +3553,9 @@ describe('hibernation', () => {
         seq: 0,
         data: 'eA==',
       })
-      reg.dispose()
+      await reg.dispose()
       // Calling dispose twice must be safe (graceful-shutdown path may double-fire).
-      reg.dispose()
+      await reg.dispose()
       const spy = vi.spyOn(store.sessions, 'upsertSession')
       // Advance well past the 12s flush interval — the timer is cleared, so nothing fires.
       vi.advanceTimersByTime(60_000)
@@ -4118,7 +4118,7 @@ describe('hibernation', () => {
 
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
     expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
@@ -4315,7 +4315,7 @@ describe('hibernation', () => {
         deliveredTo: sessionId,
       })
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -4511,7 +4511,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2)
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('recovers a queued Grok send from the durable process-exit event', async () => {
@@ -4618,7 +4618,7 @@ describe('hibernation', () => {
       outcome: 'committed',
     })
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('deduplicates legacy unfenced exits and clears their guard on spawnError', async () => {
@@ -4680,7 +4680,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('keeps a revoked delegated row durable without waking after exit', async () => {
@@ -4740,7 +4740,7 @@ describe('hibernation', () => {
       'exited',
     )
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('restarts an exited shell fresh in the same cwd — no resume ref needed', async () => {
@@ -5258,7 +5258,7 @@ describe('reconnect identity (hello reclaim)', () => {
         expect((await store.sessions.loadDrafts())[sessionId]).toBeUndefined()
         vi.advanceTimersByTime(1000)
         expect((await store.sessions.loadDrafts())[sessionId]).toBe('real work')
-        store.close()
+        await store.close()
 
         // "Restart": a fresh registry on the same DB replays the persisted draft
         // to the first client to connect (issue #34: survives a full reload).
@@ -5273,7 +5273,7 @@ describe('reconnect identity (hello reclaim)', () => {
             text: 'real work',
           }),
         )
-        store2.close()
+        await store2.close()
       } finally {
         vi.useRealTimers()
       }
@@ -5304,7 +5304,7 @@ describe('reconnect identity (hello reclaim)', () => {
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
         expect((await store.sessions.loadDrafts())[sessionId]).toBeUndefined()
-        store.close()
+        await store.close()
       } finally {
         vi.useRealTimers()
       }
@@ -5628,7 +5628,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
       vi.advanceTimersByTime(1000)
 
       expect((await store.sessions.loadDrafts())[sessionId]).toBe('readable either way')
-      store.close()
+      await store.close()
     } finally {
       vi.useRealTimers()
     }
@@ -5646,8 +5646,8 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     // Exactly what the old build persisted: text and updated_at, no rev, no
     // origin, no history.
     await store.sessions.setDraft(sessionId, 'written before the upgrade')
-    reg.dispose()
-    store.close()
+    await reg.dispose()
+    await store.close()
 
     const store2 = await openTestStore(dbPath)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
@@ -5658,8 +5658,8 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
       sessionId,
       text: 'written before the upgrade',
     })
-    reg2.dispose()
-    store2.close()
+    await reg2.dispose()
+    await store2.close()
   })
 
   /**
@@ -5707,7 +5707,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         expect(persisted!.rev).toBeGreaterThan(0)
         expect(persisted!.rev).toBeLessThanOrEqual(broadcastRev!)
         expect(persisted!.text).toBe('x'.repeat(persisted!.rev))
-        store.close()
+        await store.close()
       } finally {
         vi.useRealTimers()
       }
@@ -5748,7 +5748,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         // …and the open window does not resurrect it when it elapses.
         vi.advanceTimersByTime(2000)
         expect((await store.sessions.loadDraftDocs())[sessionId]).toBeUndefined()
-        store.close()
+        await store.close()
       } finally {
         vi.useRealTimers()
       }
@@ -5779,8 +5779,8 @@ describe('SessionRegistry read state (#124)', () => {
     // read_at is durable — a fresh registry over the same store reads it back.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect((await reg2.modules.sessions.listSessions())[0]?.readAt).toBe(after?.readAt)
-    reg.dispose()
-    reg2.dispose()
+    await reg.dispose()
+    await reg2.dispose()
   })
 
   it('markSessionRead broadcasts a fresh sessionsChanged marking it read', async () => {
@@ -5801,7 +5801,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, unread: false }),
     )
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', async () => {
@@ -5832,8 +5832,8 @@ describe('SessionRegistry read state (#124)', () => {
     expect(feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, unread: true }),
     )
-    reg.dispose()
-    reg2.dispose()
+    await reg.dispose()
+    await reg2.dispose()
   })
 })
 
@@ -6331,7 +6331,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         reportId: 'report-after-restart',
       })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -6427,7 +6427,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
         }),
       )
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6476,7 +6476,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -6556,7 +6556,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       // The fence is a provider-confirmed turn event and arrives later, if at all.
       await expect(answer).resolves.toEqual({ ok: true, requested: 'protocol' })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6594,7 +6594,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       await expect(answer).resolves.toEqual({ ok: false, reason: 'not_running' })
       expect(daemon.filter((message) => message.type === 'input')).toEqual([])
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6623,7 +6623,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         ),
       ).toEqual([])
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -6712,7 +6712,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         status: 'queued',
       })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6759,7 +6759,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6808,7 +6808,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         status: 'queued',
       })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -6865,7 +6865,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -6885,7 +6885,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })
@@ -6959,7 +6959,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
 
       expect(deliveredInputs()).toHaveLength(1)
     } finally {
-      registry.dispose()
+      await registry.dispose()
       vi.useRealTimers()
     }
   })
@@ -7031,7 +7031,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       // And the pass lived: the row behind it was delivered.
       expect(typed.filter((data) => data.includes('the row behind it'))).toHaveLength(1)
     } finally {
-      registry.dispose()
+      await registry.dispose()
       vi.useRealTimers()
     }
   })
@@ -7100,7 +7100,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
       expect(typed.filter((data) => data.includes('reply from the child worker'))).toHaveLength(1)
     } finally {
-      registry.dispose()
+      await registry.dispose()
       vi.useRealTimers()
     }
   })
@@ -7125,7 +7125,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
           }),
         )
       } finally {
-        registry?.dispose()
+        await registry?.dispose()
         reconcile.mockRestore()
         logs.restore()
       }
@@ -7153,7 +7153,7 @@ describe('pending interrupt retraction wiring', () => {
       })).rejects.toThrow('wired pending cancellation write failed')
       expect(cancel).toHaveBeenCalledWith(sessionId, undefined)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })

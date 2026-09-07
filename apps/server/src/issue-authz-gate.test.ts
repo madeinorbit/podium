@@ -35,8 +35,8 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
   })
 }
 
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 const viewer: Capability = { role: 'viewer', scope: { kind: 'all' } }

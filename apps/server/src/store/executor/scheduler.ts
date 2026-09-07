@@ -27,13 +27,15 @@
  * deterministic rather than merely usually right.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { BusyRetryPolicy, DriverSession, Lane, StoreDriver } from './driver'
-import { SchedulerClosedError } from './errors'
+import { SchedulerClosedError, StaleTransactionError } from './errors'
 
 export interface Lease {
   readonly id: number
   readonly lane: Lane
   readonly session: DriverSession
+  active(): boolean
   /**
    * Open this lane's transaction, with the driver's bounded busy retry. It is
    * here rather than on the session because the retry is the SCHEDULER's
@@ -90,6 +92,10 @@ export interface WatchdogReport {
 
 export interface SchedulerOptions {
   driver: StoreDriver<unknown>
+  /** Boot may keep the scheduler open for exclusive setup before its first ordinary operation. */
+  startOpen?: boolean
+  /** Grace for a parked body during shutdown. Driver calls are allowed to settle before rollback. */
+  drainGraceMs?: number
   /**
    * Reports a lease that has gone QUIET past its budget — `budgetMs` with no
    * driver call settling and none in flight. It is a gap, not a duration: see
@@ -120,7 +126,7 @@ export interface SchedulerOptions {
   onIdleFailure?: (error: unknown) => void
 }
 
-export type SchedulerState = 'accepting' | 'draining' | 'closed'
+export type SchedulerState = 'open' | 'accepting' | 'draining' | 'closed'
 
 export interface Scheduler {
   readonly state: SchedulerState
@@ -130,10 +136,13 @@ export interface Scheduler {
    * inside an open body. Rejects when the driver has no such connection.
    */
   detachedRead<T>(body: (session: DriverSession) => Promise<T>): Promise<T>
+  /** Retained effects may finish root writes during the bounded shutdown window. */
+  retain<T>(body: () => T): T
+  settled(): Promise<void>
   /** Called when the scheduler has nothing in flight and nothing queued. */
   onIdle(listener: () => void): () => void
   /** Stop accepting work, drain what is queued, close the driver. */
-  close(): Promise<void>
+  close(persist?: () => Promise<void>): Promise<void>
 }
 
 type LeaseOutcome<T> =
@@ -182,10 +191,14 @@ function leaseActivity(
   /** The session to give the lease: every call through it stamps the clock. */
   readonly session: DriverSession
   idleMs(): number
+  active(): boolean
+  revoke(): Promise<void>
   /** Arm the gap timer. Returns the stop the lease's `finally` owes it. */
   watch(budgetMs: number, onGap: () => void): () => void
 } {
   let inFlight = 0
+  let active = true
+  let settle: (() => void) | undefined
   let lastSettledAt = now()
   let timer: ReturnType<typeof setTimeout> | undefined
   let budgetMs: number | undefined
@@ -210,6 +223,7 @@ function leaseActivity(
   }
 
   async function track<T>(call: () => Promise<T>): Promise<T> {
+    if (!active) throw new StaleTransactionError('lease revoked during scheduler drain')
     inFlight++
     disarm()
     try {
@@ -219,24 +233,41 @@ function leaseActivity(
       lastSettledAt = now()
       // A REJECTION IS ACTIVITY TOO: the statement reached the engine, so the
       // stream was not quiet, and the next gap is measured from here.
-      if (inFlight === 0) arm()
+      if (inFlight === 0) {
+        settle?.()
+        arm()
+      }
     }
   }
 
   return {
     session: {
       execute: async (statement) => await track(async () => await session.execute(statement)),
-      executeBatch: async (statements) => await track(async () => await session.executeBatch(statements)),
+      executeBatch: async (statements) =>
+        await track(async () => await session.executeBatch(statements)),
       begin: async (lane) => await track(async () => await session.begin(lane)),
       commit: async () => await track(async () => await session.commit()),
       rollback: async () => await track(async () => await session.rollback()),
       enterSavepoint: async (name) => await track(async () => await session.enterSavepoint(name)),
-      releaseSavepoint: async (name) => await track(async () => await session.releaseSavepoint(name)),
-      rollbackToSavepoint: async (name) => await track(async () => await session.rollbackToSavepoint(name)),
+      releaseSavepoint: async (name) =>
+        await track(async () => await session.releaseSavepoint(name)),
+      rollbackToSavepoint: async (name) =>
+        await track(async () => await session.rollbackToSavepoint(name)),
       // NOT TRACKED, deliberately: the scheduler closes the connection after the
       // body has ended and the watch is already stopped, so stamping the clock
       // here could only arm a timer nobody will ever read.
       close: async () => await session.close(),
+    },
+    active: () => active,
+    async revoke() {
+      active = false
+      stopped = true
+      disarm()
+      if (inFlight > 0)
+        await new Promise<void>((resolve) => {
+          settle = resolve
+        })
+      await session.rollback()
     },
     idleMs: () => (inFlight > 0 ? 0 : now() - lastSettledAt),
     watch(budget, gap) {
@@ -318,7 +349,10 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   let writeSlotHeld = false
   let readsInFlight = 0
   let inFlight = 0
-  let state: SchedulerState = 'accepting'
+  let state: SchedulerState = options.startOpen ? 'open' : 'accepting'
+  const drainers = new Set<() => void>()
+  const shutdownScope = new AsyncLocalStorage<{ active: boolean }>()
+  let persistenceSettled = true
   let nextLeaseId = 1
   let closing: Promise<void> | undefined
   let finishClose: (() => void) | undefined
@@ -364,7 +398,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
           reportIdleFailure(error)
         }
       }
-      finishClose?.()
+      if (persistenceSettled) finishClose?.()
     }
   }
 
@@ -379,7 +413,14 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   }
 
   async function runLease<T>(lane: Lane, body: (lease: Lease) => Promise<T>): Promise<T> {
-    if (state !== 'accepting') throw new SchedulerClosedError(`scheduler is ${state}`)
+    if (state === 'open' && lane !== 'exclusive') state = 'accepting'
+    if (
+      state !== 'accepting' &&
+      !(state === 'open' && lane === 'exclusive') &&
+      !(state === 'draining' && !persistenceSettled && shutdownScope.getStore()?.active)
+    ) {
+      throw new SchedulerClosedError(`scheduler is ${state}`)
+    }
     const queued = admit(lane)
     if (queued) await queued
     /**
@@ -407,7 +448,9 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
           id: nextLeaseId++,
           lane,
           session: observed,
-          begin: async (beginLane: Lane) => await withBusyRetry(async () => await observed.begin(beginLane)),
+          active: activity.active,
+          begin: async (beginLane: Lane) =>
+            await withBusyRetry(async () => await observed.begin(beginLane)),
           atomicWrite: async (attempt) => await withBusyRetry(attempt),
           heldMs: () => now() - startedAt,
           idleMs: () => activity.idleMs(),
@@ -424,10 +467,31 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
               })
             })
           : undefined
+        let drainTimer: ReturnType<typeof setTimeout> | undefined
+        let revoking: Promise<void> | undefined
+        let rejectDrain: (error: unknown) => void = () => undefined
+        const revoked = new Promise<never>((_, reject) => {
+          rejectDrain = reject
+        })
+        const drain = (): void => {
+          if (drainTimer !== undefined || lane === 'exclusive') return
+          drainTimer = setTimeout(() => {
+            revoking = activity.revoke()
+            void revoking.then(
+              () => rejectDrain(new StaleTransactionError('lease revoked during scheduler drain')),
+              rejectDrain,
+            )
+          }, options.drainGraceMs ?? 1_000)
+        }
+        drainers.add(drain)
+        if (state === 'draining') drain()
         try {
-          return { ok: true, value: await body(lease) }
+          return { ok: true, value: await Promise.race([body(lease), revoked]) }
         } finally {
+          drainers.delete(drain)
+          if (drainTimer !== undefined) clearTimeout(drainTimer)
           stopWatch?.()
+          if (revoking) await revoking
         }
       } catch (error) {
         return { ok: false, error }
@@ -483,38 +547,106 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
             'uncommitted rows or deadlock behind the write lane',
         )
       }
-      const session = await openReader.call(driver)
+      inFlight++
+      let session: DriverSession | undefined
+      let drainTimer: ReturnType<typeof setTimeout> | undefined
+      let revoking: Promise<void> | undefined
+      let drain: (() => void) | undefined
       let outcome: LeaseOutcome<T>
       try {
-        outcome = { ok: true, value: await body(session) }
+        session = await openReader.call(driver)
+        const activity = leaseActivity(session, now)
+        let rejectDrain: (error: unknown) => void = () => undefined
+        const revoked = new Promise<never>((_, reject) => {
+          rejectDrain = reject
+        })
+        drain = () => {
+          if (drainTimer !== undefined) return
+          drainTimer = setTimeout(() => {
+            revoking = activity.revoke()
+            void revoking.then(
+              () =>
+                rejectDrain(
+                  new StaleTransactionError('detached reader revoked during scheduler drain'),
+                ),
+              rejectDrain,
+            )
+          }, options.drainGraceMs ?? 1_000)
+        }
+        drainers.add(drain)
+        if (state === 'draining') drain()
+        outcome = { ok: true, value: await Promise.race([body(activity.session), revoked]) }
       } catch (error) {
         outcome = { ok: false, error }
-      }
-      try {
-        await session.close()
-      } catch (closeError) {
-        outcome = closeOutcome(outcome, closeError)
+      } finally {
+        if (drain) drainers.delete(drain)
+        if (drainTimer !== undefined) clearTimeout(drainTimer)
+        try {
+          if (revoking) {
+            try {
+              await revoking
+            } catch (error) {
+              outcome = closeOutcome(outcome!, error)
+            }
+          }
+          await session?.close()
+        } catch (error) {
+          outcome = closeOutcome(outcome!, error)
+        } finally {
+          inFlight--
+          pump()
+        }
       }
       if (outcome.ok) return outcome.value
       throw outcome.error
+    },
+
+    retain(body) {
+      return shutdownScope.run({ active: true }, body)
+    },
+    async settled() {
+      if (inFlight === 0 && pending.length === 0) return
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          idleListeners.delete(done)
+          resolve()
+        }
+        idleListeners.add(done)
+      })
     },
     onIdle(listener) {
       idleListeners.add(listener)
       return () => idleListeners.delete(listener)
     },
-    close() {
+    close(persist) {
       if (closing) return closing
       state = 'draining'
-      closing = new Promise<void>((resolve) => {
+      persistenceSettled = false
+      for (const drain of drainers) drain()
+      const idle = new Promise<void>((resolve) => {
         finishClose = () => {
           finishClose = undefined
           resolve()
         }
-        if (inFlight === 0 && pending.length === 0) finishClose()
-      }).then(async () => {
-        await driver.close()
-        state = 'closed'
       })
+      // Only the awaited shutdown callback may submit persistence after intake
+      // closes. Its permission dies before the driver closes, including copies
+      // inherited by continuations that the callback forgot to await.
+      closing = (async () => {
+        const permission = { active: true }
+        try {
+          await shutdownScope.run(permission, async () => {
+            await persist?.()
+          })
+        } finally {
+          permission.active = false
+          persistenceSettled = true
+          pump()
+          await idle
+          await driver.close()
+          state = 'closed'
+        }
+      })()
       return closing
     },
   }

@@ -149,7 +149,7 @@ describe('bounded shipwright patch contract', () => {
         content: 'bounded evidence',
       } as never),
     ).toBe(ref)
-    firstStore.close()
+    await firstStore.close()
 
     const restartedStore = await openTestStore(dbPath)
     const restarted = new ShippingEvidenceRegistry(restartedStore.shipping)
@@ -180,7 +180,7 @@ describe('bounded shipwright patch contract', () => {
         content: 'changed evidence',
       } as never),
     ).rejects.toThrow(/immutable collision/)
-    restartedStore.close()
+    await restartedStore.close()
     rmSync(root, { recursive: true, force: true })
   })
 })

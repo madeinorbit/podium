@@ -38,7 +38,7 @@ describe('sortKey minting on create (POD-168)', () => {
       expect(kc < kb).toBe(true)
       expect(kb < ka).toBe(true)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -66,7 +66,7 @@ describe('sortKey minting on create (POD-168)', () => {
       expect(c1.sortKey).toBe(first.sortKey)
       expect((c2.sortKey ?? '') < (c1.sortKey ?? '~')).toBe(true)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -79,7 +79,7 @@ describe('sortKey minting on create (POD-168)', () => {
       // Second repo's first issue seeds fresh — not below repo1's key.
       expect(b.sortKey).toBe(a.sortKey)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })
@@ -95,7 +95,7 @@ describe('sortKey update patch (POD-168)', () => {
       const listed = await op.issues.list({ repoPath: '/r' })
       expect(listed.find((i) => i.id === a.id)?.sortKey).toBe('x2c')
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -108,7 +108,7 @@ describe('sortKey update patch (POD-168)', () => {
       await expect(op.issues.update({ id: a.id, patch: { sortKey: 'a0' } })).rejects.toThrow()
       await expect(op.issues.update({ id: a.id, patch: { sortKey: '' } })).rejects.toThrow()
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 
@@ -123,7 +123,7 @@ describe('sortKey update patch (POD-168)', () => {
       const unpinned = await op.issues.update({ id: a.id, patch: { pinned: false } })
       expect((unpinned as { sortKey?: string }).sortKey).toBe(key)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })
@@ -181,7 +181,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       // reshuffled the column would be worse than the long keys it replaces.
       expect(rows.map((r) => r.id)).toEqual([...ids].reverse())
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   }, 60_000)
 
@@ -220,7 +220,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
         expect(row.sortKey).toBe(before.find((r) => r.id === row.id)?.sortKey)
       }
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   }, 60_000)
 
@@ -274,7 +274,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       expect(healed[0]?.title).toBe('fresh')
       expect(healed[1]?.id).toBe(moved.id)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   }, 60_000)
 
@@ -324,7 +324,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       expect(restored[at - 1]).toBe(order[4])
       expect(restored[at + 1]).toBe(order[6])
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   }, 60_000)
 
@@ -339,7 +339,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       expect(rows.find((r) => r.id === a.id)?.sortKey).toBe(a.sortKey)
       expect(rows.find((r) => r.id === b.id)?.sortKey).toBe(b.sortKey)
     } finally {
-      reg.dispose()
+      await reg.dispose()
     }
   })
 })

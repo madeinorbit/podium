@@ -28,9 +28,9 @@ import {
 import { ShippingEvidenceRegistry } from './shipwright'
 
 const stores: SessionStore[] = []
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers()
-  for (const store of stores.splice(0)) store.close()
+  for (const store of stores.splice(0)) await store.close()
 })
 
 async function harness(

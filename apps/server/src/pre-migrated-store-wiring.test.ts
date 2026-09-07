@@ -49,7 +49,7 @@ describe('pre-migrated store fixture wiring [POD-523]', () => {
     // @ts-expect-error private db — this test's subject is how the db was built
     const ledger = appliedDrizzleNames(store.db)
     expect(ledger.size).toBe(DRIZZLE_MIGRATIONS.length)
-    store.close()
+    await store.close()
   })
 })
 

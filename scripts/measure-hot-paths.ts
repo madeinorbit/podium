@@ -408,8 +408,8 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       probe.stop()
     }
   } finally {
-    fixture.registry.dispose()
-    fixture.store.close()
+    await fixture.registry.dispose()
+    await fixture.store.close()
   }
 }
 
@@ -482,8 +482,8 @@ async function measureFrames(): Promise<Report> {
       },
     }
   } finally {
-    fixture.registry.dispose()
-    fixture.store.close()
+    await fixture.registry.dispose()
+    await fixture.store.close()
   }
 }
 

@@ -30,8 +30,8 @@ describe('approval broker relay e2e (#410)', () => {
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   const relay = async (proc: string, input: unknown): Promise<RelayResult> => {

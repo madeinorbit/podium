@@ -21,7 +21,7 @@
  * runner while this process keeps serving requests.
  */
 
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '@podium/logger'
@@ -70,7 +70,15 @@ export type SnapshotChildRunner = (
   signal: AbortSignal,
 ) => Promise<SnapshotChildOutcome>
 
+export type SnapshotProcessSpawner = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess
+
 export interface SnapshotVerifierDeps {
+  /** Process seam shared by foreground and background verification. */
+  spawnProcess?: SnapshotProcessSpawner
   runChild?: SnapshotChildRunner
   now?: () => number
   keep?: number
@@ -92,12 +100,14 @@ export function spawnSnapshotVerifierChild(
   request: VerifySnapshotRequest,
   timeoutMs: number,
   deps: {
-    spawnProcess?: typeof spawn
+    spawnProcess?: SnapshotProcessSpawner
     execPath?: string
     compiled?: boolean
     killGraceMs?: number
     /** Shutdown seam: aborting terminates the child on the same escalation. */
     signal?: AbortSignal
+    /** Tracks actual process termination separately from the bounded result deadline. */
+    onChildLifetime?: (exited: Promise<void>) => void
   } = {},
 ): Promise<SnapshotChildOutcome> {
   const spawnProcess = deps.spawnProcess ?? spawn
@@ -126,6 +136,12 @@ export function spawnSnapshotVerifierChild(
       return
     }
 
+    let exited: () => void = () => undefined
+    deps.onChildLifetime?.(
+      new Promise<void>((resolve) => {
+        exited = resolve
+      }),
+    )
     let stdout = ''
     let stderr = ''
     let settled = false
@@ -141,6 +157,7 @@ export function spawnSnapshotVerifierChild(
     }
     let detachAbort: () => void = () => {}
     const childGone = (): void => {
+      exited()
       if (killTimer) clearTimeout(killTimer)
       killTimer = undefined
       detachAbort()
@@ -182,12 +199,6 @@ export function spawnSnapshotVerifierChild(
       terminate()
       finish({ failure: { code: 'cancelled', detail: 'the verifier was shut down' } })
     }
-    if (deps.signal?.aborted) {
-      onAbort()
-      return
-    }
-    deps.signal?.addEventListener('abort', onAbort, { once: true })
-    detachAbort = () => deps.signal?.removeEventListener('abort', onAbort)
 
     child.once('error', (error: Error) => {
       childGone()
@@ -222,6 +233,12 @@ export function spawnSnapshotVerifierChild(
         })
       }
     })
+    // Install exit listeners before handling an already-aborted signal.
+    if (deps.signal?.aborted) onAbort()
+    else {
+      deps.signal?.addEventListener('abort', onAbort, { once: true })
+      detachAbort = () => deps.signal?.removeEventListener('abort', onAbort)
+    }
   })
 }
 
@@ -233,6 +250,8 @@ export class SnapshotVerifier {
   private inFlight: Promise<SnapshotVerification> | undefined
   private backgroundQueued = false
   private closed = false
+  private closing: Promise<void> | undefined
+  private readonly children = new Set<Promise<void>>()
   /** Aborted by {@link close}; the in-flight child dies with the server. */
   private readonly lifetime = new AbortController()
 
@@ -385,6 +404,9 @@ export class SnapshotVerifier {
         await previous
       } catch {}
     }
+    if (this.closed) {
+      return { ok: false, code: 'stopped', detail: 'the verifier is shut down', durationMs: 0 }
+    }
     const run = this.runOnce(path, expectedSchemaVersion)
     this.inFlight = run
     try {
@@ -417,7 +439,16 @@ export class SnapshotVerifier {
     const timeoutMs = this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS
     const runChild =
       this.deps.runChild ??
-      (async (request, ms, signal) => await spawnSnapshotVerifierChild(request, ms, { signal }))
+      (async (request, ms, signal) =>
+        await spawnSnapshotVerifierChild(request, ms, {
+          signal,
+          ...(this.deps.spawnProcess ? { spawnProcess: this.deps.spawnProcess } : {}),
+          onChildLifetime: (exited) => {
+            this.children.add(exited)
+            // Lifetime bookkeeping is detached from the result deadline; close awaits it.
+            void exited.then(() => this.children.delete(exited))
+          },
+        }))
     const request: VerifySnapshotRequest = {
       path,
       expected,
@@ -535,20 +566,26 @@ export class SnapshotVerifier {
     const candidate = verificationCandidates(this.recordsIncludingLegacy())[0]
     if (!candidate) return false
     this.backgroundQueued = true
+    this.deferBackground(candidate.path, () => this.verify(candidate.path))
+    return true
+  }
+
+  /** A deliberate deferral whose provider must return the completion promise. */
+  private deferBackground(path: string, start: () => Promise<SnapshotVerification>): void {
     const schedule = this.deps.schedule ?? ((fn: () => void) => void setImmediate(fn))
     schedule(() => {
-      void this.verify(candidate.path)
+      if (this.closed) {
+        this.backgroundQueued = false
+        return
+      }
+      void start()
         .catch((error: unknown) => {
-          log.warn('background recovery snapshot verification failed', {
-            path: candidate.path,
-            err: error,
-          })
+          log.warn('background recovery snapshot verification failed', { path, err: error })
         })
         .finally(() => {
           this.backgroundQueued = false
         })
     })
-    return true
   }
 
   /**
@@ -559,9 +596,13 @@ export class SnapshotVerifier {
    * outlives the server that started it. Aborting the lifetime signal runs the
    * same SIGTERM → grace → SIGKILL escalation the deadline uses.
    */
-  close(): void {
-    if (this.closed) return
+  close(): Promise<void> {
+    if (this.closing) return this.closing
     this.closed = true
     this.lifetime.abort()
+    // The result can settle at the deadline BEFORE SIGKILL takes effect. Await
+    // the child close event as well, so no scan outlives database shutdown.
+    this.closing = Promise.allSettled([this.inFlight, ...this.children]).then(() => undefined)
+    return this.closing
   }
 }

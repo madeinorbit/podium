@@ -321,7 +321,7 @@ describe('queueText (durable outbox sends)', () => {
         sessionId: asSessionId(sessionId),
         code: 137,
       })
-      regA.dispose()
+      await regA.dispose()
 
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
@@ -355,7 +355,7 @@ describe('queueText (durable outbox sends)', () => {
       confirmUserTurn(regB, sessionId, 'wake')
       advanceUntilSettled(regB, sessionId, 'wake')
       expect(await storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
-      regB.dispose()
+      await regB.dispose()
     } finally {
       vi.useRealTimers()
     }
@@ -419,7 +419,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(await reg.modules.automations.runs(automation.id)).toHaveLength(1)
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(1)
     } finally {
-      reg.dispose()
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
@@ -471,8 +471,8 @@ describe('queueText (durable outbox sends)', () => {
 
       await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
-      regA.dispose()
-      storeA.close()
+      await regA.dispose()
+      await storeA.close()
 
       // Restart: fresh store + registry over the same DB file.
       const storeB = await openTestStore(file, TEST_MACHINE)
@@ -503,8 +503,8 @@ describe('queueText (durable outbox sends)', () => {
       // Exactly once across the restart — the row the old process queued was
       // typed by the new one, not by both.
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
-      regB.dispose()
-      storeB.close()
+      await regB.dispose()
+      await storeB.close()
     } finally {
       vi.useRealTimers()
     }

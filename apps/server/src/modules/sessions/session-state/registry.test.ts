@@ -30,8 +30,8 @@ import {
 } from './registry'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const reg of registries.splice(0)) reg.dispose()
+afterEach(async () => {
+  for (const reg of registries.splice(0)) await reg.dispose()
 })
 
 const ALICE = asUserId('user:alice')

@@ -55,7 +55,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
       '2026-01-07T00:00:00Z',
     ])
     expect(new Set(rows.map((r) => r.subject))).toEqual(new Set(['a']))
-    store.close()
+    await store.close()
   })
 
   it('breaks a prior-row timestamp tie by the highest id', async () => {
@@ -84,7 +84,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
 
     expect(rows).toHaveLength(1)
     expect(rows[0]?.id).toBe(second)
-    store.close()
+    await store.close()
   })
 
   it('returns only the window when the subject has no row before it', async () => {
@@ -101,7 +101,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
     )
 
     expect(rows.map((r) => r.subject)).toEqual(['a'])
-    store.close()
+    await store.close()
   })
 
   it('narrows by kind as well as subject', async () => {
@@ -116,7 +116,7 @@ describe('EventsRepository: listKindSubjectSinceWithPrior (no test executes this
     )
 
     expect(rows.map((r) => r.kind)).toEqual(['phase'])
-    store.close()
+    await store.close()
   })
 })
 
@@ -127,7 +127,7 @@ describe('EventsRepository: saveRuntimeEventProjectionCursor (executed, never na
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(10)
     await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, 't2')
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
-    store.close()
+    await store.close()
   })
 
   it('REFUSES to move the cursor backwards — the guard is in the upsert, not the caller', async () => {
@@ -140,7 +140,7 @@ describe('EventsRepository: saveRuntimeEventProjectionCursor (executed, never na
     // conversion that keeps the upsert and drops its WHERE is silent here.
     await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 5, 't2')
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
-    store.close()
+    await store.close()
   })
 
   it('keeps projectors independent', async () => {
@@ -152,13 +152,13 @@ describe('EventsRepository: saveRuntimeEventProjectionCursor (executed, never na
     await store.events.saveRuntimeEventProjectionCursor('runtime.board.v1', 25, 't1')
     expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(25)
     expect(await store.events.runtimeEventProjectionCursor('other.projector')).toBe(0)
-    store.close()
+    await store.close()
   })
 
   it('reads an unknown projector as 0 rather than refusing', async () => {
     const store = await openTestStore(':memory:')
     expect(await store.events.runtimeEventProjectionCursor('never-written')).toBe(0)
-    store.close()
+    await store.close()
   })
 })
 
@@ -191,7 +191,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       closedTurnEpoch: 4,
       updatedAt: 't2',
     })
-    store.close()
+    await store.close()
   })
 
   it('keeps a null closedTurnEpoch null rather than reading it as 0', async () => {
@@ -208,7 +208,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
     // `Number(null)` is 0, so the mapper's explicit null check is the only thing
     // standing between "no turn has closed" and "turn 0 closed".
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.closedTurnEpoch).toBeNull()
-    store.close()
+    await store.close()
   })
 
   it('keeps one checkpoint per session', async () => {
@@ -236,7 +236,7 @@ describe('EventsRepository: saveRuntimeEventCheckpoint (executed, never named)',
       (await store.events.runtimeEventCheckpoint(asSessionId('ses_b')))?.observerGeneration,
     ).toBe(9)
     expect(await store.events.runtimeEventCheckpoint(asSessionId('ses_missing'))).toBeNull()
-    store.close()
+    await store.close()
   })
 })
 
@@ -260,7 +260,7 @@ describe('EventsRepository: listRuntimeEventsAfter (executed, never named)', () 
 
     expect(after.map((r) => r.id)).toEqual([ids[1], ids[2]])
     expect(after.every((r) => r.sessionId === sessionId)).toBe(true)
-    store.close()
+    await store.close()
   })
 
   it('ignores rows of any other kind, whatever their id', async () => {
@@ -280,7 +280,7 @@ describe('EventsRepository: listRuntimeEventsAfter (executed, never named)', () 
     const after = await store.events.listRuntimeEventsAfter(0, 128)
 
     expect(after.map((r) => r.id)).toEqual([runtimeId])
-    store.close()
+    await store.close()
   })
 })
 
@@ -302,7 +302,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
 
     await store.events.announceEvent(id)
     expect(seen).toEqual([id])
-    store.close()
+    await store.close()
   })
 
   it('announces an ordinary append by itself', async () => {
@@ -317,7 +317,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     // announcement without the append growing a second listener.
     const id = await store.events.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_1' })
     expect(seen).toEqual([id])
-    store.close()
+    await store.close()
   })
 
   it('hands the listener the stored row, not the caller argument', async () => {
@@ -341,7 +341,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     expect(announced).toEqual([
       { ts: 'ts-1', kind: 'issue.created', subject: 'iss_1', repoPath: '/r' },
     ])
-    store.close()
+    await store.close()
   })
 
   it('refuses an unknown id — but only once a listener is installed', async () => {
@@ -356,7 +356,7 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     await expect((async () => await store.events.announceEvent(9999))()).rejects.toThrow(
       /unknown podium event 9999/,
     )
-    store.close()
+    await store.close()
   })
 })
 
@@ -392,7 +392,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
       deliverNotify: true,
       enabled: true,
     })
-    store.close()
+    await store.close()
   })
 
   it('round-trips all three flags clear', async () => {
@@ -403,7 +403,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
       deliverNotify: false,
       enabled: false,
     })
-    store.close()
+    await store.close()
   })
 
   it('filters on enabled in SQL, not on a mapped value', async () => {
@@ -413,7 +413,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
     // `listEnabledSubscriptions` compares the column in the WHERE clause, so it
     // is a second place the declared mode has to be honoured.
     expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual(['sub_on'])
-    store.close()
+    await store.close()
   })
 
   it('setSubscriptionEnabled flips the stored flag both ways', async () => {
@@ -425,7 +425,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
     expect((await store.events.getSubscription('sub_1'))?.enabled).toBe(false)
     // No row: no update.
     expect(await store.events.setSubscriptionEnabled('sub_missing', true)).toBe(false)
-    store.close()
+    await store.close()
   })
 
   it('listSubscriptions carries the flags too', async () => {
@@ -436,7 +436,7 @@ describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
     expect(await store.events.listSubscriptions({ subscriberId: 'ses_1' })).toMatchObject([
       { deliverNudge: true, deliverNotify: false, enabled: true },
     ])
-    store.close()
+    await store.close()
   })
 })
 
@@ -451,7 +451,7 @@ describe('EventsRepository: activateJanitorSteward (executed, never named)', () 
     expect(claimed).toBe(head)
     expect(await store.events.getStewardState('cursor')).toBe(String(head))
     expect(await store.events.getStewardState('janitor-ownership-v1')).toBe(String(head))
-    store.close()
+    await store.close()
   })
 
   it('a second activation returns undefined and does not rewind the cursor', async () => {
@@ -466,14 +466,14 @@ describe('EventsRepository: activateJanitorSteward (executed, never named)', () 
 
     expect(await store.events.activateJanitorSteward()).toBeUndefined()
     expect(await store.events.getStewardState('cursor')).toBe('1')
-    store.close()
+    await store.close()
   })
 
   it('seeds at 0 on an empty log', async () => {
     const store = await openTestStore(':memory:')
     expect(await store.events.activateJanitorSteward()).toBe(0)
     expect(await store.events.getStewardState('cursor')).toBe('0')
-    store.close()
+    await store.close()
   })
 })
 

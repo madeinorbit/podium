@@ -23,8 +23,8 @@ import { SessionRegistry } from '../../relay'
 const DAY_MS = 24 * 60 * 60 * 1000
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 /** A stopped session the broadcast viewer has read — the archivable fixture. */

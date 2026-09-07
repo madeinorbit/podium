@@ -188,8 +188,8 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       expect(perf['sessionsBroadcast.total']?.p99Ms).toBeLessThan(LOOP_P99_TARGET_MS)
     } finally {
       loop?.stop()
-      registry.dispose()
-      store.close()
+      await registry.dispose()
+      await store.close()
     }
   }, 60_000)
 })

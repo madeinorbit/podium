@@ -147,7 +147,7 @@ export interface Oracle {
    * unconditionally OPERATOR (one shared password ⇒ admin/all).
    */
   relay(req: RelayRequest): Promise<RelayReply>
-  dispose(): void
+  dispose(): Promise<void>
 }
 
 export type RelayReply = Extract<ControlMessage, { type: 'agentRelayResult' }>
@@ -332,8 +332,8 @@ export async function makeOracle(
 }
 
 /** Dispose every registry built by {@link makeOracle} (call from afterEach). */
-export function disposeOracles(): void {
-  for (const reg of registries.splice(0)) reg.dispose()
+export async function disposeOracles(): Promise<void> {
+  for (const reg of registries.splice(0)) await reg.dispose()
 }
 
 // ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ const MIGRATION = '20260730162954_change-provenance-envelope'
  */
 async function seedPreMigrationDatabase(file: string, rowCount: number): Promise<void> {
   // 1. A real database at HEAD, through the real boot path.
-  ;(await openTestStore(file)).close()
+  ;await (await openTestStore(file)).close()
 
   const db = openDatabase(file)
   const insert = db.prepare(
@@ -122,7 +122,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
 
     // The real boot path: SessionStore runs the drizzle migrations in one
     // transaction. Nothing here reaches past it into the applier.
-    ;(await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
 
     const db = openDatabase(file)
     const rows = db
@@ -143,7 +143,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     // migration invented a confirmation for it.
     const file = tmpDbFile('upgrade-null.db')
     await seedPreMigrationDatabase(file, ROWS)
-    ;(await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
 
     const db = openDatabase(file)
     const row = db
@@ -168,7 +168,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(headBefore).toBe(ROWS)
     expect(highWaterBefore).toBe(ROWS)
 
-    ;(await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(highWaterBefore)
@@ -203,7 +203,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(sequenceHighWater(pre)).toBe(ROWS)
     pre.close()
 
-    ;(await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(ROWS)
@@ -224,8 +224,8 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
   it('is idempotent — a second boot changes nothing', async () => {
     const file = tmpDbFile('upgrade-twice.db')
     await seedPreMigrationDatabase(file, ROWS)
-    ;(await openTestStore(file)).close()
-    ;(await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
+    ;await (await openTestStore(file)).close()
 
     const db = openDatabase(file)
     expect(maxSeq(db)).toBe(ROWS)

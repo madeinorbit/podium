@@ -52,8 +52,8 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       instanceId: 'default',
       mirrorLakeDir: lakeDir,
     })
-    cleanups.push(() => {
-      registry.dispose()
+    cleanups.push(async () => {
+      await registry.dispose()
       rmSync(lakeDir, { recursive: true, force: true })
     })
     return { lakeDir, store, registry }

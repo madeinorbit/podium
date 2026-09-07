@@ -23,7 +23,8 @@
  * (including those a follow-up itself registers). It does not wait for external
  * effects. A failure in (1) or (2) rejects that promise with an error that
  * carries `committed: true`, because the write DID commit and a caller must
- * never read the rejection as a rollback.
+ * never read the rejection as a rollback. Shutdown separately waits for retained
+ * effects within a configured deadline, reporting unfinished labels before close.
  *
  * ORDERING. The drain is a QUEUE, not recursion — the same shape, and for the
  * same reason, as the sync kernel's ordered pipe: a follow-up that commits
@@ -34,7 +35,7 @@
  */
 
 import { runAtRoot } from './context'
-import { PostCommitError, StoreUnhealthyError } from './errors'
+import { PostCommitError, StaleTransactionError, StoreUnhealthyError } from './errors'
 
 export type PostCommitStep = () => void | Promise<void>
 
@@ -52,11 +53,7 @@ export interface CommitRegistration {
 }
 
 /** Push one step and hand back the handle its liveness is read through. */
-function register(
-  into: RegisteredStep[],
-  step: PostCommitStep,
-  label: string,
-): CommitRegistration {
+function register(into: RegisteredStep[], step: PostCommitStep, label: string): CommitRegistration {
   const entry: RegisteredStep = { step, label, alive: true }
   into.push(entry)
   return { live: () => entry.alive }
@@ -149,7 +146,10 @@ export class PostCommitRegistry implements PostCommitRegistrar {
 }
 
 export interface PostCommitRunnerOptions {
+  /** Revoked leases cannot resume mandatory work after shutdown released them. */
+  active?: () => boolean
   /** Mechanism 1 failed: the projection and the database have diverged. */
+  runEffect?: <T>(body: () => T) => T
   markUnhealthy: (error: unknown, label: string) => void
   /** Mechanism 3 failed: reported, never rethrown. */
   effectSink: (error: unknown, label: string) => void
@@ -170,7 +170,7 @@ export interface PostCommitRunnerOptions {
 export class PostCommitRunner {
   private readonly queue: PostCommitRegistry[] = []
   private draining = false
-  private readonly inFlightEffects = new Set<Promise<void>>()
+  private readonly inFlightEffects = new Map<Promise<void>, string>()
 
   constructor(private readonly options: PostCommitRunnerOptions) {}
 
@@ -194,6 +194,7 @@ export class PostCommitRunner {
       while (this.queue.length > 0) {
         const batch = this.queue.shift() as PostCommitRegistry
         for (const entry of batch.commitApplications) {
+          this.assertActive()
           try {
             await entry.step()
           } catch (error) {
@@ -211,6 +212,7 @@ export class PostCommitRunner {
           }
         }
         for (const entry of batch.followUps) {
+          this.assertActive()
           try {
             await entry.step()
           } catch (error) {
@@ -223,7 +225,10 @@ export class PostCommitRunner {
             )
           }
         }
-        for (const entry of batch.effects) this.dispatch(entry)
+        for (const entry of batch.effects) {
+          this.assertActive()
+          this.dispatch(entry)
+        }
       }
     } finally {
       this.draining = false
@@ -231,11 +236,22 @@ export class PostCommitRunner {
     if (failure) throw failure
   }
 
+  private assertActive(): void {
+    if (this.options.active && !this.options.active()) {
+      throw new StaleTransactionError('post-commit lease revoked during scheduler drain')
+    }
+  }
+
   /** Every external effect started on this lease and not yet settled. */
   async effectsSettled(): Promise<void> {
     while (this.inFlightEffects.size > 0) {
-      await Promise.all([...this.inFlightEffects])
+      await Promise.all([...this.inFlightEffects.keys()])
     }
+  }
+
+  /** Labels retained at the shutdown deadline, for the operator's failure sink. */
+  pendingEffectLabels(): string[] {
+    return [...this.inFlightEffects.values()]
   }
 
   private dispatch(entry: RegisteredStep): void {
@@ -243,7 +259,9 @@ export class PostCommitRunner {
     try {
       // AT THE ROOT, not on the lease that just committed: the effect is not
       // awaited, so its continuation outlives the drain and the lease.
-      result = runAtRoot(() => entry.step())
+      result = runAtRoot(() =>
+        this.options.runEffect ? this.options.runEffect(entry.step) : entry.step(),
+      )
     } catch (error) {
       this.report(this.options.effectSink, error, entry.label)
       return
@@ -253,7 +271,7 @@ export class PostCommitRunner {
       () => undefined,
       (error: unknown) => this.report(this.options.effectSink, error, entry.label),
     )
-    this.inFlightEffects.add(tracked)
+    this.inFlightEffects.set(tracked, entry.label)
     void tracked.finally(() => this.inFlightEffects.delete(tracked))
   }
 

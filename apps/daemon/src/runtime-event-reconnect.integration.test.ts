@@ -257,7 +257,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
     } finally {
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       await connection?.close()
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })

@@ -1299,7 +1299,8 @@ async function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${sent.length + 1}`,
       concurrency: 3,
       fleetChannel: () => 'dev',
-      exclusiveOperationActive: async () => (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+      exclusiveOperationActive: async () =>
+        (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       // Resolves IMMEDIATELY and keeps the listener's promise aside, which is
@@ -1327,9 +1328,10 @@ async function harness(options: HarnessOptions = {}) {
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
     ...(options.hostMachineId ? { hostMachineId: options.hostMachineId } : {}),
-    createDatabaseSnapshot:
-      options.createDatabaseSnapshot ??
-      (() => '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test'),
+    createDatabaseSnapshot: async (from, target) =>
+      options.createDatabaseSnapshot
+        ? options.createDatabaseSnapshot(from, target)
+        : '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test',
     ...(options.prepareVerifiedDatabaseSnapshot
       ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
       : {}),
@@ -2309,7 +2311,9 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     h.updates.withdrawAuthorization()
     expect(
-      await h.updates.releaseInFlightGrants('The update was canceled while this machine was updating.'),
+      await h.updates.releaseInFlightGrants(
+        'The update was canceled while this machine was updating.',
+      ),
     ).toEqual(['vmi'])
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())

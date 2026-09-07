@@ -80,8 +80,8 @@ describe('issues.* subtree scope (P1a)', () => {
     B = await setup.issues.create({ repoPath: '/r', title: 'unrelated', startNow: false })
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   const callerWith = (rawCapability: Capability, overrideScope = false) => {
@@ -250,8 +250,8 @@ describe('issues.* subtree scope (P1a)', () => {
 // that issue; anything else (or an unknown session) gets the most-restricted worker/none.
 describe('SessionRegistry.capabilityForSession (P1b)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', async () => {
@@ -394,8 +394,8 @@ describe('issues.mail* (agent mail #103)', () => {
     B = await setup.issues.create({ repoPath: '/r', title: 'other', startNow: false })
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   const callerWith = (rawCapability: Capability, overrideScope = false) => {
@@ -504,8 +504,8 @@ describe('issues.mail* (agent mail #103)', () => {
 // the former router-issues.test.ts (POD-619 [spec:SP-0be7]) — now with registry disposal.
 describe('issues router create/list/update', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
   const caller = async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -558,8 +558,8 @@ describe('issues.subscription* authz (Phase B)', () => {
     B = await setup.issues.create({ repoPath: '/r', title: 'root B', startNow: false })
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   const callerWith = (rawCapability: Capability, overrideScope = false) => {
@@ -708,8 +708,8 @@ describe('issues.* on an issue that does not exist (POD-1926)', () => {
     registries.push(registry)
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   const operator = () =>

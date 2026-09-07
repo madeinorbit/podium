@@ -20,8 +20,8 @@ import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
@@ -196,7 +196,7 @@ describe('Claude SDK continuity projection', () => {
       (await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.requestedDriverId,
     ).toBe('claude-sdk')
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    reg.dispose()
+    await reg.dispose()
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
@@ -243,7 +243,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       requestedDriverId: null,
     })
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
-    first.reg.dispose()
+    await first.reg.dispose()
 
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
@@ -353,7 +353,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       driverId: 'generic-pty',
     })
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
-    first.reg.dispose()
+    await first.reg.dispose()
 
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)

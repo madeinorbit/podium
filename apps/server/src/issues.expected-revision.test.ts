@@ -98,7 +98,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       expect((await registry.issues.get(issue.id))?.title).toBe('writer one')
       expect(await revisionOf(registry, issue.id)).toBe(afterFirst)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -121,7 +121,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       })
       expect((await registry.issues.get(issue.id))?.title).toBe('two')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -150,7 +150,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
         current: expect.any(Function),
       })
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -166,7 +166,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       })
       expect((await registry.issues.get(issue.id))?.title).toBe('fresh')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -181,7 +181,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       await caller.issues.update({ id: issue.id, patch: { title: 'two' } })
       expect((await registry.issues.get(issue.id))?.title).toBe('two')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -210,7 +210,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       // def. Same claim, one vocabulary.
       expect(issueRegistry.defs.addComment.conflict).toBe('append')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -234,7 +234,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       await caller.issues.addComment({ id: issue.id, author: 'a', body: 'b' })
       expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -264,7 +264,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       expect(replay).toEqual(first)
       expect(await registry.issues.comments(issue.id)).toHaveLength(1)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -287,7 +287,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       expect((await registry.issues.get(issue.id))?.title).toBe('exactly once')
       expect(await revisionOf(registry, issue.id)).toBe(base + 1)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 
@@ -344,7 +344,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       await caller.issues.addComment({ id: issue.id, author: 'a', body: 'x', mutationId: 'm2' })
       expect(await registry.issues.comments(issue.id)).toHaveLength(2)
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })
@@ -405,7 +405,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
 
       expect((await registry.issues.get(issue.id))?.title).toBe('landed')
     } finally {
-      registry.dispose()
+      await registry.dispose()
     }
   })
 })

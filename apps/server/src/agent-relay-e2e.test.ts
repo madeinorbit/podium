@@ -73,7 +73,7 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
 
   afterAll(async () => {
     await relayServer.close()
-    registry.dispose()
+    await registry.dispose()
   })
 
   // 1. prime is bound to the session's subtree via its cwd (capabilityForSession → boundIssueId),

@@ -359,7 +359,7 @@ describe('oracle: queued sends re-authorize at drain', () => {
         ),
       ).toBe(true)
     } finally {
-      h.store.close()
+      await h.store.close()
     }
   })
 })

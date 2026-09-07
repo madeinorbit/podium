@@ -71,7 +71,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
       ),
     ).toBe(true)
-    reg.dispose()
+    await reg.dispose()
   })
 
   it('a workState change publishes the SESSION row; the issue row is deduped, as it always was for a delta client', async () => {
@@ -116,6 +116,6 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'),
       ),
     ).toBe(true)
-    reg.dispose()
+    await reg.dispose()
   })
 })

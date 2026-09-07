@@ -53,7 +53,7 @@ export interface ServerTransferDeps {
     | { feedId: string; feedEpoch: string }
     | Promise<{ feedId: string; feedEpoch: string }>
   sourceApplicationVersion: string
-  sourceSchemaVersion: () => string
+  sourceSchemaVersion: () => Promise<string>
   sourceWireSchemaDigest: string
   rpc: ServerTransferRpc
   targetState(machineId: MachineId): ServerTransferTargetState | Promise<ServerTransferTargetState>
@@ -70,8 +70,8 @@ export interface ServerTransferDeps {
     | PromotedTargetMetadata
     | undefined
     | Promise<PromotedTargetMetadata | undefined>
-  sourceHealthy(): void | Promise<void>
-  checkpoint(): void | Promise<void>
+  sourceHealthy(): Promise<void>
+  checkpoint(): Promise<void>
   /** Covers SQLite and every durable portable-file writer. */
   fence(): void | Promise<void>
   releaseFence(): void | Promise<void>
@@ -536,7 +536,7 @@ export class ServerTransferService {
       sourceFeedId: identity.feedId,
       sourceFeedEpoch: identity.feedEpoch,
       sourceApplicationVersion: this.deps.sourceApplicationVersion,
-      sourceSchemaVersion: this.deps.sourceSchemaVersion(),
+      sourceSchemaVersion: await this.deps.sourceSchemaVersion(),
       checkpoint: this.deps.checkpoint,
     })
   }

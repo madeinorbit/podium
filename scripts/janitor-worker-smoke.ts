@@ -19,6 +19,6 @@ while (client.state() !== 'running' && Date.now() < deadline) {
   await Bun.sleep(20)
 }
 console.log(client.state() === 'running' ? 'SMOKE_OK' : `SMOKE_BAD ${client.reason()}`)
-client.close()
+await client.close()
 rmSync(dir, { recursive: true, force: true })
 process.exit(0)

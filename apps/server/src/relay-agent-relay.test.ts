@@ -79,8 +79,8 @@ describe('server agent relay handler (P1b)', () => {
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('relays a scoped op through the capability gate (rejects a write outside the subtree)', async () => {
@@ -571,8 +571,8 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     rpc.repoOp = async () => ({ ok: true, output: '## clean\n' })
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('self-stop is free and reports deferredKill for after-reply arming', async () => {
@@ -743,8 +743,8 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     sB = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('names the calling session, and may re-title itself as the work clarifies', async () => {
@@ -876,8 +876,8 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
     sA = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
     sB = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
   })
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('sets an offer on the calling session and clears it', async () => {

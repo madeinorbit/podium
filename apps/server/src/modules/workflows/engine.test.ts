@@ -3866,7 +3866,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s2'),
       )
-      before.store.close()
+      await before.store.close()
 
       // Restart: a brand-new store and service over the same file.
       const after = await makeHarness(path)
@@ -3926,7 +3926,7 @@ describe('POD-730 workflow mutation characterization', () => {
           'workflow.step_complete',
         ])
       } finally {
-        after.store.close()
+        await after.store.close()
       }
     })
 
@@ -3949,7 +3949,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s2'),
       )
       expect(before.notices).toHaveLength(1)
-      before.store.close()
+      await before.store.close()
 
       const after = await makeHarness(path)
       try {
@@ -3967,7 +3967,7 @@ describe('POD-730 workflow mutation characterization', () => {
         // ...and a blocked run is still "live", so the session read finds it.
         expect((await after.service.runs({}, agent('s1'))).map((r) => r.id)).toEqual([run.id])
       } finally {
-        after.store.close()
+        await after.store.close()
       }
     })
   })

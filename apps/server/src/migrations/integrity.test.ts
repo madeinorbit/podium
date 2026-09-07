@@ -110,7 +110,7 @@ describe('issue schema: FK behavior at runtime', () => {
     expect(await s.issues.listIssueDeps(asIssueId('iss_b'))).toEqual([]) // edge pointing AT the deleted issue too
     expect(await s.issues.listIssueComments(asIssueId('iss_a'))).toEqual([])
     expect(await s.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
-    s.close()
+    await s.close()
   })
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", async () => {
@@ -133,7 +133,7 @@ describe('issue schema: FK behavior at runtime', () => {
     expect((await s.issues.getIssue('iss_child'))?.parentId).toBeNull()
     expect((await s.issues.getIssue('iss_dup'))?.duplicateOf).toBeNull()
     expect((await s.issues.getIssue('iss_dup'))?.supersededBy).toBeNull()
-    s.close()
+    await s.close()
   })
 
   it('rejects a child row for an issue that does not exist', async () => {
@@ -145,7 +145,7 @@ describe('issue schema: FK behavior at runtime', () => {
         )
         .run(),
     ).toThrow(/foreign key/i)
-    s.close()
+    await s.close()
   })
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', async () => {
@@ -158,6 +158,6 @@ describe('issue schema: FK behavior at runtime', () => {
     expect(() => upd('priority', 9)).toThrow(/check/i)
     // The legal values still pass.
     expect(() => upd('stage', 'review')).not.toThrow()
-    s.close()
+    await s.close()
   })
 })

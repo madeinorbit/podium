@@ -68,7 +68,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const artifacts = ['e2e/header-after.png', 'docs/proposal.md']
     await reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
     expect((await metaOffer(reg, sessionId))?.artifacts).toEqual(artifacts)
-    reg.dispose()
+    await reg.dispose()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect((await metaOffer(reg2, sessionId))?.artifacts).toEqual(artifacts)
@@ -76,11 +76,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
     await reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
     expect((await metaOffer(reg2, sessionId))?.artifacts).toBeUndefined()
-    reg2.dispose()
+    await reg2.dispose()
 
     const reg3 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect((await metaOffer(reg3, sessionId))?.artifacts).toBeUndefined()
-    reg3.dispose()
+    await reg3.dispose()
   })
 
   it('clearOffer removes it', async () => {
@@ -304,7 +304,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         cwd: '/p',
       })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-      reg.dispose()
+      await reg.dispose()
 
       const db = openDatabase(file)
       db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{not json', sessionId)
@@ -318,7 +318,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       await reg2.modules.sessions.clearOffer(asSessionId(sessionId))
       reg2.modules.sessions.flushBroadcasts()
       expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
-      reg2.dispose()
+      await reg2.dispose()
     })
 
     /** The common case. Nothing to clear must cost neither a DELETE nor a feed
@@ -375,13 +375,13 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       cwd: '/p',
     })
     await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    reg.dispose()
+    await reg.dispose()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const surfaced = await metaOffer(reg2, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
-    reg2.dispose()
+    await reg2.dispose()
   })
 
   it('boot reconciliation: user input after the offer drops it on reload', async () => {
@@ -394,7 +394,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     })
     await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
-    reg.dispose()
+    await reg.dispose()
 
     // The user typed into the session after the offer was posted (e.g. via the
     // raw PTY while the server was down / before the stale-clear shipped).
@@ -407,7 +407,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(await metaOffer(reg2, sessionId)).toBeUndefined()
-    reg2.dispose()
+    await reg2.dispose()
 
     // ...and the offers table row is gone too, not just the in-memory overlay.
     const check = openDatabase(file)

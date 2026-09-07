@@ -28,7 +28,7 @@ import { createLogger } from '@podium/logger'
 const log = createLogger('server:shutdown')
 
 /** Named persistence step; the name is only used in failure logs. */
-export type PersistStep = readonly [name: string, run: () => void]
+export type PersistStep = readonly [name: string, run: () => void | Promise<unknown>]
 
 type StoppableServer = {
   /** Bun.serve shutdown. Passing true closes active HTTP connections immediately. */
@@ -45,6 +45,8 @@ export interface CloseServerDeps {
   server: StoppableServer | (Pick<Server, 'close'> & { closeAllConnections?: () => void })
   /** Persistence steps, run in order after intake stops. */
   persist: readonly PersistStep[]
+  /** Begin database draining before persistence, close only after it settles. */
+  drainStore?: (persist: () => Promise<void>) => Promise<void>
   /** Max wait for the WS close to settle before persisting anyway. Default 250ms. */
   wsCloseGraceMs?: number
   /**
@@ -84,12 +86,12 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
 
   // 2. Persist state — before waiting on ANY http socket, each step isolated
   //    so one failure can't skip the rest.
-  for (const [name, run] of deps.persist) {
-    try {
-      run()
-    } catch (err) {
-      logError(`[podium:server] shutdown step '${name}' failed: ${String(err)}`)
-    }
+  const persist = async (): Promise<void> => runPersistenceSteps(deps.persist, logError)
+  try {
+    if (deps.drainStore) await deps.drainStore(persist)
+    else await persist()
+  } catch (error) {
+    logError(`[podium:server] store drain failed during shutdown: ${String(error)}`)
   }
 
   // 3. Force-close the network. close() alone would wait (potentially forever)
@@ -134,4 +136,18 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
     }
     httpTimer = setTimeout(finish, httpGrace)
   })
+}
+
+/** Shared by normal shutdown and failed listen: cleanup failures never skip close. */
+export async function runPersistenceSteps(
+  steps: readonly PersistStep[],
+  logError: (message: string) => void = (message) => log.error(message),
+): Promise<void> {
+  for (const [name, run] of steps) {
+    try {
+      await run()
+    } catch (error) {
+      logError(`[podium:server] shutdown step '${name}' failed: ${String(error)}`)
+    }
+  }
 }

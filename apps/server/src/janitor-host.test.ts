@@ -3,7 +3,7 @@ import { startJanitorHost } from './janitor-host'
 
 describe('startJanitorHost', () => {
   it('reports the injected worker state and closes it', async () => {
-    const close = vi.fn()
+    const close = vi.fn(async () => {})
     const host = await startJanitorHost({
       port: 1,
       serverUrl: 'http://127.0.0.1:1',
@@ -17,7 +17,7 @@ describe('startJanitorHost', () => {
     })
     expect(host.state()).toBe('running')
     expect(host.progressVersion()).toBe(3)
-    host.close()
+    await host.close()
     expect(close).toHaveBeenCalledOnce()
   })
 
@@ -45,7 +45,7 @@ describe('startJanitorHost', () => {
         progressVersion: () => 5,
         state: () => state,
         reason: () => reason,
-        close: () => {},
+        close: async () => {},
       }),
     })
     expect(host.state()).toBe('running')
@@ -76,7 +76,7 @@ describe('startJanitorHost', () => {
             progressVersion: () => 0,
             state: () => 'running',
             reason: () => undefined,
-            close: () => {},
+            close: async () => {},
           }
         },
       })

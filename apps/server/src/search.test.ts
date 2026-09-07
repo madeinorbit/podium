@@ -29,8 +29,8 @@ const READER = { kind: 'user' as const, id: FIRST_ADMIN_USER_ID }
 
 describe('MemoryService omni-search', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   /** A store + registry seeded with one hit per source for the word "capacitor". */
@@ -349,8 +349,8 @@ describe('MemoryService omni-search', () => {
 
 describe('search.query tRPC', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const r of registries.splice(0)) r.dispose()
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
   })
 
   it('excludes every private memory source owned by another user', async () => {
@@ -483,7 +483,7 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
-    store.close()
+    await store.close()
   })
 
   async function caller() {

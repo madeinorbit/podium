@@ -113,11 +113,15 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
   readonly diagnostics: StoreDiagnostics
   /** Every external effect started on any lease so far has settled. */
   effectsSettled(): Promise<void>
-  close(): Promise<void>
+  close(persist?: () => Promise<void>): Promise<void>
 }
 
 export interface StoreExecutorOptions<TClient> {
   driver: StoreDriver<TClient>
+  startOpen?: boolean
+  /** One second preserves a fast restart while giving ordinary effects time to finish. */
+  effectDrainGraceMs?: number
+  drainGraceMs?: number
   watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
   now?: () => number
   /** Mechanism 3's report sink. Failures are reported, never rethrown. */
@@ -188,6 +192,8 @@ export function createStoreExecutor<TClient>(
   const scheduler = createScheduler({
     driver: driver as StoreDriver<unknown>,
     watchdog: options.watchdog,
+    drainGraceMs: options.drainGraceMs,
+    startOpen: options.startOpen,
     now: options.now,
     // Publication is flushed on idle, and idle is raised from inside the
     // release of the operation that just committed. Reported, never rethrown.
@@ -231,10 +237,12 @@ export function createStoreExecutor<TClient>(
     }
   }
 
-  function newRunner(): PostCommitRunner {
+  function newRunner(active: () => boolean): PostCommitRunner {
     const runner = new PostCommitRunner({
+      active,
       markUnhealthy,
       effectSink,
+      runEffect: (body) => scheduler.retain(body),
       ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
     })
     runners.add(runner)
@@ -398,6 +406,7 @@ export function createStoreExecutor<TClient>(
     return {
       id: 0,
       lane: 'read',
+      active: ALWAYS_ALIVE,
       session,
       begin: async () => undefined,
       // Nothing to acquire and nothing to serialise against: a read on the
@@ -434,8 +443,9 @@ export function createStoreExecutor<TClient>(
      * The lifetime of the SCOPE that started this transaction, when that is not
      * the root: phase 3's drain owns the lease and can end under us.
      */
-    alive: () => boolean = ALWAYS_ALIVE,
+    scopeAlive: () => boolean = ALWAYS_ALIVE,
   ): Promise<T> {
+    const alive = (): boolean => lease.active() && scopeAlive()
     const registry = new PostCommitRegistry()
     const frame = createFrame({ lane, lease, parent: undefined, postCommit: registry, alive })
     // Through the LEASE, so the driver's bounded busy retry applies: this is
@@ -514,7 +524,13 @@ export function createStoreExecutor<TClient>(
       const inFlight = createInFlight()
       try {
         await runInScope(
-          { kind: 'post-commit', lease, runner, inFlight, active: () => draining },
+          {
+            kind: 'post-commit',
+            lease,
+            runner,
+            inFlight,
+            active: () => draining && lease.active(),
+          },
           async () => await runner.drain(registry),
         )
         // The drain waits for what its steps RETURN; a step that issued a
@@ -689,22 +705,18 @@ export function createStoreExecutor<TClient>(
       // committing on a lease the scheduler has taken back.
       return await runTopLevel(scope.lease, 'write', fn, scope.runner, () => scope.active())
     }
-    return await scheduler.run('write', async (lease) => {
-      // On the far side of admission: a write queued behind the transaction
-      // whose commit application failed must be refused, not committed into a
-      // store already known to have diverged.
-      assertHealthy()
-      const runner = newRunner()
-      try {
+    let runner: PostCommitRunner | undefined
+    try {
+      return await scheduler.run('write', async (lease) => {
+        assertHealthy()
+        runner = newRunner(lease.active)
         return await runTopLevel(lease, 'write', fn, runner)
-      } finally {
-        // NOT awaited, and not on this lease: effects outlive the drain by
-        // design, and a post-commit effect that issues its own statement needs
-        // a lease this operation is still holding. Awaiting retirement here
-        // deadlocks the write lane against its own effect.
-        void retire(runner).catch(() => undefined)
-      }
-    })
+      })
+    } finally {
+      // NOT awaited: effects need the released lane for their root operations.
+      // Retire outside the body as well: a revoked, parked body may never return.
+      if (runner) void retire(runner).catch(() => undefined)
+    }
   }
 
   async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
@@ -797,7 +809,45 @@ export function createStoreExecutor<TClient>(
     async effectsSettled() {
       await Promise.all([...runners].map((runner) => runner.effectsSettled()))
     },
-    close: async () => await scheduler.close(),
+    async close(persist) {
+      if (currentScope().kind !== 'root') {
+        throw new ExclusiveInsideLeaseError(
+          'close() requested from inside a lease; close from the root',
+        )
+      }
+      return await scheduler.close(async () => {
+        await persist?.()
+        // Parked database bodies are bounded by the scheduler, so persistence and
+        // queued commits can finish before we census their external effects.
+        await scheduler.settled()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const settled = async (): Promise<void> => {
+          while ([...runners].some((runner) => runner.pendingEffectLabels().length > 0)) {
+            await Promise.all([...runners].map((runner) => runner.effectsSettled()))
+            await scheduler.settled()
+          }
+        }
+        try {
+          // Deliberately bounded: effects have no timeout contract, and an
+          // unresponsive socket must not turn a restart into an unbounded wait.
+          await Promise.race([
+            settled(),
+            new Promise<void>((resolve) => {
+              timer = setTimeout(() => {
+                for (const runner of runners) {
+                  for (const label of runner.pendingEffectLabels()) {
+                    report(new Error('external effect still in flight at shutdown deadline'), label)
+                  }
+                }
+                resolve()
+              }, options.effectDrainGraceMs ?? 1_000)
+            }),
+          ])
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+        }
+      })
+    },
   }
   return root
 }

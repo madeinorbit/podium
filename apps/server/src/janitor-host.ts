@@ -30,7 +30,7 @@ export interface JanitorHost {
   progressVersion(): number
   state(): JanitorComponentState
   reason(): string | undefined
-  close(): void
+  close(): Promise<void>
 }
 
 /** The shape of `@podium/janitor`'s worker client, as the server needs it. */
@@ -69,7 +69,7 @@ export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHo
       progressVersion: () => 0,
       state: () => 'degraded',
       reason: () => reason,
-      close: () => {},
+      close: async () => {},
     }
   }
 }
@@ -86,5 +86,5 @@ export const noJanitorWorkerForTests: StartJanitorWorkerFn = async () => ({
   progressVersion: () => 0,
   state: () => 'stopped',
   reason: () => 'janitor disabled for tests',
-  close: () => {},
+  close: async () => {},
 })

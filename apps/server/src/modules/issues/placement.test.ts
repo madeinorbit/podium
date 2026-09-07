@@ -23,8 +23,8 @@ const fresh = async (): Promise<SessionRegistry> => {
   registries.push(registry)
   return registry
 }
-afterAll(() => {
-  for (const registry of registries.splice(0)) registry.dispose()
+afterAll(async () => {
+  for (const registry of registries.splice(0)) await registry.dispose()
 })
 
 /** origin + the work an agent filed under it, as a sub-issue. */

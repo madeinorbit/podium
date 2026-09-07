@@ -1022,7 +1022,7 @@ describe('the corrupt-blob oracle', () => {
       })
       expect(() => JSON.parse(String(row?.value))).not.toThrow()
     }
-    fixture.store.close()
+    await fixture.store.close()
   })
 })
 

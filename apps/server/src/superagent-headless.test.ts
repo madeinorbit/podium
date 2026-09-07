@@ -31,8 +31,8 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 
 const registries: SessionRegistry[] = []
-afterEach(() => {
-  for (const r of registries.splice(0)) r.dispose()
+afterEach(async () => {
+  for (const r of registries.splice(0)) await r.dispose()
 })
 
 type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>

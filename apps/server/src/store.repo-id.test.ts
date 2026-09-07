@@ -78,7 +78,7 @@ describe('repo_id schema (v8, #74)', () => {
     // NOT carried on a fresh drizzle-built DB [spec:SP-4428] — the baseline is
     // DDL only, and nothing at runtime reads that marker. It still appears on
     // pre-drizzle databases healed by the legacy chain (see the backfill test).
-    s.close()
+    await s.close()
   })
 
   it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', async () => {
@@ -96,7 +96,7 @@ describe('repo_id schema (v8, #74)', () => {
     expect(rows.find((r) => r.path === '/b')?.repoId).toBe(
       deriveRepoId({ machineId: asMachineId('m1'), path: '/b' }),
     )
-    s.close()
+    await s.close()
   })
 
   it('two paths with the same origin share one repo_id', async () => {
@@ -105,7 +105,7 @@ describe('repo_id schema (v8, #74)', () => {
     await s.repos.addRepo('/clone/two', asMachineId('m2'), 'https://github.com/o/r')
     const rows = await s.repos.listRepos()
     expect(rows[0]?.repoId).toBe(rows[1]?.repoId)
-    s.close()
+    await s.close()
   })
 
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', async () => {
@@ -137,7 +137,7 @@ describe('repo_id schema (v8, #74)', () => {
     expect((await s.repos.listRepos())[0]?.repoId).toBe(originId)
     expect((await s.repos.listRepos())[0]?.originUrl).toBe('git@github.com:fork/r.git')
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(originId)
-    s.close()
+    await s.close()
   })
 
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', async () => {
@@ -151,7 +151,7 @@ describe('repo_id schema (v8, #74)', () => {
         path: '/repo',
       }),
     )
-    s.close()
+    await s.close()
   })
 })
 
@@ -181,7 +181,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
            VALUES ('m1', '/legacy', NULL, 't')`,
         )
         .run()
-      first.close()
+      await first.close()
 
       await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*repos: 1/s)
     } finally {
@@ -201,7 +201,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
            VALUES ('iss_legacy', '/legacy', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't')`,
         )
         .run()
-      first.close()
+      await first.close()
 
       await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*issues: 1/s)
     } finally {
@@ -218,11 +218,11 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       const file = join(dir, 'podium.db')
       const first = await openTestStore(file)
       await first.repos.addRepo('/ordinary', first.hostMachineId)
-      first.close()
+      await first.close()
 
       const second = await openTestStore(file)
       expect(await second.repos.listRepoPaths()).toEqual(['/ordinary'])
-      second.close()
+      await second.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -259,7 +259,7 @@ describe('stored repo ids are read, never re-derived', () => {
     // And its issues keep pointing at it.
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(stored)
-    s.close()
+    await s.close()
   })
 
   it('an UNREGISTERED path is the one re-derive lookup, and it derives under this host', async () => {
@@ -274,6 +274,6 @@ describe('stored repo ids are read, never re-derived', () => {
     expect(await s.repos.resolveRepoIdForPath('/nowhere')).toBe(
       deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
     )
-    s.close()
+    await s.close()
   })
 })

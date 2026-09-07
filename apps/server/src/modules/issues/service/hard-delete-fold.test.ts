@@ -25,8 +25,8 @@ import { openTestStore } from '../../../test-support/open-test-store'
  */
 describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   const registries: SessionRegistry[] = []
-  afterEach(() => {
-    for (const registry of registries.splice(0)) registry.dispose()
+  afterEach(async () => {
+    for (const registry of registries.splice(0)) await registry.dispose()
   })
 
   async function build() {

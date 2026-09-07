@@ -74,7 +74,7 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
     expect(listed.find((m) => m.id === 'unmanaged')?.podiumManaged).toBe(false)
     expect(listed.find((m) => m.id === 'managed')?.podiumManaged).toBe(true)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -108,7 +108,7 @@ it('reads supervised as a boolean, and an unreported machine is false rather tha
       buildReportedAt: 'at-2',
     })
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -133,7 +133,7 @@ it('keeps an unowned machine unowned, and never substitutes an owner', async () 
     await store.machines.setMachineOwner('orphan', null)
     expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -149,7 +149,7 @@ it('reads an unpinned update channel as null and keeps an unreadable one unpinne
     await store.machines.setUpdateChannel('m1', null)
     expect((await store.machines.getMachine('m1'))?.updateChannelOverride).toBeNull()
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -173,7 +173,7 @@ it('distinguishes components NOT RECORDED from components recorded as none', asy
 
     expect(await store.machines.addMachineComponent('absent', 'daemon')).toBe(false)
   } finally {
-    store.close()
+    await store.close()
   }
 })
 
@@ -186,6 +186,6 @@ it('finds no retired machine sentinel on a database a supported install can hold
     // not finding out.
     expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
   } finally {
-    store.close()
+    await store.close()
   }
 })
