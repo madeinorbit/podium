@@ -17,6 +17,7 @@ import type { Capability } from '../../issue-authz'
 import { sessionsForIssue } from '../../issue-util'
 import type { IssueRow, MessageRow, SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
+import { captureLogs } from '../../test-support/capture-logs'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
@@ -1002,6 +1003,45 @@ describe('MessageDeliveryService.send', () => {
     ])
     expect(events[2]!.payload).toMatchObject({ status: 'delivered', deliveredTo: 's1' })
   })
+
+  for (const failedKind of ['message.queued', 'message.injected', 'message.delivered']) {
+    it(`logs a rejected ${failedKind} event and still completes delivery`, async () => {
+      const { svc, store, sent } = await harness([session({ sessionId: asSessionId('s1') })])
+      const failure = new Error(`${failedKind} append failed`)
+      const appendEvent = store.events.appendEvent.bind(store.events)
+      const append = vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event) => {
+        if (event.kind === failedKind) throw failure
+        return await appendEvent(event)
+      })
+      const logs = captureLogs()
+      try {
+        const result = await svc.send(
+          { kind: 'agent', issueId: SENDER_ISSUE.id },
+          { to: { kind: 'issue', id: ISSUE.id }, body: 'mail' },
+        )
+        expect(sent).toHaveLength(1)
+        expect(result.message.injectedAt).not.toBeNull()
+        await echo(svc, asSessionId('s1'), result.message.id)
+        expect((await store.messages.getMessage(result.message.id))!.status).toBe('delivered')
+        const reports = logs.records.filter((record) => record.msg === 'message transition recording failed')
+        expect(reports).toHaveLength(1)
+        expect(reports[0]).toMatchObject({
+          level: 'warn',
+          ns: 'server:messages',
+          messageId: result.message.id,
+          kind: failedKind,
+          err: { name: failure.name, message: failure.message, stack: failure.stack },
+        })
+        const events = (await store.events.listEventsSince(0)).filter((event) => event.subject === result.message.id)
+        expect(events.map((event) => event.kind)).toEqual(
+          ['message.queued', 'message.injected', 'message.delivered'].filter((kind) => kind !== failedKind),
+        )
+      } finally {
+        logs.restore()
+        append.mockRestore()
+      }
+    })
+  }
 
   it('operator-addressed messages stay queued for UI pickup', async () => {
     const { svc, store } = await harness()
