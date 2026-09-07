@@ -195,7 +195,12 @@ describe('boot-time draft retention', () => {
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
-    ;await (await openTestStore(file)).sessions.purgeSession(sessionId)
+    // A reboot relinquishes the old writer before opening the replacement.
+    await reg1.dispose()
+    await reg1.sessionStore.close()
+    const orphanStore = await openTestStore(file)
+    await orphanStore.sessions.purgeSession(sessionId)
+    await orphanStore.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(await reg2.issues.get(draft.id)).not.toBeNull()
   })
@@ -301,12 +306,16 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // the table (what `purgeEmptyDraft` used to amount to) while the session row
     // keeps naming it. `deleteIssue` deliberately does not touch sessions — only
     // the purge path does — so this leaves the exact damage found in the field.
+    // A reboot relinquishes the old writer before opening the replacement.
+    await reg1.dispose()
+    await reg1.sessionStore.close()
     const store = await openTestStore(file)
     await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
     await store.issues.deleteIssue(draft.id)
     expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
 
     // Reopening the store runs the boot heal ahead of every reader.
+    await store.close()
     const healed = await openTestStore(file)
     expect((await healed.sessions.getSession(sessionId))?.issueId).toBeNull()
     expect((await healed.sessions.getSession(sessionId))?.refIssueId).toBeNull()
@@ -324,8 +333,8 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
 
     // Scrubbing a live row behind the in-memory `Session` map's back would
     // desync it, so `detachTombstonesFromIssue` must leave it strictly alone.
-    ;await (await openTestStore(file)).sessions.detachTombstonesFromIssue(draft.id)
-    expect((await (await openTestStore(file)).sessions.getSession(sessionId))?.issueId).toBe(draft.id)
+    await reg.sessionStore.sessions.detachTombstonesFromIssue(draft.id)
+    expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 
   it('the deleted issue takes its ref-letter counter with it', async () => {
@@ -334,7 +343,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { draft } = await draftWithSession(reg)
 
-    const store = await openTestStore(file)
+    const store = reg.sessionStore
     await store.issues.allocateSessionLetter(draft.id)
     await store.issues.deleteIssue(draft.id)
     // Nothing left to prune: the delete already took the counter.
