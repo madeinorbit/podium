@@ -4706,7 +4706,7 @@ describe('coordinator snapshot activation boundary', () => {
       const grant = f.executor.snapshot()!.grant
       f.h.engine.stop()
       resetUpdateOperationState()
-      const boot = f.h.reboot()
+      const boot = await f.h.reboot()
       await boot.engine.adoptOnBoot(() => ({
         appVersion: '0.4.1', servedWebDigest: WEB_DIGEST,
         machineDirectory: [], now: f.h.clock.clock.now(),

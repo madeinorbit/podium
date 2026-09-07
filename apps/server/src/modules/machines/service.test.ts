@@ -200,8 +200,8 @@ describe('MachinesService supervisor presence', () => {
     },
   } as ControlMessage
 
-  test('keeps a daemon failure online and degraded, then routes the grant only to the supervisor', () => {
-    const { svc } = storedService()
+  test('keeps a daemon failure online and degraded, then routes the grant only to the supervisor', async () => {
+    const { svc } = await storedService()
     const daemon = recorder()
     const participant: ControlMessage[] = []
     const supervisor: MachineSupervisorControlMessage[] = []
@@ -247,8 +247,8 @@ describe('MachinesService supervisor presence', () => {
   test.each([
     false,
     true,
-  ])('retains recovery transport without writes while sealed (boot=%s)', (recoveryOnly) => {
-    const { svc, store } = storedService(recoveryOnly)
+  ])('retains recovery transport without writes while sealed (boot=%s)', async (recoveryOnly) => {
+    const { svc, store } = await storedService(recoveryOnly)
     const daemon = recorder()
     const old = (_message: MachineSupervisorControlMessage) => {}
     const fresh = (_message: MachineSupervisorControlMessage) => {}
@@ -293,8 +293,8 @@ describe('MachinesService supervisor presence', () => {
     }
   })
 
-  test('fences a replaced supervisor and keeps the successor authoritative', () => {
-    const { svc } = storedService()
+  test('fences a replaced supervisor and keeps the successor authoritative', async () => {
+    const { svc } = await storedService()
     const old: MachineSupervisorControlMessage[] = []
     const successor: MachineSupervisorControlMessage[] = []
     const oldSend = (message: MachineSupervisorControlMessage) => old.push(message)
@@ -309,10 +309,10 @@ describe('MachinesService supervisor presence', () => {
     expect(old).toHaveLength(1)
   })
 
-  test('uses the same thirty-second grace before a detached supervisor becomes offline', () => {
+  test('uses the same thirty-second grace before a detached supervisor becomes offline', async () => {
     vi.useFakeTimers()
     try {
-      const { svc } = storedService()
+      const { svc } = await storedService()
       const send = (_message: MachineSupervisorControlMessage) => {}
       svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
       expect(svc.detachSupervisor(MACHINE, send)).toBe(true)
@@ -609,7 +609,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   })
 
   test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
-    const { svc, store } = makeStoreService()
+    const { svc, store } = await makeStoreService()
     store.machines.upsertMachine({
       id: MACHINE,
       name: 'vmi',
@@ -625,14 +625,14 @@ describe('MachinesService inventory persistence (#222)', () => {
     store.beginTransferFence()
     expect(() => svc.recordInventory(MACHINE, INV)).not.toThrow()
     expect(() => svc.recordInventory(MACHINE, latest)).not.toThrow()
-    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
     // Reconciliation cannot weaken or bypass the physical fence.
     svc.resumeAfterTransferFence()
-    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
 
     store.endTransferFence()
     svc.resumeAfterTransferFence()
-    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(latest)
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })
 
   test('records the native identity fingerprint selected on the target machine', async () => {
