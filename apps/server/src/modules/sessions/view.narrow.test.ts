@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { sessionsForIssue } from '../../issue-util'
 import { SessionLifecycle } from './lifecycle'
 import { Session } from './session'
-import type { SessionStatePrincipal } from './session-state/service'
+import type { SessionOwnerMemo, SessionStatePrincipal } from './session-state/service'
 import { SessionView, type SessionViewPorts } from './view'
 
 const MACHINE = asMachineId('m1')
@@ -224,5 +224,141 @@ describe('SessionLifecycle.sessionRoutingFacts [POD-2322]', () => {
     )
     expect(facts[0]).toMatchObject({ issueId: asIssueId(ISSUE), cwd: '/elsewhere' })
     expect(wire).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * THE VISIBILITY VERDICT IS A RESOLVED BOOLEAN [POD-3534].
+ *
+ * `project()` once read `candidates.filter((s) => canReadSession(...))`. A
+ * pending promise is truthy, so that filter kept EVERY element — at this exact
+ * site, every session in the fleet projected to every reader. Its two siblings
+ * in the same cascade fail the same way and just as quietly: `spawnedByOf`'s
+ * `if (!canReadSession(...))` can never refuse, because `!promise` is always
+ * false; and a floating `primeOwnerMemo` leaves the pass's memo unprimed at the
+ * moment the first verdict is asked for.
+ *
+ * WHY THE FIXTURES ABOVE DO NOT CATCH IT, AND WHAT THESE DO DIFFERENTLY.
+ * `viewOver`'s `canReadSession` is SYNCHRONOUS. It returns a real boolean, so
+ * `.filter(p)` and `.filter(await p)` are indistinguishable through it — a sync
+ * double cannot exercise an await at all. Every double below is async, matching
+ * the service.
+ *
+ * And the assertions are about the SET. The plausible wrong answer here is not
+ * "nothing" but "too many": a test asserting a reader sees a session passes on
+ * the broken code, because the broken code shows it every session. So each case
+ * names the exact ids, and the refusal cases assert against a value the broken
+ * code would return — `hidden-child` carries a `spawnedBy` precisely so that
+ * `spawnedByOf`'s bypass answers with a plausible string rather than undefined.
+ */
+describe('SessionView visibility is awaited [POD-3534]', () => {
+  const READER = { userId: 'u_reader', role: 'admin' } as unknown as SessionStatePrincipal
+
+  /** The corpus: one session the reader may see, two it may not. Three, so a
+   *  bypass that keeps everything is a set of 3 against an expected set of 1 —
+   *  a difference no non-emptiness check can express. */
+  const FLEET = () => [
+    session('theirs-before', '/w/a'),
+    session('mine', '/w/b'),
+    session('hidden-child', '/w/c', undefined, 'session:mine'),
+  ]
+
+  /**
+   * An ASYNC view, where `readable` names the ids the rule admits.
+   *
+   * `canReadSession` answers from the pass memo when it is primed and from a
+   * per-session read when it is not — the SAME verdict either way, which is the
+   * point: priming is a batching optimisation, so it cannot be pinned by the
+   * set. `perSessionGrantReads` records the reads priming exists to remove, so
+   * a floating `primeOwnerMemo` is observable as work done rather than as a
+   * function called.
+   */
+  function asyncViewOver(sessions: Session[], readable: Set<string>, primeFails = false) {
+    const perSessionGrantReads: string[] = []
+    const key = (id: string) => `session:${id}`
+    const ports: SessionViewPorts = {
+      sessions: new Map(sessions.map((s) => [s.sessionId, s])),
+      store: {
+        users: { roleOf: async () => 'admin' },
+        issues: { getIssue: async () => undefined, getIssues: async () => new Map() },
+        repos: { prefixForPath: async () => null, resolveRepoIdForPath: async () => undefined },
+      } as unknown as SessionViewPorts['store'],
+      machines: { machineName: async () => 'box' } as unknown as SessionViewPorts['machines'],
+      state: {
+        primeOwnerMemo: async (memo: SessionOwnerMemo, ids: readonly string[]) => {
+          // A REAL round trip, not a microtask. The prime reads the store twice;
+          // a double that settles in one microtask settles before the verdicts
+          // resume even when nobody awaited it, so it cannot tell a floating
+          // prime from an awaited one — the same blindness a synchronous double
+          // has about the filter, one layer down.
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          if (primeFails) throw new Error('prime failed')
+          for (const id of ids) {
+            memo.grants.set(key(id), readable.has(id) ? [READER.userId] : [])
+          }
+        },
+        canReadSession: async (_p: unknown, id: string, memo?: SessionOwnerMemo) => {
+          await Promise.resolve()
+          const primed = memo?.grants.get(key(id))
+          if (primed === undefined) {
+            perSessionGrantReads.push(id)
+            return readable.has(id)
+          }
+          return primed.includes(READER.userId)
+        },
+        overlay: async () => ({}),
+      } as unknown as SessionViewPorts['state'],
+    }
+    return { view: new SessionView(ports), perSessionGrantReads }
+  }
+
+  it('projects EXACTLY the sessions the rule admits, not every candidate', async () => {
+    const { view } = asyncViewOver(FLEET(), new Set(['mine']))
+    // The whole assertion is the set. `toContain('mine')` passes on the bypass,
+    // because the bypass returns 'mine' AND both sessions it must not.
+    expect((await view.list(READER)).map((s) => s.sessionId)).toEqual(['mine'])
+  })
+
+  it('shows a reader who may see NOTHING nothing at all', async () => {
+    const { view } = asyncViewOver(FLEET(), new Set())
+    expect(await view.list(READER)).toEqual([])
+    expect(await view.listForIssue('/w/c', undefined, READER)).toEqual([])
+    expect(await view.byIds([asSessionId('mine'), asSessionId('hidden-child')], READER)).toEqual([])
+  })
+
+  it('refuses one invisible session on every narrowed read', async () => {
+    const { view } = asyncViewOver(FLEET(), new Set(['mine']))
+    expect(await view.byId(asSessionId('hidden-child'), READER)).toBeUndefined()
+    expect((await view.byId(asSessionId('mine'), READER))?.sessionId).toBe('mine')
+    const all = await view.byIds(FLEET().map((s) => s.sessionId), READER)
+    expect(all.map((s) => s.sessionId)).toEqual(['mine'])
+  })
+
+  it('spawnedByOf REFUSES an invisible session rather than answering it', async () => {
+    const { view } = asyncViewOver(FLEET(), new Set(['mine']))
+    // `hidden-child` has a spawnedBy, so the bypass — where `!promise` is always
+    // false and the guard falls through — returns this plausible string. An
+    // assertion that merely tolerated a defined result would pass on it.
+    expect(await view.spawnedByOf(asSessionId('hidden-child'), READER)).toBeUndefined()
+    expect(await view.spawnedByOf(asSessionId('mine'), READER)).toBeUndefined()
+    const { view: open } = asyncViewOver(FLEET(), new Set(['hidden-child']))
+    expect(await open.spawnedByOf(asSessionId('hidden-child'), READER)).toBe('session:mine')
+  })
+
+  it('primes the pass memo BEFORE the first verdict is asked for', async () => {
+    const { view, perSessionGrantReads } = asyncViewOver(FLEET(), new Set(['mine']))
+    expect((await view.list(READER)).map((s) => s.sessionId)).toEqual(['mine'])
+    // A floating prime leaves the memo empty at verdict time, so every session
+    // pays the per-resource read the priming exists to remove — the same set,
+    // three reads instead of none. The count is the only witness.
+    expect(perSessionGrantReads).toEqual([])
+  })
+
+  it('a failing prime fails the pass instead of being lost as a floating promise', async () => {
+    const { view } = asyncViewOver(FLEET(), new Set(['mine']), true)
+    // Rule 56a's discrimination check, stated the other way round: a prime that
+    // REJECTS proves the caller is joined to it. Floating, the rejection is lost
+    // and the pass answers as though the memo had been filled.
+    await expect(view.list(READER)).rejects.toThrow('prime failed')
   })
 })
