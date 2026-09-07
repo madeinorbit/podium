@@ -450,7 +450,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const flight = service.apply(command)
     // Expire gen_a and hand the fence to gen_b while the tick is mid-flight.
     nowMs += 91_000
-    const lease2 = handshake('gen_b')
+    const lease2 = await handshake('gen_b')
     if (lease2.status !== 'ready') throw new Error('expected successor')
     release()
     const reply = await flight

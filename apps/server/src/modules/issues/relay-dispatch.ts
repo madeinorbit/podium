@@ -56,6 +56,7 @@ import type { SpecsService } from '../specs/service'
 import { dispatchWorkflowRpc } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
 import type { IssueCommandDispatcher } from './dispatcher'
+import { NO_SUCH_PROCEDURE } from './relay-gate'
 import type { AgentRelayGateDeps } from './relay-gate'
 import type { IssueService } from './service'
 
@@ -270,7 +271,7 @@ export function makeAgentRelayDispatch(
           callerSessionId: actorSessionId,
         })
       }
-      if (proc !== 'fetch') return undefined
+      if (proc !== 'fetch') return NO_SUCH_PROCEDURE
       return await (async () => {
         const raw = (input ?? {}) as Record<string, unknown>
         if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
@@ -397,7 +398,7 @@ export function makeAgentRelayDispatch(
             : undefined
         return await Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
       }
-      return undefined
+      return NO_SUCH_PROCEDURE
     }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
@@ -594,12 +595,12 @@ export function makeAgentRelayDispatch(
           ),
         )
       }
-      return undefined
+      return NO_SUCH_PROCEDURE
     }
     if (router === 'approvals') {
       if (proc === 'request') return await Promise.resolve(await approvals.request(input))
       if (proc === 'get') return await Promise.resolve(await approvals.getFromAgent(input))
-      return undefined
+      return NO_SUCH_PROCEDURE
     }
     const result = await issueCommands.dispatch(
       { capability, ...(overrideScope ? { overrideScope } : {}) },

@@ -649,7 +649,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // ADR 6 D4.4 — the denial must SURFACE and must not partially apply.
         storage.setWritesDenied(true)
         await expect(
-          await enqueueWrite(ada, { entity: 'issue', entityId: 'ADA-2', value: { second: true } }),
+          enqueueWrite(ada, { entity: 'issue', entityId: 'ADA-2', value: { second: true } }),
         ).rejects.toThrow(/quota/i)
 
         // Nothing half-landed: the store holds exactly what it held before.
