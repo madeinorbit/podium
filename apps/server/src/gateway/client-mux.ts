@@ -153,7 +153,7 @@ export interface ClientMuxDeps {
   readonly feed: FeedServing
   readonly presence: PresenceRouting
   /** Non-session bootstrap assembled after every contributing feature exists. */
-  readonly bootstrap: (conn: ClientConn) => void
+  readonly bootstrap: (conn: ClientConn) => Promise<void>
 }
 
 export class ClientMux {
@@ -177,10 +177,10 @@ export class ClientMux {
    * A client socket connected. Mint its id and principal, register it, tell it
    * its id, then hand it to the feature ports for their non-entity bootstrap.
    *
-   * The ORDER is the pre-extraction order exactly: the connection is in the
-   * registry BEFORE welcome and before bootstrap sends, so every feature sees
-   * the same admitted connection. The scoped feed attaches last and owns all
-   * entity bootstrap and subsequent publication.
+   * Registration and welcome are synchronous, before either bootstrap starts.
+   * The session hook, non-session bootstrap and feed admission start in that
+   * order, but complete independently. Feed owns entity bootstrap/publication;
+   * its completion is not a barrier for drafts, machines, approvals or hosts.
    */
   attachClient(peer: ClientPeer): string {
     const transport = transportOf(peer)
@@ -237,19 +237,22 @@ export class ClientMux {
     // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
     // value rather than a client-chosen one.
     this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
-    // DECISION POD-3509 — the draft replay this reaches is now a store read, and
-    // `attachClient` cannot become async: `wireClientSocket` needs the returned id
-    // synchronously to register ws.on('message') / ws.on('close'), and frames
-    // arriving in that gap would be dropped. Voided in place, at the same
-    // statement position, pending the ordering ruling.
-    void this.deps.ports.sessions.onClientAttached(conn.principal, conn, transport.machines ?? [])
-    this.deps.bootstrap(conn)
-    // THE FEED, LAST, and at wire 1 without the delta capability — because that
-    // is everything this server honestly knows about a socket that has not spoken
-    // yet, and it is the same assumption the pre-cutover code stated ("a pre-hello
-    // client is treated as legacy"). `hello` moves it (see `routeClientFrame`).
-    // AFTER the port call, so the bootstrap lands after the non-feed world in the
-    // same order a client saw before the cutover.
+    // Deliberately NOT awaited (rule 51 case 2 / rule 57): wireClientSocket
+    // needs the id in this turn to install message/close handlers. These are
+    // independent streams, not a global bootstrap-complete barrier: SocketHub
+    // stores machines, approvals and hosts separately from feed entities and
+    // dispatches drafts by session id. Their frames may arrive after feed data.
+    // Each task owns its rejection; failure must not prevent feed admission.
+    void this.deps.ports.sessions
+      .onClientAttached(conn.principal, conn, transport.machines ?? [])
+      .catch((error: unknown) => {
+        log.error('client session bootstrap failed', { clientId: id, error })
+      })
+    void this.deps.bootstrap(conn).catch((error: unknown) => {
+      log.error('client non-session bootstrap failed', { clientId: id, error })
+    })
+    // Start feed admission at wire 1, before hello can negotiate capabilities.
+    // This orders invocation only; it does not wait for either non-feed task.
     this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal), conn.principal)
     return id
   }

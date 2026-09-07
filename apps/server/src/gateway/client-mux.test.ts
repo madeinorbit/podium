@@ -17,10 +17,10 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from '@podium/protocol'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
-import { ClientMux } from './client-mux'
+import { ClientMux, type ClientMuxDeps } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
 import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
 import { ClientRegistry } from './client-registry'
@@ -50,7 +50,7 @@ async function harness() {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
     sessions: {
-      onClientAttached: vi.fn(),
+      onClientAttached: vi.fn(async () => {}),
       onClientReclaim: vi.fn(),
       onClientDetached: vi.fn(),
       onRoomJoined: vi.fn(),
@@ -60,17 +60,18 @@ async function harness() {
       // fixtures' connections are.
     },
   }
-  const bootstrap = vi.fn()
+  const bootstrap = vi.fn<ClientMuxDeps['bootstrap']>(async () => {})
+  const feed = (await feedTestPlumbing()).serving
   const mux = new ClientMux({
     registry,
     ports,
-    feed: (await feedTestPlumbing()).serving,
+    feed,
     presence: presenceStub(),
     bootstrap,
   })
   const sent: ServerMessage[] = []
   const id = attachTestClient(mux, (msg) => sent.push(msg))
-  return { registry, ports, mux, bootstrap, sent, id }
+  return { registry, ports, mux, bootstrap, sent, id, feed }
 }
 
 const A_ROUTABLE_FRAME = { type: 'attach', sessionId: asSessionId('s1') } satisfies ClientMessage
@@ -224,6 +225,107 @@ describe('the connection lifecycle', () => {
     expect(h.registry.get(h.id)).toBe(conn)
   })
 
+  it('declares both asynchronous ports and a synchronous connection id', () => {
+    expectTypeOf<ClientMuxDeps['bootstrap']>().returns.toEqualTypeOf<Promise<void>>()
+    expectTypeOf<ClientFeaturePorts['sessions']['onClientAttached']>().returns.toEqualTypeOf<
+      Promise<void>
+    >()
+    expectTypeOf<ClientMux['attachClient']>().returns.toEqualTypeOf<string>()
+  })
+
+  it.each([
+    'sessions',
+    'bootstrap',
+  ] as const)('serves feed and input while both tasks wait, with %s completing first', async (first) => {
+    const h = await harness()
+    await h.feed.admissionSettled()
+    const sessions = Promise.withResolvers<void>()
+    const bootstrap = Promise.withResolvers<void>()
+    const started: string[] = []
+    const sent: ServerMessage[] = []
+    vi.mocked(h.ports.sessions.onClientAttached).mockImplementation(async (_principal, conn) => {
+      expect(h.registry.get(conn.id)).toBe(conn)
+      expect(sent).toEqual([{ type: 'welcome', clientId: conn.id }])
+      started.push('sessions')
+      await sessions.promise
+      conn.send({ type: 'machinesChanged', machines: [] })
+    })
+    h.bootstrap.mockImplementation(async (conn) => {
+      started.push('bootstrap')
+      await bootstrap.promise
+      conn.send({ type: 'approvalsChanged', pending: [] })
+      conn.send({ type: 'hostMetricsChanged', hosts: [] })
+    })
+    const id = attachTestClient(h.mux, (msg) => sent.push(msg))
+    expect(typeof id).toBe('string')
+    expect(started).toEqual(['sessions', 'bootstrap'])
+    expect(sent).toEqual([{ type: 'welcome', clientId: id }])
+    h.mux.routeClientFrame(id, { type: 'ping' })
+    expect(sent.at(-1)).toEqual({ type: 'pong' })
+    h.mux.routeClientFrame(id, A_ROUTABLE_FRAME)
+    expect(h.ports.sessions.onSessionClientFrame).toHaveBeenLastCalledWith(
+      h.mux.principalOf(id),
+      h.registry.get(id),
+      A_ROUTABLE_FRAME,
+    )
+    await h.feed.admissionSettled()
+    expect(sent.some((msg) => msg.type === 'sessionsChanged')).toBe(true)
+    expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
+    expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)
+    const feedEnd = sent.length
+    const firstTask = first === 'sessions' ? sessions : bootstrap
+    const secondTask = first === 'sessions' ? bootstrap : sessions
+    firstTask.resolve()
+    await firstTask.promise
+    expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
+      first === 'sessions' ? ['machinesChanged'] : ['approvalsChanged', 'hostMetricsChanged'],
+    )
+    secondTask.resolve()
+    await secondTask.promise
+    expect(sent.slice(feedEnd).map((msg) => msg.type)).toEqual(
+      first === 'sessions'
+        ? ['machinesChanged', 'approvalsChanged', 'hostMetricsChanged']
+        : ['approvalsChanged', 'hostMetricsChanged', 'machinesChanged'],
+    )
+    h.mux.detachClient(id)
+  })
+
+  it('reports both rejected tasks without blocking feed admission or input', async () => {
+    const h = await harness()
+    await h.feed.admissionSettled()
+    const logs = captureLogs()
+    const sessionError = new Error('draft read failed')
+    const bootstrapError = new Error('approval read failed')
+    vi.mocked(h.ports.sessions.onClientAttached).mockRejectedValue(sessionError)
+    h.bootstrap.mockRejectedValue(bootstrapError)
+    const sent: ServerMessage[] = []
+    try {
+      const id = attachTestClient(h.mux, (msg) => sent.push(msg))
+      h.mux.routeClientFrame(id, { type: 'ping' })
+      await h.feed.admissionSettled()
+      expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
+      expect(sent).toContainEqual({ type: 'pong' })
+      expect(sent.some((msg) => msg.type === 'sessionsChanged')).toBe(true)
+      expect(logs.at('error')).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            msg: 'client session bootstrap failed',
+            clientId: id,
+            error: sessionError,
+          }),
+          expect.objectContaining({
+            msg: 'client non-session bootstrap failed',
+            clientId: id,
+            error: bootstrapError,
+          }),
+        ]),
+      )
+      h.mux.detachClient(id)
+    } finally {
+      logs.restore()
+    }
+  })
+
   it('acknowledges binary input only after hello and routes bytes under transport identity', async () => {
     const h = await harness()
     vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation((_principal, conn, msg) => {
@@ -327,7 +429,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       registry,
       ports: {
         sessions: {
-          onClientAttached: vi.fn(),
+          onClientAttached: vi.fn(async () => {}),
           onClientReclaim: vi.fn(),
           onClientDetached: vi.fn(),
           onRoomJoined: vi.fn(),
@@ -337,7 +439,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       },
       feed: (await feedTestPlumbing()).serving,
       presence: presenceStub(),
-      bootstrap: vi.fn(),
+      bootstrap: vi.fn(async () => {}),
     })
     const inboxes = new Map<string, ServerMessage[]>()
     const ids = ['a', 'b', 'c'].map(() => {

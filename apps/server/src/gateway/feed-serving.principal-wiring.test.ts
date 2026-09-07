@@ -114,7 +114,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
   })
   const ports: ClientFeaturePorts = {
     sessions: {
-      onClientAttached: vi.fn(),
+      onClientAttached: vi.fn(async () => {}),
       onClientReclaim: vi.fn(),
       onClientDetached: vi.fn(),
       onRoomJoined: vi.fn(),
@@ -137,7 +137,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
       setVisible: vi.fn(),
       disconnect: vi.fn(),
     } as unknown as PresenceRouting,
-    bootstrap: vi.fn(),
+    bootstrap: vi.fn(async () => {}),
   })
 
   /** Authenticate a socket AS someone and take it to the current wire. */
