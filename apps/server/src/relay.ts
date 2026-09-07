@@ -557,7 +557,7 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
-    const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
+    const registry = await SessionRegistry.create(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
     })
     await registry.hydrate()
@@ -743,8 +743,8 @@ export class SessionRegistry {
     const updatesService = new UpdatesService({
       recovery: this.store.updateRecovery,
       recoveryOnly,
-      machines: () =>
-        machines.listMachines().map((machine) => ({
+      machines: async () =>
+        (await machines.listMachines()).map((machine) => ({
           id: machine.id,
           name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
@@ -819,9 +819,9 @@ export class SessionRegistry {
       // …and WHICH version that operation is delivering, so an operation adopted
       // across a restart can still be handed the package it resumed waiting for
       // (POD-2228). This process has no memory of having published it.
-      approvedTarget: (channel) => this.store.operations.approvedTarget(channel),
-      exclusiveOperationVersion: (channel) =>
-        exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      approvedTarget: async (channel) => await this.store.operations.approvedTarget(channel),
+      exclusiveOperationVersion: async (channel) =>
+        exclusiveUpdateVersion(await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
       /**
        * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
@@ -1148,10 +1148,10 @@ export class SessionRegistry {
       sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
       sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
       sourceWireSchemaDigest: wireSchemaDigest(),
-      sourceCapable: () => {
-        const source = machines
-          .listMachines()
-          .find((machine) => machine.id === this.store.hostMachineId)
+      sourceCapable: async () => {
+        const source = (await machines.listMachines()).find(
+          (machine) => machine.id === this.store.hostMachineId,
+        )
         return (
           source?.online === true &&
           source.wireSchemaDigest === wireSchemaDigest() &&
@@ -1160,8 +1160,8 @@ export class SessionRegistry {
       },
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
-      targetState: (machineId) => {
-        const machine = machines.listMachines().find((candidate) => candidate.id === machineId)
+      targetState: async (machineId) => {
+        const machine = (await machines.listMachines()).find((candidate) => candidate.id === machineId)
         return {
           exists: machine !== undefined,
           online: machines.hasDaemon(machineId),
@@ -1174,9 +1174,8 @@ export class SessionRegistry {
         }
       },
       endpointHandoff: {
-        registeredMachineIds: () =>
-          machines
-            .listMachines()
+        registeredMachineIds: async () =>
+          (await machines.listMachines())
             .filter(
               (machine) =>
                 machine.components === undefined || machine.components.includes('daemon'),

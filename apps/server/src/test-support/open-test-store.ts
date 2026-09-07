@@ -42,7 +42,7 @@ export async function openTestStore(
 ): Promise<SessionStore> {
   // Every parameter of the constructor has a default and an explicit `undefined`
   // selects it, so forwarding all three keeps the state-dir path, the freshly
-  // minted machine id and the real verifier exactly as a bare `new SessionStore()`
+  // minted machine id and the real verifier exactly as a bare `await SessionStore.open()`
   // would have them.
   return await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
 }

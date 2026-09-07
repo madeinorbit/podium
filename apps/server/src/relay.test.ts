@@ -85,12 +85,12 @@ const bind = (sessionId: SessionId) =>
   }) as const
 
 describe('SessionRegistry', () => {
-  it('assembles recovery-only over a query-only store without running writable boot repairs', () => {
+  it('assembles recovery-only over a query-only store without running writable boot repairs', async () => {
     const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
     const nativeId = 'subagent-under-test'
     const stalePath = '/project/subagents/stale-name.jsonl'
-    const seeded = new SessionStore(file, TEST_MACHINE)
-    const seededRegistry = new SessionRegistry(seeded, undefined, { instanceId: 'seed' })
+    const seeded = await SessionStore.open(file, TEST_MACHINE)
+    const seededRegistry = await SessionRegistry.create(seeded, undefined, { instanceId: 'seed' })
     const { sessionId } = seededRegistry.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/project',
@@ -105,9 +105,9 @@ describe('SessionRegistry', () => {
     seededRegistry.dispose()
     seeded.close()
 
-    const queryOnly = new SessionStore(file, TEST_MACHINE, { queryOnly: true })
+    const queryOnly = await SessionStore.open(file, TEST_MACHINE, { queryOnly: true })
     expect(queryOnly.sessions.getSession(sessionId)).toBeDefined()
-    const recovery = new SessionRegistry(queryOnly, undefined, {
+    const recovery = await SessionRegistry.create(queryOnly, undefined, {
       instanceId: 'recovery-only',
       recoveryOnly: true,
     })
@@ -116,8 +116,8 @@ describe('SessionRegistry', () => {
     recovery.dispose()
     queryOnly.close()
 
-    const writable = new SessionStore(file, TEST_MACHINE)
-    const ordinary = new SessionRegistry(writable, undefined, { instanceId: 'writable' })
+    const writable = await SessionStore.open(file, TEST_MACHINE)
+    const ordinary = await SessionRegistry.create(writable, undefined, { instanceId: 'writable' })
     expect(writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
     ordinary.dispose()
     writable.close()
@@ -1867,9 +1867,9 @@ describe('SessionRegistry', () => {
     expect(spy).toHaveBeenCalled()
   })
 
-  it('queues semantic activity while the transfer fence is read-only, then flushes it', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  it('queues semantic activity while the transfer fence is read-only, then flushes it', async () => {
+    const store = await SessionStore.open(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
@@ -3601,11 +3601,11 @@ describe('hibernation', () => {
     return sessionId
   }
 
-  it('defers daemon inventory and idle-pressure writes across the transfer fence', () => {
+  it('defers daemon inventory and idle-pressure writes across the transfer fence', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T00:00:00.000Z'))
-    const store = new SessionStore(':memory:', TEST_MACHINE)
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const store = await SessionStore.open(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
@@ -3656,14 +3656,14 @@ describe('hibernation', () => {
           },
         }),
       ).not.toThrow()
-      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toBeUndefined()
+      expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
       expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
 
       store.endTransferFence()
       reg.modules.machines.resumeAfterTransferFence()
       reg.modules.hosts.resumeAfterTransferFence()
-      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toMatchObject({
+      expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toMatchObject({
         podiumVersion: 'fenced-report',
       })
       expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')

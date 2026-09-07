@@ -466,7 +466,7 @@ export class OperationEngine {
     }
 
     const operation = this.require(operationId)
-    const steps = operation.steps ?? []
+    const steps = (await operation).steps ?? []
     const index = steps.findIndex((step) => step.id === stepId)
     if (index < 0 || inFlightStep(operation)?.id !== stepId) {
       throw new Error('handoff may only seal the step in flight')
@@ -480,8 +480,8 @@ export class OperationEngine {
 
     const at = this.now()
     const details: Record<string, unknown> =
-      operation.details && typeof operation.details === 'object'
-        ? (operation.details as Record<string, unknown>)
+      (await operation).details && typeof (await operation).details === 'object'
+        ? ((await operation).details as Record<string, unknown>)
         : {}
     const withStep = this.applyPatch(operation, stepId, { ...patch.step, state: 'running' }, at)
     const sealed: PersistedOperation = {
@@ -924,7 +924,7 @@ export class OperationEngine {
         this.persistable(this.resumeStalled(reconciled), def),
         this.now(),
       )
-      if (!isTerminalOperationState(persisted.state)) await this.driveLocked(operationId)
+      if (!isTerminalOperationState((await persisted).state)) await this.driveLocked(operationId)
       return (await this.deps.store.get(operationId))?.operation ?? persisted
     })
   }

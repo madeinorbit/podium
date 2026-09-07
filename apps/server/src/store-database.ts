@@ -2,7 +2,7 @@
  * The one place `SessionStore` acquires its SQLite connection, and the single seam
  * the test fixture replaces [POD-523].
  *
- * WHY A SEAM AT ALL. A `new SessionStore(':memory:')` spends ~408 ms of its ~469 ms
+ * WHY A SEAM AT ALL. Opening a store with `SessionStore.open(':memory:')` spends ~408 ms of its ~469 ms
  * replaying all 54 migrations to arrive at a schema that is the same every time; the
  * POD-515 cold profile counted 2,341 of those in one server run. The fixture in
  * `test-support/pre-migrated-store.ts` hands back a database that is already at the

@@ -3,7 +3,7 @@
  *
  * These run against a REAL migrated SQLite database, not a fake: the thing under
  * test is what the columns do, and a fake repository would agree with whatever
- * this file asserted. That includes the migration — `new SessionStore(':memory:')`
+ * this file asserted. That includes the migration — `await SessionStore.open(':memory:')`
  * applies the bundled manifest, so a `machines` table without `owner_user_id`
  * fails here rather than at boot on somebody's laptop.
  *

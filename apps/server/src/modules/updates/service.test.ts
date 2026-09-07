@@ -339,11 +339,11 @@ describe('UpdatesService', () => {
         },
       )
 
-      it('supersedes retired correlation with a new repair grant', () => {
+      it('supersedes retired correlation with a new repair grant', async () => {
         const recovery = memoryRecovery()
         const { svc, send } = start({ recovery })
         svc.abandonWait(['a'], 'Deadline expired')
-        expect(svc.repairMachine(asMachineId('a'), TEST_REPAIR).result).toBe('granted')
+        expect((await svc.repairMachine(asMachineId('a'), TEST_REPAIR)).result).toBe('granted')
         expect(recovery.read()?.retiredGrants).toEqual([])
         svc.onStatus(asMachineId('a'), confirmed)
         expect(svc.fleet()[0]?.state).not.toBe('current')

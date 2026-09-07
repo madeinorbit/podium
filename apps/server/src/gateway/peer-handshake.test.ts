@@ -109,10 +109,10 @@ interface EnrollmentHandshakeWorldOptions {
   readonly revoked?: boolean
 }
 
-const enrollmentHandshakeWorld = (options: EnrollmentHandshakeWorldOptions = {}) => {
+const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions = {}) => {
   const stateRoot = handshakeTmp()
   const dbPath = join(stateRoot, 'podium.db')
-  const seeded = new SessionStore(dbPath)
+  const seeded = await SessionStore.open(dbPath)
   const hostMachineId = seeded.hostMachineId
   const machineId = asMachineId('remote-machine')
   const enrollment = openEnrollmentLedger(stateRoot)
@@ -144,7 +144,7 @@ const enrollmentHandshakeWorld = (options: EnrollmentHandshakeWorldOptions = {})
   }
   seeded.close()
 
-  const store = new SessionStore(dbPath, hostMachineId, {
+  const store = await SessionStore.open(dbPath, hostMachineId, {
     queryOnly: options.queryOnly ?? true,
   })
   const pairing = new PairingManager()
@@ -561,30 +561,30 @@ describe('handshake order at the real gateway', () => {
 })
 
 describe('recovery-only daemon handshake verification', () => {
-  it('accepts an existing unrevoked token without touching or invalidating its row', () => {
+  it('accepts an existing unrevoked token without touching or invalidating its row', async () => {
     const world = enrollmentHandshakeWorld()
-    const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
+    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
+    const invalidate = vi.spyOn((await world).machines, 'invalidateMachineCache')
     try {
-      expect(receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
+      expect(receiveHello((await world).machines, (await world).machineId, (await world).token, true)).toMatchObject({
         kind: 'established',
-        machineId: world.machineId,
+        machineId: (await world).machineId,
         name: 'Durable machine',
       })
       expect(touch).not.toHaveBeenCalled()
       expect(invalidate).not.toHaveBeenCalled()
-      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('stored.local')
+      expect((await world).store.machines.getMachine((await world).machineId)?.hostname).toBe('stored.local')
     } finally {
-      world.store.close()
+      (await world).store.close()
     }
   })
 
   it.each([
     {
       verdict: 'revoked token',
-      setup: () => {
+      setup: async () => {
         const world = enrollmentHandshakeWorld({ revoked: true })
-        return { world, token: world.token }
+        return { world, token: (await world).token }
       },
     },
     {
@@ -596,39 +596,39 @@ describe('recovery-only daemon handshake verification', () => {
     },
     {
       verdict: 'missing row',
-      setup: () => {
+      setup: async () => {
         const world = enrollmentHandshakeWorld({ row: false })
-        return { world, token: world.token }
+        return { world, token: (await world).token }
       },
     },
-  ])('rejects a $verdict without writing', ({ setup }) => {
+  ])('rejects a $verdict without writing', async ({ setup }) => {
     const { world, token } = setup()
-    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
     try {
-      expect(receiveHello(world.machines, world.machineId, token, true).kind).toBe('rejected')
+      expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe('rejected')
       expect(touch).not.toHaveBeenCalled()
     } finally {
-      world.store.close()
+      (await world).store.close()
     }
   })
 
-  it('rejects pairing before consuming its code', () => {
+  it('rejects pairing before consuming its code', async () => {
     const world = enrollmentHandshakeWorld({ queryOnly: false })
-    const code = world.machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
+    const code = (await world).machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
     const machineId = asMachineId('new-machine')
     try {
       const outcome = receiveDaemonFrame(
         createDaemonAcceptor({
-          machines: world.machines,
+          machines: (await world).machines,
           connectionId: 'verify-only-pair',
           verifyOnly: true,
         }),
         JSON.stringify({ type: 'pair', code, machineId, hostname: 'new.local' }),
       )
-      expect(outcome.kind).toBe('rejected')
-      expect(world.store.machines.getMachine(machineId)).toBeUndefined()
+      expect((await outcome).kind).toBe('rejected')
+      expect((await world).store.machines.getMachine(machineId)).toBeUndefined()
       expect(
-        world.machines.authenticateDaemon({
+        (await world).machines.authenticateDaemon({
           type: 'pair',
           code,
           machineId,
@@ -636,23 +636,23 @@ describe('recovery-only daemon handshake verification', () => {
         }),
       ).toMatchObject({ ok: true, machineId })
     } finally {
-      world.store.close()
+      (await world).store.close()
     }
   })
 
-  it('keeps ordinary handshake touch and cache invalidation', () => {
+  it('keeps ordinary handshake touch and cache invalidation', async () => {
     const world = enrollmentHandshakeWorld({ queryOnly: false })
-    const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
+    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
+    const invalidate = vi.spyOn((await world).machines, 'invalidateMachineCache')
     try {
-      expect(receiveHello(world.machines, world.machineId, world.token, false).kind).toBe(
+      expect((await receiveHello((await world).machines, (await world).machineId, (await world).token, false)).kind).toBe(
         'established',
       )
-      expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
+      expect(touch).toHaveBeenCalledWith((await world).machineId, 'observed.local')
       expect(invalidate).toHaveBeenCalledOnce()
-      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('observed.local')
+      expect((await world).store.machines.getMachine((await world).machineId)?.hostname).toBe('observed.local')
     } finally {
-      world.store.close()
+      (await world).store.close()
     }
   })
 })

@@ -2,7 +2,7 @@
  * Pre-migrated store fixture [POD-523] — ordinary server tests CLONE a
  * current-schema database instead of replaying the 54-migration chain.
  *
- * THE COST THIS REMOVES. `new SessionStore(':memory:')` measured 469 ms warm, of
+ * THE COST THIS REMOVES. `await SessionStore.open(':memory:')` measured 469 ms warm, of
  * which 408 ms is the migration chain; the POD-515 cold profile counted 2,341 full
  * chain applications in one `@podium/server` run. Cloning the finished page image
  * costs ~4 ms, so the same construction lands near 65 ms, and the chain itself is

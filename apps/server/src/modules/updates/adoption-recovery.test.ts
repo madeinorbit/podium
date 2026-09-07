@@ -32,9 +32,9 @@ function fixture() {
   const file = join(dir, 'podium.db')
   let store: SessionStore
   let registry: SessionRegistry
-  const open = (recoveryOnly = false) => {
-    store = new SessionStore(file, host, recoveryOnly ? { queryOnly: true } : {})
-    registry = new SessionRegistry(store, undefined, {
+  const open = async (recoveryOnly = false) => {
+    store = await SessionStore.open(file, host, recoveryOnly ? { queryOnly: true } : {})
+    registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'canary-recovery',
       recoveryOnly,
     })

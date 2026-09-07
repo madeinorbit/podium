@@ -153,7 +153,7 @@ describe('target server deferred move adoption', () => {
     const origin = `http://127.0.0.1:${handle.port}`
     expect(await (await fetch(`${origin}/health`)).text()).toBe('ok')
     expect((await fetch(`${origin}/readiness`)).status).toBe(503)
-    expect(handle.registry.modules.operations.engine.get(operation.id)?.operation?.updatedAt).toBe(
+    expect((await handle.registry.modules.operations.engine.get(operation.id))?.operation?.updatedAt).toBe(
       10,
     )
 
@@ -173,7 +173,7 @@ describe('target server deferred move adoption', () => {
     )
     expect(await readiness.json()).toMatchObject({ dataPlane: 'available' })
     expect(attempts).toBeGreaterThanOrEqual(2)
-    expect(handle.registry.modules.operations.engine.get(operation.id)?.operation).toMatchObject({
+    expect((await handle.registry.modules.operations.engine.get(operation.id))?.operation).toMatchObject({
       state: 'done',
       details: { handoff: { role: 'completed-on-target' } },
     })
@@ -186,7 +186,7 @@ describe('target server deferred move adoption', () => {
     const response = await fetch(`http://127.0.0.1:${handle.port}/readiness`)
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ dataPlane: 'available' })
-    expect(handle.registry.modules.operations.engine.get(operation.id)?.state).toBe('done')
+    expect((await handle.registry.modules.operations.engine.get(operation.id))?.state).toBe('done')
   })
 })
 
@@ -270,7 +270,7 @@ describe('source server deferred move adoption', () => {
 
       handle = await startServer({ port: 0 })
       const engine = handle.registry.modules.operations.engine
-      const deferred = engine.get(operation.id)?.operation
+      const deferred = (await engine.get(operation.id))?.operation
       expect(engine.isAdoptionDeferred(operation.id)).toBe(true)
       expect(deferred?.updatedAt).toBe(10)
       expect(deferred?.steps?.find((step) => step.id === 'stage')?.attempts).toBe(1)
@@ -280,7 +280,7 @@ describe('source server deferred move adoption', () => {
 
       handle.registry.modules.machines.attach(asMachineId('target-1'), () => {})
       const resumed = await eventually(
-        async () => engine.get(operation.id)?.operation,
+        async () => (await engine.get(operation.id))?.operation,
         (current) =>
           (current?.steps?.find((step) => step.id === 'stage')?.attempts ?? 0) > 1,
       )

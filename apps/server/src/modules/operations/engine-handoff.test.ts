@@ -93,12 +93,12 @@ describe('coordinator handoff', () => {
     await engine.whenSettled('op_1')
     const sealed = store.get('op_1')
     expect((await sealed)?.state).toBe('running')
-    expect(step(sealed?.operation, 'first')).toMatchObject({
+    expect(step((await sealed)?.operation, 'first')).toMatchObject({
       state: 'running',
       detail: 'detaching',
     })
     expect(step((await sealed)?.operation, 'second')?.state).toBe('pending')
-    expect(sealed?.operation?.details).toMatchObject({
+    expect((await sealed)?.operation?.details).toMatchObject({
       _handoff: { stepId: 'first' },
       handoff: { target: 'other-machine' },
     })
@@ -227,7 +227,7 @@ describe('operation cancellation cleanup', () => {
     expect(onCancel).toHaveBeenCalledOnce()
     expect((await store.get('op_1'))?.state).toBe('canceled')
     expect(step((await store.get('op_1'))?.operation, 'first')?.detail).toBe('staging removed')
-    expect(store.get('op_1')?.operation?.details).toMatchObject({
+    expect((await store.get('op_1'))?.operation?.details).toMatchObject({
       targetAborted: true,
       cleanup: { status: 'complete' },
     })
@@ -249,7 +249,7 @@ describe('operation cancellation cleanup', () => {
     await engine.whenSettled('op_1')
 
     await engine.cancel('op_1')
-    expect(store.get('op_1')?.operation?.details).toMatchObject({
+    expect((await store.get('op_1'))?.operation?.details).toMatchObject({
       cleanup: {
         status: 'pending',
         error: 'target offline',
@@ -259,7 +259,7 @@ describe('operation cancellation cleanup', () => {
     expect(await engine.retryPendingCleanup()).toBe(1)
     expect(onCancel).toHaveBeenCalledTimes(2)
     expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'canceled' }), 'canceled')
-    expect(store.get('op_1')?.operation?.details).toMatchObject({
+    expect((await store.get('op_1'))?.operation?.details).toMatchObject({
       cleanup: { status: 'complete' },
     })
   })

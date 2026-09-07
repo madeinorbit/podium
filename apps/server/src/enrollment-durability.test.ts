@@ -131,8 +131,8 @@ describe('server host enrollment provenance (POD-2467)', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('enrolls the original host without treating an arbitrary machine row as proof', () => {
-    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+  it('enrolls the original host without treating an arbitrary machine row as proof', async () => {
+    const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
     store.machines.upsertMachine({
       id: asMachineId('forged-row'),
       name: 'Forged',
@@ -150,27 +150,27 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'original-secret')).toBe(true)
   })
 
-  it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', () => {
+  it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', async () => {
     const source = makeWorld(dir)
-    const paired = pairRemote(source.machines, {
+    const paired = pairRemote((await source).machines, {
       machineId: PROMOTED_HOST,
       ownerUserId: OTHER,
     })
-    const serialBeforePromotion = source.enrollment.nextSerial(PROMOTED_HOST)
-    const promoted = hostWorld(dir, source.store, PROMOTED_HOST)
+    const serialBeforePromotion = (await source).enrollment.nextSerial(PROMOTED_HOST)
+    const promoted = hostWorld(dir, (await source).store, PROMOTED_HOST)
 
     promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
 
     expect(promoted.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
     expect(promoted.enrollment.nextSerial(PROMOTED_HOST)).toBe(serialBeforePromotion)
     expect(promoted.enrollment.recordedOwner(PROMOTED_HOST)).toBe(OTHER)
-    expect(source.store.machines.getMachine(PROMOTED_HOST)?.ownerUserId).toBe(OTHER)
-    expect(source.store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
-    expect(source.store.machines.getMachineByToken(PROMOTED_HOST, paired.token)).toBe(false)
+    expect((await source).store.machines.getMachine(PROMOTED_HOST)?.ownerUserId).toBe(OTHER)
+    expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
+    expect((await source).store.machines.getMachineByToken(PROMOTED_HOST, (await paired).token)).toBe(false)
   })
 
-  it('keeps the former host eligible when the server moves away and then returns', () => {
-    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+  it('keeps the former host eligible when the server moves away and then returns', async () => {
+    const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
     const original = hostWorld(dir, store, ORIGINAL_HOST)
     original.machines.ensureHostMachine('original.local', 'original-secret')
     const sourceSerial = original.enrollment.nextSerial(ORIGINAL_HOST)
@@ -199,8 +199,8 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'return-secret')).toBe(true)
   })
 
-  it('does not let a forged host row override durable revocation', () => {
-    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+  it('does not let a forged host row override durable revocation', async () => {
+    const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
     const ledger = openEnrollmentLedger(dir)
     ledger.appendRevoke({
       id: 'revoke-forged-host',
@@ -226,8 +226,8 @@ describe('server host enrollment provenance (POD-2467)', () => {
     expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'trusted-secret')).toBe(false)
   })
 
-  it('reboots idempotently without appending another enrollment', () => {
-    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+  it('reboots idempotently without appending another enrollment', async () => {
+    const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
     hostWorld(dir, store, ORIGINAL_HOST).machines.ensureHostMachine('original.local', 'secret')
     const before = readFileSync(join(dir, 'enrollment.ledger'), 'utf8')
 

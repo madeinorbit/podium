@@ -43,8 +43,8 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
   return { send: (m) => got.push(m), got }
 }
 
-function storedService(recoveryOnly = false): { svc: MachinesService; store: SessionStore } {
-  const store = new SessionStore(':memory:')
+async function storedService(recoveryOnly = false): { svc: MachinesService; store: SessionStore } {
+  const store = await SessionStore.open(':memory:')
   store.machines.upsertMachine({
     id: MACHINE,
     name: 'vmi',
@@ -325,10 +325,10 @@ describe('MachinesService supervisor presence', () => {
 })
 
 describe('promoted server host identity', () => {
-  test('a server-only promoted host reuses its target row without minting another machine', () => {
+  test('a server-only promoted host reuses its target row without minting another machine', async () => {
     const source = asMachineId('former-host')
     const target = asMachineId('promoted-host')
-    const store = new SessionStore(':memory:', target)
+    const store = await SessionStore.open(':memory:', target)
     for (const id of [source, target]) {
       store.machines.upsertMachine({
         id,
@@ -346,11 +346,11 @@ describe('promoted server host identity', () => {
       clients: () => [],
       machinesForPrincipal: () => [],
     } satisfies MachinesDeps)
-    const before = store.machines.listMachines().map(({ id }) => id)
+    const before = (await store.machines.listMachines()).map(({ id }) => id)
 
     expect(svc.onlineMachineIds()).toEqual([])
     expect(svc.ensureHostMachine('promoted-hostname', 'promoted-secret')).toBe(target)
-    expect(store.machines.listMachines().map(({ id }) => id)).toEqual(before)
+    expect((await store.machines.listMachines()).map(({ id }) => id)).toEqual(before)
     expect(store.machines.getMachine(target)).toMatchObject({
       id: target,
       hostname: 'promoted-hostname',
@@ -606,7 +606,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect((await store.machines.getMachine(MACHINE))?.hostname).toBe('vmi-renamed')
   })
 
-  test('coalesces inventory while the transfer fence is read-only and resumes after abort', () => {
+  test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
     const { svc, store } = makeStoreService()
     store.machines.upsertMachine({
       id: MACHINE,
