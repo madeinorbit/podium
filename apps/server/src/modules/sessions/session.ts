@@ -390,7 +390,7 @@ export class Session {
   contextUsagePercent: number | undefined
   /** Count of durable queued messages awaiting delivery (queued_messages table).
    *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
-   *  table is the truth; this exists so toMeta() stays synchronous. */
+   *  table is the truth; SessionView reads it directly for display. */
   queuedMessageCount = 0
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
   handoffTarget: string | undefined
@@ -1191,7 +1191,6 @@ export class Session {
       // a fourth family added to the manifests fails HERE, at typecheck, rather
       // than being silently dropped from every client's view.
       ...(driverFamily ? { driverFamily } : {}),
-      ...(d.queuedMessageCount > 0 ? { queuedMessageCount: d.queuedMessageCount } : {}),
       ...(d.conversationPodiumId ? { conversationPodiumId: d.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       // THE ATTRIBUTION PAIR ON THE WIRE (POD-1516). Server-stamped and read-only:
