@@ -71,3 +71,7 @@ evidence/
 
 # vitest json reporter output (POD-3407 committed one by accident)
 .vitest/
+
+# Per-shard record of which test files each @podium/server shard executed (POD-3531).
+# A Turbo task output, restored on a cache hit; never a lane input.
+apps/server/.test-shard-reports/

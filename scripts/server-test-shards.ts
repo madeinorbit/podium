@@ -33,13 +33,48 @@
  *      change to './y' can still turn the suite red at transform time, so the scanner
  *      deliberately does not distinguish them.
  *
+ * WHAT `bun run test` IN apps/server IS FOR (POD-3531). It is a CONVENIENCE ALIAS: the
+ * documented-looking command in the package directory, and it must run the same five shards
+ * Turbo runs. It did not. This file was the aggregate task's whole body, and that body only
+ * ever verified the roster — correct under Turbo, where `dependsOn` does the running, and a
+ * lie by hand, where it printed "445 unit files across 5 shards" and exited 0 in 0.3s.
+ *
+ * The alternative reading — a deliberately narrow entry point that refuses and points at the
+ * shards — was rejected. `test` is the name of the lane in every other package, the shards
+ * are an internal caching detail, and an entry point that refuses to do the obvious thing
+ * teaches people to stop reading it.
+ *
+ * So the default now RUNS, and the run ACCOUNTS FOR ITSELF, which is the shape POD-3517
+ * landed for typecheck rather than a patch on the script. Every shard writes a Vitest JSON
+ * report of the files it executed ({@link SHARD_REPORT_DIR}); {@link reconcile} refuses
+ * unless every announced file appears in some shard's report, naming the shard and the files
+ * when it does not. Under Turbo the shards run as dependencies and the aggregate reconciles
+ * their reports instead of re-running them — see {@link TURBO_TASK_ENV}. `--roster` is the
+ * only way to get the list without the lane, and it says out loud that it ran nothing.
+ *
  * Regenerate after adding, moving, or deleting an apps/server test file:
  *
  *   bun scripts/server-test-shards.ts --write
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  executedTestFiles,
+  SHARD_REPORT_DIR,
+  SHARD_REPORT_DIR_IN_PACKAGE,
+  shardReportDir,
+  shardReportPath,
+  type VitestJsonReport,
+} from '../apps/server/test-shard-report'
 import { normalizedWireTests, unitTestExclude } from '../vitest.unit.config'
 
 /**
@@ -110,6 +145,8 @@ export const LANE_INPUTS: readonly string[] = [
   'vitest.config.ts',
   'vitest.shard.ts',
   'vitest.*.config.ts',
+  // The shard/aggregate agreement on where a run records what it executed (POD-3531).
+  'test-shard-report.ts',
   'src/migrations/**',
   'src/test-support/**',
   '$TURBO_ROOT$/scripts/server-test-shards.ts',
@@ -530,6 +567,18 @@ export interface TurboTask {
 }
 
 /**
+ * A shard's Turbo output: the JSON report naming every file it executed (POD-3531).
+ *
+ * Declared as an output rather than left as a side effect so a CACHE HIT restores it too.
+ * Without that, a replayed shard would leave no record, and the aggregate's reconciliation
+ * would have to treat every cached green as an unrun shard — which would make the honest
+ * check unusable and get it deleted. The report is the shard's evidence; the cache has to
+ * carry the evidence with the result.
+ */
+export const shardReportOutput = (id: ShardId): string =>
+  `${SHARD_REPORT_DIR_IN_PACKAGE}/${id}.json`
+
+/**
  * The generated `apps/server/turbo.json` — a Turbo Package Configuration, so the ~1,240
  * file-level input globs live next to the package they describe instead of tripling the
  * root config. Task names are unprefixed here and apply to @podium/server only; a bare
@@ -547,7 +596,11 @@ export function turboPackageConfig(shards: ShardPlan[]): Record<string, unknown>
     },
   }
   for (const shard of shards) {
-    tasks[shardTaskName(shard.id)] = { dependsOn: [], inputs: shard.inputs, outputs: [] }
+    tasks[shardTaskName(shard.id)] = {
+      dependsOn: [],
+      inputs: shard.inputs,
+      outputs: [shardReportOutput(shard.id)],
+    }
   }
   return {
     $schema: 'https://turbo.build/schema.json',
@@ -562,7 +615,17 @@ export function turboPackageConfig(shards: ShardPlan[]): Record<string, unknown>
 // ---------------------------------------------------------------------------------------
 
 export interface VerifyFailure {
-  kind: 'unowned' | 'duplicated' | 'stale' | 'missing-input' | 'lane-input'
+  kind:
+    | 'unowned'
+    | 'duplicated'
+    | 'stale'
+    | 'missing-input'
+    | 'lane-input'
+    // POD-3531 — the run did not account for the roster it announced.
+    | 'unrun'
+    | 'short-shard'
+    | 'shard-failed'
+    | 'roster-mismatch'
   detail: string
 }
 
@@ -657,6 +720,237 @@ export function diffAgainstPlan(root: string = repositoryRoot): VerifyFailure[] 
   return failures
 }
 
+// ---------------------------------------------------------------------------------------
+// Run accounting — what the aggregate does with the roster it announced (POD-3531)
+// ---------------------------------------------------------------------------------------
+
+/** What one shard did, as far as the aggregate can establish it. */
+export interface ShardOutcome {
+  id: string
+  /** Exit status of the shard command, or null when Turbo ran the shard as a dependency. */
+  exitCode: number | null
+  /** Repo-relative files the shard's report says it executed, or null when there is none. */
+  executed: string[] | null
+  /** Why the report could not be read, when it could not. */
+  reportError: string | null
+  /** The report's own verdict, or null when there is no readable report. */
+  success: boolean | null
+}
+
+/** Read one shard's report back off disk and pair it with how the command exited. */
+export function readShardOutcome(
+  root: string,
+  id: string,
+  exitCode: number | null,
+  env: Record<string, string | undefined> = process.env,
+): ShardOutcome {
+  const path = shardReportPath(root, id, env)
+  let report: VitestJsonReport
+  try {
+    report = JSON.parse(readFileSync(path, 'utf8')) as VitestJsonReport
+    if (!report || typeof report.success !== 'boolean' || !Array.isArray(report.testResults)) {
+      throw new Error('invalid Vitest report: expected success and testResults')
+    }
+    // Parse inside this boundary so malformed nested data produces an isolating refusal.
+    executedTestFiles(root, report)
+  } catch (error) {
+    return {
+      id,
+      exitCode,
+      executed: null,
+      reportError: `${path} is missing or unreadable: ${error}`,
+      success: null,
+    }
+  }
+  return {
+    id,
+    exitCode,
+    executed: executedTestFiles(root, report),
+    reportError: null,
+    success: typeof report.success === 'boolean' ? report.success : null,
+  }
+}
+
+const sample = (files: string[], limit = 5): string =>
+  files.length <= limit
+    ? files.join(', ')
+    : `${files.slice(0, limit).join(', ')}, … +${files.length - limit} more`
+
+/**
+ * Refuse unless the run accounted for every file the roster announced.
+ *
+ * This is the other half of {@link verify}. `verify` establishes that the roster describes
+ * the checkout; this establishes that the roster was RUN. The defect it exists to make
+ * impossible is the one POD-3531 found: an aggregate that prints "445 unit files across 5
+ * shards" and exits 0 having executed none of them. So the announced number is not a label
+ * on the output, it is a claim the process has to discharge — per shard, by name, against
+ * each shard's own record of what it collected.
+ *
+ * Every failure names the shard, both counts and the specific files, because a bare
+ * non-zero here would be indistinguishable from a test failure, and the whole point of this
+ * check is telling a human something the exit code could not.
+ */
+export function reconcile(manifest: Manifest, outcomes: ShardOutcome[]): VerifyFailure[] {
+  const failures: VerifyFailure[] = []
+  const byId = new Map(outcomes.map((outcome) => [outcome.id, outcome]))
+  const executedOverall = new Set<string>()
+
+  for (const shard of manifest.shards) {
+    const announced = shard.testFiles.length
+    const outcome = byId.get(shard.id)
+    if (!outcome) {
+      failures.push({
+        kind: 'unrun',
+        detail: `shard "${shard.id}" announced ${announced} files and was never run`,
+      })
+      continue
+    }
+    if (outcome.exitCode !== null && outcome.exitCode !== 0) {
+      failures.push({
+        kind: 'shard-failed',
+        detail: `shard "${shard.id}" exited ${outcome.exitCode}`,
+      })
+    }
+    if (outcome.executed === null) {
+      failures.push({
+        kind: 'unrun',
+        detail:
+          `shard "${shard.id}" announced ${announced} files but left no record of running ` +
+          `any: ${outcome.reportError}`,
+      })
+      continue
+    }
+    for (const file of outcome.executed) executedOverall.add(file)
+
+    const claimed = new Set(shard.testFiles)
+    const ran = new Set(outcome.executed)
+    const missing = shard.testFiles.filter((file) => !ran.has(file))
+    const unclaimed = outcome.executed.filter((file) => !claimed.has(file))
+    if (missing.length > 0) {
+      failures.push({
+        kind: 'short-shard',
+        detail:
+          `shard "${shard.id}" announced ${announced} files but executed ` +
+          `${outcome.executed.length}; did not run: ${sample(missing)}`,
+      })
+    }
+    if (unclaimed.length > 0) {
+      failures.push({
+        kind: 'roster-mismatch',
+        detail: `shard "${shard.id}" executed files it does not claim: ${sample(unclaimed)}`,
+      })
+    }
+    if (outcome.success !== true && (outcome.exitCode === null || outcome.exitCode === 0)) {
+      failures.push({
+        kind: 'shard-failed',
+        detail: `shard "${shard.id}" reported failing tests or no success verdict`,
+      })
+    }
+  }
+
+  const announcedTotal = manifest.shards.reduce((sum, shard) => sum + shard.testFiles.length, 0)
+  if (executedOverall.size !== announcedTotal) {
+    failures.push({
+      kind: 'roster-mismatch',
+      detail:
+        `the roster announced ${announcedTotal} unit files across ${manifest.shards.length} ` +
+        `shards; the run executed ${executedOverall.size}`,
+    })
+  }
+  return failures
+}
+
+// ---------------------------------------------------------------------------------------
+// Running the shards
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Turbo sets this in every task environment (verified against turbo 2.10.5, whose strict
+ * env mode passes a task nothing else it has not declared). Its presence is how the
+ * aggregate knows the five shard tasks already ran as its `dependsOn` dependencies and it
+ * must not run them a second time.
+ */
+export const TURBO_TASK_ENV = 'TURBO_HASH'
+
+/**
+ * Probe seam: replaces the per-shard command, with the shard id appended as the last
+ * argument. Used by `scripts/server-test-shards-run.test.ts` to drive the real CLI against
+ * a stub shard without running 445 test files. Nothing in the product reads it.
+ */
+export const SHARD_COMMAND_ENV = 'PODIUM_SERVER_SHARD_COMMAND'
+
+export interface ShardInvocation {
+  command: string[]
+  cwd: string
+}
+
+/**
+ * How the aggregate runs one shard directly: the package's own `test:<id>` script.
+ *
+ * Deliberately the script and not a hand-rolled Vitest command line. That script is what
+ * `@podium/server#test:<id>` runs under Turbo, admission lease and all, so the direct path
+ * and the gated path execute the same thing by construction rather than by two command
+ * strings somebody has to keep in step.
+ */
+export function shardInvocation(
+  root: string,
+  id: string,
+  env: Record<string, string | undefined> = process.env,
+): ShardInvocation {
+  const cwd = join(root, SERVER_PACKAGE)
+  const override = env[SHARD_COMMAND_ENV]
+  if (override && override.trim() !== '') {
+    return { command: [...override.trim().split(/\s+/), id], cwd }
+  }
+  return { command: ['bun', 'run', shardTaskName(id)], cwd }
+}
+
+/**
+ * Run all five shards here, in this process's tree, and collect what each one did.
+ *
+ * Sequential, matching the serial task execution `scripts/test.ts` asks Turbo for: each
+ * shard is already capped at two Vitest workers and the host is shared.
+ *
+ * Every shard runs even after one fails. A fail-fast here would abandon shards while the
+ * roster still claimed them, which is precisely the accounting hole POD-3517 closed in the
+ * typecheck lane — the run must be able to say what happened to all five, not to the ones
+ * before the first red.
+ */
+export async function runShards(
+  root: string,
+  manifest: Manifest,
+  env: Record<string, string | undefined> = process.env,
+): Promise<ShardOutcome[]> {
+  // Last run's reports are not this run's evidence. Clear them first, so a shard that fails
+  // to start is an absent report rather than a stale one that reads as a pass.
+  const reportDir = shardReportDir(root, env)
+  mkdirSync(reportDir, { recursive: true })
+  for (const shard of manifest.shards) rmSync(shardReportPath(root, shard.id, env), { force: true })
+
+  const outcomes: ShardOutcome[] = []
+  for (const shard of manifest.shards) {
+    const { command, cwd } = shardInvocation(root, shard.id, env)
+    console.error(`\n▸ ${shard.id} — ${shard.testFiles.length} files (${command.join(' ')})`)
+    const child = Bun.spawn(command, {
+      cwd,
+      env,
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    })
+    const exitCode = await child.exited
+    outcomes.push(readShardOutcome(root, shard.id, exitCode, env))
+  }
+  return outcomes
+}
+
+export const RECONCILE_HINT =
+  'Each shard writes what it executed to ' +
+  `${SHARD_REPORT_DIR}/<shard>.json; the aggregate compares those against the roster.\n` +
+  'A shard with no report did not run. A short shard ran fewer files than it claims —\n' +
+  'regenerate the manifest if the roster is what moved:\n' +
+  '  bun scripts/server-test-shards.ts --write'
+
 export const REGENERATE_HINT =
   'Regenerate with:\n  bun scripts/server-test-shards.ts --write\n' +
   'then review the diff — a file moving between shards means its imports changed.'
@@ -682,6 +976,26 @@ function writeArtifacts(root: string): void {
   console.error(`\nwrote ${MANIFEST_PATH} and ${TURBO_CONFIG_PATH}`)
 }
 
+function reportFailures(headline: string, failures: VerifyFailure[], hint: string): never {
+  console.error(`${headline}\n`)
+  for (const failure of failures.slice(0, 25))
+    console.error(`  [${failure.kind}] ${failure.detail}`)
+  if (failures.length > 25) console.error(`  … and ${failures.length - 25} more`)
+  console.error(`\n${hint}`)
+  process.exit(1)
+}
+
+function announce(manifest: Manifest): number {
+  const total = manifest.shards.reduce((sum, shard) => sum + shard.testFiles.length, 0)
+  console.error(`@podium/server test shards — ${total} unit files across ${SHARDS.length} shards:`)
+  for (const shard of manifest.shards) {
+    console.error(
+      `  ${shard.id.padEnd(16)} ${String(shard.testFiles.length).padStart(3)}  ${shard.title}`,
+    )
+  }
+  return total
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   if (args.includes('--write')) {
@@ -689,21 +1003,52 @@ async function main(): Promise<void> {
     return
   }
 
-  // Default (and what `@podium/server#test` runs): the exhaustiveness refusal.
+  // The exhaustiveness refusal: does the roster still describe this checkout?
   const failures = verify(repositoryRoot)
   if (failures.length > 0) {
-    console.error('server test shards refused: the shard roster does not describe this checkout.\n')
-    for (const failure of failures.slice(0, 25)) console.error(`  [${failure.kind}] ${failure.detail}`)
-    if (failures.length > 25) console.error(`  … and ${failures.length - 25} more`)
-    console.error(`\n${REGENERATE_HINT}`)
-    process.exit(1)
+    reportFailures(
+      'server test shards refused: the shard roster does not describe this checkout.',
+      failures,
+      REGENERATE_HINT,
+    )
   }
+
   const manifest = readManifest(repositoryRoot)
-  const total = manifest.shards.reduce((sum, shard) => sum + shard.testFiles.length, 0)
-  console.error(`@podium/server test shards — ${total} unit files across ${SHARDS.length} shards:`)
-  for (const shard of manifest.shards) {
-    console.error(`  ${shard.id.padEnd(16)} ${String(shard.testFiles.length).padStart(3)}  ${shard.title}`)
+  const total = announce(manifest)
+
+  // --roster is the one way to get the list without the lane, and it says so. Everything
+  // else runs, because a command that prints 445 files and exits 0 having run none of them
+  // is the defect this entry point was rewritten to make impossible (POD-3531).
+  if (args.includes('--roster')) {
+    console.error(
+      `\nROSTER ONLY — no tests were run. Drop --roster to run all ${total} files, ` +
+        `or run one shard with: bun run --cwd ${SERVER_PACKAGE} test:<shard>`,
+    )
+    return
   }
+
+  const delegated = Boolean(process.env[TURBO_TASK_ENV])
+  if (delegated) {
+    console.error(
+      `\nrunning under Turbo (${TURBO_TASK_ENV} set) — the five shard tasks ran as this ` +
+        "task's dependencies; reconciling their reports.",
+    )
+  }
+  const outcomes = delegated
+    ? manifest.shards.map((shard) => readShardOutcome(repositoryRoot, shard.id, null))
+    : await runShards(repositoryRoot, manifest)
+
+  const unaccounted = reconcile(manifest, outcomes)
+  if (unaccounted.length > 0) {
+    reportFailures(
+      `server test lane refused: the run did not account for the ${total} files it announced.`,
+      unaccounted,
+      RECONCILE_HINT,
+    )
+  }
+  console.error(
+    `\n@podium/server: ${total} unit files announced, ${total} executed across ${SHARDS.length} shards.`,
+  )
 }
 
 if (import.meta.main) await main()
