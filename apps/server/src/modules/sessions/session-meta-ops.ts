@@ -9,6 +9,7 @@ import type {
   Attribution,
   IssueId,
   SessionId,
+  SessionMeta,
   TranscriptItem,
   UserId,
   WorkState,
@@ -21,6 +22,8 @@ import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
 import type { SessionRow, SessionStore } from '../../store'
 import type { SessionRepository } from './repository'
+import type { SessionView } from './view'
+import type { SessionStateService } from './session-state/service'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
@@ -31,7 +34,10 @@ export interface SessionMetaOpsPorts {
   mutations: any
   now: any
   removeSessionRuntime: any
-  repository: SessionRepository
+  repository: Pick<
+    SessionRepository,
+    'write' | 'sessionFromStoredRow' | 'installStoredSession' | 'publishSessionProjection'
+  >
   sessionRemovalSpecs: any
   sessionTeardown: any
   sessions: any
@@ -48,7 +54,7 @@ export class SessionMetaOps {
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
    *  offer replaces the previous one. Persisted in the `offers` table (off-row,
    *  like snooze) and broadcast so every client's chat bar updates. */
-  setOffer({
+  async setOffer({
     sessionId,
     message,
     actions,
@@ -59,7 +65,7 @@ export class SessionMetaOps {
     actions: { label: string; prompt: string; input?: boolean }[]
     /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
     artifacts?: string[]
-  }): void {
+  }): Promise<void> {
     const offer = {
       message,
       actions,
@@ -77,10 +83,10 @@ export class SessionMetaOps {
       // session from the change baseline (kill and issue-delete publish removes;
       // a never-persisted session was never in it; a boot-skipped row is removed
       // by the boot reconcile) — but the call read as if clients were told.
-      this.ports.store.sessions.setOffer(sessionId, offer)
+      await this.ports.store.sessions.setOffer(sessionId, offer)
       return
     }
-    this.ports.repository.write(
+    await this.ports.repository.write(
       session,
       (draft: SessionDurableState) => {
         draft.offer = offer
@@ -92,7 +98,7 @@ export class SessionMetaOps {
 
   /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
-  clearOffer(sessionId: SessionId): void {
+  async clearOffer(sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     // ASKED, NOT DONE [POD-3330]. This used to CLEAR the live offer and read the
     // answer out of the mutation, which put the clear on the shared object
@@ -115,10 +121,13 @@ export class SessionMetaOps {
     // Those callers therefore never retire a corrupt row; only `podium offer
     // clear` and `dismissOffer` reach it, and widening their guards to this
     // read is not worth a per-turn query.
-    if (!clearedInMemory && this.ports.store.sessions.offerCreatedAt(sessionId) === undefined)
+    if (
+      !clearedInMemory &&
+      (await this.ports.store.sessions.offerCreatedAt(sessionId)) === undefined
+    )
       return
     if (!session) {
-      this.ports.store.sessions.clearOffer(sessionId)
+      await this.ports.store.sessions.clearOffer(sessionId)
       return
     }
     // ONE transaction for the DELETE and the change that announces it. Clients
@@ -128,7 +137,7 @@ export class SessionMetaOps {
     // than a bare DELETE plus a dirty mark also keeps the two from being able to
     // disagree: a rolled-back commit cannot leave the row deleted, and the
     // session's captured durable state is refreshed in the same breath.
-    this.ports.repository.write(
+    await this.ports.repository.write(
       session,
       (draft: SessionDurableState) => {
         draft.offer = undefined
@@ -150,13 +159,14 @@ export class SessionMetaOps {
    * Returns whether anything was dismissed, so a stale click is a no-op the caller
    * can see rather than an indistinguishable success.
    */
-  dismissOffer(sessionId: SessionId, offerCreatedAt: string): boolean {
+  async dismissOffer(sessionId: SessionId, offerCreatedAt: string): Promise<boolean> {
     const session = this.ports.sessions.get(sessionId)
     // The in-memory session is the live truth; the row behind it is what a
     // session that has left memory still has (`setOffer` writes it either way).
-    const stamp = session?.offer?.createdAt ?? this.ports.store.sessions.offerCreatedAt(sessionId)
+    const stamp =
+      session?.offer?.createdAt ?? (await this.ports.store.sessions.offerCreatedAt(sessionId))
     if (stamp !== offerCreatedAt) return false
-    this.clearOffer(sessionId)
+    await this.clearOffer(sessionId)
     return true
   }
 
@@ -186,11 +196,9 @@ export class SessionMetaOps {
     sessionId: SessionId
     until: string | null
   }): Promise<void> {
-    return this.ports.state.setSnooze(
-      this.ports.view.principalForTrustedUser(asUserId(userId)),
-      sessionId,
-      until,
-    ).then(() => undefined)
+    return this.ports.state
+      .setSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId, until)
+      .then(() => undefined)
   }
 
   clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
@@ -383,23 +391,25 @@ export class SessionMetaOps {
    * here instead of hand-rolling persist+broadcast.
    */
 
-  prepareInboxSend(
+  async prepareInboxSend(
     sessionId: SessionId,
     attribution: Attribution,
     kind: 'text' | 'answer',
     origin: ObservationInputOrigin = 'controller',
-  ): void {
+  ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
-    this.ports.state.clearAllSnoozes(sessionId)
-    this.ports.state.suppressNativeDraft(sessionId)
+    const state: Pick<SessionStateService, 'clearAllSnoozes' | 'suppressNativeDraft'> =
+      this.ports.state
+    await state.clearAllSnoozes(sessionId)
+    state.suppressNativeDraft(sessionId)
     // A PERSON sending into the session moves the conversation past the offer.
     // Mail delivery, a cron/automation wake or an auto-continue is not a person
     // — it must leave a standing offer for the human who has not seen it yet
     // [spec:SP-c7f1, POD-118], the same rule the turn path applies.
     const userSend = origin === 'human' || origin === 'controller'
-    if (userSend && session.offer !== undefined) this.clearOffer(sessionId)
-    this.ports.store.events.appendEvent({
+    if (userSend && session.offer !== undefined) await this.clearOffer(sessionId)
+    await this.ports.store.events.appendEvent({
       ts: new Date(this.ports.now()).toISOString(),
       kind: kind === 'answer' ? 'session.inbox.answer' : 'session.inbox.send',
       subject: sessionId,
@@ -432,35 +442,32 @@ export class SessionMetaOps {
    *  durable rows and ledger upserts commit with the issue restore; runtime
    *  installation follows only after that transaction succeeds. */
   async prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
-    // AWAITED [POD-3512]. `loadDeletedSessionsForIssue` is async, and the cast
-    // that used to stand here (`as SessionRow[]`) silenced the compiler over a
-    // Promise: `rows.map` was undefined, so EVERY restore threw. The read is
-    // ahead of the commit, not inside it, so it can simply wait. The annotation
-    // is doing the same job the cast used to, one step later: `ports.store` is
-    // `any`, so the await yields `any` and the rows below would be implicitly
-    // typed. What changed is that it now describes a settled array rather than
-    // a promise.
-    const rows: SessionRow[] = await this.ports.store.sessions.loadDeletedSessionsForIssue(issueId)
-    const restored = rows
-      .map((row) => ({
-        row,
-        session: this.ports.repository.sessionFromStoredRow(row, 'restore') as Session | null,
-      }))
-      .filter((entry): entry is { row: SessionRow; session: Session } => entry.session !== null)
+    const rows = await this.ports.store.sessions.loadDeletedSessionsForIssue(issueId)
+    const restored: { row: SessionRow; session: Session }[] = []
+    for (const row of rows) {
+      const session = await this.ports.repository.sessionFromStoredRow(row, 'restore')
+      if (session) restored.push({ row, session })
+    }
+    // Read before apply because that post-commit closure must remain synchronous.
+    // The commit cannot change this answer: restoreDeletedForIssue updates only
+    // the sessions table, and loadFromStore does not touch offers.
+    const offers = await this.ports.store.sessions.listOffers()
+    const view: Pick<SessionView, 'wire'> = this.ports.view
+    const restoredSessions: SessionMeta[] = []
+    for (const { session } of restored) restoredSessions.push(await view.wire(session))
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),
-      restoredSessions: restored.map(({ session }) => this.ports.view.wire(session)),
+      restoredSessions,
       write: () => this.ports.store.sessions.restoreDeletedForIssue(issueId),
       changes: () =>
-        restored.map(({ session }) => ({
+        restoredSessions.map((session) => ({
           entity: 'session' as const,
           id: session.sessionId,
           op: 'upsert' as const,
-          value: this.ports.view.wire(session),
+          value: session,
         })),
       apply: (changes, ledgerCursor) => {
         this.ports.state.loadFromStore()
-        const offers = this.ports.store.sessions.listOffers() // [spec:SP-c7f1]
         for (const { session } of restored) {
           this.ports.repository.installStoredSession(session, offers)
         }

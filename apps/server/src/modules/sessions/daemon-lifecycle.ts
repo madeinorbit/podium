@@ -69,7 +69,7 @@ export interface SessionDaemonLifecyclePorts {
     draft?: SessionDurableState,
   ): Promise<TerminalCandidateFacts | null>
   broadcastToClients(message: LiveServerMessage): void
-  clearOffer(sessionId: SessionId): void
+  clearOffer(sessionId: SessionId): Promise<void>
   /** A parked row whose durable host turned out to be alive [POD-1953]. */
   reviveParkedButAlive(session: Session, machineId: string, reason: string): void
   /** This machine's live durable labels, pushed on connect [POD-1953]. */
@@ -215,7 +215,8 @@ export class SessionDaemonLifecycle {
     this.ports.terminalCandidateFacts(session, lease, checkpoint, draft)
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
-  private readonly clearOffer = (sessionId: SessionId): void => this.ports.clearOffer(sessionId)
+  private readonly clearOffer = (sessionId: SessionId): Promise<void> =>
+    this.ports.clearOffer(sessionId)
 
   /**
    * Apply a process death from either legacy `agentExit` or the durable runtime
@@ -838,7 +839,7 @@ export class SessionDaemonLifecycle {
           Date.parse(observation.receivedAt) > Date.parse(session.offer.createdAt) &&
           this.userOpenedTurn(session, session.offer.createdAt, observation.inputOrigin)
         ) {
-          this.clearOffer(session.sessionId)
+          await this.clearOffer(session.sessionId)
         }
         break
       }
@@ -939,7 +940,7 @@ export class SessionDaemonLifecycle {
           next.since > session.offer.createdAt &&
           this.userOpenedTurn(session, session.offer.createdAt)
         ) {
-          this.clearOffer(msg.sessionId)
+          await this.clearOffer(msg.sessionId)
         }
         break
       }

@@ -377,8 +377,8 @@ export class SessionLifecycle {
     // scripts/server-construction-order.ts walks that interior (POD-1411).
     wireSessionLifecycle(this, deps)
   }
-  private prepareInboxSend(...args: any[]): void {
-    ;(this.sessionMetaOps as any).prepareInboxSend(...args)
+  prepareInboxSend(...args: Parameters<SessionMetaOps['prepareInboxSend']>): Promise<void> {
+    return this.sessionMetaOps.prepareInboxSend(...args)
   }
   authorizeQueuedInputAtApply(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
@@ -553,15 +553,16 @@ export class SessionLifecycle {
   authorizeClientDrive(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeClientDrive(...args)
   }
-  setOffer(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setOffer(...args)
+  setOffer(...args: Parameters<SessionMetaOps['setOffer']>): Promise<void> {
+    return this.sessionMetaOps.setOffer(...args)
   }
-  clearOffer(...args: any[]): void {
-    ;(this.sessionMetaOps as any).clearOffer(...args)
+  clearOffer(sessionId: SessionId): Promise<void> {
+    return this.sessionMetaOps.clearOffer(sessionId)
   }
-  dismissOffer(sessionId: SessionId, offerCreatedAt: string): boolean {
-    return (this.sessionMetaOps as any).dismissOffer(sessionId, offerCreatedAt)
+  dismissOffer(sessionId: SessionId, offerCreatedAt: string): Promise<boolean> {
+    return this.sessionMetaOps.dismissOffer(sessionId, offerCreatedAt)
   }
+
   async createSession(input: Parameters<SessionStart['create']>[0]): Promise<SessionSpawnResult> {
     return await this.sessionStart.create(input)
   }

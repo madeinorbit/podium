@@ -45,13 +45,13 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
 
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     const surfaced = await metaOffer(reg, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
     expect(typeof surfaced?.createdAt).toBe('string')
 
-    reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+    await reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
     expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
     expect((await metaOffer(reg, sessionId))?.actions).toEqual([])
   })
@@ -65,7 +65,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       cwd: '/p',
     })
     const artifacts = ['e2e/header-after.png', 'docs/proposal.md']
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
     expect((await metaOffer(reg, sessionId))?.artifacts).toEqual(artifacts)
     reg.dispose()
 
@@ -73,7 +73,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect((await metaOffer(reg2, sessionId))?.artifacts).toEqual(artifacts)
 
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
-    reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
     expect((await metaOffer(reg2, sessionId))?.artifacts).toBeUndefined()
     reg2.dispose()
 
@@ -88,8 +88,8 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
-    reg.modules.sessions.clearOffer(sessionId)
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.clearOffer(sessionId)
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
@@ -112,26 +112,26 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       const first = (await metaOffer(reg, sessionId))?.createdAt as string
 
       // A stamp nobody posted is not a licence to clear whatever is standing.
-      expect(reg.modules.sessions.dismissOffer(sessionId, '1999-01-01T00:00:00.000Z')).toBe(false)
+      expect(await reg.modules.sessions.dismissOffer(sessionId, '1999-01-01T00:00:00.000Z')).toBe(false)
       expect((await metaOffer(reg, sessionId))?.createdAt).toBe(first)
 
       vi.setSystemTime(new Date('2026-08-12T10:00:05.000Z'))
-      reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+      await reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
       const second = (await metaOffer(reg, sessionId))?.createdAt as string
       expect(second).not.toBe(first)
 
       // The click aimed at the FIRST offer arrives late; the second survives it.
-      expect(reg.modules.sessions.dismissOffer(sessionId, first)).toBe(false)
+      expect(await reg.modules.sessions.dismissOffer(sessionId, first)).toBe(false)
       expect((await metaOffer(reg, sessionId))?.message).toBe('Ready to land')
 
-      expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(true)
+      expect(await reg.modules.sessions.dismissOffer(sessionId, second)).toBe(true)
       expect(await metaOffer(reg, sessionId)).toBeUndefined()
       // Dismissing nothing is a no-op, not a throw.
-      expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(false)
+      expect(await reg.modules.sessions.dismissOffer(sessionId, second)).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -167,7 +167,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       reg.modules.sessions.flushBroadcasts()
       return { reg, sessionId, cursor: (await reg.modules.sessions.syncChangesSince(null)).cursor }
     }
@@ -177,7 +177,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       // The hot path must not pay the durable stamp read: memory answered, so
       // the row is never consulted. Every frequent caller lands here.
       const stampRead = vi.spyOn(reg.sessionStore.sessions, 'offerCreatedAt')
-      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
       reg.modules.sessions.flushBroadcasts()
       expect(stampRead).not.toHaveBeenCalled()
       stampRead.mockRestore()
@@ -200,7 +200,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(live.clearOffer()).toBe(true) // memory only — the row survives
       expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
 
-      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
       reg.modules.sessions.flushBroadcasts()
 
       expect(await reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
@@ -226,7 +226,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       reg.dispose()
 
       const db = openDatabase(file)
@@ -238,7 +238,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(await metaOffer(reg2, sessionId)).toBeUndefined()
       expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
 
-      reg2.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg2.modules.sessions.clearOffer(asSessionId(sessionId))
       reg2.modules.sessions.flushBroadcasts()
       expect(await reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
       reg2.dispose()
@@ -257,7 +257,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
       const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
 
-      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      await reg.modules.sessions.clearOffer(asSessionId(sessionId))
       reg.modules.sessions.flushBroadcasts()
       expect(deleted).not.toHaveBeenCalled()
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
@@ -277,12 +277,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
       const gone = asSessionId('a-session-not-in-memory')
 
-      reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
       reg.modules.sessions.flushBroadcasts()
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
 
-      reg.modules.sessions.clearOffer(gone)
+      await reg.modules.sessions.clearOffer(gone)
       reg.modules.sessions.flushBroadcasts()
       expect(await reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
       expect(await sessionChangesSince(reg, cursor)).toEqual([])
@@ -297,7 +297,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.dispose()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
@@ -315,7 +315,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
     reg.dispose()
 
@@ -346,7 +346,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
@@ -375,7 +375,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       return { reg, sessionId, createdAt }
     }
@@ -451,7 +451,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         sessionId,
         state: working(plusMinute(createdAt)),
       })
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       typeIntoPty(reg, sessionId, createdAt)
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
@@ -474,7 +474,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
-      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
       const observe = (observation: AgentObservation) =>

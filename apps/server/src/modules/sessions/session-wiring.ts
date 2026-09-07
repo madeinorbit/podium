@@ -14,6 +14,7 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
+import { createLogger } from '@podium/logger'
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
@@ -81,6 +82,8 @@ import { TurnPreviewAccumulator } from './turn-preview'
 import { turnPreviewEnabled } from './turn-preview-flag'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
+
+const log = createLogger('server:sessions')
 
 export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecycleDeps): void {
   // Private-field write surface for this composition function only.
@@ -469,8 +472,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     composerReadiness: harnessComposerReadiness,
     harnessInterrupt,
     harnessName: harnessDisplayName,
-    prepareSend: (sessionId, attribution, kind, origin) =>
-      bag.prepareInboxSend(sessionId, attribution, kind, origin),
+    prepareSend: (sessionId, attribution, kind, origin) => {
+      // DECISION POD-3544: terminal input routing remains synchronous; metadata
+      // completion is deferred here, with persistence failures made observable.
+      void life
+        .prepareInboxSend(sessionId, attribution, kind, origin)
+        .catch((error) =>
+          log.error('failed to prepare session input metadata', { sessionId, error }),
+        )
+    },
     ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
     setSessionDraft: (input) => bag.state.setDraft(input),
     draftText: (sessionId) => bag.state.draftText(sessionId),
@@ -865,7 +875,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     terminalCandidateFacts: (session, lease, checkpoint, draft) =>
       bag.terminalProof.facts(session, lease, checkpoint, draft),
     broadcastToClients: (message) => bag.broadcastToClients(message),
-    clearOffer: (sessionId) => bag.clearOffer(sessionId),
+    clearOffer: (sessionId) => life.clearOffer(sessionId),
     // Liveness repair belongs to the reconciler (POD-1953) — the module whose
     // rule is that the durable host, not the row, decides what is running.
     reviveParkedButAlive: (session, machineId, reason) =>
