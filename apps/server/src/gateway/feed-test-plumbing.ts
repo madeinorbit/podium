@@ -26,6 +26,7 @@ import {
   type VisibilityAnchorPort,
 } from '@podium/sync'
 import type { SessionStore } from '../store'
+import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/synchronous-span'
 import { openTestStore } from '../test-support/open-test-store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
@@ -79,6 +80,10 @@ export async function feedTestPlumbing(
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
+    // Match relay.ts: this is a real transactional store, so queued delivery
+    // must not inherit the transaction that is about to close.
+    postCommit: (step, label) => afterCommit(step, label),
+    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
   let minted = 0
   let identity: FeedIdentity | null = null

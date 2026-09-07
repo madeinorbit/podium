@@ -141,15 +141,20 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
   })
 
   /** Authenticate a socket AS someone and take it to the current wire. */
-  const signIn = (user: UserId): Socket => {
+  const sockets: Socket[] = []
+  const signIn = async (user: UserId): Promise<Socket> => {
     const received: ServerMessage[] = []
     const id = attachTestClient(mux, {
       send: (msg) => received.push(msg),
       userId: user,
       userRole: 'admin',
     })
-    mux.routeClientFrame(id, helloFrom(id))
-    return { id, received }
+    await plumbing.serving.admissionSettled()
+    await mux.routeClientFrame(id, helloFrom(id))
+    await plumbing.serving.admissionSettled()
+    const socket = { id, received }
+    sockets.push(socket)
+    return socket
   }
 
   return {
@@ -157,6 +162,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
     plumbing,
     registry,
     signIn,
+    sockets,
     changeVisibility: (change: () => void) => {
       change()
       authorizationRevision += 1
@@ -183,13 +189,21 @@ const commitIssue = (
     changes: () => [{ entity: 'issue', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })
 
-/**
- * Drain the flush `FeedServing.queue` scheduled. A `queueMicrotask` callback
- * enqueued by the synchronous commit above runs BEFORE this continuation, so this
- * is ordering, not a timed wait — a `setTimeout` here would be the flake the unit
- * lane forbids.
+/** Wait for admission and for every live socket to certify the committed head.
+ * A single microtask cannot drain the asynchronous store reads and fan-out.
+ * Observe frames, including empty watermarks, so absence assertions run only
+ * after the peer has actually evaluated the range under test.
  */
-const settle = () => Promise.resolve()
+async function settle(g: Awaited<ReturnType<typeof gateway>>) {
+  await g.plumbing.serving.admissionSettled()
+  const head = await g.plumbing.authority.cursor()
+  await vi.waitFor(() => {
+    for (const socket of g.sockets) {
+      if (!g.registry.get(socket.id)) continue
+      expect(certifiedFrames(socket).some((frame) => frame.seq >= head)).toBe(true)
+    }
+  })
+}
 
 /** Every change row this socket was ever sent, across bootstrap and delta frames. */
 function changesOn(socket: Socket): { seq: number; entityId: string; op: string }[] {
@@ -235,11 +249,11 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
   it("Alice's issue reaches Alice as an upsert and Bob as a covered silence, not a removal", async () => {
     const owners = new Map([['issue-alice', ALICE]])
     const g = await gateway(owners)
-    const alice = g.signIn(ALICE)
-    const bob = g.signIn(BOB)
+    const alice = await g.signIn(ALICE)
+    const bob = await g.signIn(BOB)
 
     await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
-    await settle()
+    await settle(g)
     const seq = await g.plumbing.authority.cursor()
 
     // PRESENT — the positive control. Without it every assertion below is
@@ -264,12 +278,12 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
   it("a genuine removal still reaches its owner as op:'remove' — the shape is reachable", async () => {
     const owners = new Map([['issue-bob', BOB]])
     const g = await gateway(owners)
-    const bob = g.signIn(BOB)
+    const bob = await g.signIn(BOB)
 
     await commitIssue(g.plumbing, 'issue-bob', { id: 'issue-bob', title: 'mine' })
-    await settle()
+    await settle(g)
     await commitIssue(g.plumbing, 'issue-bob', undefined, 'remove')
-    await settle()
+    await settle(g)
 
     // The instrument CAN say "removed". So the previous case's "no remove reached
     // Bob" is a property of the product, not of a harness that cannot express one.
@@ -280,11 +294,11 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const owners = new Map([['issue-shared', ALICE]])
     const grants = new Map([['issue-shared', [BOB]]])
     const g = await gateway(owners, grants)
-    const alice = g.signIn(ALICE)
-    const bob = g.signIn(BOB)
+    const alice = await g.signIn(ALICE)
+    const bob = await g.signIn(BOB)
 
     await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
-    await settle()
+    await settle(g)
 
     // Both, this time. A suite whose every scoped assertion is negative passes
     // against a server that delivers nothing at all to a second connection.
@@ -308,7 +322,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     const head = await g.plumbing.authority.cursor()
     const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
 
-    const first = g.signIn(BOB)
+    const first = await g.signIn(BOB)
     expect(leakedTo(first, 'issue-shared')).toBe(true)
     expect(bootstrap).toHaveBeenCalledTimes(1)
     g.mux.detachClient(first.id)
@@ -319,7 +333,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     g.changeVisibility(() => grants.set('issue-shared', []))
     expect(await g.plumbing.authority.cursor()).toBe(head)
 
-    const afterRevoke = g.signIn(BOB)
+    const afterRevoke = await g.signIn(BOB)
     expect(bootstrap).toHaveBeenCalledTimes(2)
     expect(leakedTo(afterRevoke, 'issue-shared')).toBe(false)
 
@@ -338,7 +352,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     g.mux.detachClient(afterRevoke.id)
     g.changeVisibility(() => grants.set('issue-shared', [BOB]))
     expect(await g.plumbing.authority.cursor()).toBe(head)
-    const afterGrant = g.signIn(BOB)
+    const afterGrant = await g.signIn(BOB)
     expect(bootstrap).toHaveBeenCalledTimes(4) // includes the direct uncached comparison
     expect(leakedTo(afterGrant, 'issue-shared')).toBe(true)
   })
@@ -349,8 +363,8 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
       ['issue-alice2', ALICE],
     ])
     const g = await gateway(owners)
-    const alice = g.signIn(ALICE)
-    const bob = g.signIn(BOB)
+    const alice = await g.signIn(ALICE)
+    const bob = await g.signIn(BOB)
 
     // ALICE'S ROW EXISTS BEFORE THE FORGERY. Ordering matters and it is the whole
     // difference between a real attack and a decorative one: renegotiation
@@ -358,18 +372,18 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     // already committed, in the bootstrap, before any delta is published. A test
     // that only commits afterwards can never observe that theft.
     await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
-    await settle()
+    await settle(g)
 
     // THE FORGERY. `hello.clientId` is a real payload field and it names Alice's
     // server-minted connection id. The pre-existing reclaim guard does not cover
     // this: a rescope is not a reclaim.
-    g.mux.routeClientFrame(bob.id, helloFrom(alice.id))
-    await settle()
+    await g.mux.routeClientFrame(bob.id, helloFrom(alice.id))
+    await settle(g)
 
     // ...and again afterwards, so the delta path is covered as well as the
     // bootstrap one.
     await commitIssue(g.plumbing, 'issue-alice2', { id: 'issue-alice2', title: 'also private' })
-    await settle()
+    await settle(g)
 
     // THE DATA QUESTION FIRST. Ordered deliberately: the identity assertion below
     // is the cheaper signal and would short-circuit this one, and then a mutation
@@ -403,12 +417,12 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
   it('two devices of ONE person share the slice; a second person never joins it', async () => {
     const owners = new Map([['issue-alice', ALICE]])
     const g = await gateway(owners)
-    const laptop = g.signIn(ALICE)
-    const phone = g.signIn(ALICE)
-    const bob = g.signIn(BOB)
+    const laptop = await g.signIn(ALICE)
+    const phone = await g.signIn(ALICE)
+    const bob = await g.signIn(BOB)
 
     await commitIssue(g.plumbing, 'issue-alice', { id: 'issue-alice', title: 'private' })
-    await settle()
+    await settle(g)
 
     // One authority subscription, two connections — `feedPrincipalOf` keys on the
     // user and deliberately drops the device half.
@@ -435,10 +449,10 @@ describe('the single-user deployment is not tightened into an empty screen', () 
     // whole screen for the person who owns everything on it.
     const owners = new Map([['issue-only', FIRST_ADMIN_USER_ID]])
     const g = await gateway(owners)
-    const solo = g.signIn(FIRST_ADMIN_USER_ID)
+    const solo = await g.signIn(FIRST_ADMIN_USER_ID)
 
     await commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
-    await settle()
+    await settle(g)
 
     expect(
       changesOn(solo)
