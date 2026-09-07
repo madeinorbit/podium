@@ -220,7 +220,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: sessions.dismissOffer dedupes its replay — TWO locks, and this is the one the queue owns`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to merge', actions: [] })
+    await o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to merge', actions: [] })
     const first = (await o.meta(sessionId)).offer?.createdAt as string
 
     await o.call.sessions.dismissOffer({ sessionId, offerCreatedAt: first, mutationId: 'm-offer' })
@@ -232,7 +232,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     // on its own, so pinning that would not tell us whether the mutationId lock
     // is there at all. Dedup is on the id ALONE, which is what makes a replay
     // safe when the input the client re-sends has moved on.
-    o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+    await o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
     const second = (await o.meta(sessionId)).offer?.createdAt as string
     await o.call.sessions.dismissOffer({ sessionId, offerCreatedAt: second, mutationId: 'm-offer' })
 

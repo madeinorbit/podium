@@ -318,8 +318,8 @@ export interface SessionInboxDeps {
     attribution: Attribution,
     kind: 'text' | 'answer',
     origin: ObservationInputOrigin,
-  ): void
-  ownerOf(sessionId: SessionId): UserId | null | undefined
+  ): Promise<void>
+  ownerOf(sessionId: SessionId): Promise<UserId | null | undefined>
   /** Seed/restore the server-persisted composer draft without a client echo. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): void
   /** Read the current draft so automatic recovery never overwrites a human edit. */
@@ -344,7 +344,7 @@ export interface SessionInboxDeps {
    * identity is still stamped but policy is open — unit fixtures without a
    * grant table. Production always injects it.
    */
-  authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
+  authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean>
   /**
    * Native terminal ownership parks sends in the durable FIFO until the view
    * releases the human-controller lease.
@@ -814,6 +814,20 @@ export class SessionInbox {
     ) {
       return await this.queueText(input)
     }
+    if (
+      !session ||
+      (session.status !== 'live' && session.status !== 'starting') ||
+      this.deps.serverDriven?.(session) === true ||
+      session.agentState?.phase === 'needs_user'
+    )
+      return { ok: false }
+    // Complete metadata admission before entering the synchronous byte path.
+    await this.deps.prepareSend(
+      input.sessionId,
+      (input.principal ?? SYSTEM_INBOX_PRINCIPAL).attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
     return this.typeText(input)
   }
 
@@ -831,7 +845,9 @@ export class SessionInbox {
     return await this.queueText({ ...input, mutationId: input.mutationId })
   }
 
-  interruptText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
+  async interruptText(
+    input: InboxSendInput,
+  ): Promise<{ ok: boolean; queued?: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
@@ -845,6 +861,19 @@ export class SessionInbox {
     // than refused — the message still lands, which is the point of this path.
     // Skipping matters for a harness whose key exits when idle: an
     // interrupt-urgency message must never be the thing that kills the session.
+    await this.deps.prepareSend(
+      input.sessionId,
+      principal.attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'session changed during admission' }
+    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (currentRefusal) return { ok: false, reason: currentRefusal }
     const abort = this.abortKeyFor(session)
     if (abort) {
       this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
@@ -876,7 +905,9 @@ export class SessionInbox {
    * is the delivery those sessions actually have; every server driver
    * implements `interrupt()` and none of them was ever called.
    */
-  async interruptTurn(input: Omit<InboxSendInput, 'text'>): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
+  async interruptTurn(
+    input: Omit<InboxSendInput, 'text'>,
+  ): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
@@ -1109,6 +1140,19 @@ export class SessionInbox {
       await this.drain(input.sessionId)
       return { ok: true, queued: true }
     }
+    // Persist admission before a row can be drained or reported as queued.
+    await this.deps.prepareSend(
+      input.sessionId,
+      principal.attribution,
+      'text',
+      input.inputOrigin ?? 'controller',
+    )
+    if (this.deps.getSession(input.sessionId) !== session)
+      return { ok: false, reason: 'session changed during admission' }
+    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (currentRefusal) return { ok: false, reason: currentRefusal }
+    if (input.sourceMessageId && (await this.hasQueuedMessage(input.sessionId, input.sourceMessageId)))
+      return { ok: true, queued: true }
     const inserted = await this.deps.queue.enqueue({
       id: input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
@@ -1126,12 +1170,6 @@ export class SessionInbox {
           draft.queuedMessageCount += 1
         },
         { cancelTerminalCandidate: true },
-      )
-      this.deps.prepareSend(
-        input.sessionId,
-        principal.attribution,
-        'text',
-        input.inputOrigin ?? 'controller',
       )
       this.deps.broadcast()
     }
@@ -1256,8 +1294,7 @@ export class SessionInbox {
     this.drainGenerations.set(sessionId, drainGeneration)
     this.activeDrains.add(sessionId)
     const isCurrent = (): boolean =>
-      this.drainGenerations.get(sessionId) === drainGeneration &&
-      this.activeDrains.has(sessionId)
+      this.drainGenerations.get(sessionId) === drainGeneration && this.activeDrains.has(sessionId)
     // A PTY we are watching come up — parked as this pass begins, or bound so
     // recently that the caller is telling us so. Its CLI has proven nothing yet,
     // and it is the only case whose readiness the quiet heuristic gets wrong.
@@ -1353,7 +1390,7 @@ export class SessionInbox {
             this.deps.setSessionDraft({ sessionId, text: head.text })
           }
         }
-        const ownerUserId = this.deps.ownerOf(sessionId)
+        const ownerUserId = await this.deps.ownerOf(sessionId)
         await this.deps.attention.promptFailed({
           ...(ownerUserId ? { ownerUserId } : {}),
           sessionId,
@@ -1564,7 +1601,7 @@ export class SessionInbox {
        * actual boundary rather than stretched past it: every row here is one
        * whose delivery is proven from the transcript, and exact matching only
        * ever ADDS to what such a row can prove.
-      */
+       */
       const exactNeedle = firstPromptNeedsProof || needsReadinessProof
       const needle = confirmationNeedle(head.text, exactNeedle)
       if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
@@ -1651,7 +1688,6 @@ export class SessionInbox {
         principal: head.principal,
         allowErrored: this.recoveryDrains.has(sessionId),
         ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
-        recordSend: false,
       })
       if (!sent.ok) {
         // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
@@ -2039,7 +2075,7 @@ export class SessionInbox {
     principal: InboxPrincipalReference
   }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
-    const ownerUserId = this.deps.ownerOf(input.sessionId)
+    const ownerUserId = await this.deps.ownerOf(input.sessionId)
     // Attention is per-owner. An unresolved owner is not an invitation to send
     // to an ambient operator; fail closed before bytes or notifications move.
     // Bare `{ok:false}` here is pinned by the command oracle — the NEW refusal
@@ -2055,6 +2091,16 @@ export class SessionInbox {
       if (why) return { ok: false, reason: why }
     }
     const attribution = input.principal.attribution
+    // Retire the offer before the first answer keystroke is scheduled.
+    const answerState = session.agentState
+    await this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      session.agentState !== answerState ||
+      (await this.deps.ownerOf(input.sessionId)) !== ownerUserId ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'session changed during answer admission' }
     let delayMs = 0
     let typed = false
     const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
@@ -2087,8 +2133,6 @@ export class SessionInbox {
       }
       if (typed && !isLoneSingleSelect(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
     }
-    // Answering the agent's question is always a person acting.
-    this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     await this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
@@ -2119,12 +2163,12 @@ export class SessionInbox {
     setTimeout(send, delayMs).unref?.()
   }
 
-  stateChanged(input: {
+  async stateChanged(input: {
     sessionId: SessionId
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
     observation?: AgentObservation
-  }): void {
+  }): Promise<void> {
     // A CLEARED MENU IS A RE-ARM (POD-1703). `typeText` refuses while the phase
     // is `needs_user` — correctly, since a prompt typed into an AskUserQuestion
     // menu answers the wrong question — and the drain then stops and waits for
@@ -2139,7 +2183,7 @@ export class SessionInbox {
       // enqueue or sweep re-arms a fresh one (rule 57; see `dispose`).
       void this.drain(input.sessionId)
     }
-    const ownerUserId = this.deps.ownerOf(input.sessionId)
+    const ownerUserId = await this.deps.ownerOf(input.sessionId)
     if (!ownerUserId) return
     this.deps.attention.stateChanged({ ...input, ownerUserId })
   }
@@ -2149,30 +2193,31 @@ export class SessionInbox {
    * principal (ADR 3 D7) and retained LIVE only (POD-1081 §2). Concurrent
    * keystrokes are a control problem, not a text merge (readiness §4).
    */
-  handleControllerInput(
+  async handleControllerInput(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     data: string,
-  ): void {
-    this.handleControllerInputBytes(principal, client, sessionId, Buffer.from(data, 'base64'))
+  ): Promise<void> {
+    await this.handleControllerInputBytes(principal, client, sessionId, Buffer.from(data, 'base64'))
   }
 
-  handleControllerInputBytes(
+  async handleControllerInputBytes(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     bytes: Uint8Array,
-  ): void {
+  ): Promise<void> {
     if (bytes.byteLength === 0) return
     const session = this.deps.getSession(sessionId)
     if (!session) return
     // Live re-auth at apply: a revoked human (or their agent) loses control here
     // rather than via a reaper (ADR 9 D5 A1 / ADR 3 D8).
-    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
+    if (this.deps.authorizeDrive && !(await this.deps.authorizeDrive(principal, sessionId))) {
       if (session.terminal.controllerId === client.id) session.terminal.revokeController()
       return
     }
+    if (this.deps.getSession(sessionId) !== session) return
     // The native terminal sees the operator's abort key before the transcript
     // can report its result. Cancel a chat-owned delayed Enter at this boundary,
     // or the 90ms submit timer can win and start the prompt after Codex has
@@ -2200,15 +2245,15 @@ export class SessionInbox {
    * Preemptive take-control (POD-1081 §3). The current controller cannot refuse;
    * rights are re-checked live against owner/grants + machine use.
    */
-  requestControl(
+  async requestControl(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     geometry?: Geometry,
-  ): void {
+  ): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
-    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
+    if (this.deps.authorizeDrive && !(await this.deps.authorizeDrive(principal, sessionId))) {
       client.send({
         type: 'terminalOutcome',
         sessionId,
@@ -2216,6 +2261,7 @@ export class SessionInbox {
       })
       return
     }
+    if (this.deps.getSession(sessionId) !== session) return
     session.terminal.requestControl(client.id, geometry)
   }
 
@@ -2224,13 +2270,15 @@ export class SessionInbox {
    * Person-level presence intentionally collapses a user's devices, so sizing
    * policy derives from the terminal's per-connection renderer set instead.
    */
-  reconcileActiveRenderer(sessionId: SessionId): boolean {
+  async reconcileActiveRenderer(sessionId: SessionId): Promise<boolean> {
     const session = this.deps.getSession(sessionId)
     if (!session) return false
     const [sole, second] = session.terminal.activeNativeRenderers()
     if (!sole || second) return false
-    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(sole.principal, sessionId))
+    if (this.deps.authorizeDrive && !(await this.deps.authorizeDrive(sole.principal, sessionId)))
       return false
+    const [currentSole, currentSecond] = session.terminal.activeNativeRenderers()
+    if (currentSole !== sole || currentSecond || this.deps.getSession(sessionId) !== session) return false
     const previous = session.terminal.controllerId
     // Never auto-transfer on a stale/unknown grid. A newly active renderer
     // reports its current viewport immediately; handleResize calls back into
@@ -2240,13 +2288,13 @@ export class SessionInbox {
     return previous !== session.terminal.controllerId
   }
 
-  handleResize(
+  async handleResize(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     cols: number,
     rows: number,
-  ): boolean {
+  ): Promise<boolean> {
     void principal
     const session = this.deps.getSession(sessionId)
     if (!session) return false
@@ -2260,17 +2308,17 @@ export class SessionInbox {
    * the legacy resize path does — a request that was refused still recorded its
    * viewport, and that record is what `reconcileActiveRenderer` needs.
    */
-  handleViewportRequest(
+  async handleViewportRequest(
     principal: ClientPrincipal,
     client: ClientConn,
     sessionId: SessionId,
     request: ViewportRequest,
-  ): boolean {
+  ): Promise<boolean> {
     void principal
     const session = this.deps.getSession(sessionId)
     if (!session) return false
     const controllerChanged = session.terminal.handleViewportRequest(client.id, request)
-    return this.reconcileActiveRenderer(sessionId) || controllerChanged
+    return (await this.reconcileActiveRenderer(sessionId)) || controllerChanged
   }
 
   reconcileGeometry(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
@@ -2278,10 +2326,8 @@ export class SessionInbox {
     this.deps.getSession(sessionId)?.terminal.reconcileGeometry(client.id)
   }
 
-  private typeText(
-    input: InboxSendInput & { recordSend?: boolean },
-    afterEsc = false,
-  ): { ok: boolean } {
+  /** Bytes for an already-admitted turn; drain retries must not retire a newer offer. */
+  private typeText(input: InboxSendInput, afterEsc = false): { ok: boolean } {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
@@ -2295,13 +2341,6 @@ export class SessionInbox {
     if (this.deps.serverDriven?.(session) === true) return { ok: false }
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    if (input.recordSend !== false)
-      this.deps.prepareSend(
-        input.sessionId,
-        principal.attribution,
-        'text',
-        input.inputOrigin ?? 'controller',
-      )
     const baseline = session.terminal
       .transcriptItems()
       .filter((item) => item.role === 'user').length

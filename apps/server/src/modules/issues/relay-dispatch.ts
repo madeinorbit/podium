@@ -306,7 +306,7 @@ export function makeAgentRelayDispatch(
         throw new Error('offer is only callable by a session (no actor bound)')
       }
       if (proc === 'clear') {
-        sessionsSvc.clearOffer(actorSessionId)
+        await sessionsSvc.clearOffer(actorSessionId)
         return await Promise.resolve({ ok: true, cleared: true })
       }
       if (proc === 'set') {
@@ -380,7 +380,7 @@ export function makeAgentRelayDispatch(
               `NEW work, file that work as its own issue and offer from there.`,
           })
         }
-        sessionsSvc.setOffer({
+        await sessionsSvc.setOffer({
           sessionId: actorSessionId,
           message,
           actions,

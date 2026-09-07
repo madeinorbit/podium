@@ -3,27 +3,14 @@
  * spec §9 phase 2, server half).
  *
  * ---------------------------------------------------------------------------
- * WHY THIS IS NOT AN `await send()`
+ * ADMISSION COMPLETION AND LATER RECEIPTS
  * ---------------------------------------------------------------------------
  *
- * The obvious migration is to make every caller `await` a `TurnReceipt`. It is
- * the wrong one, and the acceptance criteria are what rule it out.
- *
- * A receipt is PROOF, and proof takes time: the terminal driver anchors
- * `accepted` on Claude's `UserPromptSubmit` hook and otherwise waits out a
- * verification window before it will say `unverified`. The verbs it replaces
- * (`sendText` / `queueText` / `interruptText`) are synchronous and answer a
- * different, smaller question — "were the bytes dispatched". Turning the path
- * async would defer every ledger write by at least a microtask, which reorders
- * the FLAG-OFF path that this item is required to leave byte-identical, and it
- * would break the messages module's own wire contract, whose `DeliveryOutcome`
- * is returned synchronously to CLI and tool callers.
- *
- * The sender seam still answers synchronously, and callers that only need
- * dispatch continue to reconcile the later receipt. The message service's
- * blocking caller is the deliberate exception: for a contract-backed session it
- * waits on that same callback so a refusal can reach the sender before its budget
- * expires; legacy-driven sessions retain their optimistic chat response.
+ * Admission awaits durable metadata preparation before dispatch. It does not wait
+ * for a driver receipt: proof may arrive later through the existing reconciler.
+ * Legacy inbox admission and durable queue ports carry that same completion
+ * promise, so a failed offer clear refuses the send instead of leaving a stale
+ * actionable card after input has already gone out.
  *
  * ---------------------------------------------------------------------------
  * WHAT ACTUALLY FLIPS
@@ -48,7 +35,7 @@
  * going offline and a parked session, and forwarding it would move that promise
  * to the one place that cannot keep it. Both this seam and the gateway complete
  * `queue` through the SAME {@link RuntimeDurableQueuePort}, so there is one
- * queue with one behaviour and two synchronous entrances to it.
+ * queue with one behaviour and two awaited admission paths.
  *
  * It also keeps W3's second review precondition satisfied by construction:
  * `host.authorizeAtDrain` has no provider on the daemon, so a forwarded
@@ -101,8 +88,7 @@ export interface ReceiptSendResult {
 export interface ReceiptSendLegacyPort {
   sendText(input: ReceiptSendInput): Promise<ReceiptSendResult>
   queueText(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
-  /** Sync by contract — see MessageDeliveryDeps.interruptText (POD-3515). */
-  interruptText(input: ReceiptSendInput): ReceiptSendResult
+  interruptText(input: ReceiptSendInput): Promise<ReceiptSendResult>
   resumeAndSend(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
 }
 
@@ -121,6 +107,7 @@ export interface ReceiptSendContractPort {
 }
 
 export interface ReceiptSenderPorts {
+  prepareSend(input: ReceiptSendInput): Promise<void>
   legacy: ReceiptSendLegacyPort
   contract: ReceiptSendContractPort
   /** The SAME durable FIFO the gateway completes `queue` through. */
@@ -182,10 +169,7 @@ export type ReceiptReconciler = (receipt: TurnReceipt, via: ReceiptSendVia) => v
 /** A ref is usable only by the session whose daemon staging directory minted it.
  * The daemon repeats this check against the real filesystem; this structural
  * guard stops forged local paths before they cross the machine boundary. */
-function attachmentMatchesSession(
-  sessionId: SessionId,
-  attachment: RuntimeAttachmentRef,
-): boolean {
+function attachmentMatchesSession(sessionId: SessionId, attachment: RuntimeAttachmentRef): boolean {
   if (!isAbsolute(attachment.path) || normalize(attachment.path) !== attachment.path) return false
   const sessionDir = dirname(attachment.path)
   return (
@@ -208,7 +192,7 @@ export class ReceiptSender {
   /**
    * Dispatch one turn.
    *
-   * Returns the same synchronous answer the legacy verb would have returned. On
+   * Resolves after admission and dispatch, without waiting for the driver receipt. On
    * the contract path `onReceipt` fires later with the honest outcome — exactly
    * once, and never for a legacy send, so a caller can tell "no receipt is
    * coming" from "the receipt said nothing happened".
@@ -249,9 +233,8 @@ export class ReceiptSender {
       return this.legacy(via, input)
     }
 
-    // THE DURABLE MODES COMPLETE HERE, synchronously, through the same table the
-    // gateway uses — so the caller's answer is as immediate and as true as it was
-    // before, and the receipt it reconciles with is built from the same enqueue.
+    // The durable modes complete here through the same table the gateway uses.
+    // Build both the caller's answer and its receipt from the completed enqueue.
     //
     // `now` JOINS THEM WHENEVER THE SERVER FIFO IS NOT EMPTY, and that guard is
     // load-bearing rather than defensive. `sendText` queues instead of typing
@@ -300,6 +283,7 @@ export class ReceiptSender {
     // the driver's injection state machine answers with what it did — including
     // `deliveredAs: 'queue'`, the downgrade the server used to have to infer.
     const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
+    await this.ports.prepareSend(input)
     const settled = this.ports.contract.send({
       sessionId: input.sessionId,
       ...(input.sourceMessageId ? { turnId: input.sourceMessageId } : {}),

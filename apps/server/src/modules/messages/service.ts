@@ -232,15 +232,12 @@ export interface MessageDeliveryDeps {
      *  exists to not corrupt someone's typing. */
     draftInjectionActive?(): boolean
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    /** STILL SYNC, DELIBERATELY: SessionInbox.interruptText types an abort key
-     *  and schedules the replacement prompt on a timer. It reads no store, so
-     *  there is no promise here to wait on (POD-3515, rule 56a). */
-    interruptText(input: InboxDeliveryInput): {
+    interruptText(input: InboxDeliveryInput): Promise<{
       ok: boolean
       queued?: boolean
       reason?: string
       position?: number
-    }
+    }>
     /**
      * THE RECEIPT PATH (POD-1761 W4), and the ONLY send port delivery uses when
      * it is wired.

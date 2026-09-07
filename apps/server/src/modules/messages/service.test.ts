@@ -160,16 +160,16 @@ function issueRow(over: Partial<IssueRow>): IssueRow {
 
 interface HarnessOpts {
   /** Override the fake queueText outcome per call (e.g. 'no resume ref'). */
-  queueText?: (i: { sessionId: SessionId; text: string; sourceMessageId: string }) => {
+  queueText?: (i: { sessionId: SessionId; text: string; sourceMessageId: string }) => Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  }
-  sendText?: (i: { sessionId: SessionId; text: string }) => {
+  }>
+  sendText?: (i: { sessionId: SessionId; text: string }) => Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  }
+  }>
   spawnOnWake?: import('./service').SpawnOnWake
   now?: () => string
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
@@ -253,7 +253,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       ...(opts?.queuedMessagePosition ? { queuedMessagePosition: opts.queuedMessagePosition } : {}),
       hasQueuedMessage: async (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
-      interruptText: (i) => {
+      interruptText: async (i) => {
         interrupted.push(i)
         return { ok: true, queued: true }
       },
@@ -485,7 +485,7 @@ describe('MessageDeliveryService.send', () => {
         }),
       ],
       {
-        queueText: (input) => {
+        queueText: async (input) => {
           physicalQueue.push(input.sourceMessageId)
           return { ok: true, queued: true }
         },
@@ -1638,7 +1638,7 @@ describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]'
     // no bytes on screen → nothing can confirm within the budget, and the row is
     // durably queued for the sweep, so accepted is the honest immediate answer.
     const { svc } = await harness([session({ sessionId: asSessionId('s1'), status: 'hibernated' })], {
-      queueText: () => ({ ok: false, reason: 'daemon offline mid-send' }),
+      queueText: async () => ({ ok: false, reason: 'daemon offline mid-send' }),
     })
     // Advancing clock so that WITHOUT the ok:false short-circuit this would block to
     // the budget (polls > 0) rather than hang — the guard makes it return at once.
@@ -1868,7 +1868,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     const { svc, store, attention } = await harness(
       [session({ sessionId: asSessionId('s1'), status: 'exited' })],
       {
-        queueText: () => ({ ok: false, reason: 'no resume ref' }),
+        queueText: async () => ({ ok: false, reason: 'no resume ref' }),
       },
     )
     const r = await svc.send(
@@ -2984,7 +2984,7 @@ describe('sweep cooldown key for session-addressed wakes', () => {
     ]
     const { svc, attention, store } = await harness(sessions, {
       now: () => new Date(clock).toISOString(),
-      queueText: () => ({ ok: false, reason: 'no resume ref' }),
+      queueText: async () => ({ ok: false, reason: 'no resume ref' }),
       spawnOnWake: {
         spawn: async ({ message }) => {
           spawnAttempts.push(message.id)
@@ -4057,7 +4057,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       }),
     ]
     const { svc, queued } = await harness(sessions, {
-      queueText: () =>
+      queueText: async () =>
         resumable ? { ok: true, queued: true } : { ok: false, reason: 'no resume ref' },
     })
     await svc.send(
@@ -4134,7 +4134,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       ]
       const first = await harness(sessions, {
         now: () => new Date(clock).toISOString(),
-        queueText: () =>
+        queueText: async () =>
           transportReady ? { ok: true, queued: true } : { ok: false, reason: 'offline' },
       })
       await first.svc.send(
@@ -4155,7 +4155,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       const recovered = await harness(sessions, {
         store: first.store,
         now: () => new Date(clock).toISOString(),
-        queueText: () => ({ ok: true, queued: true }),
+        queueText: async () => ({ ok: true, queued: true }),
       })
       await recovered.svc.reconcileQueued()
       expect(recovered.queued).toHaveLength(0)
@@ -4197,7 +4197,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       ]
       const first = await harness(sessions, {
         now: () => new Date(clock).toISOString(),
-        queueText: () => ({ ok: false, reason: 'offline' }),
+        queueText: async () => ({ ok: false, reason: 'offline' }),
       })
       await first.svc.send(
         { kind: 'superagent' },
@@ -4213,7 +4213,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       const recovered = await harness(sessions, {
         store: first.store,
         now: () => new Date(clock).toISOString(),
-        queueText: () => ({ ok: true, queued: true }),
+        queueText: async () => ({ ok: true, queued: true }),
       })
       // The cooldown is still hot, so the row stays queued and the BRAKE arms a
       // one-shot retry timer for the moment it expires.
@@ -4405,7 +4405,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       let svc!: MessageDeliveryService
       let retriggered = false
       const h = await harness([idle], {
-        sendText: () => {
+        sendText: async () => {
           if (!retriggered) {
             retriggered = true
             store.messages.addMessage(
@@ -4490,7 +4490,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       ]
       const first = await harness(sessions, {
         now: () => new Date(clock).toISOString(),
-        queueText: () => ({ ok: false, reason: 'offline' }),
+        queueText: async () => ({ ok: false, reason: 'offline' }),
       })
       for (let i = 0; i < 501; i += 1) {
         await first.store.messages.addMessage(
@@ -4526,7 +4526,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       const recovered = await harness(sessions, {
         store: first.store,
         now: () => new Date(clock).toISOString(),
-        queueText: () => ({ ok: true, queued: true }),
+        queueText: async () => ({ ok: true, queued: true }),
       })
       await recovered.svc.reconcileQueued()
       expect(recovered.queued).toHaveLength(0)
@@ -4740,7 +4740,7 @@ describe('delivery trigger isolation and observability [POD-842]', () => {
       session({ sessionId: asSessionId('good') }),
     ]
     const { store, svc } = await harness(sessions, {
-      sendText: ({ sessionId }) => {
+      sendText: async ({ sessionId }) => {
         if (sessionId === 'bad') throw new Error('transport exploded')
         return { ok: true }
       },

@@ -39,7 +39,9 @@ const agentPrincipal = (): InboxPrincipalReference => ({
 
 function harness(
   options: {
+    prepareSend?: () => Promise<void>
     owner?: typeof ALICE | null
+    ownerOf?: () => Promise<typeof ALICE | null | undefined>
     status?: string
     agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
     /** The harness's observed phase — what the interrupt's idle guard reads, and
@@ -95,6 +97,7 @@ function harness(
   const rejected: unknown[] = []
   const answered: unknown[] = []
   const promptFailed = vi.fn()
+  const attentionStateChanged = vi.fn()
   let draft: string | undefined
   const setSessionDraft = vi.fn(({ text }: { sessionId: SessionId; text: string }) => {
     draft = text || undefined
@@ -203,7 +206,7 @@ function harness(
       rejected: (input) => rejected.push(input),
     },
     attention: {
-      stateChanged: vi.fn(),
+      stateChanged: attentionStateChanged,
       answered: async (input) => {
         answered.push(input)
       },
@@ -238,8 +241,8 @@ function harness(
     // would let the manifests drift from it.
     harnessInterrupt,
     harnessName: harnessDisplayName,
-    prepareSend: vi.fn(),
-    ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
+    prepareSend: options.prepareSend ?? vi.fn(async () => {}),
+    ownerOf: options.ownerOf ?? (async () => (options.owner === undefined ? ALICE : options.owner)),
     setSessionDraft,
     draftText: () => draft,
     resurrect,
@@ -299,6 +302,7 @@ function harness(
     rejected,
     answered,
     promptFailed,
+    attentionStateChanged,
     setSessionDraft,
     getDraft: () => draft,
     applied,
@@ -771,10 +775,7 @@ describe('SessionInbox authorization and identity', () => {
       'fallback Grok',
       { agentKind: 'grok' as const, runtimeContract: true, driverId: 'generic-pty' },
     ],
-    [
-      'Codex',
-      { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' },
-    ],
+    ['Codex', { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' }],
     [
       'OpenCode',
       { agentKind: 'opencode' as const, runtimeContract: true, driverId: 'opencode-server' },
@@ -865,14 +866,14 @@ describe('SessionInbox authorization and identity', () => {
     expect(decode(h.sent[1])).toBe(String.fromCharCode(13))
   })
 
-  it('carries the browser principal through controller gating into PTY attribution', () => {
+  it('carries the browser principal through controller gating into PTY attribution', async () => {
     const h = harness()
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
     // Real base64: this path decodes to bytes now, and 'x' on its own is not a
     // decodable payload — it would arrive as zero bytes and be dropped.
-    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
+    await h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
     expect(h.handleInput).toHaveBeenCalledWith('client-1', Buffer.from('x').toString('base64'), {
       actor: { kind: 'user', id: principal.user },
@@ -906,7 +907,7 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
       queued: true,
     })
-    h.inbox.handleControllerInput(
+    await h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -941,7 +942,7 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    h.inbox.handleControllerInput(
+    await h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -1004,7 +1005,7 @@ describe('SessionInbox authorization and identity', () => {
     const client = { id: 'client-2' } as ClientConn
 
     await h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
-    h.inbox.handleControllerInput(
+    await h.inbox.handleControllerInput(
       principal,
       client,
       SID,
@@ -1235,7 +1236,7 @@ describe('SessionInbox authorization and identity', () => {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
 
       expect(
-        h.inbox.interruptText({
+        await h.inbox.interruptText({
           sessionId: SID,
           text: 'stop and read this',
           principal: agentPrincipal(),
@@ -1243,9 +1244,7 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true })
       await vi.advanceTimersByTimeAsync(500)
 
-      const decoded = h.sent.map((m) =>
-        Buffer.from((m as { bytes: Uint8Array }).bytes).toString(),
-      )
+      const decoded = h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
       expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
       expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
@@ -2600,7 +2599,7 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
     // bind, which a healthy long-lived session never performs, so an offer
     // clicked during a permission prompt hung indefinitely.
     h.setPhase('idle')
-    h.inbox.stateChanged({
+    await h.inbox.stateChanged({
       sessionId: SID,
       prev: { phase: 'needs_user', since: 't' } as never,
       next: { phase: 'idle', since: 't' } as never,
@@ -2786,5 +2785,110 @@ describe('configureSession', () => {
       reason: 'not_running',
     })
     expect(h.contractConfigures).toEqual([])
+  })
+})
+
+describe('offer retirement before inbox admission', () => {
+  const modes = ['send', 'queue', 'interrupt', 'answer'] as const
+  function begin(h: ReturnType<typeof harness>, mode: (typeof modes)[number]) {
+    if (mode === 'answer')
+      return h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        choices: [{ optionIndices: [1] }],
+        principal: agentPrincipal(),
+      })
+    const input = { sessionId: SID, text: 'continue', principal: agentPrincipal() }
+    if (mode === 'queue') return h.inbox.queueText(input)
+    if (mode === 'interrupt') return h.inbox.interruptText(input)
+    return h.inbox.sendText(input)
+  }
+  // POD-3552 makes the owner port async. Change the double only during preparation
+  // to isolate this newly added recheck from that issue's initial-owner lookup.
+  it('accepts an unchanged owner resolved asynchronously after retirement', async () => {
+    vi.useFakeTimers()
+    const ownerOf = vi.fn(async () => ALICE)
+    const h = harness({
+      ownerOf,
+      prepareSend: async () => {
+        ownerOf.mockResolvedValue(ALICE)
+      },
+    })
+    expect(await begin(h, 'answer')).toEqual({ ok: true })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.sent.length).toBeGreaterThan(0)
+    expect(h.answered).toHaveLength(1)
+    expect(ownerOf).toHaveBeenCalledTimes(2)
+  })
+  it('refuses an owner changed asynchronously during retirement', async () => {
+    vi.useFakeTimers()
+    const ownerOf = vi.fn(async () => ALICE)
+    const h = harness({
+      ownerOf,
+      prepareSend: async () => {
+        ownerOf.mockResolvedValue(asUserId('user:bob'))
+      },
+    })
+    expect(await begin(h, 'answer')).toEqual({
+      ok: false,
+      reason: 'session changed during answer admission',
+    })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+    expect(h.rows).toEqual([])
+  })
+  it.each(modes)('%s waits for retirement before any row or keystroke', async (mode) => {
+    vi.useFakeTimers()
+    let release!: () => void
+    const retirement = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const h = harness({ prepareSend: () => retirement })
+    const pending = begin(h, mode)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+    release()
+    expect((await pending).ok).toBe(true)
+    if (mode === 'queue') expect(h.rows).toHaveLength(1)
+    else {
+      await vi.advanceTimersByTimeAsync(500)
+      expect(h.sent.length).toBeGreaterThan(0)
+    }
+  })
+  it.each(modes)('%s refuses a failed retirement before any row or keystroke', async (mode) => {
+    vi.useFakeTimers()
+    const h = harness({
+      prepareSend: async () => {
+        throw new Error('offer retirement refused')
+      },
+    })
+    await expect(begin(h, mode)).rejects.toThrow('offer retirement refused')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+  })
+})
+
+
+describe('async ownership at attention delivery', () => {
+  it.each([ALICE, null, undefined])('delivers only a resolved owner (%s)', async (owner) => {
+    const h = harness({ ownerOf: async () => owner })
+    const input = {
+      sessionId: SID,
+      prev: undefined,
+      next: { phase: 'idle' as const, since: '2026-09-07T12:00:00.000Z', nativeSubagentCount: 0 },
+    }
+    await h.inbox.stateChanged(input)
+    if (owner) {
+      expect(h.attentionStateChanged).toHaveBeenCalledExactlyOnceWith({
+        ...input,
+        ownerUserId: ALICE,
+      })
+    } else {
+      expect(h.attentionStateChanged).not.toHaveBeenCalled()
+    }
   })
 })

@@ -3046,7 +3046,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' }))).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['start this chat'])
@@ -3071,7 +3071,7 @@ describe('sendText (chat send path)', () => {
       // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
       // held, not typed. `queued: true` is the caller's warning that the bytes
       // are not on the wire yet.
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' }))).toEqual({
         ok: true,
         queued: true,
       })
@@ -3103,7 +3103,7 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })).toEqual({
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'a\nb' }))).toEqual({
         ok: true,
         queued: true,
       })
@@ -3282,10 +3282,7 @@ describe('sendText (chat send path)', () => {
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       const before = daemon.length
-      const r = await reg.modules.sessions.sendText({
-        sessionId,
-        text: 'this must NOT submit the menu',
-      })
+      const r = (await reg.modules.sessions.sendText({ sessionId, text: 'this must NOT submit the menu' }))
       vi.advanceTimersByTime(100)
       // The submitting CR would answer the highlighted default — so nothing at all
       // reaches the PTY. The primitive is the airtight backstop.
@@ -3323,7 +3320,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // Idle at accept time, so the send is legitimately taken and held.
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' })).toEqual({
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' }))).toEqual({
         ok: true,
         queued: true,
       })
@@ -3368,7 +3365,7 @@ describe('sendText (chat send path)', () => {
       // proof the queue did not swallow it. `readinessQueueRefusal` asks the
       // needs_user question BEFORE the diversion (POD-2828), so "not yet" and
       // "no" stay different answers.
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'now ok' })).toEqual({
+      expect((await reg.modules.sessions.sendText({ sessionId, text: 'now ok' }))).toEqual({
         ok: true,
         queued: true,
       })
@@ -3397,7 +3394,7 @@ describe('sendText (chat send path)', () => {
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       const before = daemon.length
-      expect(reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' }).ok).toBe(
+      expect((await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })).ok).toBe(
         true,
       )
       vi.advanceTimersByTime(200)
@@ -3426,7 +3423,7 @@ describe('sendText (chat send path)', () => {
       sessionId,
       code: 0,
     })
-    expect(await reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
+    expect((await reg.modules.sessions.sendText({ sessionId, text: 'hello?' }))).toEqual({ ok: false })
   })
 })
 
@@ -4376,7 +4373,7 @@ describe('hibernation', () => {
     })
 
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+      (await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' })),
     ).toEqual({ ok: true, queued: true })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -4570,7 +4567,7 @@ describe('hibernation', () => {
       },
     })
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
+      (await reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' })),
     ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
@@ -4646,7 +4643,7 @@ describe('hibernation', () => {
     })
     daemon.length = 0
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
+      (await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' })),
     ).toEqual({ ok: true, queued: true })
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4720,11 +4717,11 @@ describe('hibernation', () => {
       },
     }
     expect(
-      await reg.modules.sessions.queueText({
+      (await reg.modules.sessions.queueText({
         sessionId,
         text: 'delegation revoked before process exit',
         principal,
-      }),
+      })),
     ).toEqual({ ok: true, queued: true })
 
     // Removing the delegated actor revokes the reference before the target's
@@ -6864,7 +6861,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+        (await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' })),
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
     } finally {
@@ -6884,7 +6881,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+        (await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' })),
       ).toEqual({ ok: false })
       expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
     } finally {

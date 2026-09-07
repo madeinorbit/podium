@@ -701,7 +701,7 @@ export class IssueAttentionModule {
     if (!clearOffer) return
     for (const s of (await this.store.sessionsFor(row))) {
       if (!s.offer) continue
-      clearOffer(s.sessionId)
+      await clearOffer(s.sessionId)
     }
   }
 }
