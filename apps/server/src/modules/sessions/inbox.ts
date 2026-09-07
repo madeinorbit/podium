@@ -291,17 +291,17 @@ export interface SessionInboxDeps {
   authorization: InboxAuthorizationPort
   attention: InboxAttentionPort
   now(): number
-  persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): void
+  persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(
     session: Session,
     mutate: (draft: SessionDurableState) => void,
     options?: { cancelTerminalCandidate?: boolean },
-  ): void
+  ): Promise<void>
   /** A draft, for the site that must ask whether anything changed at all before
    *  deciding to write [POD-3330]. */
   draft(session: Session): SessionDurableState
-  persistDraft(session: Session, draft: SessionDurableState): void
+  persistDraft(session: Session, draft: SessionDurableState): Promise<void>
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
   usesRawFirstTurn(agentKind: AgentKind): boolean
@@ -321,7 +321,7 @@ export interface SessionInboxDeps {
   ): Promise<void>
   ownerOf(sessionId: SessionId): Promise<UserId | null | undefined>
   /** Seed/restore the server-persisted composer draft without a client echo. */
-  setSessionDraft?(input: { sessionId: SessionId; text: string }): void
+  setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   /** Read the current draft so automatic recovery never overwrites a human edit. */
   draftText?(sessionId: SessionId): string | undefined
   /**
@@ -1038,7 +1038,8 @@ export class SessionInbox {
         draft,
       )
       if (changed) {
-        this.deps.persistDraft(session, draft)
+        const persistence: Promise<void> = this.deps.persistDraft(session, draft)
+        await persistence
         this.deps.broadcast()
       }
     }
@@ -1081,9 +1082,10 @@ export class SessionInbox {
       return verification
     }
     await this.deps.queue.delete(head.id)
-    this.deps.write(session, (draft) => {
+    const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
     })
+    await persistence
     this.deps.broadcast()
     this.deps.authorization.interrupted?.({
       sourceMessageId: head.sourceMessageId,
@@ -1164,13 +1166,14 @@ export class SessionInbox {
     })
     if (inserted) {
       if (input.allowErrored) this.recoveryDrains.add(input.sessionId)
-      this.deps.write(
+      const persistence: Promise<void> = this.deps.write(
         session,
         (draft) => {
           draft.queuedMessageCount += 1
         },
         { cancelTerminalCandidate: true },
       )
+      await persistence
       this.deps.broadcast()
     }
     // Ask for the wake; the reaction decides and reports. See the port's note.
@@ -1215,12 +1218,13 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) await this.deps.queue.delete(row.id)
-    this.deps.write(session, (draft) => {
+    const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - matches.length)
       // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
       // until the commit returns the live session still carries the old one.
       if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
     })
+    await persistence
     this.deps.broadcast()
     return true
   }
@@ -1336,18 +1340,20 @@ export class SessionInbox {
     const removeHead = async (current: Session, id: string): Promise<void> => {
       if (!isCurrent()) return
       await this.deps.queue.delete(asSessionId(id))
-      this.deps.write(current, (draft) => {
+      const persistence: Promise<void> = this.deps.write(current, (draft) => {
         draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
         if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
       })
+      await persistence
       this.deps.broadcast()
     }
     /** The head is done with — settle its ledger receipt and move on. */
-    const clearQueuedDraft = (head: QueuedInboxMessage): void => {
+    const clearQueuedDraft = async (head: QueuedInboxMessage): Promise<void> => {
       if (!this.deps.setSessionDraft) return
       const draft = this.deps.draftText?.(sessionId)
       if (draft === head.text) {
-        this.deps.setSessionDraft({ sessionId, text: '' })
+        const draftWrite: Promise<void> = this.deps.setSessionDraft({ sessionId, text: '' })
+        await draftWrite
       }
     }
     const settleHead = async (
@@ -1359,7 +1365,10 @@ export class SessionInbox {
       if (transcriptConfirmed && this.needsInputReadiness(current)) {
         this.inputReadySessions.add(current)
       }
-      if (transcriptConfirmed) clearQueuedDraft(head)
+      if (transcriptConfirmed) {
+        const draftClear: Promise<void> = clearQueuedDraft(head)
+        await draftClear
+      }
       if (transcriptConfirmed) this.reportedPromptFailures.delete(head.id)
       if (head.sourceMessageId) {
         this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
@@ -1387,7 +1396,8 @@ export class SessionInbox {
           // A missing/blank draft is recoverable state to restore. A
           // non-matching draft belongs to a human and must never be overwritten.
           if (draft === undefined || draft === '' || draft === head.text) {
-            this.deps.setSessionDraft({ sessionId, text: head.text })
+            const draftWrite: Promise<void> = this.deps.setSessionDraft({ sessionId, text: head.text })
+            await draftWrite
           }
         }
         const ownerUserId = await this.deps.ownerOf(sessionId)
@@ -1403,7 +1413,10 @@ export class SessionInbox {
       // is the visible proof that no agent turn was confirmed. Later queued rows
       // stay behind it so another prompt cannot glue onto an unsubmitted native
       // composer buffer.
-      if (current) this.deps.persist(current)
+      if (current) {
+        const persistence: Promise<void> = this.deps.persist(current)
+        await persistence
+      }
       stop()
     }
     /**

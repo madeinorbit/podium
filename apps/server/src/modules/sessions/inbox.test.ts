@@ -85,12 +85,15 @@ function harness(
   const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
   const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
-  const persist = vi.fn()
+  const persist = vi.fn(async () => {})
   // The draft seam [POD-3330]. A real `persistDraft` commits the draft and then
   // installs it on the session, so a fixture reproduces the pair: the write is
   // observable, and what it wrote is on the session afterwards.
-  const persistDraft = vi.fn((target: Session, draft: SessionDurableState) => {
+  const persistDraft = vi.fn(async (target: Session, draft: SessionDurableState) => {
     Object.assign(target, draft)
+  })
+  const write = vi.fn(async (session: Session, mutate: (draft: SessionDurableState) => void) => {
+    mutate(session as never)
   })
   const broadcast = vi.fn()
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
@@ -99,7 +102,7 @@ function harness(
   const promptFailed = vi.fn()
   const attentionStateChanged = vi.fn()
   let draft: string | undefined
-  const setSessionDraft = vi.fn(({ text }: { sessionId: SessionId; text: string }) => {
+  const setSessionDraft = vi.fn(async ({ text }: { sessionId: SessionId; text: string }) => {
     draft = text || undefined
   })
   let authorized = true
@@ -220,7 +223,7 @@ function harness(
     // has to reproduce is the mutation landing on the session. Deliberately NOT
     // routed through `persist`: the assertions below distinguish the durable
     // write this method makes from the ones its callees make.
-    write: (session, mutate) => mutate(session as never),
+    write,
     draft: (session) => ({ ...session }) as never,
     persistDraft,
     broadcast,
@@ -297,6 +300,7 @@ function harness(
     contractConfigures,
     persist,
     persistDraft,
+    write,
     broadcast,
     resurrections,
     rejected,
@@ -361,6 +365,117 @@ const typedTexts = (sent: unknown[]): string[] =>
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('SessionInbox persistence completion', () => {
+  function barrier() {
+    let release!: () => void
+    const promise = new Promise<void>((resolve) => { release = resolve })
+    return { promise, release }
+  }
+
+  it('waits for model persistence before broadcasting or returning', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractConfigure: { ok: true, effective: 'next-turn' } })
+    const pending = barrier()
+    h.persistDraft.mockImplementationOnce(() => pending.promise)
+    let finished = false
+    const operation = h.inbox.configureSession({ sessionId: SID, model: 'new-model' })
+      .then(() => { finished = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.persistDraft).toHaveBeenCalledOnce()
+    expect(h.broadcast).not.toHaveBeenCalled()
+    expect(finished).toBe(false)
+    pending.release()
+    await operation
+    expect(h.broadcast).toHaveBeenCalledOnce()
+  })
+
+  it('returns a model persistence rejection to the caller', async () => {
+    const h = harness({ serverDriven: true, contractConfigure: { ok: true, effective: 'next-turn' } })
+    const error = new Error('model commit failed')
+    h.persistDraft.mockRejectedValueOnce(error)
+    await expect(h.inbox.configureSession({ sessionId: SID, model: 'new-model' })).rejects.toBe(error)
+    expect(h.broadcast).not.toHaveBeenCalled()
+  })
+
+  it('waits for the queued count commit before returning or broadcasting', async () => {
+    vi.useFakeTimers()
+    const h = harness({ nativeView: true })
+    const pending = barrier()
+    h.write.mockImplementationOnce(async (session, mutate) => {
+      await pending.promise
+      mutate(session as never)
+    })
+    let finished = false
+    const operation = h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() })
+      .then(() => { finished = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.write).toHaveBeenCalledOnce()
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.broadcast).not.toHaveBeenCalled()
+    expect(finished).toBe(false)
+    pending.release()
+    await operation
+    expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.broadcast).toHaveBeenCalledOnce()
+  })
+
+  it('returns a queued count commit rejection to the caller', async () => {
+    const h = harness({ nativeView: true })
+    const error = new Error('count commit failed')
+    h.write.mockRejectedValueOnce(error)
+    await expect(h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() }))
+      .rejects.toBe(error)
+    expect(h.broadcast).not.toHaveBeenCalled()
+  })
+
+  it('restores the draft before notifying failure and keeps the drain held until persistence', async () => {
+    vi.useFakeTimers()
+    const h = harness({ nativeView: true })
+    await h.inbox.queueText({ sessionId: SID, text: 'recover me', principal: agentPrincipal() })
+    h.setNativeView(false)
+    h.setStatus('exited')
+    const draftPending = barrier()
+    const persistPending = barrier()
+    h.setSessionDraft.mockImplementationOnce(() => draftPending.promise)
+    h.persist.mockImplementationOnce(() => persistPending.promise)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(h.setSessionDraft).toHaveBeenCalledWith({ sessionId: SID, text: 'recover me' })
+    expect(h.promptFailed).not.toHaveBeenCalled()
+    expect(h.persist).not.toHaveBeenCalled()
+    draftPending.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.promptFailed).toHaveBeenCalledOnce()
+    expect(h.persist).toHaveBeenCalledOnce()
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(h.persist).toHaveBeenCalledOnce()
+    persistPending.release()
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(h.persist).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the confirmed queue row until the composer clear completes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'opencode', transcriptAvailable: true })
+    await h.setSessionDraft({ sessionId: SID, text: 'hello' })
+    await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'hello' })
+    await vi.advanceTimersByTimeAsync(10_400)
+    const pending = barrier()
+    h.setSessionDraft.mockImplementationOnce(() => pending.promise)
+    h.landTurn('hello')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(h.setSessionDraft).toHaveBeenLastCalledWith({ sessionId: SID, text: '' })
+    expect(h.rows).toHaveLength(1)
+    pending.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(0)
+  })
 })
 
 describe('SessionInbox terminal provider failures', () => {
