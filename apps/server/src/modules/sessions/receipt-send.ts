@@ -233,9 +233,8 @@ export class ReceiptSender {
       return this.legacy(via, input)
     }
 
-    // THE DURABLE MODES COMPLETE HERE, through the same table the
-    // gateway uses — so the caller's answer is as immediate and as true as it was
-    // before, and the receipt it reconciles with is built from the same enqueue.
+    // The durable modes complete here through the same table the gateway uses.
+    // Build both the caller's answer and its receipt from the completed enqueue.
     //
     // `now` JOINS THEM WHENEVER THE SERVER FIFO IS NOT EMPTY, and that guard is
     // load-bearing rather than defensive. `sendText` queues instead of typing
