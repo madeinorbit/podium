@@ -3679,3 +3679,57 @@ recreated under the epic with *new numbers*, so notes, artifacts and mails writt
 cite refs that now point at something else. A stale ref does not error — it resolves, to the wrong
 issue, silently. That is the same shape as every other defect in this epic: the failure is not that
 nothing happens, it is that something plausible happens instead.
+
+### Rule 48d — `not.toThrow()` on an async call asserts NOTHING. Await the call instead.
+
+Rule 48a converted positive `expect(() => f()).toThrow(...)` into
+`await expect(f()).rejects.toThrow(...)`. It said nothing about the NEGATIVE form, and the negative
+form is the dangerous one.
+
+    expect(() => requireAgent(id)).not.toThrow()     // requireAgent is now async
+
+`requireAgent` returns a promise. Calling it throws nothing synchronously **whether it rejects or
+not**, so this assertion passes unconditionally. It is not weakened — it is vacuous, and it was
+vacuous the moment the callee became async, silently, with no test turning red.
+
+**THE RULING: await the call directly.**
+
+    await requireAgent(id)
+
+An unexpected rejection then fails the test on its own, with the real error and its stack, which is
+strictly more than `not.toThrow()` ever gave. `await expect(f()).resolves.toBeUndefined()` is
+*permitted* where the resolved value genuinely matters, but prefer the bare await: asserting
+`undefined` usually pins an incidental return rather than the behaviour.
+
+Apply to EVERY async `not.toThrow` site reached by the flip, not only the two that were reported —
+this is a signature, not an incident. Known: `modules/machines/service.test.ts` around 193-195 and
+237-239.
+
+*This is the seventh vacuous-assertion class found in this epic. The others: the offer suite's seven
+preservation assertions, three authorization outcomes, nineteen restore cases aborting in a helper,
+a fail-closed room visibility check hiding its own negative test, a rollback probe exercising only
+the safe path, and a self-referential migration-prefix comparison.*
+
+### Rule 62a — the awaitify fixed point and rule 59 do NOT contradict: race sites go on `keep-sync`
+
+`scripts/check-await-idempotence.ts` requires the awaitify pass to be a FIXED POINT — any
+un-awaited store call is a proposed edit, and a proposed edit fails the check. Rule 59 requires the
+opposite at one specific shape: an await inside a `Promise.all` array literal **sequentialises the
+race** and destroys the test.
+
+Both are right. A concurrency test that races two store calls is exactly the shape rule 54 obliges
+us to write, and the pass will demand awaits that would delete the thing under test.
+
+**THE RULING: those sites go on `keep-sync`, which is the mechanism that already exists for this,
+and each one carries a one-line reason at the site.** The check reports `keep-sync` and
+`unused-keep-sync` counts precisely so the list stays honest.
+
+**AND A `keep-sync` ENTRY IS AN ESCAPE HATCH, so rule 58a applies to it in full**: a hatch is a hole
+in every gate downstream of it. Two obligations follow. The reason must be written at the SITE, not
+only in the list, so a later reader sees why the await is absent before they add one. And a stale
+entry is a live hazard, not clutter — `unused-keep-sync=3` in the measured run is POD-3489, and an
+unused entry silences a site that may since have become an ordinary un-awaited call.
+
+*Measured on POD-3524's branch: `keep-sync=3 refusals=11 proposed-files=1 proposed-awaits=6
+unused-keep-sync=3`. The six proposed awaits were two racing `claimGroup()` calls in each of three
+new concurrency tests — rule 59's exact shape, arriving from the pass rather than from a person.*
