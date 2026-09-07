@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
@@ -33,8 +34,8 @@ import type {
 } from '@podium/protocol'
 import {
   formatIssueRef,
-  isTerminalOperationState,
   platformTargetFor,
+  SERVER_MOVE_CAPABILITY,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -54,6 +55,7 @@ import {
   NoDelegationsGranted,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
+import { hashToken } from './auth-route'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -124,9 +126,14 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { createOperations, type OperationsModule } from './modules/operations'
+import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
-import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
+import {
+  restartSourceAfterRecovery,
+  retireSourceAfterTransfer,
+} from './modules/server-transfer/lifecycle'
+import { serverMoveOperationKind } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import type { ServerTransferTargetState } from './modules/server-transfer/service'
@@ -158,10 +165,10 @@ import type { HeadlessService } from './modules/superagent/headless'
 import {
   createUpdateFleetBridge,
   exclusiveUpdateVersion,
-  LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
+import { updateOperationObserver } from './modules/updates/operation-observer'
 import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
@@ -270,6 +277,8 @@ interface SessionRegistryOptions {
    *  (POD-1470). Whatever is passed goes through the same totality check the
    *  registry does — a widened system writeScope fails construction. */
   reactions?: readonly unknown[]
+  /** Compose read/recovery surfaces without running ordinary boot writers. */
+  recoveryOnly?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -395,6 +404,7 @@ function noticeInfo(session: Session): SessionNoticeInfo {
  * (or the store's aggregate repositories) directly.
  */
 export class SessionRegistry {
+  readonly recoveryOnly: boolean
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
@@ -571,6 +581,8 @@ export class SessionRegistry {
     this.store = store
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
+    const recoveryOnly = options.recoveryOnly === true
+    this.recoveryOnly = recoveryOnly
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
@@ -637,6 +649,9 @@ export class SessionRegistry {
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
+    // Plaintext claims live only until this source tells its already-authenticated
+    // browser sockets to leave. Their hashes enter the final portable snapshot.
+    const clientRelocationClaims = new Map<string, Map<string, string>>()
     // The operator's log-level valve over that same connection set (POD-1920).
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
@@ -675,10 +690,10 @@ export class SessionRegistry {
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
+      recoveryOnly,
       targetVersion: async (machineId) =>
         updates ? await updates.targetVersion(machineId) : options.targetVersion?.(),
-      targetUnavailableReason: async (machineId) =>
-        await updates?.targetUnavailableReasonFor(machineId),
+      targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
       // POD-1882: read per call, not captured — Settings → Updates writes the fleet
       // default into config.json, and an unpinned machine must follow the CURRENT
       // value rather than whatever it was when this server booted.
@@ -701,6 +716,17 @@ export class SessionRegistry {
           userCommandPrincipal(asUserId(principal.user), principal.role),
         ),
     })
+    // Hosts is composed below the transfer service. The callback is rebound once
+    // it exists; transfer actions cannot run until this constructor completes.
+    let resumeHostPressureAfterTransferFence = (): void => {}
+    // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
+    // this registry mints names a machine (POD-318), and a machine id with no row is
+    // a machine nobody may use — so the row has to exist before the registry can be
+    // asked for anything, and making it a construction invariant is how no
+    // composition gets to forget. The composition root calls `ensureHostMachine`
+    // again with the real hostname and the loopback bootstrap secret; that call is
+    // an idempotent UPDATE of this row, not a rival insert.
+    if (!recoveryOnly) machines.ensureHostMachine(hostname())
     // The fleet's log-level valve (POD-3156), built after the machine registry
     // it selects over. It reaches the registry through a PORT (online set, name,
     // one send) rather than holding the service: which machines a raise is for
@@ -715,8 +741,10 @@ export class SessionRegistry {
       fleetLogs,
     )
     const updatesService = new UpdatesService({
-      machines: async () =>
-        (await machines.listMachines()).map((machine) => ({
+      recovery: this.store.updateRecovery,
+      recoveryOnly,
+      machines: () =>
+        machines.listMachines().map((machine) => ({
           id: machine.id,
           name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
@@ -743,9 +771,10 @@ export class SessionRegistry {
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).
           ...(machine.deliveryCaps ? { deliveryCaps: machine.deliveryCaps } : {}),
-          // A daemon inside Podium Desktop is the shell's to update, never the
-          // wave's — the planner refuses to select it (POD-2099).
-          ...(machine.supervised ? { supervised: true } : {}),
+          ...(machine.presenceSource ? { presenceSource: machine.presenceSource } : {}),
+          ...(machine.services?.crashOwner === 'desktop'
+            ? { deliveryUnavailableReason: 'managed by Desktop updater' }
+            : {}),
           // WHICH BYTES IT COULD RUN (POD-2783), in the release manifest's own
           // vocabulary, through the SAME function the mint keys the manifest by
           // — so "the platforms this release contains" and "this machine's
@@ -790,13 +819,10 @@ export class SessionRegistry {
       // …and WHICH version that operation is delivering, so an operation adopted
       // across a restart can still be handed the package it resumed waiting for
       // (POD-2228). This process has no memory of having published it.
-      exclusiveOperationVersion: async (channel) =>
-        exclusiveUpdateVersion(await operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      // Resolved, never `undefined`: the port is `Promise<void>`, and a bridge
-      // that has not been wired yet is a no-op, not an absent notification.
-      onTargetChanged: async (channel) => {
-        await targetChanged?.(channel)
-      },
+      approvedTarget: (channel) => this.store.operations.approvedTarget(channel),
+      exclusiveOperationVersion: (channel) =>
+        exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: (channel) => targetChanged?.(channel),
       /**
        * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
        *
@@ -1059,12 +1085,16 @@ export class SessionRegistry {
         // fold does [POD-3366, spec §3.3 mechanism 1].
         applyCommit: { spanOpen, onCommit: applyAfterCommit },
       },
-      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
+      {
+        ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
+        repairSubagentSegmentPaths: !recoveryOnly,
+      },
     )
     const rpc = new DaemonRpcService({
       broker: requestBroker,
       memory,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      hostMachineId: machines.hostMachineId,
       defaultMachine: async () => await machines.defaultMachine(),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
@@ -1118,10 +1148,115 @@ export class SessionRegistry {
       sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
       sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
       sourceWireSchemaDigest: wireSchemaDigest(),
+      sourceCapable: () => {
+        const source = machines
+          .listMachines()
+          .find((machine) => machine.id === this.store.hostMachineId)
+        return (
+          source?.online === true &&
+          source.wireSchemaDigest === wireSchemaDigest() &&
+          source.deliveryCaps?.includes(SERVER_MOVE_CAPABILITY) === true
+        )
+      },
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
-      targetStateResolver,
-      targetState: async (machineId) => (await targetStateResolver())(machineId),
+      targetState: (machineId) => {
+        const machine = machines.listMachines().find((candidate) => candidate.id === machineId)
+        return {
+          exists: machine !== undefined,
+          online: machines.hasDaemon(machineId),
+          capable:
+            machine?.wireSchemaDigest === wireSchemaDigest() &&
+            machine.serverMoveEligibility?.eligible === true,
+          // POD-2700. `undefined` components mean NOT RECORDED, so only an
+          // evaluated row that lacks the daemon component is refused.
+          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
+        }
+      },
+      endpointHandoff: {
+        registeredMachineIds: () =>
+          machines
+            .listMachines()
+            .filter(
+              (machine) =>
+                machine.components === undefined || machine.components.includes('daemon'),
+            )
+            .map((machine) => machine.id),
+        onlineMachineIds: () => machines.onlineMachineIds(),
+        probeCandidate: async (input) => {
+          const endpoint = new URL(
+            `/server-transfer/candidate/${input.transferId}`,
+            input.publicUrl,
+          )
+          const response = await fetch(endpoint, {
+            headers: { authorization: `Bearer ${input.reachabilityToken}` },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (!response.ok) throw new Error(`target candidate returned HTTP ${response.status}`)
+          const proof = (await response.json()) as Record<string, unknown>
+          if (
+            proof.transferId !== input.transferId ||
+            proof.manifestDigest !== input.manifestDigest ||
+            proof.targetMachineId !== input.targetMachineId
+          ) {
+            throw new Error('target candidate reachability proof does not match the move')
+          }
+        },
+        probeMachine: async (input, machineId) => {
+          const result = await rpc.serverEndpointProbe(input, machineId)
+          return result.ok && result.operation === 'probe' && result.transferId === input.transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint probe was refused' }
+        },
+        commitMachine: async (input, machineId) => {
+          const result = await rpc.serverEndpointCommit(input, machineId)
+          return result.ok &&
+            result.operation === 'commit' &&
+            result.transferId === input.transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint commit was refused' }
+        },
+        resumeMachine: async (transferId, machineId) => {
+          const result = await rpc.serverEndpointResume(transferId, machineId)
+          return result.ok && result.operation === 'resume' && result.transferId === transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint resume was refused' }
+        },
+        prepareClientRelocations: (operationId) => {
+          const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
+          const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
+          for (const client of clientRegistry.values()) {
+            if (claims.has(client.id)) continue
+            const token = randomBytes(32).toString('base64url')
+            this.store.auth.createClientSession(
+              hashToken(token),
+              client.principal.user,
+              expiresAt,
+              'server-transfer-claim',
+            )
+            claims.set(client.id, token)
+          }
+          clientRelocationClaims.set(operationId, claims)
+        },
+        cancelClientRelocations: (operationId) => {
+          const claims = clientRelocationClaims.get(operationId)
+          if (!claims) return
+          for (const token of claims.values()) this.store.auth.deleteClientSession(hashToken(token))
+          clientRelocationClaims.delete(operationId)
+        },
+        relocateClients: (input) => {
+          const claims = clientRelocationClaims.get(input.operationId)
+          for (const client of clientRegistry.values()) {
+            clientRegistry.deliver(client, {
+              type: 'serverRelocation',
+              transferId: input.transferId,
+              publicUrl: input.publicUrl,
+              ...(claims?.get(client.id) ? { claimToken: claims.get(client.id) } : {}),
+            })
+          }
+          clientRelocationClaims.delete(input.operationId)
+        },
+      },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
       fence: async () => {
@@ -1147,13 +1282,20 @@ export class SessionRegistry {
         await memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
         this.localDaemonPortableState?.resume()
+        machines.resumeAfterTransferFence()
+        resumeHostPressureAfterTransferFence()
       },
       demoteSource: ({ transferId, publicUrl }) => {
         prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })
       },
       // The service fsyncs committed before this callback. Desktop continuity
       // therefore sees matching daemon config + committed journal before exit.
+      afterJournalCommitted: () => {
+        const evidence = process.env.PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE
+        if (evidence) writeFileSync(evidence, 'after-commit\n')
+      },
       afterCommitted: ({ serverUrl }) => retireSourceAfterTransfer(serverUrl),
+      afterRecoveredAbort: () => restartSourceAfterRecovery(),
     })
     const loginPropagation = new LoginPropagationService({
       store: this.store,
@@ -1373,6 +1515,7 @@ export class SessionRegistry {
     const hosts = new HostsService(
       {
         getSettings: async () => await this.store.settings.getSettings(),
+        transferFenceActive: () => this.store.transferFenceActive,
         clients: () => clientRegistry.values(),
         machineName: async (id) => await machines.machineName(id),
         sessions: async () => {
@@ -1429,6 +1572,7 @@ export class SessionRegistry {
       },
       this.bus,
     )
+    resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
@@ -1478,8 +1622,13 @@ export class SessionRegistry {
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
-    this.bus.on('session.exited', async ({ sessionId }) => await locks.releaseForSession(sessionId))
-    // Session hydration runs from the async registry factory after the graph is complete.
+    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
+    // Boot: hydrate sessions (and reconcile the restored state against the
+    // write-seam ledger — boot reconciliation lives in the sessions module now).
+    // Recovery-only serves operations/history/action/health and holds a query-only
+    // store, so it neither needs nor may run session restoration's boot writers.
+    if (!recoveryOnly) sessionsSvc.loadFromStore()
+    // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
@@ -2733,50 +2882,11 @@ export class SessionRegistry {
     let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
-      onChanged: async (row) => {
-        if (!isTerminalOperationState(row.state)) {
-          // An operation is live, so whatever background convergence did before
-          // it started is that operation's story to tell now (§3.6).
-          updatesReconciler?.onOperationStarted()
-          return
-        }
-        // THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, §3.2).
-        //
-        // FIRST of everything here, and that ordering is the fix rather than a
-        // tidiness. It was written because `releaseInFlightGrants` read
-        // `fleet()`, which continues an authorized wave from inside the read, so
-        // withdrawing second let the cleanup itself grant the next machine —
-        // after a cancel, the very thing the cancel was for. POD-2180 took that
-        // capability off the cleanup path (it reads the projection now), which
-        // makes this ordering belt AND braces rather than the only brace: the
-        // sweep below and `publishNextTargets` both run while this consent is
-        // either alive or dead, and dead is the answer for all of them.
-        updatesService.withdrawAuthorization()
-        // A version that arrived mid-update waits for the group to be free, and
-        // this is the moment it becomes free — whatever the outcome was. It
-        // re-creates the OFFER, never an operation (§3.2).
-        await updatesService.publishNextTargets()
-        // POD-2101: the deadline that used to end a silent grant aged inside a
-        // `fleet()` read. The operation owns that authority now, so the moment
-        // it stops waiting is the moment those grants stop being believed. A
-        // `done` operation has nothing in flight to end — and if a late machine
-        // is still converging, it is converging successfully.
-        if (row.state !== 'done') {
-          await updatesService.releaseInFlightGrants(
-            row.state === 'canceled'
-              ? 'The update was canceled while this machine was updating.'
-              : undefined,
-          )
-        }
-        // …and the same moment is when background convergence may resume. It
-        // sweeps whoever is still behind, which is also how a FAILED operation
-        // cleans up after itself without a human pressing Try again (§3.6).
-        // AFTER the release above, so the sweep sees machines whose grants have
-        // just stopped being believed rather than refusing them as in-flight.
-        await updatesReconciler?.onOperationSettled(row.state)
-      },
+      startCleanupJanitor: !recoveryOnly,
+      onChanged: updateOperationObserver(updatesService, () => updatesReconciler),
     })
     operationsModule.kinds.register(updateOperationKind())
+    operationsModule.kinds.register(serverMoveOperationKind(serverTransfer))
     operations = operationsModule
     /**
      * The wave's own events are the operation's heartbeat (§3.3). Wired to the
@@ -3081,11 +3191,25 @@ export class SessionRegistry {
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
-    issueSessionLifecycle.startClosedIssueSweep()
-    shipping.start()
-    void shipping
-      .reconcile()
-      .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
+    if (!recoveryOnly) {
+      issues.boot(systemPrincipal('boot-reconcile'))
+      issueSessionLifecycle.startClosedIssueSweep()
+      shipping.start()
+      void shipping
+        .reconcile()
+        .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
+    }
+    // One durable queued-row pass repairs events missed while the server was down
+    // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
+    if (!recoveryOnly) {
+      try {
+        messagesSvc.reconcileQueued()
+      } catch (error) {
+        log.warn('queued message startup recovery failed — the retry backstop remains active', {
+          err: error,
+        })
+      }
+    }
     this.steward = new StewardService({
       principal: systemPrincipal('steward'),
       store: this.store.events,
@@ -3195,25 +3319,24 @@ export class SessionRegistry {
       if (reset !== true) await sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
-    this.messageSweep = setInterval(async () => await messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
+    this.messageSweep = setInterval(() => {
+      if (!recoveryOnly) messagesSvc.sweep()
+    }, DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
     // it is cheap — `drain` is single-flight and returns immediately on a
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
-    this.queuedInputSweep = setInterval(
-      // NOT awaited: a backstop tick owns no caller to answer (rule 57).
-      () => void sessionsSvc.inbox.sweepQueuedInputs(),
-      QUEUED_INPUT_SWEEP_MS,
-    )
+    this.queuedInputSweep = setInterval(() => {
+      if (!recoveryOnly) sessionsSvc.inbox.sweepQueuedInputs()
+    }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
-    this.approvalStallSweep = setInterval(
-      async () => await approvals.sweepStalledExecutions(),
-      APPROVAL_STALL_SWEEP_MS,
-    )
+    this.approvalStallSweep = setInterval(() => {
+      if (!recoveryOnly) approvals.sweepStalledExecutions()
+    }, APPROVAL_STALL_SWEEP_MS)
     this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
@@ -3229,17 +3352,17 @@ export class SessionRegistry {
     // the ephemeral in-memory git-state cache, so there is no durable write for
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
-    this.issueGitWatch.start()
+    if (!recoveryOnly) this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.
     this.quotaSampler = new QuotaSampler(this.store.quotaHistory, async () =>
       await this.modules.rpc.agentQuotaAll(),
     )
-    this.quotaSampler.start()
+    if (!recoveryOnly) this.quotaSampler.start()
     this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, async (sinceMs) =>
       await this.modules.rpc.quotaHistoryAll(sinceMs),
     )
-    this.quotaBackfill.start()
+    if (!recoveryOnly) this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()

@@ -698,7 +698,7 @@ describe('named-instance development releases', () => {
      * One run of the whole path. `knowsItsOwnIdentity: false` is the control —
      * the fleet projection as it stood before POD-3170 put `coordinator` on it.
      */
-    const run = async (knowsItsOwnIdentity: boolean) => {
+    const run = async (knowsItsOwnIdentity: boolean, approve = false) => {
       const granted: string[] = []
       const recorded: GrantRecord[] = []
       const restarts: string[] = []
@@ -707,7 +707,9 @@ describe('named-instance development releases', () => {
         | ((message: Extract<ControlMessage, { type: 'updateGrant' }>) => void)
         | undefined
 
+      let approved: UpdateTarget | undefined
       const updates = new UpdatesService({
+        approvedTarget: () => approved,
         machines: async () => [
           {
             id: HOST,
@@ -767,6 +769,7 @@ describe('named-instance development releases', () => {
       // 3. Boot resolves what was just published. Still nobody has clicked.
       await refreshTargetsOnBoot({ refresh: (channel) => updates.refreshTarget(channel) })
       expect(updates.target('dev')?.version).toBe(built.version)
+      if (approve) approved = updates.target('dev')
 
       // 4. The local daemon reconnects, carrying this host's machine id.
       const reconciler = new UpdateReconciler({
@@ -779,8 +782,14 @@ describe('named-instance development releases', () => {
       return { granted, recorded, restarts, installed }
     }
 
-    // ARMED CONTROL: the reconciler as it stood on 2026-08-31.
-    const control = await run(false)
+    // Even a row without coordinator identity cannot converge an unapproved publication.
+    const offered = await run(false)
+    expect(offered.granted).toEqual([])
+    expect(offered.recorded).toEqual([])
+    expect(offered.restarts).toEqual([])
+
+    // ARMED CONTROL: an approved fleet target with missing coordinator identity.
+    const control = await run(false, true)
     expect(control.granted).toEqual([HOST])
     expect(control.restarts).toEqual([built.version])
     /**
@@ -800,7 +809,7 @@ describe('named-instance development releases', () => {
     })
 
     // THE PROOF: the same publication, the same reconnect, nothing granted.
-    const fixed = await run(true)
+    const fixed = await run(true, true)
     expect(fixed.granted, 'a grant left the coordinator').toEqual([])
     expect(fixed.recorded, 'a grant was recorded').toEqual([])
     expect(fixed.installed, 'the coordinator swapped its own bundle').toEqual([])

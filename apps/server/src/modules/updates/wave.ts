@@ -1,4 +1,4 @@
-import type { UpdateChannel } from '@podium/model'
+import type { MachinePresenceSource, UpdateChannel } from '@podium/model'
 import type { ConvergenceState, UpdateTrustRoot } from '@podium/protocol'
 
 export interface WaveMachine {
@@ -34,10 +34,13 @@ export interface WaveMachine {
    */
   deliveryCaps?: readonly string[]
   /**
-   * Podium Desktop supervises this daemon process. Its external payload remains
-   * fleet-managed according to deliveryCaps. Absent means no desktop supervisor.
+   * Which compatibility-window presence path owns this row. Supervisor reports
+   * are authoritative: an empty capability list is an explicit inability to
+   * take delivery, while an old daemon's absent/empty list remains unknown.
    */
-  supervised?: boolean
+  presenceSource?: MachinePresenceSource
+  /** Display-only explanation for an explicit lack of delivery capability. */
+  deliveryUnavailableReason?: string
   /**
    * WHICH BYTES THIS MACHINE COULD EVEN RUN (POD-2783), in the release
    * manifest's own vocabulary — `darwin-aarch64`, `linux-x86_64` — derived from
@@ -125,10 +128,12 @@ export function offeredDeliveries(target: {
  *
  */
 export function machineCanTakeDelivery(
-  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>,
   deliveries?: readonly string[],
 ): boolean {
-  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
+  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) {
+    return machine.presenceSource !== 'supervisor'
+  }
   // Omitted means the caller is not asking the caps question. An empty list is
   // the opposite: a target that offers nothing, which nobody can take.
   if (deliveries === undefined) return true

@@ -1,3 +1,4 @@
+import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import {
@@ -16,6 +17,8 @@ import {
   type MachineId,
   type MachineRejection,
   type MachineRequirement,
+  type MachineServiceAssignment,
+  type MachineServiceReport,
   type MachineUseDecision,
   type MachineWire,
   machineRejection,
@@ -29,6 +32,7 @@ import type {
   DaemonHandshake,
   DaemonPtyInputBatch,
   LiveServerMessage,
+  MachineSupervisorControlMessage,
   MachineVerb,
   PeerBuild,
   ServerMessage,
@@ -50,6 +54,8 @@ import { sha256 } from './enrollment'
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
 export { sha256 } from './enrollment'
+
+export const MACHINE_PRESENCE_GRACE_MS = 30_000
 
 /**
  * One principal's `use` decision, per machine. Supplied by the command layer
@@ -102,6 +108,23 @@ export type MachineListing = MachineWire
 
 /** The machine's position relative to the version this server says it should run. */
 export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+export function deriveServerMoveEligibility(input: {
+  currentServer: boolean
+  online: boolean
+  reportedWireSchemaDigest: string | null
+  deliveryCaps: readonly string[]
+}): NonNullable<MachineWire['serverMoveEligibility']> {
+  if (input.currentServer) return { eligible: false, reason: 'current-server' }
+  if (!input.online) return { eligible: false, reason: 'offline' }
+  if (
+    input.reportedWireSchemaDigest !== wireSchemaDigest() ||
+    !input.deliveryCaps.includes(SERVER_MOVE_CAPABILITY)
+  ) {
+    return { eligible: false, reason: 'unsupported' }
+  }
+  return { eligible: true }
+}
 
 /**
  * DERIVED, NEVER STORED. The server target may move independently of the last
@@ -174,6 +197,8 @@ export interface MachinesDeps {
    */
   fleetUpdateChannel?: () => UpdateChannel
   store: SessionStore
+  /** Recovery transport must never refresh durable presence. */
+  recoveryOnly?: boolean
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
    * composition root (`readOrCreateLocalMachineId`) and handed down.
@@ -227,7 +252,16 @@ export class MachinesService {
    *  {@link MachineService.daemonSupports}. Keyed and cleared exactly like
    *  {@link MachineService.daemons}, so the two can never disagree. */
   private readonly daemonCaps = new Map<string, ReadonlySet<string>>()
-  /** One local parent-backed update participant; separate from agent daemon routing. */
+  /** Preferred machine-plane attachment. The daemon map remains agent-only. */
+  private readonly supervisors = new Map<
+    string,
+    {
+      send: Send<MachineSupervisorControlMessage>
+      build: PeerBuild
+      caps: string[]
+    }
+  >()
+  /** Compatibility-only server-local participant. A supervisor always wins. */
   private readonly updateParticipants = new Map<
     string,
     Send<Extract<ControlMessage, { type: 'updateGrant' }>>
@@ -235,6 +269,10 @@ export class MachinesService {
   /** Online daemon connections whose current-generation inventory has not arrived yet. */
   private readonly inventoryPending = new Set<string>()
   private readonly inventoryWaiters = new Map<string, Set<() => void>>()
+  /** Latest authenticated legacy hello, retained for fallback after supervisor detach. */
+  private readonly legacyBuilds = new Map<string, { build: PeerBuild; caps: string[] }>()
+  private readonly presenceGraceUntil = new Map<string, number>()
+  private readonly presenceGraceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   // Per-machine queue for control messages produced while that daemon is briefly
   // offline (e.g. the local daemon during boot, or a survivor session's reattach
   // before its machine re-attaches). Flushed in order on attach (flushQueued).
@@ -245,6 +283,14 @@ export class MachinesService {
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
+  /**
+   * Latest durable inventory report received while the server-transfer fence owns
+   * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
+   * sufficient: an abort flushes the newest report after writability returns; a
+   * committed handoff leaves the sealed source untouched and the daemon reports
+   * again when it reconnects to the promoted target.
+   */
+  private readonly deferredInventoryByMachine = new Map<MachineId, string>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -275,6 +321,7 @@ export class MachinesService {
       broadcastMachines: async () => {
         await this.broadcastMachines()
       },
+      hasSupervisor: (machineId) => this.hasSupervisor(machineId),
     }
   }
 
@@ -295,6 +342,10 @@ export class MachinesService {
     return this.deps.hostMachineId
   }
 
+  private get presenceReadOnly(): boolean {
+    return this.deps.recoveryOnly === true || this.deps.store.transferFenceActive
+  }
+
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
   async attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): Promise<void> {
@@ -309,6 +360,10 @@ export class MachinesService {
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
     this.inventoryPending.add(machineId)
+    if (!this.supervisors.has(machineId) && !this.presenceReadOnly) {
+      this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
+      this.clearPresenceGrace(machineId)
+    }
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
     this.invalidateMachineCache()
@@ -329,13 +384,101 @@ export class MachinesService {
    * per socket for a fact that did not change.
    */
   async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
+    if (this.presenceReadOnly) return
     if (!await this.deps.store.machines.addMachineComponent(machineId, component)) return
     this.invalidateMachineCache()
     await this.broadcastMachines()
   }
 
-  /** Register the parent-backed update participant for this host. A daemon socket may
-   * coexist for sessions, but update grants always take this one local path. */
+  /** Server intent returned to the parent after every supervisor attach. */
+  serviceAssignment(machineId: MachineId): MachineServiceAssignment {
+    return (
+      this.machineRecords().find((machine) => machine.id === machineId)?.serviceAssignment ?? {
+        server: false,
+        agentExecution: true,
+      }
+    )
+  }
+
+  attachSupervisor(
+    machineId: MachineId,
+    send: Send<MachineSupervisorControlMessage>,
+    build: PeerBuild,
+    caps: string[],
+  ): void {
+    // Fenced replacement: the old socket may still close, but cannot detach this one.
+    this.supervisors.set(machineId, { send, build, caps: [...caps] })
+    this.clearPresenceGrace(machineId)
+    if (this.presenceReadOnly) return
+    this.deps.store.machines.setMachineBuild(
+      machineId,
+      build,
+      caps,
+      new Date().toISOString(),
+      'supervisor',
+    )
+    this.invalidateMachineCache()
+    send({ type: 'serviceAssignment', assignment: this.serviceAssignment(machineId) })
+  }
+
+  detachSupervisor(machineId: MachineId, send: Send<MachineSupervisorControlMessage>): boolean {
+    if (this.supervisors.get(machineId)?.send !== send) return false
+    this.supervisors.delete(machineId)
+    if (this.presenceReadOnly) {
+      this.invalidateMachineCache()
+      return true
+    }
+    const legacy = this.legacyBuilds.get(machineId)
+    if (this.daemons.has(machineId) && legacy) {
+      this.deps.store.machines.setMachineBuild(
+        machineId,
+        legacy.build,
+        legacy.caps,
+        new Date().toISOString(),
+        'legacy-daemon',
+      )
+      this.clearPresenceGrace(machineId)
+    } else if (this.daemons.has(machineId)) {
+      this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
+      this.clearPresenceGrace(machineId)
+    } else {
+      this.beginPresenceGrace(machineId)
+    }
+    this.invalidateMachineCache()
+    return true
+  }
+
+  hasSupervisor(machineId: MachineId): boolean {
+    return this.supervisors.has(machineId)
+  }
+
+  recordLegacyBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void {
+    this.legacyBuilds.set(machineId, { build, caps: [...caps] })
+    if (this.presenceReadOnly || this.supervisors.has(machineId)) return
+    this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
+    this.invalidateMachineCache()
+  }
+
+  recordSupervisorReport(machineId: MachineId, services: MachineServiceReport, at: string): void {
+    if (this.presenceReadOnly) return
+    const supervisor = this.supervisors.get(machineId)
+    if (!supervisor) return
+    this.deps.store.machines.setSupervisorPresence(
+      machineId,
+      supervisor.build,
+      supervisor.caps,
+      services,
+      at,
+    )
+    this.invalidateMachineCache()
+    this.broadcastMachines()
+  }
+
+  /**
+   * Register the pre-supervisor server-local update participant for the migration
+   * window. It keeps old server-only installations visible and updateable until
+   * their first normal update starts a supervisor; it never outranks one.
+   */
   attachUpdateParticipant(
     machineId: MachineId,
     send: Send<Extract<ControlMessage, { type: 'updateGrant' }>>,
@@ -345,6 +488,7 @@ export class MachinesService {
       throw new Error("machine '" + machineId + "' already has an update participant")
     }
     this.updateParticipants.set(machineId, send)
+    if (!this.supervisors.has(machineId)) this.clearPresenceGrace(machineId)
     this.invalidateMachineCache()
   }
 
@@ -354,8 +498,12 @@ export class MachinesService {
   ): boolean {
     if (send !== undefined && this.updateParticipants.get(machineId) !== send) return false
     const removed = this.updateParticipants.delete(machineId)
-    if (removed) this.invalidateMachineCache()
-    return removed
+    if (!removed) return false
+    if (!this.supervisors.has(machineId) && !this.daemons.has(machineId)) {
+      this.beginPresenceGrace(machineId)
+    }
+    this.invalidateMachineCache()
+    return true
   }
 
   /** Flush control messages buffered while this machine was offline (e.g. a boot
@@ -391,11 +539,39 @@ export class MachinesService {
     this.daemonCaps.delete(machineId)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
+    if (!this.supervisors.has(machineId)) this.beginPresenceGrace(machineId)
     this.invalidateMachineCache()
     return true
   }
 
-  /** True when `machineId` has a live daemon socket right now. */
+  private clearPresenceGrace(machineId: MachineId): void {
+    this.presenceGraceUntil.delete(machineId)
+    const timer = this.presenceGraceTimers.get(machineId)
+    if (timer) clearTimeout(timer)
+    this.presenceGraceTimers.delete(machineId)
+  }
+
+  private beginPresenceGrace(machineId: MachineId): void {
+    this.clearPresenceGrace(machineId)
+    this.presenceGraceUntil.set(machineId, Date.now() + MACHINE_PRESENCE_GRACE_MS)
+    const timer = setTimeout(() => {
+      this.presenceGraceTimers.delete(machineId)
+      this.presenceGraceUntil.delete(machineId)
+      this.invalidateMachineCache()
+      this.broadcastMachines()
+    }, MACHINE_PRESENCE_GRACE_MS)
+    timer.unref?.()
+    this.presenceGraceTimers.set(machineId, timer)
+  }
+
+  private isMachineOnline(machineId: MachineId): boolean {
+    if (this.supervisors.has(machineId)) return true
+    if (this.updateParticipants.has(machineId)) return true
+    if (this.daemons.has(machineId)) return true
+    return (this.presenceGraceUntil.get(machineId) ?? 0) > Date.now()
+  }
+
+  /** True when machineId has a live daemon socket right now. */
   hasDaemon(machineId: MachineId): boolean {
     return this.daemons.has(machineId)
   }
@@ -442,6 +618,11 @@ export class MachinesService {
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     if (msg.type === 'updateGrant') {
+      const supervisor = this.supervisors.get(machineId)
+      if (supervisor) {
+        supervisor.send(msg)
+        return
+      }
       const participant = this.updateParticipants.get(machineId)
       if (participant) {
         participant(msg)
@@ -491,15 +672,20 @@ export class MachinesService {
    */
   async authenticateDaemon(
     frame: DaemonHandshake,
+    options: credentials.DaemonAuthenticationOptions = {},
   ):
     Promise<| { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
     | { ok: false; reason: string }> {
-    return await credentials.authenticateDaemon(this.enrollmentHost, frame)
+    return credentials.authenticateDaemon(this.enrollmentHost, frame, {
+      ...options,
+      ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
+    })
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).
    *  See {@link credentials.reconcileOwnersFromLedger}. */
   async reconcileOwnersFromLedger(): Promise<void> {
+    if (this.presenceReadOnly) return
     await credentials.reconcileOwnersFromLedger(this.enrollmentHost)
   }
 
@@ -705,6 +891,14 @@ export class MachinesService {
           code: 'PRECONDITION_FAILED',
           message: `could not determine whether ${agentKind} is installed on machine '${machine.name}' (probe ${agentProbeTimeoutDescription(machine, agentKind)}); retry`,
         })
+      case 'agents-disabled':
+        throw new Error(
+          machineRejectionMessage(machine.name, 'agents-disabled', `run ${agentKind}`),
+        )
+      case 'agents-unavailable':
+        throw new Error(
+          machineRejectionMessage(machine.name, 'agents-unavailable', `run ${agentKind}`),
+        )
       case 'harness-missing':
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -902,6 +1096,28 @@ export class MachinesService {
       } catch {
         target = undefined
       }
+      const services =
+        m.serviceReport &&
+        this.supervisors.has(m.id) &&
+        m.serviceReport.agentExecution.state === 'available' &&
+        !this.daemons.has(m.id)
+          ? {
+              ...m.serviceReport,
+              agentExecution: {
+                ...m.serviceReport.agentExecution,
+                state: 'stopped' as const,
+                reason: 'agent execution plane is disconnected',
+                observedAt: new Date().toISOString(),
+              },
+            }
+          : m.serviceReport
+      const online = this.daemons.has(m.id)
+      const serverMoveEligibility = deriveServerMoveEligibility({
+        currentServer: m.id === this.deps.hostMachineId,
+        online,
+        reportedWireSchemaDigest: m.wireSchemaDigest,
+        deliveryCaps: m.deliveryCaps,
+      })
       listings.push({
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -910,8 +1126,11 @@ export class MachinesService {
         id: m.id,
         name: m.name,
         hostname: m.hostname,
-        online: this.daemons.has(m.id) || this.updateParticipants.has(m.id),
+        online: this.isMachineOnline(m.id),
         lastSeenAt: m.lastSeenAt,
+        ...(m.presenceSource ? { presenceSource: m.presenceSource } : {}),
+        ...(services ? { services } : {}),
+        serviceAssignment: m.serviceAssignment,
         updateChannel: resolveMachineChannel(m.updateChannelOverride, this.fleetChannel()),
         updateChannelOverride: m.updateChannelOverride,
         targetVersion: target ?? null,
@@ -920,9 +1139,7 @@ export class MachinesService {
         wireSchemaDigest: m.wireSchemaDigest,
         installKind: m.installKind,
         deliveryCaps: m.deliveryCaps,
-        // Present only when true, so the wire stays quiet for the fleet's
-        // ordinary machines and a supervised one is unmistakable (POD-2099).
-        ...(m.supervised ? { supervised: true } : {}),
+        serverMoveEligibility,
         buildReportedAt: m.buildReportedAt,
         // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
         // Omitted when the row has NOT been evaluated, which is how a reader
@@ -980,7 +1197,44 @@ export class MachinesService {
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   async recordInventory(machineId: MachineId, inventory: Inventory): Promise<void> {
-    await this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    const inventoryJson = JSON.stringify(inventory)
+    if (this.deps.store.transferFenceActive) {
+      this.deferredInventoryByMachine.set(machineId, inventoryJson)
+      return
+    }
+    this.persistInventory(machineId, inventoryJson)
+  }
+
+  /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
+  resumeAfterTransferFence(): void {
+    if (this.presenceReadOnly) return
+    // A recoverable abort restores the presence facts retained in memory while
+    // SQLite was sealed. The socket maps, not historical rows, own current state.
+    for (const machineId of this.daemons.keys()) {
+      const id = asMachineId(machineId)
+      this.recordComponent(id, 'daemon')
+      if (!this.supervisors.has(id)) this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
+    }
+    for (const [machineId, supervisor] of this.supervisors) {
+      this.attachSupervisor(
+        asMachineId(machineId),
+        supervisor.send,
+        supervisor.build,
+        supervisor.caps,
+      )
+    }
+    for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
+      this.persistInventory(machineId, inventoryJson)
+      // A synchronous projection callback could have received a newer report.
+      // Only remove the exact value just persisted so newest-wins remains true.
+      if (this.deferredInventoryByMachine.get(machineId) === inventoryJson) {
+        this.deferredInventoryByMachine.delete(machineId)
+      }
+    }
+  }
+
+  private persistInventory(machineId: MachineId, inventoryJson: string): void {
+    this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
@@ -990,9 +1244,10 @@ export class MachinesService {
     await this.broadcastMachines()
   }
 
-  /** Persist a daemon's advisory build report and offered delivery capabilities. */
+  /** Persist the compatibility local participant's build while no supervisor owns it. */
   async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
-    await this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
+    if (this.supervisors.has(machineId)) return
+    this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     this.invalidateMachineCache()
     await this.broadcastMachines()
   }
@@ -1113,7 +1368,10 @@ export class MachinesService {
     await this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
+    this.supervisors.delete(id)
     this.updateParticipants.delete(id)
+    this.legacyBuilds.delete(id)
+    this.clearPresenceGrace(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
@@ -1141,8 +1399,20 @@ export class MachinesService {
    * edges forward rather than inserting a rival. Idempotent. Tests omit `secret`
    * (a random throwaway — they attach via the registry without authenticating).
    */
-  async ensureHostMachine(hostname: string, secret: string = randomUUID()): Promise<string> {
+  ensureHostMachine(
+    hostname: string,
+    secret: string = randomUUID(),
+    assignment?: MachineServiceAssignment,
+    transferredFrom?: MachineId,
+  ): string {
     const id = this.deps.hostMachineId
+    const existing = this.deps.store.machines.getMachine(id)
+    const enrollmentOwner = this.deps.enrollment
+      ? (existing?.ownerUserId ?? deviceGradeSoleOwner())
+      : deviceGradeSoleOwner()
+    // Ledger first: this is the durable commit point shared with pairing. A
+    // revoked host throws before its row or credential can be recreated.
+    const ownerUserId = credentials.ensureHostEnrollment(this.enrollmentHost, id, enrollmentOwner)
     await this.deps.store.machines.upsertMachine({
       id,
       name: hostname,
@@ -1153,8 +1423,21 @@ export class MachinesService {
       // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
       // `upsertMachine` means a later real owner is never overwritten by this
       // boot-time write.
-      ownerUserId: deviceGradeSoleOwner(),
+      ownerUserId,
     })
+    if (assignment) this.deps.store.machines.setServiceAssignment(id, assignment)
+    // Only the exact imported source is demoted; ordinary machine policy is unchanged.
+    // The composition root supplies this from durable target promotion evidence and
+    // never calls writable host bootstrap in recoveryOnly mode.
+    if (transferredFrom && transferredFrom !== id) {
+      this.deps.store.machines.setServiceAssignment(transferredFrom, {
+        server: false,
+        agentExecution: true,
+      })
+    }
+    // The ledger owner wins over a stale or restored row. `upsertMachine`
+    // deliberately preserves an existing owner, so project explicitly here.
+    if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)
     this.invalidateMachineCache()
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at

@@ -36,6 +36,10 @@ class FakeSocket extends EventEmitter {
   private receiving = false
   private readonly pending: Array<ControlMessage | PeerHelloReply> = []
   send(_data: string): void {}
+  terminate(): void {
+    this.close()
+  }
+
   close(): void {
     if (this.readyState === 3) return
     this.readyState = 3

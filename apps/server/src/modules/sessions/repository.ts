@@ -573,6 +573,16 @@ export class SessionRepository {
     this.publishSessionProjection(changes)
   }
 
+  /** Persist activity only while this store can accept synchronous writes. */
+  /** Persist activity unless the physical transfer fence is up.
+   *  Async because `persist` is: a bare call here would drop the write
+   *  silently, which is exactly what the branch merge would have shipped. */
+  async persistActivityIfWritable(session: Session): Promise<boolean> {
+    if (this.store.transferFenceActive) return false
+    await this.persist(session)
+    return true
+  }
+
   /** Persist every session whose activity counters advanced since the last flush.
    *  Keeps the per-frame / per-keystroke path off the DB — the timer above calls
    *  this on a coarse interval, so a busy session writes at most once per tick. */
@@ -589,8 +599,7 @@ export class SessionRepository {
     this.flushingActivity = true
     try {
       for (const s of this.sessions.values()) {
-        if (s.terminal.activityDirty) {
-          await this.persist(s)
+        if (s.terminal.activityDirty && (await this.persistActivityIfWritable(s))) {
           s.terminal.clearActivityDirty()
         }
       }
@@ -647,13 +656,16 @@ export class SessionRepository {
       sendInput: (input) =>
         this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {
-        void this.persist(session).catch((error) =>
-          log.error('failed to persist restored session activity', {
-            sessionId: session.sessionId,
-            error,
-          }),
-        )
-        this.broadcastSessions()
+        void this.persistActivityIfWritable(session)
+          .then((written) => {
+            if (written) this.broadcastSessions()
+          })
+          .catch((error) =>
+            log.error('failed to persist restored session activity', {
+              sessionId: session.sessionId,
+              error,
+            }),
+          )
       },
       durableLabel: r.durableLabel,
       lastActiveAt: r.lastActiveAt,

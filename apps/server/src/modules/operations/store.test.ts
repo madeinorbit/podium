@@ -377,3 +377,44 @@ describe('newest-first is a contract, not an accident', () => {
     expect((await s.active()).map((r) => r.id)).toEqual(['newest', 'middle', 'oldest'])
   })
 })
+
+describe('durable update approvals', () => {
+  it('retains the prior approval through cancellation and history retention', () => {
+    const db = openDatabase(':memory:')
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    try {
+      const s = new OperationStore(db)
+      const approval = (
+        id: string,
+        version: string,
+        createdAt: number,
+        state: PersistedOperation['state'] = 'done',
+      ) =>
+        op({
+          id,
+          kind: 'update',
+          createdBy: 'user',
+          createdAt,
+          state,
+          details: { channel: 'dev', target: { version, critical: false, artifacts: {} } },
+        })
+      expect(s.approvedTarget('dev')).toBeUndefined()
+      s.insert(approval('a', 'A', 1))
+      s.insert(approval('b', 'B', 2, 'running'))
+      s.sweepRetention('update', 0)
+      expect(new OperationStore(db).approvedTarget('dev')?.version).toBe('B')
+      s.update(approval('b', 'B', 2, 'canceled'))
+      s.sweepRetention('update', 0)
+      expect(new OperationStore(db).approvedTarget('dev')?.version).toBe('A')
+      expect(s.approvedTarget('edge')).toBeUndefined()
+      s.insert({ ...approval('system', 'C', 3), createdBy: 'system' })
+      expect(s.approvedTarget('dev')?.version).toBe('A')
+      s.insert(approval('d', 'D', 4))
+      s.sweepRetention('update', 0)
+      expect(s.approvedTarget('dev')?.version).toBe('D')
+      expect(s.get('a')).toBeUndefined()
+    } finally {
+      db.close()
+    }
+  })
+})

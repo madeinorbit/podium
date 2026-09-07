@@ -189,6 +189,7 @@ pub enum LaunchAction {
         /// origin follow it; the daemon still dials `server_url`.
         ui_url: Option<String>,
     },
+    LocalSupervisor { server_url: String, ui_url: Option<String> },
     /// Spawn nothing; the window points at the remote server (or, under split hosting,
     /// at `ui_url` — see [`LaunchAction::LocalDaemon`]).
     ClientOnly {
@@ -397,12 +398,17 @@ pub fn validated_webview_http_url(server_url: &str) -> Result<Url, String> {
     Url::parse(&webview_http_url(server.as_str())).map_err(|error| error.to_string())
 }
 
-/// Apply the transport policy to every top-level document, including redirects and script-driven
-/// navigation. The two Tauri document forms are signed bundled content, not configured servers.
+/// Apply the transport policy to every document the desktop webview reports, including redirects,
+/// script-driven navigation, and subframes. The two Tauri document forms are signed bundled
+/// content. WebKit's hostless `about:blank` and `about:srcdoc` documents are local iframe content,
+/// not configured servers.
 pub fn validate_desktop_navigation(url: &Url) -> Result<(), String> {
     let is_bundled_document = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
         || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"));
-    if is_bundled_document {
+    let is_hostless_iframe_document = url.scheme() == "about"
+        && url.host_str().is_none()
+        && matches!(url.path(), "blank" | "srcdoc");
+    if is_bundled_document || is_hostless_iframe_document {
         return Ok(());
     }
     validate_server_transport(url.as_str()).map(|_| ())
@@ -538,13 +544,22 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
     classify_backend_exit(initial_action, &config, journal.as_deref())
 }
 
-/// [spec:SP-3701] This device's machine identity from a previous pairing
-/// (`~/.podium/daemon.json`), if any — lets the web UI mark "this machine" in the
+/// [spec:SP-3701] This device's supervisor-owned machine identity, if any — lets
+/// the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
-pub fn read_daemon_machine_id() -> Option<String> {
-    let text = std::fs::read_to_string(state_dir().join("daemon.json")).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    json.get("machineId")?.as_str().map(str::to_string)
+pub fn read_supervisor_machine_id() -> Option<String> {
+    for name in ["supervisor.json", "daemon.json"] {
+        let Ok(text) = std::fs::read_to_string(state_dir().join(name)) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        if let Some(machine_id) = json.get("machineId").and_then(|value| value.as_str()) {
+            return Some(machine_id.to_string());
+        }
+    }
+    None
 }
 
 /// [spec:SP-3701] Flip a client-mode config to daemon mode with the given pairing code — the
@@ -707,13 +722,14 @@ pub fn initialize_update_channel(
 
 /// PURE resolver: map (mode, serverUrl) → the launch action.
 ///
-/// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
+/// - `client` + serverUrl  → LocalSupervisor (zero-child parent, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
 ///
 /// `ui_url` rides along on the two remote actions rather than deciding any of them: under
 /// split hosting it changes only what the WINDOW loads, never what this box runs or what
 /// its daemon dials. A `uiUrl` with no `serverUrl` is therefore not a mode — it falls
 /// through to LocalAllInOne exactly as it does today.
+/// - `supervisor` + serverUrl → LocalSupervisor (spawn zero-child parent, window → remote)
 /// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
 ///   window → local port). Previously this fell through to LocalAllInOne, silently running a
 ///   local daemon + agents on a hub-only box (#176).
@@ -725,11 +741,15 @@ pub fn resolve_launch(
 ) -> LaunchAction {
     let ui_url = ui_url.filter(|url| !url.is_empty()).map(str::to_string);
     match (mode, server_url) {
-        (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
+        (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::LocalSupervisor {
             server_url: url.to_string(),
             ui_url,
         },
         (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
+            server_url: url.to_string(),
+            ui_url,
+        },
+        (Some("supervisor"), Some(url)) if !url.is_empty() => LaunchAction::LocalSupervisor {
             server_url: url.to_string(),
             ui_url,
         },
@@ -1873,6 +1893,28 @@ mod tests {
     }
 
     #[test]
+    fn desktop_navigation_allows_hostless_iframe_documents() {
+        for raw in ["about:blank", "about:srcdoc", "about:srcdoc#preview"] {
+            let url = Url::parse(raw).expect(raw);
+            assert_eq!(url.host_str(), None, "{raw}");
+            assert!(validate_desktop_navigation(&url).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_rejects_other_hostless_documents() {
+        for raw in [
+            "about:config",
+            "data:text/html,preview",
+            "file:///tmp/preview.html",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            let error = validate_desktop_navigation(&url).expect_err(raw);
+            assert_eq!(error, "server URL has no host", "{raw}");
+        }
+    }
+
+    #[test]
     fn desktop_navigation_rejects_plaintext_redirects_and_location_changes() {
         for raw in [
             "http://192.168.1.20/redirected",
@@ -1902,10 +1944,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_launch_client_with_url_is_client_only() {
+    fn resolve_launch_client_with_url_owns_a_supervisor() {
         assert_eq!(
             resolve_launch(Some("client"), Some("ws://h:1"), None),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "ws://h:1".to_string(),
                 ui_url: None,
             }
@@ -1917,6 +1959,17 @@ mod tests {
         assert_eq!(
             resolve_launch(Some("daemon"), Some("ws://h:1"), None),
             LaunchAction::LocalDaemon {
+                server_url: "ws://h:1".to_string(),
+                ui_url: None,
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_supervisor_with_url_is_zero_child_parent() {
+        assert_eq!(
+            resolve_launch(Some("supervisor"), Some("ws://h:1"), None),
+            LaunchAction::LocalSupervisor {
                 server_url: "ws://h:1".to_string(),
                 ui_url: None,
             }
@@ -1973,7 +2026,7 @@ mod tests {
                 Some("wss://api.meetpodium.com"),
                 Some("https://app.meetpodium.com")
             ),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "wss://api.meetpodium.com".to_string(),
                 ui_url: Some("https://app.meetpodium.com".to_string()),
             }
@@ -1995,7 +2048,7 @@ mod tests {
     fn resolve_launch_treats_an_empty_ui_url_as_absent() {
         assert_eq!(
             resolve_launch(Some("client"), Some("wss://api.example"), Some("")),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "wss://api.example".to_string(),
                 ui_url: None,
             }
@@ -2568,15 +2621,21 @@ mod tests {
     }
 
     #[test]
-    fn read_daemon_machine_id_reads_and_tolerates_absence() {
-        with_state_dir("daemon-id", None, || {
-            assert_eq!(read_daemon_machine_id(), None);
+    fn read_supervisor_machine_id_reads_and_tolerates_absence() {
+        with_state_dir("supervisor-id", None, || {
+            assert_eq!(read_supervisor_machine_id(), None);
             std::fs::write(
                 state_dir().join("daemon.json"),
+                r#"{"machineId":"m-legacy","token":"old"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-legacy"));
+            std::fs::write(
+                state_dir().join("supervisor.json"),
                 r#"{"machineId":"m-123","token":"t"}"#,
             )
             .unwrap();
-            assert_eq!(read_daemon_machine_id().as_deref(), Some("m-123"));
+            assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-123"));
         });
     }
 

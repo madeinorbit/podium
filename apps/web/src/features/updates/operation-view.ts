@@ -245,6 +245,11 @@ function placeLine(place: {
 }): string | undefined {
   const name = place.name ?? place.detail
   const state = place.state
+  if (state === 'cannot-take-delivery') {
+    const subject = place.name ?? 'Machine'
+    const reason = place.detail ? `: ${place.detail}` : ''
+    return `${subject} cannot take delivery${reason}`
+  }
   const percent = typeof place.percent === 'number' ? ` ${Math.round(place.percent)}%` : ''
   if (name && state) return `${name} ${state}${percent}`
   if (name) return name
@@ -275,7 +280,7 @@ function placeLine(place: {
  * state is overwhelmingly a new phase, and ranking it below `pending` would
  * make the panel go quiet exactly when the kind learned to say more.
  */
-const PLACE_CONVERGED: ReadonlySet<string> = new Set(['current', 'done'])
+const PLACE_CONVERGED: ReadonlySet<string> = new Set(['current', 'done', 'cannot-take-delivery'])
 const PLACE_RESTING: ReadonlySet<string> = new Set(['pending', 'offline'])
 const PLACE_VERDICT: ReadonlySet<string> = new Set(['rejected', 'stuck'])
 
@@ -486,7 +491,7 @@ function placeSubject(places: readonly string[] | undefined): string | undefined
  */
 export function presentOperationError(
   error: Pick<OperationError, 'code' | 'message' | 'detail' | 'places'> | ActionError,
-  context: { operationId?: string } = {},
+  context: { operationId?: string; kind?: string } = {},
 ): ErrorPresentation {
   const code = error.code ?? ''
   const places = 'places' in error ? error.places : undefined
@@ -496,15 +501,23 @@ export function presentOperationError(
     context.operationId ? `operation: ${context.operationId}` : undefined,
   ].filter((line): line is string => typeof line === 'string' && line.length > 0)
   const detail = detailLines.length > 0 ? detailLines.join('\n') : undefined
-  const layers = errorCopy(code, error.message, places)
+  const layers = errorCopy(context.kind ?? 'update', code, error.message, places)
   return { ...layers, ...(detail ? { detail } : {}) }
 }
 
 function errorCopy(
+  kind: string,
   code: string,
   message: string | undefined,
   places: readonly string[] | undefined,
 ): { message: string; nextAction: string } {
+  if (kind !== 'update') {
+    return {
+      message: message ?? `The ${kind} operation failed.`,
+      nextAction: 'Try again, or check the server log.',
+    }
+  }
+
   /**
    * EVERY MACHINE FAILURE, FROM THE ONE TABLE (POD-2241).
    *
@@ -842,6 +855,11 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   const position = stepPositionOf(rows)
   const version = targetVersion(operation)
   const deferred = deferredNote(operation)
+  const hasDeliveryRefusal =
+    (operation.deferred ?? []).some((place) => place.reason !== 'offline') ||
+    (operation.steps ?? []).some((step) =>
+      step.places?.some((place) => place.state === 'cannot-take-delivery'),
+    )
   const elsewhere = elsewhereAsks(operation, input.surface)
   const base = {
     operationId: operation.id,
@@ -905,7 +923,9 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         ? version
           ? 'Podium ' + version + ' was applied where supported'
           : 'Podium was updated where supported'
-        : version
+        : hasDeliveryRefusal
+          ? version ? `Podium ${version} update complete` : 'Podium update complete'
+          : version
           ? 'Podium is on ' + version + ' everywhere'
           : 'Podium is up to date everywhere',
       ...(deferred ? { subtitle: deferred } : {}),

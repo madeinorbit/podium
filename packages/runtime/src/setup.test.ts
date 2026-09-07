@@ -135,6 +135,7 @@ describe('setup core', () => {
     saveConfig({
       mode: 'all-in-one',
       publicUrl: 'https://old-host.ts.net',
+      bindHost: '0.0.0.0',
       networkOption: 'tailscale-serve',
       pairCode: 'STALE',
       updateChannel: 'edge',
@@ -151,7 +152,7 @@ describe('setup core', () => {
       updateChannel: 'edge', // preserved
       port: 19999, // preserved
       persistence: 'systemd', // preserved, not re-decided
-      // publicUrl and networkOption dropped: a daemon box hosts nothing
+      // publicUrl, bindHost, and networkOption dropped: a daemon box hosts nothing
     })
   })
   it('applyJoin throws on a malformed token', () => {

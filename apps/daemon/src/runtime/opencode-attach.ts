@@ -116,13 +116,9 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import {
-  type AbducoSpawnOptions,
-  type AgentSession,
-  abducoSocketPath,
-  killAbducoSession,
-  spawnAbducoAgent,
-} from '@podium/pty'
+import type { AbducoSpawnOptions, AgentSession } from '@podium/pty'
+import type { AppliedGeometryRecord } from '../control/applied-geometry'
+import { createDurable, type Durable } from '../control/durable'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -324,7 +320,15 @@ export interface OpencodeClientTerminalPorts {
   instanceUuid?: string
   /** Current machine command environment used to resolve the client executable. */
   commandEnvironment?: () => Promise<HarnessEnvironment>
-  /** Injection seams. The defaults are the real abduco. */
+  /**
+   * The daemon's durable host (SPEC-6). The three seams below default to IT —
+   * spawn on the selected backend, reclaim and the master probe across every
+   * adapter — so a client terminal under `backend=host` is created, found and
+   * reclaimed in the host's directory, not abduco's. Absent (older tests), the
+   * defaults are abduco alone.
+   */
+  durable?: Durable
+  /** Injection seams over `durable`. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
   /**
@@ -338,6 +342,16 @@ export interface OpencodeClientTerminalPorts {
    * later and better.
    */
   hasMaster?(label: string): boolean
+  /**
+   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290).
+   *
+   * Opening a client terminal is one of the few places the daemon really does
+   * put a session at a size — `geometry` below — and it is the only place that
+   * fact is knowable, since nothing else sees the spawn. Written here, read by
+   * the one bind builder and by the resize report; absent in a harness built
+   * without a daemon behind it.
+   */
+  appliedGeometry?: AppliedGeometryRecord
   geometry?: Geometry
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
@@ -388,8 +402,9 @@ interface Attachment {
 export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
-  const spawn = ports.spawn ?? spawnAbducoAgent
-  const reclaim = ports.reclaim ?? ((label: string) => killAbducoSession(label))
+  const durable = ports.durable ?? createDurable('abduco', { host: false, abduco: true })
+  const spawn = ports.spawn ?? ((opts: AbducoSpawnOptions) => durable.spawn(opts))
+  const reclaim = ports.reclaim ?? ((label: string) => durable.kill(label))
   /**
    * THE PROBE MUST LOOK WHERE THE SPAWN PUT IT (POD-2761).
    *
@@ -417,10 +432,10 @@ export function createOpencodeClientTerminals(
   const hasMaster =
     ports.hasMaster ??
     ((label: string) =>
-      abducoSocketPath(
+      durable.hasMasterSync(
         label,
         ports.homeDir ? { ...process.env, HOME: ports.homeDir } : process.env,
-      ) !== undefined)
+      ))
   const geometry = ports.geometry ?? DEFAULT_GEOMETRY
   const warmTtlMs = ports.warmTtlMs ?? WARM_TTL_MS
   const setTimer =
@@ -558,13 +573,6 @@ export function createOpencodeClientTerminals(
        */
       scopeRole: 'attach',
       /**
-       * A surviving client master already has browser-owned replay. Its initial
-       * PTY attach must not resize/repaint the TUI before spawn can report
-       * `adopted`; fresh generations still use the default initial repaint.
-       */
-      preserveReplayOnAdopt: true,
-
-      /**
        * THE SAME PROVIDER KEYS THE SERVE HALF DELETES, deleted here too.
        *
        * It is the same binary reading the same config, and abduco hands the app
@@ -627,6 +635,17 @@ export function createOpencodeClientTerminals(
     if (!session.adopted && !record.preserveReplayOnRelaunch) {
       ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
     }
+    /**
+     * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts`.
+     *
+     * A CREATED client terminal really is opened at `geometry`, so the daemon
+     * has put this session at a grid and any later report may say so. An ADOPTED
+     * master is the opposite case and is deliberately excluded: it survived this
+     * daemon at a size of its own, and recording `geometry` for it would invent
+     * exactly the 120x40 that the server-family binds used to announce.
+     */
+    if (!session.adopted)
+      ports.appliedGeometry?.apply(record.streamId, geometry.cols, geometry.rows)
     record.preserveReplayOnRelaunch = false
     session.onFrame((frame) => {
       driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
@@ -681,6 +700,9 @@ export function createOpencodeClientTerminals(
       record.generation.pendingBytes = 0
     }
     attachments.delete(sessionId)
+    // THE TERMINAL THAT WAS AT THAT SIZE IS GONE (POD-3290), so the daemon holds
+    // no applied grid for this session any more.
+    ports.appliedGeometry?.forget(sessionId)
     if (record) {
       disarm(record)
       // The relay keeps a coalescing entry per session stream. Nothing else

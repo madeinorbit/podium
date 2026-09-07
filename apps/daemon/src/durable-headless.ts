@@ -26,13 +26,10 @@ import {
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
   type AgentSession,
-  abducoHasSession,
-  attachAbducoAgent,
-  killAbducoSession,
   shellQuote,
-  spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { createDurable, type Durable } from './control/durable.js'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
@@ -45,6 +42,13 @@ import {
   headlessSpawnEnv,
 } from './headless-drivers.js'
 import { createPiStreamReducer } from './pi-stream.js'
+
+/**
+ * The pty size a durable headless turn runs at. No viewer ever looks at it, so
+ * this is a working default rather than a measurement — a harness that wraps its
+ * output needs SOME width, and this is it.
+ */
+const HEADLESS_GEOMETRY = { cols: 120, rows: 40 } as const
 
 interface DurableResult {
   ok: boolean
@@ -604,6 +608,9 @@ export function runDurableHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
+  /** The daemon's durable host (SPEC-6): the shell running the harness lives under
+   *  it. Defaults to abduco for callers that predate the object. */
+  durable: Durable = createDurable('abduco', { host: false, abduco: true }),
 ): HeadlessTurnHandle {
   const identity: DurableIdentity = {
     sessionId,
@@ -721,11 +728,20 @@ export function runDurableHeadlessTurn(
       // its journal before deciding that a vanished abduco socket is a failure.
       collect()
       if (settled || disposed) return
-      if (await abducoHasSession(label)) {
-        // Reattaching to a harness that is already running: 120x40 is this
-        // path's spawn default, not a measurement of anything, so it must not be
-        // pushed onto the live process [spec:SP-6144].
-        attachment = attachAbducoAgent({ label, cols: 120, rows: 40, sizeNeutral: true })
+      const located = await durable.locate(label, process.env)
+      if (located && (await located.adapter.has(label))) {
+        // Reattaching to a harness that is already running: this attach must not
+        // push a size onto the live process [spec:SP-6144]. Nothing measured this
+        // harness's geometry — it has no viewer — so the downgrade fallback is
+        // the same spawn default the create below uses.
+        attachment = (
+          await located.adapter.attach({
+            label,
+            socketPath: located.socketPath,
+            hardRepaint: false,
+            lastKnownGeometry: HEADLESS_GEOMETRY,
+          })
+        ).session
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
         // first collect() and the socket check.
@@ -739,13 +755,13 @@ export function runDurableHeadlessTurn(
         return
       } else {
         emit({ kind: 'status', status: 'starting' })
-        attachment = await spawnAbducoAgent({
+        attachment = await durable.spawn({
           label,
           cmd: '/bin/sh',
           args: [paths.script],
           cwd: spec.cwd,
-          cols: 120,
-          rows: 40,
+          cols: HEADLESS_GEOMETRY.cols,
+          rows: HEADLESS_GEOMETRY.rows,
           ...(Object.keys(spawnEnv).length > 0 ? { env: spawnEnv } : {}),
           // The durable shell inherits the daemon environment before it execs
           // the harness. Delete manifest-declared account overrides at that
@@ -776,7 +792,7 @@ export function runDurableHeadlessTurn(
   const remaining = Math.max(1, (spec.timeoutMs ?? 600_000) - (Date.now() - createdAt))
   timeout = setTimeout(() => {
     void (async () => {
-      await killAbducoSession(label)
+      await durable.kill(label)
     })()
     finish({
       ok: false,
@@ -791,7 +807,7 @@ export function runDurableHeadlessTurn(
     done,
     interrupt() {
       void (async () => {
-        await killAbducoSession(label)
+        await durable.kill(label)
       })()
       finish({
         ok: false,

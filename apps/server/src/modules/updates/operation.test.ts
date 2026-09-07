@@ -1,3 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'node:http'
+import { MachineUpdateExecutor } from '@podium/runtime/machine-update'
+import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
+import { createInstalledCoordinatorUpdate } from './installed-restart'
+import { UpdateRecoveryStore } from './recovery-store'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import {
@@ -18,6 +26,7 @@ import {
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
 import { OperationStore } from '../operations/store'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
@@ -28,7 +37,6 @@ import {
   describeUpdateOperationFailure,
   describeUpdateWaitingExpiry,
   exclusiveUpdateVersion,
-  LIFECYCLE_EXCLUSION_GROUP,
   mergedWaveRounds,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
@@ -186,7 +194,7 @@ describe('planUpdateOperation', () => {
         hostMachineId: 'host',
         fleet: [machine({ id: 'host', installKind: 'installed', online: true })],
       },
-      steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
+      steps: [UPDATE_STEP_MACHINES],
     },
     {
       name: 'a server already on the target keeps its machines and its website',
@@ -443,10 +451,14 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toHaveLength(1)
   })
 
+  /** Supervisor presence owns the installed payload and advertises its delivery path. */
+  it('includes a capable supervisor in the ordinary fleet wave', () => {
   /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
   it('includes a desktop-supervised daemon in the ordinary fleet wave', async () => {
     const plan = planUpdateOperation(
-      planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
+      planInput({
+        fleet: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
+      }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
     expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe(
@@ -590,12 +602,70 @@ describe('planUpdateOperation', () => {
     )
   })
 
+  it('records an online no-capability supervisor as a non-blocking wave result', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: packedTarget(),
+        fleet: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: [],
+            deliveryUnavailableReason: 'managed by Desktop updater',
+          }),
+        ],
+      }),
+    )
+    const machines = plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)
+    expect(machines?.places).toEqual([
+      {
+        id: 'macbook',
+        name: 'macbook',
+        state: 'cannot-take-delivery',
+        detail: 'managed by Desktop updater',
+      },
+    ])
+    expect(machines?.progress).toEqual({ done: 0, total: 1 })
+    expect(plan.deferred).toEqual([])
+  })
+
+  it('does not build bytes an authoritative no-capability supervisor cannot use', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [
+          machine({
+            id: 'source',
+            presenceSource: 'supervisor',
+            deliveryCaps: [],
+            deliveryUnavailableReason: 'source install',
+          }),
+        ],
+      }),
+    )
+
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    const machines = plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)
+    expect(machines?.places?.[0]).toMatchObject({
+      id: 'source',
+      state: 'cannot-take-delivery',
+      detail: 'source install',
+    })
+  })
+
   /** The all-in-one host is the first ordinary member of its own fleet. */
   it('plans an all-in-one payload through the machine step without a desktop ask', async () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
-        fleet: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
+        fleet: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            name: 'macbook',
+          }),
+        ],
       }),
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
@@ -607,7 +677,12 @@ describe('planUpdateOperation', () => {
       planInput({
         hostMachineId: 'macbook',
         fleet: [
-          machine({ id: 'macbook', supervised: true, name: 'macbook' }),
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            name: 'macbook',
+          }),
           machine({ id: 'linux-a', name: 'linux-a' }),
           machine({ id: 'linux-b', name: 'linux-b' }),
         ],
@@ -623,6 +698,7 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([])
   })
 
+  it('plans the coordinator server step after the fleet when its desktop host is absent', () => {
   it('recognises a desktop-supervised server with no local daemon row', async () => {
     const plan = planUpdateOperation(
       planInput({
@@ -631,15 +707,25 @@ describe('planUpdateOperation', () => {
         fleet: [machine({ id: 'linux-a', name: 'linux-a' })],
       }),
     )
-    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER])
     expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a'])
     expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', async () => {
     for (const host of [
-      machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' }),
-      machine({ id: 'm_01jhost', supervised: true, name: undefined }),
+      machine({
+        id: 'm_01jhost',
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        name: 'ludovico',
+      }),
+      machine({
+        id: 'm_01jhost',
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        name: undefined,
+      }),
     ]) {
       const plan = planUpdateOperation(
         planInput({
@@ -1224,17 +1310,20 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  approvedTarget?: () => UpdateTarget | undefined
+  durableRecovery?: boolean
   machines?: WaveMachine[]
   target?: UpdateTarget
   appVersion?: string
   servedWebDigest?: () => string | undefined
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
-  requestCoordinatorRestart?: () => void
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  requestCoordinatorRestart?: UpdateOperationContext['requestCoordinatorRestart']
+  prepareCoordinatorUpdate?: UpdateOperationContext['prepareCoordinatorUpdate']
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
   /** POD-2101: how often a watched step says it is still there. */
@@ -1258,6 +1347,7 @@ async function harness(options: HarnessOptions = {}) {
    * `setTarget`, which now asks the engine what is running, and `relay.ts` has
    * the same shape — `operations?.engine` is optional there for the same reason.
    */
+  let issuedGrants = 0
   let engine: OperationEngine | undefined
   let targetChanged: ((channel: UpdateChannel) => void | Promise<void>) | undefined
   /**
@@ -1296,8 +1386,10 @@ async function harness(options: HarnessOptions = {}) {
       machines: async () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
       now: () => clock.clock.now(),
-      nextGrantId: () => `grant_${sent.length + 1}`,
+      nextGrantId: () => `grant_${++issuedGrants}`,
       concurrency: 3,
+      ...(options.approvedTarget ? { approvedTarget: options.approvedTarget } : {}),
+      ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
       fleetChannel: () => 'dev',
       exclusiveOperationActive: async () =>
         (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
@@ -1336,6 +1428,9 @@ async function harness(options: HarnessOptions = {}) {
       ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
       : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
+    ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
+    recordOperationDetails: (id, patch) => {
+      driver().recordDetails(id, patch)
     // Wired exactly as `updateOperationContext` wires it: the `…Locked` form,
     // because a runner already holds the chain this context is used from.
     recordOperationDetails: async (id, patch) => {
@@ -1504,7 +1599,7 @@ describe('the update operation, driven', () => {
 
   it('keeps an all-in-one operation running on its ordinary machine step', async () => {
     const h = await harness({
-      machines: [machine({ id: 'macbook', supervised: true })],
+      machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1519,7 +1614,14 @@ describe('the update operation, driven', () => {
 
   it('does not turn a pending all-in-one machine grant into a desktop ask', async () => {
     const h = await harness({
-      machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
+      machines: [
+        machine({
+          id: 'macbook',
+          presenceSource: 'supervisor',
+          deliveryCaps: FEED_CAPS,
+          name: 'macbook',
+        }),
+      ],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1571,6 +1673,44 @@ describe('the update operation, driven', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect((await h.read()).state).toBe('done')
+  })
+
+  it('completes with a visible result when a supervisor advertises no delivery path', async () => {
+    const h = harness({
+      machines: [
+        machine({
+          id: 'desktop',
+          presenceSource: 'supervisor',
+          deliveryCaps: [],
+          deliveryUnavailableReason: 'managed by Desktop updater',
+        }),
+      ],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('done')
+    expect(operation.steps).toEqual([
+      expect.objectContaining({
+        id: UPDATE_STEP_MACHINES,
+        state: 'done',
+        progress: { done: 1, total: 1 },
+        places: [
+          expect.objectContaining({
+            id: 'desktop',
+            state: 'cannot-take-delivery',
+            detail: 'managed by Desktop updater',
+          }),
+        ],
+      }),
+    ])
+    expect(operation.deferred).toEqual([])
+    expect(h.sent).toEqual([])
   })
 })
 
@@ -1641,6 +1781,27 @@ describe('the step runners', () => {
     expect(operation.error?.code).toBe('preparation-failed')
     expect(operation.error?.message).toContain('The website has not been built for HEAD')
     expect(operation.error?.message).not.toContain('internal diagnostic')
+  })
+
+  it('prepare: refuses a legacy transfer before packaging or machine delivery', async () => {
+    const requestDestBundle = vi.fn(() => Promise.resolve())
+    const h = harness({
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+      requestDestBundle,
+      legacyTransferActive: () => true,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read()).toMatchObject({
+      state: 'failed',
+      error: { code: 'legacy-transfer-in-progress' },
+    })
+    expect(requestDestBundle).not.toHaveBeenCalled()
+    expect(h.sent).toEqual([])
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
@@ -2456,7 +2617,7 @@ describe('surviving the coordinator restart', () => {
   /** Simulate parent self-handover while retaining the same fleet operation. */
   async function restartAllInOneAt(appVersion: string) {
     const h = await harness({
-      machines: [machine({ id: 'macbook', supervised: true })],
+      machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -2472,7 +2633,14 @@ describe('surviving the coordinator restart', () => {
       () => ({
         appVersion,
         servedWebDigest: WEB_DIGEST,
-        machineDirectory: [machine({ id: 'macbook', supervised: true, version: appVersion })],
+        machineDirectory: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            version: appVersion,
+          }),
+        ],
         now: h.clock.clock.now(),
       }),
       () => h.context(),
@@ -2992,8 +3160,8 @@ describe('the fleet bridge', () => {
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  /** Crash supervision does not change ownership of a deferred fleet payload. */
-  it('admits a reconnected machine after it becomes desktop-supervised', async () => {
+  /** A reconnected supervisor resumes owning its deferred fleet payload. */
+  it('admits a reconnected machine after supervisor presence returns', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
     const h = await harness({
       machines: fleet,
@@ -3004,7 +3172,11 @@ describe('the fleet bridge', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    fleet[1] = machine({ id: 'laptop', supervised: true })
+    fleet[1] = machine({
+      id: 'laptop',
+      presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS,
+    })
     await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
@@ -3343,9 +3515,12 @@ describe('the fleet bridge', () => {
 
   /**
    * A target identity with no delivery descriptor does not filter any machine.
-   * Supervision is equally irrelevant here: it describes the process owner, not
-   * the external payload's delivery eligibility.
+   * The supervisor's empty capability list is irrelevant when the target itself
+   * has no machine delivery descriptor to select.
    */
+  it('admits a supervisor when a target offers no delivery filter yet', () => {
+    const fleet = [machine({ id: 'laptop', presenceSource: 'supervisor', deliveryCaps: [] })]
+    const h = harness({ machines: fleet })
   it('admits a supervised daemon when a target offers no delivery filter yet', async () => {
     const fleet = [machine({ id: 'laptop', supervised: true })]
     const h = await harness({ machines: fleet })
@@ -4346,5 +4521,227 @@ describe('the wave rounds an update writes down', () => {
     // rewriting the same value on every pass of the step.
     const written = { ...operation, details: { ...operation.details, waveRounds: [mine] } }
     expect(mergedWaveRounds(written as Operation, updates)).toBeUndefined()
+  })
+})
+
+/** H1: real operation/store/service and authenticated local executor transport. */
+describe('coordinator snapshot activation boundary', () => {
+  function latch<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((done) => { resolve = done })
+    return { promise, resolve }
+  }
+
+  async function fixture(online = true) {
+    const runtimeDir = mkdtempSync(join(tmpdir(), 'coordinator-barrier-'))
+    const target = releaseFor(['linux-x64'])
+    let approved: UpdateTarget | undefined = target
+    let transfer = false
+    const preparing = latch<void>()
+    const releasePreparation = latch<void>()
+    const snapshotting = latch<void>()
+    const releaseSnapshot = latch<void>()
+    const activated = latch<void>()
+    const receiptSettled = latch<void>()
+    const fleet = online ? [machine({
+      id: 'host', coordinator: true, presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS, platform: 'linux-x64',
+    })] : []
+    let failSnapshot = false
+    const snapshotPath = join(runtimeDir, 'verified.db')
+    const snapshot = vi.fn(async () => {
+      snapshotting.resolve()
+      await releaseSnapshot.promise
+      if (failSnapshot) return { ok: false as const, code: 'timeout' as const, detail: 'verification timed out' }
+      return { ok: true as const, path: snapshotPath }
+    })
+    const fallbackRestart = vi.fn()
+    const prepare = createInstalledCoordinatorUpdate({
+      runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
+    })!
+    const h = harness({
+      machines: fleet, target, hostMachineId: 'host', durableRecovery: true,
+      approvedTarget: () => approved, servedWebDigest: () => WEB_DIGEST,
+      legacyTransferActive: () => transfer,
+      prepareCoordinatorUpdate: async (target, grant) => {
+        const receipt = await prepare(target, grant)
+        if (!receipt) throw new Error('Expected a supervisor preparation receipt')
+        return {
+          committed: receipt.committed,
+          activate: async () => { await receipt.activate(); receiptSettled.resolve() },
+          cancel: async () => { await receipt.cancel(); receiptSettled.resolve() },
+        }
+      },
+      requestCoordinatorRestart: fallbackRestart,
+      prepareVerifiedDatabaseSnapshot: snapshot,
+    })
+    const adapter = {
+      runningVersion: () => '0.4.1',
+      prepare: vi.fn(async () => {
+        preparing.resolve()
+        await releasePreparation.promise
+        return { digest: 'verified-artifact' }
+      }),
+      activate: vi.fn(async (grant: UpdateGrantMessage) => {
+        // Read the actual SQLite operation row at the external activation boundary.
+        expect(h.read().details?.databaseSnapshotPath).toBe(snapshotPath)
+        expect(h.read().details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
+        activated.resolve()
+      }),
+      discard: vi.fn(async () => {}),
+      restart: vi.fn(async () => 'handover-pending' as const),
+    }
+    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: () => {} })
+    const control = await startMachineUpdateControl(runtimeDir, executor)
+    // Observable old-coordinator availability, separate from the control endpoint.
+    const serving = createServer((_req, res) => res.end('old coordinator serving'))
+    await new Promise<void>((resolve) => serving.listen(0, '127.0.0.1', resolve))
+    const address = serving.address() as { port: number }
+    const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
+    const start = async () => {
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+      await preparing.promise
+    }
+    const repeat = () => {
+      const operation = h.read()
+      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
+      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
+    }
+    return {
+      h, target, executor, adapter, snapshot, snapshotting, preparing, activated, receiptSettled,
+      releasePreparation, releaseSnapshot, fallbackRestart, start, repeat, oldServer, runtimeDir,
+      failSnapshot: () => { failSnapshot = true },
+      transfer: () => { transfer = true },
+      supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
+      async close() {
+        releasePreparation.resolve()
+        releaseSnapshot.resolve()
+        h.engine.stop()
+        await control.close()
+        await new Promise<void>((resolve) => serving.close(() => resolve()))
+        rmSync(runtimeDir, { recursive: true, force: true })
+      },
+    }
+  }
+
+  it.each([true, false])('joins repeated ensures while preparing, snapshotting and committed (online=%s)', async (online) => {
+    const f = await fixture(online)
+    try {
+      await f.start()
+      const grant = f.executor.snapshot()!.grant
+      const repeats = [f.repeat(), f.repeat()]
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      repeats.push(f.repeat())
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.h.read().details?.databaseSnapshotPath).toBeUndefined()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+      f.releaseSnapshot.resolve()
+      await f.activated.promise
+      await f.receiptSettled.promise
+      await Promise.all(repeats)
+      await f.h.engine.whenSettled('op_1')
+      await f.repeat()
+      expect(f.executor.snapshot()!.grant).toEqual(grant)
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).toHaveBeenCalledTimes(1)
+      expect(f.h.sent).toEqual([])
+      expect(f.fallbackRestart).not.toHaveBeenCalled()
+    } finally { await f.close() }
+  })
+
+  it.each(['verification', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
+    'keeps the old coordinator serving after %s while the grant is held', async (failure) => {
+      const f = await fixture()
+      try {
+        await f.start()
+        f.releasePreparation.resolve()
+        await f.snapshotting.promise
+        if (failure === 'verification') f.failSnapshot()
+        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetails').mockImplementation(() => { throw new Error('snapshot receipt disk full') })
+        if (failure === 'transfer') f.transfer()
+        if (failure === 'approval') f.supersede()
+        if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
+        if (failure === 'activation-refusal') await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
+        f.releaseSnapshot.resolve()
+        await f.receiptSettled.promise
+        // The machines runner reports its asynchronous coordinator failure to the engine.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await f.h.engine.whenSettled('op_1')
+        expect(f.adapter.activate).not.toHaveBeenCalled()
+        expect(f.fallbackRestart).not.toHaveBeenCalled()
+        expect(await f.oldServer()).toBe('old coordinator serving')
+        expect(f.executor.snapshot()!.phase).toBe('canceled')
+        if (failure !== 'cancellation') expect(f.h.read().state).toBe('failed')
+      } finally { vi.restoreAllMocks(); await f.close() }
+    },
+  )
+
+  it('never cancels a replacement grant after authority changes during snapshot verification', async () => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      const old = f.executor.snapshot()!.grant
+      const replacement = { ...old, grantId: 'separate-owner', issuedAt: old.issuedAt! + 1 }
+      await requestMachineUpdate(f.runtimeDir, '/prepare', replacement)
+      f.releaseSnapshot.resolve()
+      await f.receiptSettled.promise
+      await f.repeat()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await f.h.engine.whenSettled('op_1')
+      expect(f.executor.snapshot()!.grant.grantId).toBe('separate-owner')
+      expect(f.executor.snapshot()!.phase).toBe('prepared')
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(f.h.read().state).toBe('failed')
+    } finally { await f.close() }
+  })
+
+  it('restores the exact committed grant and snapshot receipt through the production recovery store', async () => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      f.releaseSnapshot.resolve()
+      await f.activated.promise
+      await f.receiptSettled.promise
+      await f.repeat()
+      const grant = f.executor.snapshot()!.grant
+      f.h.engine.stop()
+      resetUpdateOperationState()
+      const boot = f.h.reboot()
+      await boot.engine.adoptOnBoot(() => ({
+        appVersion: '0.4.1', servedWebDigest: WEB_DIGEST,
+        machineDirectory: [], now: f.h.clock.clock.now(),
+      }), () => boot.context())
+      await boot.engine.whenSettled('op_1')
+      expect(f.executor.snapshot()!.grant).toEqual(grant)
+      expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
+      expect(f.adapter.activate).toHaveBeenCalledTimes(1)
+      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.h.sent).toEqual([])
+      boot.engine.stop()
+    } finally { await f.close() }
+  })
+
+  it('holds boot and reconnect auto-grants before any plan or handler exists', () => {
+    const target = releaseFor(['linux-x64'])
+    const fleet: WaveMachine[] = []
+    const send = vi.fn()
+    const service = new UpdatesService({ machines: () => fleet, send, now: () => 1,
+      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: () => target })
+    service.setTarget('dev', target)
+    service.markAuthorized('dev')
+    service.tick('dev')
+    fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))
+    service.tick('dev')
+    service.fleet()
+    expect(send).not.toHaveBeenCalled()
   })
 })

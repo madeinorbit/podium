@@ -230,7 +230,6 @@ export function harnessEnv(port: number, requestedRunId?: string): {
   ownerFile: string
   stateDir: string
   abducoSocketDir: string
-  tmuxTmpDir: string
   discoveryHomeDir: string
   codexHomeDir: string
   codexRolloutRoot: string
@@ -247,7 +246,6 @@ export function harnessEnv(port: number, requestedRunId?: string): {
     ownerFile: harnessOwnerFile(base),
     stateDir: join(base, 'state'),
     abducoSocketDir: join(base, 'abduco'),
-    tmuxTmpDir: join(base, 'tmux'),
     discoveryHomeDir,
     codexHomeDir,
     codexRolloutRoot: join(codexHomeDir, 'sessions'),
@@ -310,11 +308,11 @@ export function applyRealAgentCodexEnv(
 }
 
 /**
- * SIGTERM every abduco master and tmux server inside the harness dirs, then wipe.
+ * SIGTERM every abduco master inside the harness dirs, then wipe.
  * Callers validate the ownership marker before reaching this private helper.
  */
 function reapHarnessSessionsOwned(dirs: ReturnType<typeof harnessEnv>): void {
-  const { base, stateDir, abducoSocketDir, tmuxTmpDir } = dirs
+  const { base, stateDir, abducoSocketDir } = dirs
 
   // The harness's daemon installs its own abduco under <state>/bin when none is
   // on PATH — the leaked masters run exactly that binary. Listing with a missing
@@ -415,22 +413,6 @@ function reapHarnessSessionsOwned(dirs: ReturnType<typeof harnessEnv>): void {
     // abduco not installed — nothing of ours can be running under it
   }
 
-  // tmux: one server per -L label, sockets under $TMUX_TMPDIR/tmux-<uid>/.
-  try {
-    const sockRoot = join(tmuxTmpDir, `tmux-${process.getuid?.() ?? 0}`)
-    if (existsSync(sockRoot)) {
-      for (const sock of readdirSync(sockRoot)) {
-        try {
-          execFileSync('tmux', ['-S', join(sockRoot, sock), 'kill-server'], { stdio: 'ignore' })
-        } catch {
-          // server already dead
-        }
-      }
-    }
-  } catch {
-    // tmux not installed
-  }
-
   // Node retries ENOTEMPTY/EBUSY/EPERM only when maxRetries is non-zero. Writers
   // should already be stopped, but a dying process or filesystem lag can still
   // leave a short removal race; bound it rather than replacing the test result.
@@ -495,12 +477,11 @@ export function applyHarnessEnv(
   reapStaleHarnessDirs()
   const dirs = harnessEnv(port, requestedRunId)
   claimHarnessDir(dirs)
-  for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {
+  for (const d of [dirs.stateDir, dirs.abducoSocketDir]) {
     mkdirSync(d, { recursive: true, mode: 0o700 })
   }
   chmodSync(dirs.base, 0o700)
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
-  process.env.TMUX_TMPDIR = dirs.tmuxTmpDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir
   // When the harness itself runs inside a Podium-launched shell (agents in a
   // Podium session), the parent exports PODIUM_WEB_DIR pointing at the

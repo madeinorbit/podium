@@ -386,14 +386,24 @@ describe('multi-daemon routing', () => {
   })
 
   it('lists machines with their online status from the registry', async () => {
-    const { reg } = await regWithTwoDaemons()
-    const machines = await reg.modules.machines.listMachines()
-    expect(machines.find((m) => m.id === 'm1')?.online).toBe(true)
-    expect(machines.find((m) => m.id === 'm2')?.online).toBe(true)
-    reg.gateway.detachDaemon('m1')
-    const after = await reg.modules.machines.listMachines()
-    expect(after.find((m) => m.id === 'm1')?.online).toBe(false)
-    expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
+    vi.useFakeTimers()
+    try {
+      const { reg } = await regWithTwoDaemons()
+      const machines = await reg.modules.machines.listMachines()
+      expect(machines.find((m) => m.id === 'm1')?.online).toBe(true)
+      expect(machines.find((m) => m.id === 'm2')?.online).toBe(true)
+      reg.gateway.detachDaemon('m1')
+      expect((await reg.modules.machines.listMachines()).find((m) => m.id === 'm1')?.online).toBe(
+        true,
+      )
+
+      vi.advanceTimersByTime(30_001)
+      const after = await reg.modules.machines.listMachines()
+      expect(after.find((m) => m.id === 'm1')?.online).toBe(false)
+      expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('routes an unresolved spawn (no machineId, unregistered cwd) to an online machine, not __local__', async () => {

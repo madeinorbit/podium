@@ -27,7 +27,7 @@ describe('attributeMemory', () => {
     expect(agents).toEqual([{ sessionId: 's1', bytes: 155 * MB, processCount: 3 }])
   })
 
-  it('claims the durable master found by label in the cmdline (abduco/tmux)', () => {
+  it('claims the durable master found by label in the cmdline (abduco)', () => {
     const procs = [
       // attach client under the daemon
       proc({ pid: 20, name: 'abduco', cmdline: 'abduco -a podium-s1', memBytes: 1 * MB }),

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   useRegisterSW: vi.fn(),
   useUpdateState: vi.fn(),
   setNeedRefresh: vi.fn(),
+  refreshState: vi.fn(),
   run: vi.fn(),
   checkNow: vi.fn(async () => {}),
   acknowledge: vi.fn(),
@@ -73,6 +74,7 @@ function mount(view: UpdatePanelView = OFFER) {
     pending: null,
     run: mocks.run,
     checkNow: mocks.checkNow,
+    refreshState: mocks.refreshState,
     acknowledge: mocks.acknowledge,
   })
   // The engine and the strip are SIBLINGS, which is the arrangement the shell
@@ -118,6 +120,7 @@ describe('UpdatesEngine', () => {
       pending: null,
       run: mocks.run,
       checkNow: mocks.checkNow,
+    refreshState: mocks.refreshState,
       acknowledge: mocks.acknowledge,
       proposal: PROPOSAL,
       proposalPending: false,
@@ -165,10 +168,66 @@ describe('UpdatesEngine', () => {
     expect(screen.getByTestId('update-panel')).toBeTruthy()
   })
 
-  it('hides no more than the panel: needRefresh is cleared, the update is not', () => {
+  it('Hide does not mutate service-worker state', () => {
     mount()
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(mocks.setNeedRefresh).toHaveBeenCalledWith(false)
+    expect(mocks.setNeedRefresh).not.toHaveBeenCalled()
+  })
+
+  it('uses the current narrow refresh from the initially captured worker callback', () => {
+    const { rerender } = mount({ ...OFFER, state: 'done' })
+    const initialOptions = mocks.useRegisterSW.mock.calls[0]?.[0]
+    const refreshState = vi.fn()
+    mocks.useRegisterSW.mockReturnValue({ needRefresh: [true, mocks.setNeedRefresh] })
+    mocks.useUpdateState.mockReturnValue({
+      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+      refreshState,
+    })
+    rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
+    act(() => initialOptions.onNeedRefresh())
+    expect(refreshState).toHaveBeenCalledOnce()
+    expect(mocks.refreshState).not.toHaveBeenCalled()
+    expect(mocks.checkNow).not.toHaveBeenCalled()
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(mocks.useUpdateState.mock.calls.at(-1)?.[0]).not.toHaveProperty('needRefresh')
+    expect(initialOptions).not.toHaveProperty('onNeedReload')
+    expect(screen.getByTestId('update-panel')).toBeTruthy()
+  })
+
+  it.each(['done', 'none'] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
+    const { rerender } = mount({ ...OFFER, state: 'waiting-you', operationId: 'op_same' })
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    mocks.useUpdateState.mockReturnValue({
+      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+      view: { ...OFFER, state, operationId: 'op_same' },
+    })
+    rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
+    expect(screen.queryByTestId('update-panel')).toBeNull()
+  })
+
+  it('reopens a hidden running operation when it fails', () => {
+    const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    mocks.useUpdateState.mockReturnValue({
+      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+      view: { ...OFFER, state: 'failed', operationId: 'op_same' },
+    })
+    rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
+    expect(screen.getByTestId('update-panel')).toBeTruthy()
+  })
+
+  it('collapses a newly discovered proposal and reopens its state change', () => {
+    const { rerender } = mount()
+    const result = mocks.useUpdateState.mock.results.at(-1)?.value
+    const view = { ...OFFER, state: 'none' }
+    mocks.useUpdateState.mockReturnValue({ ...result, view, proposal: PROPOSAL })
+    rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
+    expect(screen.queryByTestId('release-proposal-card')).toBeNull()
+    mocks.useUpdateState.mockReturnValue({
+      ...result, view, proposal: { ...PROPOSAL, state: 'building' },
+    })
+    rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
+    expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
   })
 
   it('acknowledges a failure when the user hides it, keeping the warning indicator', () => {
@@ -199,6 +258,7 @@ describe('UpdatesEngine', () => {
       pending: null,
       run: mocks.run,
       checkNow: mocks.checkNow,
+    refreshState: mocks.refreshState,
       acknowledge: mocks.acknowledge,
     })
     rerender(

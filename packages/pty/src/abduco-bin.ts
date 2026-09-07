@@ -177,7 +177,7 @@ export function buildVendoredAbduco(out: string, opts?: { features?: number }): 
     out,
   ]
   // Capture stderr so a genuine compile/link failure is diagnosable — the daemon's
-  // "neither abduco nor tmux found" otherwise hides the real cc error.
+  // "abduco not found" otherwise hides the real cc error.
   let lastErr = ''
   for (const link of [['-lutil'], []]) {
     try {
@@ -376,7 +376,7 @@ const resolvedByLevel = new Map<number, string | undefined>()
 /**
  * Resolve (and memoize) the abduco binary per the order above, building the
  * vendored source on first use when nothing is installed. Returns undefined when
- * abduco can't be obtained at all (the daemon then falls back to tmux/bare).
+ * abduco can't be obtained at all (the daemon then falls back to a bare PTY).
  *
  * `requireFeatures` demands a podium-patched binary at that feature level or
  * better; the default (0) accepts any working abduco.

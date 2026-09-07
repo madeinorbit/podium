@@ -57,6 +57,7 @@ import {
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
+import { buildVendoredHost, hostSupported } from '../packages/pty/src/host-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
@@ -573,6 +574,23 @@ export function packageHeadlessForFreshClients(
                 'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
               )
             console.log(`[build-bun] abduco -> ${abduco}`)
+          }
+          // podium-host (SPEC-6) rides beside abduco as a second static
+          // `with { type: 'file' }` import. A cross build has no cross helper for
+          // it yet, and Windows has no forkpty: both embed an EMPTY placeholder,
+          // which materializeEmbeddedHost reads as "no host here" and the daemon
+          // falls back to abduco.
+          if (spec || !hostSupported()) {
+            console.log('[build-bun] podium-host: no prebuild for this target (abduco fallback)')
+            writeFileSync(`${out}/podium-host.bin`, '')
+          } else {
+            console.log('[build-bun] prebuilding podium-host…')
+            const host = buildVendoredHost(`${out}/podium-host.bin`)
+            if (!host)
+              throw new Error(
+                'build-bun: failed to prebuild podium-host (missing C compiler, or a compile error — see the [podium] podium-host build output above)',
+              )
+            console.log(`[build-bun] podium-host -> ${host}`)
           }
         },
       ),

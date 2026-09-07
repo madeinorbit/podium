@@ -23,18 +23,7 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentSession,
-  abducoHasSession,
-  abducoSocketPath,
-  attachAbducoAgent,
-  attachTmuxAgent,
-  killAbducoSession,
-  killTmuxServer,
-  reapStaleAbducoBindTemps,
-  spawnAbducoAgent,
   spawnAgent,
-  spawnTmuxAgent,
-  tmuxHasSession,
-  waitForAbducoSocket,
 } from '@podium/pty'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
@@ -67,6 +56,8 @@ import {
 import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
+import { appliedGeometryFor, bindFrame, geometryAppliedFrame } from './applied-geometry'
+import { type Durable, type DurableAttachment, durableFor } from './durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -278,6 +269,10 @@ export function reconcileNativeClientTerminal(
         ctx.nativeClientRetries?.delete(sessionId)
         const pending = ctx.pendingResizes.get(sessionId)
         if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
+          // AN APPLY SITE (POD-3290). The held request has just reached a real
+          // client terminal, so it stops being a request and becomes this
+          // daemon's applied grid for the session.
+          appliedGeometryFor(ctx).apply(sessionId, pending.cols, pending.rows)
           ctx.pendingResizes.delete(sessionId)
         }
       } else {
@@ -438,16 +433,13 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
  * output the daemon produces afterwards can overtake it. Honest label:
  * dispatched, not acknowledged — see the ordering note in the `resize` handler.
  */
-function reportGeometryApplied(
-  ctx: DaemonContext,
-  msg: { sessionId: SessionId; cols: number; rows: number },
-): void {
-  ctx.send({
-    type: 'geometryApplied',
-    sessionId: msg.sessionId,
-    geometry: { cols: msg.cols, rows: msg.rows },
-    cause: 'request',
-  })
+function reportGeometryApplied(ctx: DaemonContext, sessionId: SessionId): void {
+  // READ, NEVER STATED (POD-3290). The caller has just recorded the grid it
+  // dispatched; this reads that record back. It cannot be handed a size, so it
+  // cannot report one nothing applied — and a session with nothing in the
+  // record produces no frame at all rather than an invented one.
+  const frame = geometryAppliedFrame(appliedGeometryFor(ctx), sessionId)
+  if (frame) ctx.send(frame)
 }
 
 /**
@@ -460,7 +452,25 @@ function reportGeometryApplied(
  * held for this session and dispatched just above, or nothing at all. Nothing is
  * a real answer: the bind that follows carries no geometry and the server keeps
  * W `unknown` until the first viewer asks.
+ *
+ * IT ALSO WRITES THE RECORD (POD-3290), which is what makes the return value
+ * something the bind can be built from rather than something it has to be
+ * told. The two are the same fact stated twice: callers that need the number
+ * (the headless screens) read the return; the bind reads the record.
  */
+/** How much of the host's ring a `replayRequired` redraw replays: several screens of a TUI. */
+const HOST_REPLAY_TAIL_BYTES = 256 * 1024
+
+/**
+ * Keep a way to read the host connection's resume point after the session is
+ * gone: the host adapter's session exposes its connection, and `lastSeq` on it
+ * survives the socket closing. Other backends record nothing.
+ */
+function rememberDurableSeq(ctx: DaemonContext, sessionId: SessionId, session: AgentSession): void {
+  const conn = (session as { connection?: { lastSeq?: bigint } }).connection
+  if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
+}
+
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -487,11 +497,23 @@ export function wireBridge(
 ): Geometry | undefined {
   ctx.bridges.set(sessionId, session)
   ctx.durableLabels.set(sessionId, durableLabel)
+  const record = appliedGeometryFor(ctx)
   const pending = ctx.pendingResizes.get(sessionId)
   ctx.pendingResizes.delete(sessionId)
   if (pending) {
+    // AN APPLY SITE (POD-3290): the held request is dispatched here, so here is
+    // where it becomes an applied grid. Recorded BEFORE the bind that follows
+    // reads the record, which is what makes that bind's geometry a report.
     session.resize(pending.cols, pending.rows)
+    record.apply(sessionId, pending.cols, pending.rows)
     ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
+  } else if (reported) {
+    // AN APPLY SITE TOO, and the one that is easy to misread. `reported` is the
+    // size a SPAWN created this pty at — the child is born at it and the first
+    // attach's packet moves it there — so the daemon really did put it at that
+    // grid. A reattach passes `undefined` and records nothing, because a
+    // size-neutral attach applies nothing.
+    record.apply(sessionId, reported.cols, reported.rows)
   }
   session.onFrame((frame) => {
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
@@ -515,6 +537,11 @@ export function wireBridge(
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)
+    // THE PTY THAT WAS AT THAT SIZE IS GONE, so the daemon holds no applied
+    // grid for this session any more (POD-3290). Dropped here rather than left
+    // to be overwritten: a later bind must not report a size that belongs to a
+    // terminal that no longer exists.
+    record.forget(sessionId)
     ctx.pendingResizes.delete(sessionId)
     ctx.composerEngine.detach(sessionId)
     ctx.durableLabels.delete(sessionId)
@@ -534,8 +561,7 @@ export function wireBridge(
     // reaps the socket as it lists, so a just-exited master reads as gone.)
     const label = durableLabel
     void (async () => {
-      if (ctx.backend === 'abduco' && (await abducoHasSession(label))) return
-      if (ctx.backend === 'tmux' && (await tmuxHasSession(label))) return
+      if (await durableFor(ctx)?.has(label)) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -699,12 +725,9 @@ export async function launchSpawn(
       // environment" instead.
       stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
-    const session =
-      ctx.backend === 'abduco'
-        ? await spawnAbducoAgent(spawnOpts)
-        : ctx.backend === 'tmux'
-          ? await spawnTmuxAgent(spawnOpts)
-          : spawnAgent(spawnOpts)
+    const durable = durableFor(ctx)
+    const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
+    rememberDurableSeq(ctx, msg.sessionId, session)
     driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
@@ -735,31 +758,35 @@ export async function launchSpawn(
         label,
       })
     }
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd: session.adopted ? `abduco -a ${label}` : cmd.cmd,
-      cwd: cmd.cwd,
-      agentKind: msg.agentKind,
-      geometry,
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4). The
-      // server records it and W4's senders branch on it — see BindMessage.
-      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-      // one would report `false` for a server-family session and route its
-      // sends down the legacy PTY path, for a session that has no PTY.
-      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-      ...(runtimeSelection.requestedDriverId
-        ? { requestedDriverId: runtimeSelection.requestedDriverId }
-        : {}),
-    })
+    // THE ONE BUILDER (POD-3290). It reads this daemon's applied-size record and
+    // is the only thing in the tree that may write `geometry` into a bind, so
+    // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
+    // — the pty's birth size, or the held resize it dispatched instead.
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: session.adopted ? (durable as Durable).primary.attachCommand(label) : cmd.cmd,
+        cwd: cmd.cwd,
+        agentKind: msg.agentKind,
+        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4). The
+        // server records it and W4's senders branch on it — see BindMessage.
+        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+        // one would report `false` for a server-family session and route its
+        // sends down the legacy PTY path, for a session that has no PTY.
+        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+        ...(driverId
+          ? {
+              driverId,
+              configureFields: [...configureFieldsForDriver(driverId)],
+              attachKinds: [...attachKindsForDriver(driverId)],
+            }
+          : {}),
+        ...(runtimeSelection.requestedDriverId
+          ? { requestedDriverId: runtimeSelection.requestedDriverId }
+          : {}),
+      }),
+    )
     const handle = handleFor(ctx, msg.sessionId)
     if (handle) driverTiming.sessionReady(handle.binding)
   } catch (err) {
@@ -981,7 +1008,7 @@ async function adoptServerDriverSession(
    * This consulted `ctx.opencodeRuntime` alone, so a codex session — which has
    * no entry in the OPENCODE journal — answered "not mine" and fell through to
    * the PTY path below, where the code's own words are that it "assumes a PTY:
-   * it asks whether an abduco socket or a tmux session still holds the durable
+   * it asks whether an abduco socket still holds the durable
    * label". The session came back `reattachFailed: session not found`, which is
    * verbatim the failure this function exists to prevent.
    *
@@ -1036,31 +1063,34 @@ async function adoptServerDriverSession(
     return true
   }
   try {
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd: `${what} (${handle.binding.driver})`,
-      cwd: workdir,
-      agentKind: msg.agentKind,
-      // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). This
-      // is an ADOPT: the journalled server child was already running and
-      // `runtime.adoptJournalled` rebound it without putting anything at a size.
-      // What stood here was the reattach frame's own geometry with a hardcoded
-      // 120-column default behind it: a producer with no truth behind it either
-      // way, since the frame's field is only the server's last-known and the
-      // fallback was not even that.
-      // The same fact the launch path states, and for the same reason: W4's
-      // senders branch on it, and a rebound session that reported `false` would
-      // be routed to a PTY it does not have.
-      runtimeContract: true,
-      driverId: handle.binding.driver,
-      // POD-3087. Reported wherever `driverId` is, because the two answer the
-      // same question — which live driver holds this session — and a bind that
-      // named the driver but not what it can change leaves a client guessing at
-      // exactly the thing this field exists to stop it guessing.
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-    })
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: `${what} (${handle.binding.driver})`,
+        cwd: workdir,
+        agentKind: msg.agentKind,
+        // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279) —
+        // and since POD-3290 that is not a thing this site can get wrong. This is
+        // an ADOPT: the journalled server child was already running and
+        // `runtime.adoptJournalled` rebound it without putting anything at a
+        // size, so nothing wrote the record and `bindFrame` has nothing to state.
+        // What stood here was the reattach frame's own geometry with a hardcoded
+        // 120-column default behind it: a producer with no truth behind it either
+        // way, since the frame's field is only the server's last-known and the
+        // fallback was not even that.
+        // The same fact the launch path states, and for the same reason: W4's
+        // senders branch on it, and a rebound session that reported `false` would
+        // be routed to a PTY it does not have.
+        runtimeContract: true,
+        driverId: handle.binding.driver,
+        // POD-3087. Reported wherever `driverId` is, because the two answer the
+        // same question — which live driver holds this session — and a bind that
+        // named the driver but not what it can change leaves a client guessing at
+        // exactly the thing this field exists to stop it guessing.
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      }),
+    )
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('adopted a surviving server-family session', {
       sessionId: msg.sessionId,
@@ -1149,35 +1179,37 @@ async function resumeJournalledServerSession(
     return true
   }
   try {
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd: `${what} (${handle.binding.driver})`,
-      // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
-      // where the server thinks the session lives; the journal is where the
-      // conversation was actually opened, and codex resumes a thread relative to
-      // that. They agree unless a worktree moved under a parked session, and if
-      // they disagree the adopted child is the one that has to be described.
-      cwd: workdir,
-      agentKind: msg.agentKind,
-      // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). The
-      // frame is a `spawn`, but this function is the RESUME arm — it reaches
-      // here only by finding a journalled server child and adopting it, which
-      // starts no terminal and puts nothing at a size. The spawn's requested
-      // geometry would be an intent, not a report; the hardcoded default it
-      // fell back to was not even an intent.
-      // The same fact the launch and reattach paths state, and for the same
-      // reason: W4's senders branch on it, and a resumed session that reported
-      // `false` would be routed to a PTY it does not have.
-      runtimeContract: true,
-      driverId: handle.binding.driver,
-      // POD-3087. Reported wherever `driverId` is, because the two answer the
-      // same question — which live driver holds this session — and a bind that
-      // named the driver but not what it can change leaves a client guessing at
-      // exactly the thing this field exists to stop it guessing.
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-    })
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: `${what} (${handle.binding.driver})`,
+        // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
+        // where the server thinks the session lives; the journal is where the
+        // conversation was actually opened, and codex resumes a thread relative to
+        // that. They agree unless a worktree moved under a parked session, and if
+        // they disagree the adopted child is the one that has to be described.
+        cwd: workdir,
+        agentKind: msg.agentKind,
+        // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). The
+        // frame is a `spawn`, but this function is the RESUME arm — it reaches
+        // here only by finding a journalled server child and adopting it, which
+        // starts no terminal and puts nothing at a size, so the applied-size
+        // record stays empty and `bindFrame` states nothing. The spawn's
+        // requested geometry would be an intent, not a report; the hardcoded
+        // default it fell back to was not even an intent.
+        // The same fact the launch and reattach paths state, and for the same
+        // reason: W4's senders branch on it, and a resumed session that reported
+        // `false` would be routed to a PTY it does not have.
+        runtimeContract: true,
+        driverId: handle.binding.driver,
+        // POD-3087. Reported wherever `driverId` is, because the two answer the
+        // same question — which live driver holds this session — and a bind that
+        // named the driver but not what it can change leaves a client guessing at
+        // exactly the thing this field exists to stop it guessing.
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      }),
+    )
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('resumed a parked server-family session from its binding journal', {
       sessionId: msg.sessionId,
@@ -1682,10 +1714,17 @@ async function adoptOrResumeEmbeddedClaudeSession(
     const handle = await runtime.adopt(binding)
     // NO GEOMETRY: adopting a surviving embedded child applies no size to it
     // (MODEL rule 1, POD-3279). `msg.lastKnownGeometry` is the server's own
-    // belief, and echoing it back would report a size nothing here set.
+    // belief, and echoing it back would report a size nothing here set. The
+    // record is handed over rather than a size (POD-3290) — it is empty for an
+    // embedded session, and this site could not state one if it were not.
     await emitClaudeBinding(
       ctx.send,
-      { sessionId: msg.sessionId, cwd: msg.cwd, agentKind: 'claude-code' },
+      {
+        sessionId: msg.sessionId,
+        cwd: msg.cwd,
+        agentKind: 'claude-code',
+        appliedGeometry: appliedGeometryFor(ctx),
+      },
       handle,
     )
     log.info('adopted surviving Claude SDK session', {
@@ -1734,7 +1773,12 @@ async function adoptOrResumeEmbeddedClaudeSession(
       // conversation, it does not put anything at a size (POD-3279).
       await ensureClaudeBindingPublished(
         ctx.send,
-        { sessionId: msg.sessionId, cwd: msg.cwd, agentKind: 'claude-code' },
+        {
+          sessionId: msg.sessionId,
+          cwd: msg.cwd,
+          agentKind: 'claude-code',
+          appliedGeometry: appliedGeometryFor(ctx),
+        },
         handle,
       )
       // The production machine source publishes from claude.launch before
@@ -1822,8 +1866,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    *
    * This is the boot-time caller `adopt()` never had (found by POD-2056's lane,
    * which could not reach its own subject without it). Everything below this
-   * point assumes a PTY: it asks whether an abduco socket or a tmux session
-   * still holds the durable label. A server-family session has neither — its
+   * point assumes a PTY: it asks whether an abduco socket still holds the
+   * durable label. A server-family session has none — its
    * process is an `opencode serve` on a loopback port — so a restarted daemon
    * looked for a master that never existed, answered `reattachFailed: session
    * not found`, and left a perfectly healthy server running ORPHANED with the
@@ -1856,10 +1900,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    const cmd =
-      ctx.backend === 'tmux'
-        ? `tmux -L ${msg.durableLabel} attach`
-        : `abduco -a ${msg.durableLabel}`
+    const cmd = durableFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
@@ -1875,34 +1916,38 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         msg.lastKnownGeometry.rows,
       )
     }
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // NO GEOMETRY (MODEL rule 1, POD-3279). This daemon never lost the bridge,
-      // so this reattach applied nothing: no resize was dispatched and the pty is
-      // wherever it already was. Echoing `msg.lastKnownGeometry` here handed the
-      // server its own belief back as a daemon report, which is exactly the lie
-      // that made `geometryState` read `current` after a reconnect that confirmed
-      // nothing.
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4). The
-      // server records it and W4's senders branch on it — see BindMessage.
-      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-      // one would report `false` for a server-family session and route its
-      // sends down the legacy PTY path, for a session that has no PTY.
-      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        // WHATEVER THIS DAEMON APPLIED, WHICH ON THIS PATH IS USUALLY NOTHING
+        // (MODEL rule 1, POD-3279; centralised POD-3290). The bridge was never
+        // lost, so the reattach itself applies nothing — no resize is dispatched
+        // and the pty is wherever it already was. If this daemon had put the
+        // session at a grid earlier in its life, the record holds it and that is
+        // a true report; if it never did, the bind is bare. What is gone either
+        // way is echoing `msg.lastKnownGeometry`, which handed the server its own
+        // belief back as a daemon report — the lie that made `geometryState` read
+        // `current` after a reconnect that confirmed nothing.
+        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4). The
+        // server records it and W4's senders branch on it — see BindMessage.
+        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+        // one would report `false` for a server-family session and route its
+        // sends down the legacy PTY path, for a session that has no PTY.
+        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+        ...(driverId
+          ? {
+              driverId,
+              configureFields: [...configureFieldsForDriver(driverId)],
+              attachKinds: [...attachKindsForDriver(driverId)],
+            }
+          : {}),
+        ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+      }),
+    )
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
     // freshly restarted SERVER (the daemon survived) starts with NO agentState for
@@ -1960,49 +2005,34 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // on resize, so only shells take the hard path. The abduco attach below is
     // size-neutral, so it repaints nothing on its own — the first viewport
     // request does — but a shell still gets this Ctrl-L, as it does today.
-    const attach = {
-      label: msg.durableLabel,
-      cols: msg.lastKnownGeometry.cols,
-      rows: msg.lastKnownGeometry.rows,
-      hardRepaint: msg.agentKind === 'shell',
-    }
-    let found: { session: AgentSession; cmd: string } | undefined
-    // Backend-agnostic: try whichever durable host owns the label, so sessions
-    // created under tmux before an abduco upgrade still reattach (no flag day).
-    let socketPath: string | undefined
-    if (ctx.backend !== 'none') {
-      reapStaleAbducoBindTemps()
-      const abducoEnv = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
-      socketPath = abducoSocketPath(msg.durableLabel, abducoEnv)
-      if (socketPath === undefined) {
+    let found: DurableAttachment | undefined
+    const durable = durableFor(ctx)
+    if (durable) {
+      const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
+      // HOST FIRST, THEN ABDUCO, whatever this daemon spawns with: a session
+      // created under abduco before the switch lives there until it exits.
+      const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
+      if (located) {
         try {
-          socketPath = await waitForAbducoSocket(msg.durableLabel, abducoEnv, { timeoutMs: 1500 })
-        } catch {
-          // The durable host may be absent; keep the tmux compatibility fallback below.
+          found = await located.adapter.attach({
+            label: msg.durableLabel,
+            socketPath: located.socketPath,
+            hardRepaint: msg.agentKind === 'shell',
+            lastKnownGeometry: msg.lastKnownGeometry,
+            ...(ctx.durableSeqs?.get(msg.sessionId)?.() !== undefined
+              ? { lastSeq: ctx.durableSeqs?.get(msg.sessionId)?.() as bigint }
+              : {}),
+          })
+        } catch (err) {
+          log.warn('durable reattach failed', { err, sessionId: msg.sessionId, label: msg.durableLabel })
         }
-      }
-    }
-    if (socketPath) {
-      found = {
-        // The agent has been running all along at a size of its own, and
-        // `msg.lastKnownGeometry` is only what the server last KNEW — after a
-        // daemon restart it can be stale. A reattach is not a viewer asking for a size,
-        // so it neither resizes nor signals the agent; the first viewport request
-        // after reconnect is what moves it [spec:SP-6144].
-        session: attachAbducoAgent({ ...attach, socketPath, sizeNeutral: true }),
-        cmd: `abduco -a ${socketPath}`,
-      }
-    } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
-      found = {
-        session: attachTmuxAgent(attach),
-        cmd: `tmux -L ${msg.durableLabel} attach`,
       }
     }
     if (!found) {
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
-        reason: ctx.backend === 'none' ? 'durable backend unavailable' : 'session not found',
+        reason: durable ? 'session not found' : 'durable backend unavailable',
       })
       return
     }
@@ -2010,7 +2040,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // geometry a reattach can honestly report is a resize this session was
     // holding, which `wireBridge` dispatches and returns; with no held resize the
     // answer is `undefined` and the bind below carries no geometry at all.
-    const applied = wireBridge(
+    const held = wireBridge(
       ctx,
       msg.sessionId,
       found.session,
@@ -2018,6 +2048,20 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       msg.durableLabel,
       undefined,
     )
+    // A machine without a `-N` abduco build downgrades to an attach that DOES
+    // announce a size, and the session says so. That is a size the daemon
+    // applied, so rule 1 rev 4 lets the bind report it — AN APPLY SITE
+    // (POD-3290), and the only one the daemon learns about after the fact
+    // rather than by dispatching it.
+    //
+    // THE HOST READS THE SIZE BACK (SPEC-6, stage 5 record). Its WELCOME carries
+    // the kernel's TIOCGWINSZ for the running program — not a belief, the size it
+    // IS at — so the bind after a restart reports it and the `unknown` window
+    // closes at reattach. abduco's attach reports nothing here.
+    const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
+    if (downgraded) appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+    const applied = held ?? downgraded
+    rememberDurableSeq(ctx, msg.sessionId, found.session)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2041,37 +2085,41 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, screens.cols, screens.rows)
     }
-    ctx.send({
-      type: 'bind',
-      sessionId: msg.sessionId,
-      cmd: found.cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // ONLY A SIZE THIS ATTACH APPLIED (MODEL rule 1, POD-3279). Present when a
-      // held resize was dispatched at bind, absent otherwise — and absent is the
-      // ordinary case, because a size-neutral attach applies nothing. The server
-      // reads the absence as "W is unknown to me" and waits for the first ask.
-      ...(applied ? { geometry: applied } : {}),
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4). The
-      // server records it and W4's senders branch on it — see BindMessage.
-      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-      // one would report `false` for a server-family session and route its
-      // sends down the legacy PTY path, for a session that has no PTY.
-      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
-    // attachAbducoAgent nudges the PTY before the bridge is wired, so that
-    // initial repaint can be lost. Nudge once more after bind to make a fresh
-    // daemon reattach paint native view reliably.
-    found.session.redraw()
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: found.cmd,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        // ONLY A SIZE THIS ATTACH APPLIED (MODEL rule 1, POD-3279). Present when a
+        // held resize was dispatched at bind or the attach downgraded and
+        // announced one, absent otherwise — and absent is the ordinary case,
+        // because a size-neutral attach applies nothing. Both halves are the
+        // record's answer now (POD-3290), not this site's. The server reads the
+        // absence as "W is unknown to me" and waits for the first ask.
+        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4). The
+        // server records it and W4's senders branch on it — see BindMessage.
+        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+        // one would report `false` for a server-family session and route its
+        // sends down the legacy PTY path, for a session that has no PTY.
+        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+        ...(driverId
+          ? {
+              driverId,
+              configureFields: [...configureFieldsForDriver(driverId)],
+              attachKinds: [...attachKindsForDriver(driverId)],
+            }
+          : {}),
+        ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+      }),
+    )
+    // abduco keeps no output history, so a reattach asks the program to repaint
+    // (attachAbducoAgent nudged before the bridge was wired, and that paint can
+    // be lost). The host replays its ring instead — nothing is owed when this
+    // daemon knew where it left off; a fresh daemon still nudges (see
+    // DurableAttachment.redrawOnReattach).
+    if (found.redrawOnReattach) found.session.redraw()
   })
 }
 
@@ -2176,14 +2224,14 @@ async function reapDurableHost(
   sessionId: SessionId,
   durableLabel: string,
 ): Promise<void> {
-  const stillRunning = async (): Promise<boolean> =>
-    (await abducoHasSession(durableLabel)) || (await tmuxHasSession(durableLabel))
+  const durable = durableFor(ctx)
+  const stillRunning = async (): Promise<boolean> => (await durable?.has(durableLabel)) ?? false
   try {
-    await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+    await durable?.kill(durableLabel)
     let alive = await stillRunning()
     if (alive) {
       log.warn('the durable host survived a kill — retrying', { sessionId, durableLabel })
-      await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+      await durable?.kill(durableLabel)
       alive = await stillRunning()
     }
     if (alive) {
@@ -2359,13 +2407,21 @@ export const sessionHandlers: Pick<
     if (bridge) {
       ctx.outputScheduler.flushNow(msg.sessionId)
       bridge.resize(msg.cols, msg.rows)
-      reportGeometryApplied(ctx, msg)
+      // AN APPLY SITE (POD-3290): the TIOCSWINSZ has gone out, so this is the
+      // daemon's own record of the grid this session is at, and the report
+      // below is only a reading of it.
+      appliedGeometryFor(ctx).apply(msg.sessionId, msg.cols, msg.rows)
+      reportGeometryApplied(ctx, msg.sessionId)
     } else if (ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows)) {
       // A driver-owned (server-family) session took it. Its output travels
       // through the same scheduler, and its W has to move for the same reason,
       // so it flushes and reports exactly as a bridged session does.
       ctx.outputScheduler.flushNow(msg.sessionId)
-      reportGeometryApplied(ctx, msg)
+      // THE SAME APPLY SITE BY THE OTHER ROAD: the client terminal took the
+      // resize (it answered `true`), so the daemon put this session at that
+      // grid just as surely as the branch above did.
+      appliedGeometryFor(ctx).apply(msg.sessionId, msg.cols, msg.rows)
+      reportGeometryApplied(ctx, msg.sessionId)
     } else {
       // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
       // request for wireBridge instead of dropping it: the server has already moved
@@ -2382,8 +2438,23 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    if (!ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired))
-      ctx.bridges.get(msg.sessionId)?.redraw()
+    if (ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired)) return
+    const bridge = ctx.bridges.get(msg.sessionId)
+    if (!bridge) return
+    // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server sends `replayRequired`
+    // when a client attaches against an EMPTY log — a server restart, or a deploy
+    // that restarted both server and daemon. abduco can only ask the program to
+    // repaint. The host keeps the output, so it replays its tail instead: the
+    // viewer gets the last screen, and the program is not touched at all.
+    const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> }).replay
+    if (msg.replayRequired && replay) {
+      void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) => {
+        log.warn('host replay failed; falling back to a repaint', { err, sessionId: msg.sessionId })
+        bridge.redraw()
+      })
+      return
+    }
+    bridge.redraw()
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)

@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest'
+import { ControlMessage, DaemonMessage } from '../daemon'
 import {
-  SERVER_TRANSFER_MAX_CHUNK_BYTES,
   canonicalServerTransferManifest,
+  SERVER_TRANSFER_MAX_CHUNK_BYTES,
   ServerTransferChunkRequestMessage,
   ServerTransferErrorCode,
   ServerTransferResultMessage,
 } from './index'
-import { ControlMessage, DaemonMessage } from '../daemon'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
 
 const transferId = '00000000-0000-4000-8000-000000000001'
+const operationId = 'operation-1'
 const manifestDigest = 'a'.repeat(64)
 const manifest = {
   formatVersion: 1 as const,
+  operationId,
   transferId,
   sourceInstanceId: 'source-instance',
   sourceMachineId: 'source-machine',
@@ -39,6 +41,7 @@ describe('server transfer protocol', () => {
   it('binds every manifest identity and version field into the canonical digest input', () => {
     const variants = [
       { ...manifest, formatVersion: 2 },
+      { ...manifest, operationId: 'operation-2' },
       { ...manifest, transferId: '00000000-0000-4000-8000-000000000002' },
       { ...manifest, sourceInstanceId: 'other-instance' },
       { ...manifest, sourceMachineId: 'other-source' },
@@ -68,6 +71,10 @@ describe('server transfer protocol', () => {
         type: 'serverTransferPrepareRequest',
         ...common,
         manifest: { ...manifest, packageBytes: 3 },
+        publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
+        reachabilityToken: 'r'.repeat(64),
+        port: 24_444,
       },
       {
         type: 'serverTransferChunkRequest',
@@ -82,12 +89,28 @@ describe('server transfer protocol', () => {
         type: 'serverTransferPromoteRequest',
         ...common,
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
         port: 24_444,
         targetMode: 'server',
         idempotencyKey: 'promote-once',
       },
       { type: 'serverTransferAbortRequest', ...common, reason: 'cleanup' },
-      { type: 'serverTransferStatusRequest', ...common },
+      { type: 'serverTransferInspectRequest', ...common },
+      {
+        type: 'serverEndpointProbeRequest',
+        ...common,
+        publicUrl: 'https://podium.example.com',
+        reachabilityToken: 'r'.repeat(64),
+        targetMachineId: 'target-machine',
+      },
+      {
+        type: 'serverEndpointCommitRequest',
+        requestId: common.requestId,
+        transferId,
+        publicUrl: 'https://podium.example.com',
+        targetMachineId: 'target-machine',
+      },
+      { type: 'serverEndpointResumeRequest', requestId: common.requestId, transferId },
     ]
 
     for (const request of requests) {
@@ -102,9 +125,13 @@ describe('server transfer protocol', () => {
       'serverTransferValidateRequest',
       'serverTransferPromoteRequest',
       'serverTransferAbortRequest',
-      'serverTransferStatusRequest',
+      'serverTransferInspectRequest',
+      'serverEndpointProbeRequest',
+      'serverEndpointCommitRequest',
+      'serverEndpointResumeRequest',
     ])
     expect(DAEMON_PLANE_CLASS.serverTransferResult).toBe('control.command')
+    expect(DAEMON_PLANE_CLASS.serverEndpointResult).toBe('control.command')
   })
 
   it('pins strong promoted proof and stable recovery metadata on the single result family', () => {
@@ -124,6 +151,7 @@ describe('server transfer protocol', () => {
       wireSchemaDigest: 'wire-v1',
       space: { availableBytes: 20, requiredBytes: 10, sufficient: true },
       proof: {
+        operationId,
         transferId,
         manifestDigest,
         targetMachineId: 'target-machine',
@@ -133,6 +161,7 @@ describe('server transfer protocol', () => {
         buildVersion: '2026.8.10',
       },
       servingProof: {
+        operationId,
         transferId,
         manifestDigest,
         targetMachineId: 'target-machine',
@@ -141,6 +170,8 @@ describe('server transfer protocol', () => {
         schemaVersion: 'schema-1',
         buildVersion: '2026.8.10',
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
+        port: 24_444,
         health: 'serving',
       },
     } as const

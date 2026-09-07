@@ -85,6 +85,13 @@ async function createCloseHost(
       build: buildReport({}, undefined, 'test'),
       installDir: undefined,
       send: (message) => void sent.push(message),
+      endpointHandoff: {
+        probeServerTransferCandidate: async () => {},
+        quiesceServerEndpoint: () => {},
+        resumeServerEndpoint: () => {},
+        prepareServerEndpointCommit: async (_transferId, publicUrl) => publicUrl,
+        activateServerEndpoint: () => {},
+      },
       sendOutput: () => {},
       acknowledgeQueueDrainReport: () => {},
       acknowledgeRuntimeEvent: () => {},

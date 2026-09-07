@@ -13,6 +13,11 @@
  * attach applies nothing, so the bind now carries NO geometry — unless the
  * daemon was holding a resize for this session, which it dispatches at bind and
  * may therefore report. The redraw half of the original claim is unchanged.
+ *
+ * WHAT CHANGED AT STAGE 4 (POD-3276): last-known no longer reaches the attach as
+ * a `cols`/`rows` it could apply — only as `fallbackGeometry`, read on the one
+ * path where there is no `-N` abduco build and the attach announces a size after
+ * all. That path applies a size, so it is the one reattach whose bind reports one.
  */
 
 import { tmpdir } from 'node:os'
@@ -25,8 +30,17 @@ import type { DaemonContext } from './context'
 const SESSION = asSessionId('s-sizing-reattach')
 
 const stub = vi.hoisted(() => {
-  const state = { redraws: 0, resizes: [] as Array<[number, number]>, attachedAt: [] as unknown[] }
+  const state = {
+    redraws: 0,
+    resizes: [] as Array<[number, number]>,
+    attachedAt: [] as unknown[],
+    /** Set to simulate an attach that DOWNGRADED and announced a size after all. */
+    appliedGeometry: undefined as { cols: number; rows: number } | undefined,
+  }
   const session = {
+    get appliedGeometry() {
+      return state.appliedGeometry
+    },
     pid: 4321,
     onFrame: () => () => {},
     onTitle: () => () => {},
@@ -52,14 +66,10 @@ vi.mock('@podium/pty', () => ({
     stub.state.attachedAt.push(opts)
     return stub.session
   },
-  attachTmuxAgent: () => stub.session,
   killAbducoSession: async () => {},
-  killTmuxServer: async () => {},
   reapStaleAbducoBindTemps: () => {},
   spawnAbducoAgent: async () => stub.session,
   spawnAgent: () => stub.session,
-  spawnTmuxAgent: () => stub.session,
-  tmuxHasSession: async () => false,
   waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
 }))
 
@@ -72,6 +82,7 @@ function reset(): void {
   stub.state.redraws = 0
   stub.state.resizes.length = 0
   stub.state.attachedAt.length = 0
+  stub.state.appliedGeometry = undefined
 }
 
 function reattachMessage() {
@@ -141,15 +152,36 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
     // attachAbducoAgent's own repaintOnAttach fires before the bridge is wired,
     // so that first nudge can be lost — hence exactly one more, here, after bind.
     expect(stub.state.redraws).toBe(1)
-    // The attach still carries the server's last-known to the client rather than
-    // a value read back from the master (C14), and it is SIZE-NEUTRAL (stage 2),
-    // which is exactly why the bind above can report nothing.
+    // The attach is SIZE-NEUTRAL (stage 2), which is exactly why the bind above
+    // can report nothing. Last-known reaches it only as `fallbackGeometry`, read
+    // on no path but the `-N`-less downgrade — it is NOT a `cols`/`rows` the
+    // attach could apply (stage 4, POD-3276).
     expect(stub.state.attachedAt).toHaveLength(1)
     expect(stub.state.attachedAt[0]).toMatchObject({
-      cols: 132,
-      rows: 43,
       sizeNeutral: true,
+      fallbackGeometry: { cols: 132, rows: 43 },
     })
+    expect(stub.state.attachedAt[0]).not.toHaveProperty('cols')
+    expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')
+  })
+
+  it('reports the size a DOWNGRADED attach announced, on a host with no -N build', async () => {
+    reset()
+    // Standing in for `resolveAttachBin` finding no podium abduco: the attach
+    // falls back to one that DOES announce a size, applies `fallbackGeometry`,
+    // and says so. That is a size the daemon applied, so rule 1 rev 4 lets the
+    // bind report it — the one case where a reattach bind is not bare.
+    stub.state.appliedGeometry = { cols: 132, rows: 43 }
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+
+    await sessionHandlers.reattach(ctx, reattachMessage())
+    await new Promise((r) => setTimeout(r, 0))
+
+    const bind = sent.find((m) => m.type === 'bind') as BindFrame | undefined
+    expect(bind?.geometry).toEqual({ cols: 132, rows: 43 })
+    // ARMED: with no downgrade the same path reports nothing (the test above).
+    expect(stub.state.resizes).toEqual([])
   })
 
   it('binds at a HELD resize, dispatched to the pty before the bind goes out', async () => {

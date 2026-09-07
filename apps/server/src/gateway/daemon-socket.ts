@@ -36,6 +36,8 @@ import {
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
   type MachinePrincipal,
+  type MachineSupervisorControlMessage,
+  MachineSupervisorMessage,
   type PeerHelloReply,
 } from '@podium/protocol'
 import {
@@ -49,12 +51,13 @@ import type { SessionRegistry } from '../relay'
 import type { DaemonControlTransport } from './daemon-ports'
 import {
   createDaemonAcceptor,
+  createMachineSupervisorAcceptor,
   prepareDaemonFrame,
   receiveDaemonFrame,
   recordHelloBuild,
 } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { type GatewaySocket, warnDroppedFrame } from './ws-send'
+import { safeSendEncoded, type GatewaySocket, warnDroppedFrame } from './ws-send'
 
 const log = createLogger('server:gateway:daemon')
 
@@ -123,6 +126,12 @@ const decodeLegacyOutput = (
 
 const decodeDaemonOutputFrame = (raw: Buffer) => decodeBinaryEnvelope(raw, DaemonPtyOutputMetadata)
 
+/** A live source can become sealed after sockets were wired. Re-read on every
+ * event so only transfer result traffic survives both live and boot recovery. */
+function recoveryTransportOnly(registry: SessionRegistry): boolean {
+  return registry.recoveryOnly || registry.sessionStore.transferFenceActive
+}
+
 /**
  * Per-daemon-socket lifecycle: hold the connection unauthenticated until the
  * FIRST frame proves identity, then route everything after through the gateway
@@ -173,6 +182,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   const preparedAcceptor = createDaemonAcceptor({
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
+    verifyOnly: recoveryTransportOnly(registry),
   })
   let acceptor: HandshakeAcceptor | undefined
   let pendingPreAuthFrames = 0
@@ -180,6 +190,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   const receiveDaemonMessage = async (raw: string | Buffer): Promise<void> => {
     if (failed) return
     if (typeof raw !== 'string') {
+      if (recoveryTransportOnly(registry)) return
       if (principal === undefined) {
         failBinary('preAuth', raw.byteLength)
         return
@@ -210,9 +221,16 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       return
     }
     if (principal === undefined) {
+      if (recoveryTransportOnly(registry)) {
+        try {
+          if ((JSON.parse(raw.toString()) as { type?: string }).type === 'pair') return
+        } catch {
+          return
+        }
+      }
       const prepared = acceptor
-        ? { acceptor, outcome: receiveDaemonFrame(acceptor, raw) }
-        : await prepareDaemonFrame(preparedAcceptor, raw)
+        ? { acceptor, outcome: receiveDaemonFrame(acceptor, raw.toString()) }
+        : await prepareDaemonFrame(preparedAcceptor, raw.toString())
       if (failed) return
       acceptor = prepared.acceptor
       const outcome = prepared.outcome
@@ -246,11 +264,14 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         0,
         DEPLOYMENT,
       )
-      recordHelloBuild(registry.modules.machines, outcome.machineId, {
-        build: outcome.build,
-        caps: outcome.offeredCaps,
-        at: new Date().toISOString(),
-      })
+      if (!recoveryTransportOnly(registry) && outcome.build) {
+        registry.modules.machines.recordLegacyBuild(
+          outcome.machineId,
+          outcome.build,
+          outcome.offeredCaps,
+          new Date().toISOString(),
+        )
+      }
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.
@@ -306,17 +327,22 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
           })
         },
       }
-      await registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
+      if (recoveryTransportOnly(registry)) {
+        registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
+        registry.modules.machines.flushQueued(principal.machine)
+      } else {
+        registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
+      }
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
       // loop only re-reports once a minute. Everything that gates on capability reads
       // that stale list — the handoff picker says "no Claude" for up to a minute after
       // the CLI is already installed and logged in. Poll the fresh daemon briefly so
       // it fills in seconds after each install lands, then fall back to its own loop.
-      const settle = setInterval(
-        () => send?.({ type: 'inventoryRequest' }),
-        INVENTORY_SETTLE_INTERVAL_MS,
-      )
+      const settle = setInterval(() => {
+        if (recoveryTransportOnly(registry)) return
+        send?.({ type: 'inventoryRequest' })
+      }, INVENTORY_SETTLE_INTERVAL_MS)
       settle.unref?.()
       const stopSettle = setTimeout(() => clearInterval(settle), INVENTORY_SETTLE_WINDOW_MS)
       stopSettle.unref?.()
@@ -326,7 +352,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       })
       // The pairing grant rides back as the directory's opaque context: the
       // handshake carries it and never interprets it (see `directoryContext`).
-      if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
+      if (
+        !recoveryTransportOnly(registry) &&
+        (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
+      ) {
         for (const agentKind of ['claude-code', 'codex'] as const) {
           await registry.modules.loginPropagation.trigger({
             targetMachineId: outcome.principal.machine,
@@ -356,6 +385,12 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // is no such field today, and an injected one is inert) can never become
       // the routing identity.
       const message = parseDaemonMessage(raw)
+      if (
+        recoveryTransportOnly(registry) &&
+        message.type !== 'serverTransferResult' &&
+        message.type !== 'serverEndpointResult'
+      )
+        return
       const output = decodeLegacyOutput(message)
       if (output !== null) {
         perf.record(
@@ -404,6 +439,77 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     acceptedCaps.clear()
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
-    if (principal && transport) registry.gateway.detachDaemon(principal, transport)
+    if (principal && send) {
+      if (recoveryTransportOnly(registry)) registry.modules.machines.detach(principal.machine, send)
+      else if (transport) registry.gateway.detachDaemon(principal, transport)
+    }
+  })
+}
+
+/** Parent-owned machine presence and update plane. */
+export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry): void {
+  let principal: MachinePrincipal | undefined
+  let send: ((message: MachineSupervisorControlMessage) => void) | undefined
+  const acceptor = createMachineSupervisorAcceptor({
+    machines: registry.modules.machines,
+    connectionId: 'machine-' + nextDaemonConnectionId(),
+  })
+  const sendEncoded = (message: unknown): void =>
+    safeSendEncoded(ws, JSON.stringify(message), DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
+  ws.on('message', (raw) => {
+    if (recoveryTransportOnly(registry)) return
+    const outcome = receiveDaemonFrame(acceptor, raw.toString())
+    if (principal === undefined) {
+      if (outcome.kind === 'ignored') return
+      if (outcome.kind === 'rejected') {
+        sendEncoded(outcome.reply)
+        return
+      }
+      if (outcome.kind !== 'established') return
+      principal = outcome.principal
+      sendEncoded(outcome.reply)
+      send = sendEncoded
+      registry.modules.machines.attachSupervisor(
+        outcome.machineId,
+        send,
+        outcome.build ?? {},
+        outcome.offeredCaps,
+      )
+      registry.modules.machines.broadcastMachines()
+      // Supervisor-only desktops have no daemon attach to wake standing catch-up.
+      // Publish only after the authenticated build and live sender are installed.
+      if (!recoveryTransportOnly(registry))
+        registry.bus.emit('machine.connected', { machineId: outcome.machineId })
+      return
+    }
+    if (outcome.kind === 'rejected') {
+      sendEncoded(outcome.reply)
+      return
+    }
+    if (outcome.kind !== 'deliver') return
+    try {
+      const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
+      if (message.type === 'machineReport') {
+        registry.modules.machines.recordSupervisorReport(
+          principal.machine,
+          message.services,
+          new Date().toISOString(),
+        )
+      } else {
+        registry.modules.updates.onStatus(principal.machine, message)
+        if (!recoveryTransportOnly(registry)) registry.modules.updateFleetBridge?.onFleetChanged()
+      }
+    } catch (error) {
+      warnDroppedFrame('machine', error)
+    }
+  })
+  ws.on('close', () => {
+    if (!principal || !send) return
+    if (registry.modules.machines.detachSupervisor(principal.machine, send)) {
+      // A replaced socket closing is not a new lifecycle transition.
+      if (!recoveryTransportOnly(registry))
+        registry.bus.emit('machine.disconnected', { machineId: principal.machine })
+      registry.modules.machines.broadcastMachines()
+    }
   })
 }

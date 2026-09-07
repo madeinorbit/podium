@@ -25,7 +25,7 @@
  * | PODIUM_AGENT_RELAY_PORT       | config.agentRelayPort   | `resolveAgentRelayPort()` (daemon CLI relay)            |
  * | PODIUM_AGENT_HOME             | config.agentHome        | `resolveAgentHomeDir()` (native runtime/history)       |
  * | PODIUM_ADOPT_STATE            | — (env-only flag)       | explicit adoption of named non-empty state roots       |
- * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
+ * | PODIUM_HOST                   | config.bindHost → loopback | apps/server bindHost (promotion config is explicit)    |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
  * | PODIUM_MODE                   | config.mode             | `resolveMode()` — the deployment owns the mode          |
@@ -111,7 +111,7 @@ export { resolveInstanceId, selectInstance } from './instance'
 const log = createLogger('runtime:config')
 
 /** Deployment mode chosen at setup. Unset = not yet configured. */
-export const PodiumMode = z.enum(['all-in-one', 'daemon', 'client', 'server'])
+export const PodiumMode = z.enum(['all-in-one', 'daemon', 'client', 'server', 'supervisor'])
 export type PodiumMode = z.infer<typeof PodiumMode>
 
 /**
@@ -150,6 +150,8 @@ export const PodiumConfig = z.object({
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
+  /** Durable server listen contract. Set by promotion; absent preserves legacy env/default. */
+  bindHost: z.enum(['127.0.0.1', '0.0.0.0']).optional(),
   /** Stable daemon hook-ingest endpoint; env PODIUM_HOOK_PORT wins. */
   hookPort: z.number().int().positive().optional(),
   /** Stable per-session CLI relay endpoint; env PODIUM_AGENT_RELAY_PORT wins. */
@@ -158,6 +160,8 @@ export const PodiumConfig = z.object({
   agentHome: z.string().min(1).optional(),
   /** One-shot pairing code for daemon mode (consumed once → token; a stale value is harmless). */
   pairCode: z.string().optional(),
+  /** Local admin disable-only policy; the server can never override true. */
+  agentExecutionLockout: z.boolean().optional(),
   /** Whether this joined daemon is a Podium-managed host (default true). */ podiumManaged: z
     .boolean()
     .optional(),
@@ -506,7 +510,10 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
   // eventually forget, and the forgotten case is silent.
   const parsed = PodiumConfig.parse({ ...config, configVersion: CURRENT_CONFIG_VERSION })
   ensureInstanceStateIdentity({ dir: dirname(path) })
-  if ((parsed.mode === 'daemon' || parsed.mode === 'client') && !parsed.serverUrl) {
+  if (
+    (parsed.mode === 'daemon' || parsed.mode === 'client' || parsed.mode === 'supervisor') &&
+    !parsed.serverUrl
+  ) {
     throw new Error(
       `refusing to save a mode=${parsed.mode} config without a serverUrl — the ${parsed.mode} ` +
         'would crash-loop at boot. Provide a server URL (join code) first.',

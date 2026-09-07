@@ -43,6 +43,8 @@ import type {
   PortableCredentialKind,
   QuotaHistorySampleWire,
   RepoOp,
+  ServerBindHost,
+  ServerEndpointResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
@@ -183,6 +185,8 @@ interface DaemonRpcDeps {
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
   toMachine(machineId: MachineId, msg: ControlMessage): void
+  /** Durable identity of the machine hosting this server process. */
+  hostMachineId: MachineId
   defaultMachine(): MachineId | Promise<MachineId>
   resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   hasDaemon(machineId: MachineId): boolean
@@ -243,6 +247,7 @@ const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>(
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
+const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
 const SHIPPING_EVIDENCE = daemonRequestKind<Payload<ShippingEvidenceResultMessage>>('se')
 const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResultMessage>>('sr')
@@ -369,6 +374,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_EXPORT, msg.requestId, machineId, payloadOf(msg)),
   serverTransferResult: (broker, machineId, msg) =>
     void broker.settle(SERVER_TRANSFER, msg.requestId, machineId, payloadOf(msg)),
+  serverEndpointResult: (broker, machineId, msg) =>
+    void broker.settle(SERVER_ENDPOINT, msg.requestId, machineId, payloadOf(msg)),
   shippingJobResult: (broker, machineId, msg) =>
     void broker.settle(SHIPPING_JOB, msg.requestId, machineId, payloadOf(msg)),
   shippingEvidenceResult: (broker, machineId, msg) =>
@@ -1535,10 +1542,73 @@ export class DaemonRpcService {
     )
   }
 
+  serverEndpointProbe(
+    input: {
+      transferId: string
+      manifestDigest: string
+      publicUrl: string
+      reachabilityToken: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      20_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'probe',
+        ok: false,
+        error: 'target endpoint probe timed out',
+      }),
+      (requestId) => ({ type: 'serverEndpointProbeRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  serverEndpointCommit(
+    input: { transferId: string; publicUrl: string; targetMachineId: MachineId },
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      20_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'commit',
+        ok: false,
+        error: 'endpoint commit timed out',
+      }),
+      (requestId) => ({ type: 'serverEndpointCommitRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  serverEndpointResume(
+    transferId: string,
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      10_000,
+      () => ({ transferId, operation: 'resume', ok: false, error: 'endpoint resume timed out' }),
+      (requestId) => ({ type: 'serverEndpointResumeRequest', requestId, transferId }),
+      machineId,
+    )
+  }
+
   /** Stage a portable server snapshot on a named target daemon. */
   async serverTransferPrepare(
     input:
-      | { transferId: string; manifest: ServerTransferManifest; manifestDigest: string }
+      | {
+          transferId: string
+          manifest: ServerTransferManifest
+          manifestDigest: string
+          publicUrl: string
+          bindHost: ServerBindHost
+          port: number
+          reachabilityToken: string
+        }
       | {
           transferId: string
           sourceMachineId?: MachineId
@@ -1548,7 +1618,7 @@ export class DaemonRpcService {
         },
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
-    if (Array.isArray(input.manifest))
+    if (!('publicUrl' in input) || Array.isArray(input.manifest))
       return await Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',
@@ -1558,7 +1628,7 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
     const manifest = input.manifest as ServerTransferManifest
-    const sourceMachineId = await this.deps.defaultMachine()
+    const sourceMachineId = this.deps.hostMachineId
     if (
       manifest.transferId !== input.transferId ||
       manifest.sourceMachineId !== sourceMachineId ||
@@ -1591,6 +1661,10 @@ export class DaemonRpcService {
         transferId: input.transferId,
         manifest,
         manifestDigest: input.manifestDigest,
+        publicUrl: input.publicUrl,
+        bindHost: input.bindHost,
+        port: input.port,
+        reachabilityToken: input.reachabilityToken,
       }),
       machineId,
     )
@@ -1691,8 +1765,9 @@ export class DaemonRpcService {
     transferId: string,
     manifestDigest: string,
     publicUrl: string,
+    bindHost: ServerBindHost,
     machineId: MachineId,
-    port?: number,
+    port: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return await this.request(
@@ -1712,7 +1787,8 @@ export class DaemonRpcService {
         transferId,
         manifestDigest,
         publicUrl,
-        ...(port === undefined ? {} : { port }),
+        bindHost,
+        port,
         targetMode: 'server',
         idempotencyKey: transferId,
       }),
@@ -1789,7 +1865,7 @@ export class DaemonRpcService {
   }
 
   /** Read target-side recovery state through the same authenticated machine broker. */
-  async serverTransferStatus(
+  inspectServerTransfer(
     transferId: string | undefined,
     machineId: MachineId,
     manifestDigest?: string,
@@ -1807,7 +1883,7 @@ export class DaemonRpcService {
         error: 'target status timed out',
       }),
       (requestId) => ({
-        type: 'serverTransferStatusRequest',
+        type: 'serverTransferInspectRequest',
         requestId,
         ...(transferId ? { transferId } : {}),
         ...(manifestDigest ? { manifestDigest } : {}),

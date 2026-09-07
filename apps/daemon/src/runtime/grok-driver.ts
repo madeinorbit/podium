@@ -1,8 +1,8 @@
 /** Daemon frame adapter for Grok's ACP RuntimeDriver. */
 import {
+  type AgentSessionHandle,
   attachKindsForDriver,
   configureFieldsForDriver,
-  type AgentSessionHandle,
   createGrokAcpRuntime,
   GROK_ACP_DRIVER_ID,
   type GrokAcpJournal,
@@ -14,8 +14,9 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { grokAcpProcessKey } from './grok-acp-server.js'
+import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
+import { grokAcpProcessKey } from './grok-acp-server.js'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:grok-driver')
@@ -37,6 +38,18 @@ export interface DaemonGrokRuntime extends GrokAcpRuntime {
 
 export function createDaemonGrokRuntime(deps: {
   send(msg: DaemonMessage): void
+  /**
+   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
+   * written by nothing in this file. A server-family session has no terminal at
+   * launch, so the record is empty and the bind is bare — which is the point:
+   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
+   * client nobody had opened, and the server took it for a report.
+   *
+   * Optional because a host can be built without a daemon behind it; absent
+   * reads as "applied nothing", which is the same bare bind.
+   */
+  appliedGeometry?: AppliedGeometryRecord
+
   host: GrokAcpRuntimeHost
 }): DaemonGrokRuntime {
   const runtime = createGrokAcpRuntime({
@@ -181,21 +194,25 @@ export function createDaemonGrokRuntime(deps: {
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
       driverTiming.sessionReady(handle.binding)
-      deps.send({
-        type: 'bind',
-        sessionId: input.sessionId,
-        cmd: `grok agent stdio (${handle.binding.driver})`,
-        cwd: input.cwd,
-        agentKind: 'grok',
-        geometry: { cols: 120, rows: 40 },
-        runtimeContract: true,
-        driverId: handle.binding.driver,
-        // POD-3087: what this driver's configure() can change. Grok's answer is
-        // `permissionMode` alone — it never sends a model — and reporting that
-        // precisely is the case this field exists for.
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      })
+      // NO GEOMETRY (POD-3290). A stdio ACP engine has no terminal of any kind,
+      // so the `{ cols: 120, rows: 40 }` that stood here was a size nothing in
+      // the system had ever applied. The one bind builder reads this daemon's
+      // applied-size record, which for this launch is empty.
+      deps.send(
+        bindFrame(deps.appliedGeometry, {
+          sessionId: input.sessionId,
+          cmd: `grok agent stdio (${handle.binding.driver})`,
+          cwd: input.cwd,
+          agentKind: 'grok',
+          runtimeContract: true,
+          driverId: handle.binding.driver,
+          // POD-3087: what this driver's configure() can change. Grok's answer is
+          // `permissionMode` alone — it never sends a model — and reporting that
+          // precisely is the case this field exists for.
+          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+        }),
+      )
       deps.send({
         type: 'agentState',
         sessionId: input.sessionId,

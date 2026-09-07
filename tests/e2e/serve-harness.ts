@@ -1032,7 +1032,7 @@ const restartDaemon = async (): Promise<void> => {
   if (daemonRestartInFlight || shuttingDown) return
   daemonRestartInFlight = true
   try {
-    // Detach only. Durable abduco/tmux masters (and their inherited stable hook
+    // Detach only. Durable abduco masters (and their inherited stable hook
     // socket path) survive; the replacement daemon reuses that path and reattaches.
     await daemon.close()
     await new Promise((resolve) => setTimeout(resolve, 250))
@@ -1052,7 +1052,7 @@ const shutdown = (): Promise<void> => {
   shuttingDown = true
   shutdownPromise = (async () => {
     // Full reap: harness sessions are throwaway — without this every e2e run leaks
-    // durable abduco/tmux masters (durability is the feature; the harness opts out).
+    // durable abduco masters (durability is the feature; the harness opts out).
     await daemon.close({ reapSessions: true })
     await server.close()
     // globalTeardown treats removal as the acknowledgement that every writer above

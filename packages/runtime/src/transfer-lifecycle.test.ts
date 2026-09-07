@@ -1,13 +1,24 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig, saveConfig } from './config'
+import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 import type { RunRole } from './run-registry'
 import { applySetup } from './setup'
 import {
   applySourceDemotion,
   applyTargetServerPromotion,
+  establishTargetMachineId,
   finalizeTargetServerPromotion,
   hostConfigBackupPath,
   planRoleTransition,
@@ -26,16 +37,23 @@ function fakeSupervisor(input: { live?: RunRole[]; managed?: RunRole[]; healthy?
   managed: Set<RunRole>
   stopped: RunRole[]
   started: RunRole[]
+  contexts: Array<{ port: number; serverUrl?: string; bindHost?: '127.0.0.1' | '0.0.0.0' }>
+  probedBindHosts: Array<'127.0.0.1' | '0.0.0.0' | undefined>
 } {
   const live = new Set(input.live ?? [])
   const managed = new Set(input.managed ?? [])
   const stopped: RunRole[] = []
   const started: RunRole[] = []
+  const contexts: Array<{ port: number; serverUrl?: string; bindHost?: '127.0.0.1' | '0.0.0.0' }> =
+    []
+  const probedBindHosts: Array<'127.0.0.1' | '0.0.0.0' | undefined> = []
   return {
     live,
     managed,
     stopped,
     started,
+    contexts,
+    probedBindHosts,
     supervisor: {
       roleLive: (role) => live.has(role),
       roleManaged: (role) => managed.has(role),
@@ -47,11 +65,13 @@ function fakeSupervisor(input: { live?: RunRole[]; managed?: RunRole[]; healthy?
       async disarmRole(role) {
         managed.delete(role)
       },
-      async startRole(role) {
+      async startRole(role, context) {
+        contexts.push(context)
         started.push(role)
         live.add(role)
       },
-      async serverUp() {
+      async serverUp(_port, bindHost) {
+        probedBindHosts.push(bindHost)
         return input.healthy ?? true
       },
     },
@@ -72,10 +92,79 @@ describe('server transfer lifecycle', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('moves both cached supervisor roles with the durable source and target config', () => {
+    const state = loadSupervisorState(root)
+    saveSupervisorState(root, { ...state, assignment: { server: true, agentExecution: false } })
+    saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    expect(loadSupervisorState(root).assignment).toEqual({ server: false, agentExecution: true })
+    applyTargetServerPromotion({
+      transferId: TRANSFER_TWO,
+      publicUrl: 'https://promoted.example',
+      bindHost: '0.0.0.0',
+    })
+    expect(loadSupervisorState(root).assignment).toEqual({ server: true, agentExecution: false })
+    expect(loadConfig().serverUrl).toBe('wss://target.example')
+    finalizeTargetServerPromotion()
+    expect(loadConfig().serverUrl).toBeUndefined()
+    expect(loadSupervisorState(root).assignment).toEqual({ server: true, agentExecution: false })
+    expect(loadSupervisorState(root).machineId).toBe(state.machineId)
+  })
+
+  it('preserves later assignment policy on transfer retries and finalized endpoint cleanup', () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    const state = loadSupervisorState(root)
+    const assignment = { server: false, agentExecution: false }
+    saveSupervisorState(root, { ...state, assignment })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    expect(loadSupervisorState(root).assignment).toEqual(assignment)
+    const promotion = {
+      transferId: TRANSFER_TWO,
+      publicUrl: 'https://promoted.example',
+      bindHost: '0.0.0.0' as const,
+    }
+    applyTargetServerPromotion(promotion)
+    saveSupervisorState(root, { ...state, assignment })
+    applyTargetServerPromotion(promotion)
+    finalizeTargetServerPromotion()
+    finalizeTargetServerPromotion()
+    expect(loadConfig().serverUrl).toBeUndefined()
+    expect(loadSupervisorState(root).assignment).toEqual(assignment)
+  })
+
+  it('durably creates the target machine identity', () => {
+    const machineId = asMachineId('target-machine')
+
+    expect(establishTargetMachineId(machineId)).toBe(machineId)
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
+    expect(statSync(join(root, 'machine.id')).mode & 0o777).toBe(0o600)
+    expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
+  })
+
+  it('accepts an equal target machine identity idempotently', () => {
+    const machineId = asMachineId('target-machine')
+    writeFileSync(join(root, 'machine.id'), machineId, { mode: 0o600 })
+
+    expect(establishTargetMachineId(machineId)).toBe(machineId)
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
+    expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
+  })
+
+  it('refuses to overwrite a conflicting target machine identity', () => {
+    writeFileSync(join(root, 'machine.id'), 'other-machine', { mode: 0o600 })
+
+    expect(() => establishTargetMachineId(asMachineId('target-machine'))).toThrow(
+      /refusing to replace it with transfer target target-machine/,
+    )
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe('other-machine')
+  })
+
   it('durably demotes the source, preserves rollback state, and is idempotent', () => {
     saveConfig({
       mode: 'all-in-one',
       publicUrl: 'https://source.example',
+      bindHost: '0.0.0.0',
       pairCode: 'consumed',
       persistence: 'systemd',
       updateChannel: 'edge',
@@ -135,6 +224,7 @@ describe('server transfer lifecycle', () => {
     const first = applyTargetServerPromotion({
       transferId: TRANSFER_ONE,
       publicUrl: 'https://target.example/',
+      bindHost: '0.0.0.0',
       port: 20001,
     })
 
@@ -147,6 +237,7 @@ describe('server transfer lifecycle', () => {
       configVersion: before.configVersion,
       mode: 'server',
       publicUrl: 'https://target.example',
+      bindHost: '0.0.0.0',
       serverUrl: 'wss://source.example',
       persistence: 'detached',
       updateChannel: 'edge',
@@ -157,6 +248,7 @@ describe('server transfer lifecycle', () => {
     const second = applyTargetServerPromotion({
       transferId: TRANSFER_ONE,
       publicUrl: 'https://target.example',
+      bindHost: '0.0.0.0',
       port: 20001,
     })
     expect(second).toMatchObject({ changed: false, previousConfig: before })
@@ -175,10 +267,11 @@ describe('server transfer lifecycle', () => {
 
     // Target staging currently records mode/publicUrl before restartAfterTransfer invokes the
     // lifecycle helper. applySetup retains the daemon-only fields, allowing reconstruction.
-    applySetup({ mode: 'server', publicUrl: 'https://target.example' })
+    applySetup({ mode: 'server', publicUrl: 'https://target.example', bindHost: '0.0.0.0' })
     const result = applyTargetServerPromotion({
       transferId: TRANSFER_ONE,
       publicUrl: 'https://target.example',
+      bindHost: '0.0.0.0',
     })
 
     expect(result).toMatchObject({
@@ -191,6 +284,7 @@ describe('server transfer lifecycle', () => {
       configVersion: before.configVersion,
       mode: 'server',
       publicUrl: 'https://target.example',
+      bindHost: '0.0.0.0',
       serverUrl: 'wss://source.example',
       persistence: 'systemd',
       updateChannel: 'edge',
@@ -204,6 +298,7 @@ describe('server transfer lifecycle', () => {
       applyTargetServerPromotion({
         transferId: TRANSFER_ONE,
         publicUrl: 'https://target.example',
+        bindHost: '0.0.0.0',
       }),
     ).toThrow(/paired daemon/)
     expect(loadConfig()).toMatchObject({
@@ -221,9 +316,9 @@ describe('server transfer lifecycle', () => {
         managed: ['server', 'janitor'],
       }),
     ).toEqual({
-      desired: ['daemon'],
+      desired: ['parent', 'daemon'],
       toStop: ['server', 'janitor'],
-      toStart: ['daemon'],
+      toStart: ['parent', 'daemon'],
       toDisarm: [],
     })
   })
@@ -242,7 +337,12 @@ describe('server transfer lifecycle', () => {
     })
 
     const result = await promoteTargetServer(
-      { transferId: TRANSFER_ONE, publicUrl: 'https://target.example', port: 20002 },
+      {
+        transferId: TRANSFER_ONE,
+        publicUrl: 'https://target.example',
+        bindHost: '0.0.0.0',
+        port: 20002,
+      },
       fixture.supervisor,
     )
 
@@ -258,6 +358,11 @@ describe('server transfer lifecycle', () => {
       serverUp: true,
     })
     expect(fixture.live.has('daemon')).toBe(true)
+    expect(fixture.contexts).toEqual([
+      { port: 20002, bindHost: '0.0.0.0' },
+      { port: 20002, bindHost: '0.0.0.0' },
+    ])
+    expect(fixture.probedBindHosts).toEqual(['0.0.0.0'])
   })
 
   it('keeps durable server mode recoverable when health proof fails', async () => {
@@ -265,14 +370,21 @@ describe('server transfer lifecycle', () => {
     const fixture = fakeSupervisor({ live: ['daemon'], healthy: false })
 
     const result = await promoteTargetServer(
-      { transferId: TRANSFER_ONE, publicUrl: 'https://target.example', port: 20003 },
+      {
+        transferId: TRANSFER_ONE,
+        publicUrl: 'https://target.example',
+        bindHost: '127.0.0.1',
+        port: 20003,
+      },
       fixture.supervisor,
     )
 
     expect(result.proven).toBe(false)
+    expect(fixture.probedBindHosts).toEqual(['127.0.0.1'])
     expect(loadConfig()).toMatchObject({
       mode: 'server',
       publicUrl: 'https://target.example',
+      bindHost: '127.0.0.1',
       serverUrl: 'wss://source.example',
     })
     finalizeTargetServerPromotion()
@@ -319,6 +431,7 @@ describe('server transfer lifecycle', () => {
     applyTargetServerPromotion({
       transferId: TRANSFER_ONE,
       publicUrl: 'https://promoted-one.example',
+      bindHost: '0.0.0.0',
     })
 
     const secondTarget = {
@@ -331,6 +444,7 @@ describe('server transfer lifecycle', () => {
     applyTargetServerPromotion({
       transferId: TRANSFER_TWO,
       publicUrl: 'https://promoted-two.example',
+      bindHost: '127.0.0.1',
     })
 
     expect(JSON.parse(readFileSync(targetConfigBackupPath(TRANSFER_ONE), 'utf8'))).toMatchObject(

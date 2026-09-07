@@ -75,6 +75,16 @@ describe('machine build report', () => {
     await store.close()
   })
 
+  describe('supervisor-owned presence', () => {
+    it('starts with the enrollment assignment and no presence source', () => {
+      const store = openTestStore()
+      seedMachine(store)
+      expect(store.machines.getMachine('m1')).toMatchObject({
+        presenceSource: null,
+        serviceAssignment: { server: false, agentExecution: true },
+        serviceReport: null,
+      })
+      store.close()
   /** POD-2099: the flag the wave planner refuses on has to survive the row. */
   describe('desktop supervision', () => {
     it('is false for a machine that never reported and for one that reported without it', async () => {
@@ -91,6 +101,11 @@ describe('machine build report', () => {
       await store.close()
     })
 
+    it('atomically records supervisor build, caps, services, and last seen', () => {
+      const store = openTestStore()
+      seedMachine(store)
+      const observedAt = '2026-08-04T00:00:00.000Z'
+      store.machines.setSupervisorPresence(
     it('records a daemon that reports a desktop shell owns it', async () => {
       const store = await openTestStore()
       await seedMachine(store)
@@ -119,9 +134,32 @@ describe('machine build report', () => {
       await store.machines.setMachineBuild(
         'm1',
         { appVersion: '0.4.2', installKind: 'installed' },
-        ['update.delivery.feed'],
-        '2026-08-04T01:00:00.000Z',
+        [],
+        {
+          server: { policy: 'disabled', state: 'stopped', observedAt },
+          agentExecution: {
+            policy: 'enabled',
+            state: 'refused',
+            reason: 'refused by local policy',
+            observedAt,
+          },
+          agentExecutionLockout: true,
+          crashOwner: 'desktop',
+        },
+        observedAt,
       )
+      expect(store.machines.getMachine('m1')).toMatchObject({
+        appVersion: '0.4.2',
+        deliveryCaps: [],
+        presenceSource: 'supervisor',
+        lastSeenAt: observedAt,
+        serviceReport: {
+          agentExecutionLockout: true,
+          crashOwner: 'desktop',
+          agentExecution: { state: 'refused', reason: 'refused by local policy' },
+        },
+      })
+      store.close()
       expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
       await store.close()
     })

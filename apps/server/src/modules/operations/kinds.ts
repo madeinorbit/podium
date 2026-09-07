@@ -7,7 +7,16 @@ import type {
   OperationStepState,
   StepPlace,
 } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
 import type { DeadlineBreach } from './transitions'
+
+/**
+ * Adoption observed a real but provisional successor state. The engine must
+ * leave the durable row byte-for-byte alone and run no step until an explicit
+ * later reality edge retries reconciliation.
+ */
+export const ADOPTION_DEFERRED = Symbol('operation-adoption-deferred')
+export type AdoptionDeferred = typeof ADOPTION_DEFERRED
 
 /**
  * What a KIND is (POD-2097, spec §3.0).
@@ -37,8 +46,32 @@ export interface StepProgressPatch {
  * then whatever `recordProgress` says, policed by the deadline table. Every
  * other outcome advances the plan immediately.
  */
-export interface StepOutcome extends StepProgressPatch {
-  state: 'done' | 'running' | 'skipped' | 'failed'
+export type StepOutcome = Omit<StepProgressPatch, 'state'> & {
+  state: 'done' | 'running' | 'skipped' | 'failed' | 'handed-off'
+}
+
+export interface HandoffSealPatch {
+  step?: StepProgressPatch
+  detailsPatch?: Record<string, unknown>
+}
+
+export interface CancelCleanupPending {
+  what: string
+  retryable: true
+}
+
+export interface CancelCleanupResult {
+  stepPatches?: Record<string, StepProgressPatch>
+  detailsPatch?: Record<string, unknown>
+  cleanup: 'complete' | 'pending'
+  pending?: CancelCleanupPending[]
+}
+
+export type OperationActionMode = 'engine' | 'sealed'
+export type OperationActionResult = Record<string, unknown>
+
+export interface HandoffProjectionContext {
+  inFlightDrive: boolean
 }
 
 /**
@@ -100,9 +133,27 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
    * It returns the operation it believes in. Returning the input unchanged is a
    * legitimate answer for a kind whose steps cannot be observed.
    */
-  reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
+  reconcile(
+    operation: Operation,
+    reality: Reality,
+  ): Operation | AdoptionDeferred | Promise<Operation | AdoptionDeferred>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
+  projectSealed?(
+    operation: Operation,
+    context: HandoffProjectionContext,
+  ): Operation | Promise<Operation>
+  onAction?(input: {
+    operation: Operation
+    actionId: string
+    principal: CommandPrincipal
+    mode: OperationActionMode
+  }): Promise<OperationActionResult>
+  onCancel?(input: {
+    operation: Operation
+    step: OperationStep | undefined
+    context: Ctx
+  }): Promise<CancelCleanupResult>
   /**
    * NAME THE TIMEOUT, when the kind can say more than "it stopped" (POD-2167).
    *

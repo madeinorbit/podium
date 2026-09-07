@@ -71,7 +71,9 @@ function machineWithLogin(
     wireSchemaDigest: null,
     installKind: null,
     deliveryCaps: [],
-    supervised: false,
+    presenceSource: null,
+    serviceAssignment: { server: false, agentExecution: true },
+    serviceReport: null,
     buildReportedAt: null,
     components: ['daemon'],
     inventory: Inventory.parse({
@@ -329,7 +331,9 @@ describe('accountViews catalog', () => {
       wireSchemaDigest: null,
       installKind: null,
       deliveryCaps: [],
-      supervised: false,
+      presenceSource: null,
+      serviceAssignment: { server: false, agentExecution: true },
+      serviceReport: null,
       buildReportedAt: null,
       components: ['daemon'],
       inventory: Inventory.parse({
@@ -388,7 +392,9 @@ describe('accountViews catalog', () => {
       wireSchemaDigest: null,
       installKind: null,
       deliveryCaps: [],
-      supervised: false,
+      presenceSource: null,
+      serviceAssignment: { server: false, agentExecution: true },
+      serviceReport: null,
       buildReportedAt: null,
       components: ['daemon'],
       inventory: Inventory.parse({

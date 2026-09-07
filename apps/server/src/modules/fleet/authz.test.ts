@@ -264,14 +264,16 @@ describe('the machine verb is read from the contract, per command', () => {
     const input = {
       targetMachineId: 'laptop',
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       confirmation: 'TRANSFER SERVER' as const,
     }
-    expect(await fleetAuthzFailure('machines.transferServer', input, deps(user(OWNER)))).toBeUndefined()
+    expect(fleetAuthzFailure('machines.moveServer', input, deps(user(OWNER)))).toBeUndefined()
 
     const memberManage = deps(user(COLLEAGUE), {
       role: 'member',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
+    expect(fleetAuthzFailure('machines.moveServer', input, memberManage)?.code).toBe('FORBIDDEN')
     expect((await fleetAuthzFailure('machines.transferServer', input, memberManage))?.code).toBe(
       'FORBIDDEN',
     )
@@ -280,9 +282,10 @@ describe('the machine verb is read from the contract, per command', () => {
       role: 'admin',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(await fleetAuthzFailure('machines.transferServer', input, adminManage)).toBeUndefined()
+    expect(fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
+    expect(fleetAuthzFailure('machines.moveServer', input, admin)?.code).toBe('NOT_FOUND')
     expect((await fleetAuthzFailure('machines.transferServer', input, admin))?.code).toBe('NOT_FOUND')
   })
 

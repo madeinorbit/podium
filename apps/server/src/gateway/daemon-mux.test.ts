@@ -259,7 +259,7 @@ describe('machine scope and the writer class', () => {
   it('hands EVERY rpc-owned reply to the one correlator, answerer first', () => {
     // Twenty-three `onXResult(msg)` methods collapsed into one
     // `settleDaemonReply` (POD-318), plus `modelProbeResult` (POD-1466) and
-    // `serverTransferStatusResult`, plus the shipping job, evidence and repair
+    // `inspectServerTransferResult`, plus the shipping job, evidence and repair
     // RPC replies, plus the picker's `dirOpResult` (POD-1295). The count was
     // one BEHIND the table when this was bumped — `githubCliResult` had been
     // routed without moving the ratchet — so it is corrected here as well. This
@@ -299,7 +299,8 @@ describe('machine scope and the writer class', () => {
     // number was re-derived by counting 'rpc' rows in the MERGED
     // `DAEMON_FRAME_PORTS`, not carried over. dev/mw contributed no new rpc
     // reply on top of what POD-3070 already absorbed.
-    expect(rpcFrames.length).toBe(38)
+    // 39 after direct server cutover adds the correlated serverEndpointResult reply.
+    expect(rpcFrames.length).toBe(39)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

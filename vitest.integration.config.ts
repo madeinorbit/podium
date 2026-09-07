@@ -10,7 +10,6 @@ const integrationTests = [
   'packages/pty/test/session.test.ts',
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
-  'packages/pty/src/tmux.test.ts',
   ...ptySmokeTests,
   'apps/daemon/src/daemon.test.ts',
   'apps/daemon/src/daemon.port-conflict.test.ts',

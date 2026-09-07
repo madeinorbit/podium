@@ -1,6 +1,6 @@
 /**
  * Coordinating server process (split deployment): the relay + HTTP/tRPC + client/daemon
- * WebSockets, and NOTHING else. All per-agent work — abduco/tmux attach, transcript
+ * WebSockets, and NOTHING else. All per-agent work — abduco attach, transcript
  * tailing, agent-state, discovery, host metrics — lives in the separate daemon process
  * (scripts/daemon.ts), which connects over ws://localhost:<port>/daemon. Keeping that
  * work out of this process is the whole point: a reattach storm or a misbehaving agent

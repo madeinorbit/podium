@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
 import type { MachineId } from '@podium/model'
-import { asMachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
@@ -17,6 +16,7 @@ import {
 import {
   type PromotedTargetMetadata,
   SERVER_TRANSFER_CONFIRMATION,
+  type ServerEndpointHandoff,
   type ServerTransferAuthorization,
   type ServerTransferInput,
   type ServerTransferManifest,
@@ -30,6 +30,7 @@ import {
 } from './types'
 
 const CHUNK_BYTES = 512 * 1024
+const TARGET_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
 
 export interface ServerTransferTargetState {
   exists: boolean
@@ -55,7 +56,11 @@ export interface ServerTransferDeps {
   sourceApplicationVersion: string
   sourceSchemaVersion: () => Promise<string>
   sourceWireSchemaDigest: string
+  sourceCapable?(): boolean
   rpc: ServerTransferRpc
+  /** Direct endpoint control; absent only in narrow legacy unit seams. */
+  endpointHandoff?: ServerEndpointHandoff
+  targetState(machineId: MachineId): ServerTransferTargetState
   targetState(machineId: MachineId): ServerTransferTargetState | Promise<ServerTransferTargetState>
   /** {@link targetState} for a whole fleet: ONE machines read, then a pure
    *  function answering for any id (POD-3257). Total by construction, so a
@@ -81,8 +86,14 @@ export interface ServerTransferDeps {
     targetMachineId: MachineId
     publicUrl: string
   }): void | Promise<void>
+  /** Called immediately after the committed journal has been fsync'd. */
+  afterJournalCommitted?(): void
   /** Called only after the committed journal has been fsync'd. */
   afterCommitted?(input: { serverUrl: string }): void
+  /** Bounds target cleanup before the committed source retires. */
+  acknowledgementTimeoutMs?: number
+  /** Restarts a recovery-only source after a proven pre-promotion abort. */
+  afterRecoveredAbort?(): void
   snapshotAvailableBytes?: () => number | Promise<number>
   now?: () => Date
   uuid?: () => string
@@ -116,6 +127,7 @@ function proofMatches(
 ): proof is TransferProof {
   return (
     proof !== undefined &&
+    proof.operationId === manifest.operationId &&
     proof.transferId === manifest.transferId &&
     proof.manifestDigest === manifest.digest &&
     proof.targetMachineId === targetMachineId &&
@@ -131,15 +143,19 @@ function healthProofMatches(
   manifest: ServerTransferManifest,
   targetMachineId: MachineId,
   publicUrl: string,
+  bindHost: '127.0.0.1' | '0.0.0.0',
+  port: number,
 ): proof is TargetHealthProof {
   return (
     proofMatches(proof, manifest, targetMachineId) &&
     proof.health === 'serving' &&
-    proof.publicUrl === publicUrl
+    proof.publicUrl === publicUrl &&
+    proof.bindHost === bindHost &&
+    proof.port === port
   )
 }
 
-function normalizedPublicUrl(input: ServerTransferInput): string {
+export function normalizedPublicUrl(input: ServerTransferInput): string {
   if (input.confirmation !== SERVER_TRANSFER_CONFIRMATION) {
     throw fail(
       TRANSFER_FAILURE_CODES.INVALID_CONFIRMATION,
@@ -148,17 +164,13 @@ function normalizedPublicUrl(input: ServerTransferInput): string {
   }
   const checked = validatePublicUrl(input.publicUrl.trim())
   if (!checked.ok) throw fail(TRANSFER_FAILURE_CODES.INVALID_URL, checked.error)
-  const parsed = new URL(checked.normalized)
-  if (input.port !== undefined) {
-    const effectivePort = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
-    if (effectivePort !== input.port) {
-      throw fail(
-        TRANSFER_FAILURE_CODES.INVALID_URL,
-        'the selected target port does not match the public URL',
-      )
-    }
-  }
   return checked.normalized
+}
+
+export function resolvedTransferPort(input: ServerTransferInput, publicUrl: string): number {
+  if (input.port !== undefined) return input.port
+  const parsed = new URL(publicUrl)
+  return Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
 }
 
 async function uploadSnapshot(
@@ -167,14 +179,23 @@ async function uploadSnapshot(
   targetMachineId: MachineId,
   rpc: ServerTransferRpc,
   onProgress: (bytesCopied: number, totalBytes: number) => void,
+  resumeBytes = 0,
 ): Promise<void> {
+  if (resumeBytes > manifest.packageBytes) {
+    throw fail(TRANSFER_FAILURE_CODES.TARGET_REJECTED, 'target resume offset exceeds the snapshot')
+  }
   let copied = 0
+  let remainingResume = resumeBytes
   for (let fileIndex = 0; fileIndex < manifest.files.length; fileIndex += 1) {
     const entry = manifest.files[fileIndex]
     if (!entry) throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'manifest file index is missing')
-    let offset = 0
+    let offset = Math.min(remainingResume, entry.size)
+    remainingResume -= offset
+    copied += offset
+    if (offset === entry.size) continue
     for await (const part of createReadStream(join(packageDir, ...entry.path.split('/')), {
       highWaterMark: CHUNK_BYTES,
+      start: offset,
     })) {
       const data = Buffer.isBuffer(part) ? part : Buffer.from(part)
       const result = await rpc.serverTransferChunk(
@@ -211,6 +232,31 @@ async function uploadSnapshot(
   }
 }
 
+export type ServerTransferCrashPoint =
+  | 'after-seal'
+  | 'after-fence-pending'
+  | 'after-physical-fence'
+  | 'after-source-fenced'
+  | 'after-final-snapshot'
+  | 'after-committing'
+  | 'after-promote'
+  | 'after-demote'
+  | 'after-commit'
+
+export interface ServerTransferHooks {
+  operationId?: string
+  transferId?: string
+  onRecord?: (record: TransferRecord) => void
+  onPhase?: (
+    phase: 'preflight' | 'stage' | 'validate',
+    state: 'running' | 'done',
+    record: TransferRecord,
+  ) => void
+  beforeFence?: (record: TransferRecord) => void | Promise<void>
+  canceled?: () => boolean
+  crash?: (point: ServerTransferCrashPoint) => void | Promise<void>
+}
+
 export class ServerTransferService {
   private readonly journal: TransferJournal
   private readonly lock: TransferLock
@@ -223,12 +269,40 @@ export class ServerTransferService {
     this.uuid = deps.uuid ?? randomUUID
   }
 
+  sourceMachineId(): MachineId {
+    return this.deps.sourceMachineId
+  }
+
+  mintTransferId(): string {
+    return this.uuid()
+  }
+
   status() {
     return this.journal.read()
   }
 
-  async publicStatus(machines: ReadonlyArray<{ id: string }>) {
+  async recover(): Promise<{
+    outcome: 'resolved-committed' | 'resolved-aborted' | 'still-uncertain'
+  }> {
     const entry = this.journal.read()
+    if (!entry) return { outcome: 'still-uncertain' }
+    if (entry.state === 'committed') return { outcome: 'resolved-committed' }
+    if (entry.state === 'source-fenced') {
+      const manifest = entry.record.manifest
+      if (manifest) {
+        await this.abortPrepared(
+          { transferId: entry.record.transferId, manifestDigest: manifest.digest },
+          entry.record.targetMachineId,
+          'operator-recovery',
+        )
+      }
+      await this.deps.releaseFence()
+      this.journal.abort(
+        { code: 'boot-recovery', message: 'the fenced move was safely aborted before promotion' },
+        { result: 'cleaned' },
+      )
+      this.deps.afterRecoveredAbort?.()
+      return { outcome: 'resolved-aborted' }
     const promoted = entry ? undefined : await this.deps.localPromotedTransfer()
     const promotedSourceConnected = promoted
       ? (await this.deps.targetState(promoted.sourceMachineId)).online
@@ -291,20 +365,30 @@ export class ServerTransferService {
             }
           : null,
     }
+    if (entry.state !== 'committing' && entry.state !== 'commit-uncertain') {
+      return { outcome: 'still-uncertain' }
+    }
+    const result = await this.inspectUncertain(entry.record, { reauthorize: async () => {} })
+    return { outcome: result.state === 'committed' ? 'resolved-committed' : 'still-uncertain' }
   }
 
   async transfer(
     input: ServerTransferInput,
     authorization: ServerTransferAuthorization,
+    hooks: ServerTransferHooks = {},
   ): Promise<ServerTransferOutcome> {
     const publicUrl = normalizedPublicUrl(input)
+    const bindHost = input.bindHost
+    const port = resolvedTransferPort(input, publicUrl)
     await this.lock.acquire()
     try {
       const existing = this.journal.read()
       if (existing?.state === 'committed') {
         if (
           existing.record.targetMachineId === input.targetMachineId &&
-          existing.record.publicUrl === publicUrl
+          existing.record.publicUrl === publicUrl &&
+          existing.record.bindHost === bindHost &&
+          existing.record.port === port
         ) {
           return this.outcome(existing.record, true, 'committed')
         }
@@ -313,10 +397,20 @@ export class ServerTransferService {
           'the server was already transferred to another target',
         )
       }
-      if (existing?.state === 'commit-uncertain') {
+      if (existing?.state === 'commit-uncertain' || existing?.state === 'committing') {
         return await this.inspectUncertain(existing.record, authorization)
       }
-      if (existing && isActiveTransfer(existing.state)) {
+      const resumable =
+        existing !== undefined &&
+        ['preparing', 'staged', 'validated', 'fence-pending'].includes(existing.state) &&
+        existing.record.operationId === hooks.operationId &&
+        existing.record.targetMachineId === input.targetMachineId &&
+        existing.record.publicUrl === publicUrl &&
+        existing.record.bindHost === bindHost &&
+        existing.record.port === port
+          ? existing
+          : undefined
+      if (existing && isActiveTransfer(existing.state) && !resumable) {
         throw fail(
           TRANSFER_FAILURE_CODES.ACTIVE_TRANSFER,
           `a server transfer is already ${existing.state}`,
@@ -325,17 +419,16 @@ export class ServerTransferService {
 
       await authorization.reauthorize('prepare')
       await this.preflight(input)
+      if (hooks.canceled?.()) {
+        throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
+      }
 
-      const operationId = this.uuid()
-      const probeTransferId = this.uuid()
-      const initialPackageDir = join(
-        this.deps.stateRoot,
-        '.server-transfer',
-        'snapshots',
-        operationId,
-        'initial',
-      )
-      let record: TransferRecord = {
+      const operationId = resumable?.record.operationId ?? hooks.operationId ?? this.uuid()
+      const probeTransferId = resumable?.record.transferId ?? hooks.transferId ?? this.uuid()
+      const initialPackageDir =
+        resumable?.record.packageDir ??
+        join(this.deps.stateRoot, '.server-transfer', 'snapshots', operationId, 'initial')
+      let record: TransferRecord = resumable?.record ?? {
         operationId,
         phase: 'preparing',
         bytesCopied: 0,
@@ -343,7 +436,8 @@ export class ServerTransferService {
         transferId: probeTransferId,
         targetMachineId: input.targetMachineId,
         publicUrl,
-        ...(input.port === undefined ? {} : { port: input.port }),
+        bindHost,
+        port,
         sourceMachineId: this.deps.sourceMachineId,
         sourceInstanceId: this.deps.sourceInstanceId,
         packageDir: initialPackageDir,
@@ -351,51 +445,107 @@ export class ServerTransferService {
         idempotencyKey: probeTransferId,
         targetProof: false,
         sourceConnected: false,
+        reachabilityToken: this.uuid() + this.uuid(),
+        quiescedMachineIds: [],
+        endpointCommittedMachineIds: [],
+        offlineMachineIds: [],
       }
-      this.journal.begin(record)
+      if (!resumable) this.journal.begin(record)
+      hooks.onPhase?.('preflight', 'done', record)
+      if (!resumable || resumable.state === 'preparing') {
+        hooks.onPhase?.('stage', 'running', record)
+      } else {
+        hooks.onPhase?.('stage', 'done', record)
+        if (resumable.state === 'staged') hooks.onPhase?.('validate', 'running', record)
+        else hooks.onPhase?.('validate', 'done', record)
+      }
 
       let prepared: { transferId: string; manifestDigest: string } | undefined
       let fenceHeld = false
       const persistProgress = (bytesCopied: number, totalBytes: number) => {
+        if (hooks.canceled?.()) {
+          throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
+        }
         record = { ...record, phase: 'copying', bytesCopied, totalBytes }
         this.journal.updateRecord(record)
+        hooks.onRecord?.(record)
       }
       try {
-        const initialManifest = await this.snapshot(record, initialPackageDir)
-        record = {
-          ...record,
-          manifest: initialManifest,
-          phase: 'copying',
-          bytesCopied: 0,
-          totalBytes: initialManifest.packageBytes,
+        let initialManifest = record.manifest
+        if (!initialManifest) {
+          initialManifest = await this.snapshot(record, initialPackageDir)
+          record = {
+            ...record,
+            manifest: initialManifest,
+            phase: 'copying',
+            bytesCopied: 0,
+            totalBytes: initialManifest.packageBytes,
+          }
+          this.journal.updateRecord(record)
+          hooks.onRecord?.(record)
         }
-        this.journal.updateRecord(record)
-
-        await authorization.reauthorize('stage')
-        await this.assertTarget(input.targetMachineId)
         prepared = {
           transferId: initialManifest.transferId,
           manifestDigest: initialManifest.digest,
         }
-        await this.stage(initialManifest, initialPackageDir, input.targetMachineId, persistProgress)
-        this.journal.transition('staged')
-        record = { ...record, phase: 'validating' }
-        this.journal.updateRecord(record)
 
+        if (this.journal.read()?.state === 'preparing') {
+          await authorization.reauthorize('stage')
+          await this.assertTarget(input.targetMachineId)
+          await this.stage(
+            initialManifest,
+            initialPackageDir,
+            input.targetMachineId,
+            publicUrl,
+            bindHost,
+            port,
+            record.reachabilityToken ?? probeTransferId + probeTransferId,
+            persistProgress,
+          )
+          if (hooks.canceled?.()) {
+            throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
+          }
+          this.journal.transition('staged')
+          hooks.onPhase?.('stage', 'done', record)
+        }
         await authorization.reauthorize('validate')
         await this.assertTarget(input.targetMachineId)
         await this.validate(initialManifest, input.targetMachineId)
         this.journal.transition('validated')
 
+        if (this.journal.read()?.state === 'staged') {
+          record = { ...record, phase: 'validating' }
+          this.journal.updateRecord(record)
+          hooks.onPhase?.('validate', 'running', record)
+          await authorization.reauthorize('validate')
+          this.assertTarget(input.targetMachineId)
+          await this.validate(initialManifest, input.targetMachineId)
+          this.journal.transition('validated')
+          hooks.onPhase?.('validate', 'done', record)
+        }
+
+        if (hooks.canceled?.()) {
+          throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
+        }
+        record = await this.prepareEndpointHandoff(record, initialManifest)
+        // The final snapshot must carry a claim hash for every browser connected
+        // to the old origin. Mint while the source store is still writable.
+        this.deps.endpointHandoff?.prepareClientRelocations(record.operationId)
         await authorization.reauthorize('fence')
+        await hooks.beforeFence?.(record)
+        await hooks.crash?.('after-seal')
         await this.assertTarget(input.targetMachineId)
         record = { ...record, phase: 'switching' }
         this.journal.updateRecord(record)
-        // Persist fence intent first. A crash after this write must not reopen a
-        // writable source even if the in-memory gate was not fully installed.
-        this.journal.transition('source-fenced')
+        // The journal first records intent without claiming the physical fence
+        // exists. Only the completed fence may advance to source-fenced.
+        this.journal.transition('fence-pending')
+        await hooks.crash?.('after-fence-pending')
         await this.deps.fence()
+        await hooks.crash?.('after-physical-fence')
         fenceHeld = true
+        this.journal.transition('source-fenced')
+        await hooks.crash?.('after-source-fenced')
 
         const finalPackageDir = join(
           this.deps.stateRoot,
@@ -405,6 +555,7 @@ export class ServerTransferService {
           'final',
         )
         let finalManifest = await this.snapshot(record, finalPackageDir)
+        await hooks.crash?.('after-final-snapshot')
         if (finalManifest.digest !== initialManifest.digest) {
           await this.abortPrepared(prepared, input.targetMachineId, 'final-snapshot-changed')
           prepared = undefined
@@ -437,7 +588,16 @@ export class ServerTransferService {
             transferId: finalManifest.transferId,
             manifestDigest: finalManifest.digest,
           }
-          await this.stage(finalManifest, finalPackageDir, input.targetMachineId, persistProgress)
+          await this.stage(
+            finalManifest,
+            finalPackageDir,
+            input.targetMachineId,
+            publicUrl,
+            bindHost,
+            port,
+            record.reachabilityToken ?? finalTransferId + finalTransferId,
+            persistProgress,
+          )
           record = { ...record, phase: 'validating' }
           this.journal.updateRecord(record)
           await authorization.reauthorize('validate')
@@ -448,15 +608,19 @@ export class ServerTransferService {
         record = { ...record, manifest: finalManifest, phase: 'switching', targetProof: true }
         this.journal.updateRecord(record)
 
+        record = await this.prepareEndpointHandoff(record, finalManifest)
+
         await authorization.reauthorize('commit')
         await this.assertTarget(input.targetMachineId)
         this.journal.transition('committing')
+        await hooks.crash?.('after-committing')
         const promoted = await this.deps.rpc.serverTransferPromote(
           {
             transferId: finalManifest.transferId,
             manifestDigest: finalManifest.digest,
             publicUrl,
-            ...(input.port === undefined ? {} : { port: input.port }),
+            bindHost,
+            port,
             targetMode: 'server',
             idempotencyKey: record.idempotencyKey,
           },
@@ -465,7 +629,14 @@ export class ServerTransferService {
         if (
           !promoted.ok ||
           promoted.state !== 'promoted' ||
-          !healthProofMatches(promoted.proof, finalManifest, input.targetMachineId, publicUrl)
+          !healthProofMatches(
+            promoted.proof,
+            finalManifest,
+            input.targetMachineId,
+            publicUrl,
+            bindHost,
+            port,
+          )
         ) {
           throw fail(
             TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
@@ -473,16 +644,21 @@ export class ServerTransferService {
           )
         }
 
+        await hooks.crash?.('after-promote')
+        record = await this.commitEndpointHandoff(record)
         await this.deps.demoteSource({
           transferId: finalManifest.transferId,
           targetMachineId: input.targetMachineId,
           publicUrl,
         })
+        await hooks.crash?.('after-demote')
         record = { ...record, targetProof: true, sourceConnected: false }
         this.journal.commit(record)
+        this.deps.afterJournalCommitted?.()
+        await hooks.crash?.('after-commit')
         fenceHeld = false
         const acknowledgementCleanup = this.persistAcknowledgementCleanup(
-          await this.acknowledgePromoted(finalManifest, input.targetMachineId),
+          await this.acknowledgePromotedWithinDeadline(finalManifest, input.targetMachineId),
         )
         this.deps.afterCommitted?.({ serverUrl: publicUrl })
         return this.outcome(record, true, 'committed', undefined, acknowledgementCleanup)
@@ -500,6 +676,8 @@ export class ServerTransferService {
           })
         }
 
+        await this.resumeEndpointHandoff(record)
+        this.deps.endpointHandoff?.cancelClientRelocations(record.operationId)
         let cleanup: { result: 'cleaned' | 'pending'; detail?: string } = { result: 'cleaned' }
         if (prepared) {
           try {
@@ -529,6 +707,7 @@ export class ServerTransferService {
     return await createPortableSnapshot({
       stateRoot: this.deps.stateRoot,
       packageDir,
+      operationId: record.operationId,
       transferId: record.transferId,
       sourceInstanceId: this.deps.sourceInstanceId,
       sourceMachineId: this.deps.sourceMachineId,
@@ -545,6 +724,10 @@ export class ServerTransferService {
     manifest: ServerTransferManifest,
     packageDir: string,
     targetMachineId: MachineId,
+    publicUrl: string,
+    bindHost: '127.0.0.1' | '0.0.0.0',
+    port: number,
+    reachabilityToken: string,
     onProgress: (bytesCopied: number, totalBytes: number) => void,
   ): Promise<void> {
     const result = await this.deps.rpc.serverTransferPrepare(
@@ -552,6 +735,10 @@ export class ServerTransferService {
         transferId: manifest.transferId,
         sourceMachineId: this.deps.sourceMachineId,
         manifest,
+        publicUrl,
+        bindHost,
+        port,
+        reachabilityToken,
         packageLimits: { totalBytes: manifest.packageBytes, maxChunkBytes: CHUNK_BYTES },
       },
       targetMachineId,
@@ -576,7 +763,14 @@ export class ServerTransferService {
     ) {
       throw fail(TRANSFER_FAILURE_CODES.DISK_FULL, 'target has insufficient transfer space')
     }
-    await uploadSnapshot(packageDir, manifest, targetMachineId, this.deps.rpc, onProgress)
+    await uploadSnapshot(
+      packageDir,
+      manifest,
+      targetMachineId,
+      this.deps.rpc,
+      onProgress,
+      result.receivedBytes,
+    )
   }
 
   private async validate(
@@ -627,6 +821,33 @@ export class ServerTransferService {
     }
   }
 
+  private async acknowledgePromotedWithinDeadline(
+    manifest: ServerTransferManifest,
+    targetMachineId: MachineId,
+  ): Promise<{ result: 'pending'; detail: string } | undefined> {
+    const timeoutMs = Math.max(
+      0,
+      this.deps.acknowledgementTimeoutMs ?? TARGET_ACKNOWLEDGEMENT_TIMEOUT_MS,
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<{ result: 'pending'; detail: string }>((resolve) => {
+      timer = setTimeout(
+        () =>
+          resolve({
+            result: 'pending',
+            detail: `target acknowledgement did not settle within ${timeoutMs}ms`,
+          }),
+        timeoutMs,
+      )
+    })
+    const cleanup = await Promise.race([
+      this.acknowledgePromoted(manifest, targetMachineId),
+      timeout,
+    ])
+    if (timer) clearTimeout(timer)
+    return cleanup
+  }
+
   private persistAcknowledgementCleanup(
     cleanup: { result: 'pending'; detail: string } | undefined,
   ): { result: 'pending'; detail: string } | undefined {
@@ -669,7 +890,113 @@ export class ServerTransferService {
     }
   }
 
+  private async prepareEndpointHandoff(
+    record: TransferRecord,
+    manifest: ServerTransferManifest,
+  ): Promise<TransferRecord> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return record
+    const reachabilityToken = record.reachabilityToken
+    if (!reachabilityToken)
+      throw fail(TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE, 'target reachability token is missing')
+    const request = {
+      transferId: manifest.transferId,
+      manifestDigest: manifest.digest,
+      publicUrl: record.publicUrl,
+      reachabilityToken,
+      targetMachineId: record.targetMachineId,
+    }
+    try {
+      await endpoint.probeCandidate(request)
+    } catch (error) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+        `the proposed target URL is not reachable from the server: ${classified(error).message}`,
+      )
+    }
+    const registered = endpoint
+      .registeredMachineIds()
+      .filter((id) => id !== record.sourceMachineId && id !== record.targetMachineId)
+    const online = new Set(endpoint.onlineMachineIds())
+    const offlineMachineIds = registered.filter((id) => !online.has(id))
+    const required = registered.filter((id) => online.has(id))
+    const quiesced = new Set(record.quiescedMachineIds ?? [])
+    record = { ...record, offlineMachineIds }
+    this.journal.updateRecord(record)
+    for (const machineId of required) {
+      let result: { ok: boolean; error?: string }
+      try {
+        result = await endpoint.probeMachine(request, machineId)
+      } catch (error) {
+        await this.resumeEndpointHandoff({ ...record, quiescedMachineIds: [...quiesced] })
+        throw fail(
+          TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+          `machine ${machineId} cannot reach the proposed target: ${classified(error).message}`,
+        )
+      }
+      if (!result.ok) {
+        await this.resumeEndpointHandoff({ ...record, quiescedMachineIds: [...quiesced] })
+        throw fail(
+          TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+          `machine ${machineId} cannot reach the proposed target: ${result.error ?? 'probe failed'}`,
+        )
+      }
+      quiesced.add(machineId)
+      record = { ...record, quiescedMachineIds: [...quiesced] }
+      this.journal.updateRecord(record)
+    }
+    return record
+  }
+
+  private async resumeEndpointHandoff(record: TransferRecord): Promise<void> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return
+    await Promise.allSettled(
+      (record.quiescedMachineIds ?? []).map((machineId) =>
+        endpoint.resumeMachine(record.transferId, machineId),
+      ),
+    )
+  }
+
+  private async commitEndpointHandoff(record: TransferRecord): Promise<TransferRecord> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return record
+    const committed = new Set(record.endpointCommittedMachineIds ?? [])
+    for (const machineId of record.quiescedMachineIds ?? []) {
+      if (committed.has(machineId)) continue
+      const result = await endpoint.commitMachine(
+        {
+          transferId: record.transferId,
+          publicUrl: record.publicUrl,
+          targetMachineId: record.targetMachineId,
+        },
+        machineId,
+      )
+      if (!result.ok) {
+        throw fail(
+          TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+          `machine ${machineId} did not confirm the endpoint switch: ${result.error ?? 'commit failed'}`,
+        )
+      }
+      committed.add(machineId)
+      record = { ...record, endpointCommittedMachineIds: [...committed] }
+      this.journal.updateRecord(record)
+    }
+    endpoint.relocateClients({
+      transferId: record.transferId,
+      publicUrl: record.publicUrl,
+      operationId: record.operationId,
+    })
+    return record
+  }
+
   private async preflight(input: ServerTransferInput): Promise<void> {
+    if (this.deps.sourceCapable?.() === false) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
+        'update this machine to the same Podium version as the target first',
+      )
+    }
     await this.assertTarget(input.targetMachineId)
     await this.deps.sourceHealthy()
     const portableBytes = await estimatePortableBytes(this.deps.stateRoot)
@@ -713,10 +1040,48 @@ export class ServerTransferService {
     await authorization.reauthorize('commit')
     if (record.manifest) {
       try {
-        const status = await this.deps.rpc.serverTransferStatus(
+        const status = await this.deps.rpc.inspectServerTransfer(
           { transferId: record.transferId, manifestDigest: record.manifest.digest },
           record.targetMachineId,
         )
+        if (
+          status.ok &&
+          (status.state === 'prepared' ||
+            status.state === 'staging' ||
+            status.state === 'validated') &&
+          status.transferId === record.transferId &&
+          status.manifestDigest === record.manifest.digest &&
+          status.publicUrl === record.publicUrl &&
+          status.port === record.port
+        ) {
+          const replay = await this.deps.rpc.serverTransferPromote(
+            {
+              transferId: record.transferId,
+              manifestDigest: record.manifest.digest,
+              publicUrl: record.publicUrl,
+              bindHost: record.bindHost,
+              port: record.port,
+              targetMode: 'server',
+              idempotencyKey: record.idempotencyKey,
+            },
+            record.targetMachineId,
+          )
+          if (
+            replay.ok &&
+            replay.state === 'promoted' &&
+            healthProofMatches(
+              replay.proof,
+              record.manifest,
+              record.targetMachineId,
+              record.publicUrl,
+              record.bindHost,
+              record.port,
+            )
+          ) {
+            await this.finishRecoveredCommit(record)
+            return this.outcome(record, true, 'committed')
+          }
+        }
         if (
           status.ok &&
           status.state === 'promoted' &&
@@ -727,25 +1092,12 @@ export class ServerTransferService {
             record.manifest,
             record.targetMachineId,
             record.publicUrl,
+            record.bindHost,
+            record.port,
           )
         ) {
-          await this.deps.demoteSource({
-            transferId: record.transferId,
-            targetMachineId: record.targetMachineId,
-            publicUrl: record.publicUrl,
-          })
-          const committed = {
-            ...record,
-            phase: 'switching' as const,
-            targetProof: true,
-            sourceConnected: false,
-          }
-          this.journal.resolveCommitted(committed)
-          const acknowledgementCleanup = this.persistAcknowledgementCleanup(
-            await this.acknowledgePromoted(record.manifest, record.targetMachineId),
-          )
-          this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
-          return this.outcome(committed, true, 'committed', undefined, acknowledgementCleanup)
+          const committed = await this.finishRecoveredCommit(record)
+          return this.outcome(committed, true, 'committed')
         }
       } catch {
         // A missing/mismatched proof or failed source cutover stays uncertain.
@@ -755,6 +1107,31 @@ export class ServerTransferService {
       code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
       message: 'target commit remains uncertain; operator recovery is required',
     })
+  }
+
+  private async finishRecoveredCommit(record: TransferRecord): Promise<TransferRecord> {
+    if (!record.manifest) {
+      throw fail(TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN, 'manifest proof is missing')
+    }
+    const endpointRecord = await this.commitEndpointHandoff(record)
+    await this.deps.demoteSource({
+      transferId: record.transferId,
+      targetMachineId: record.targetMachineId,
+      publicUrl: record.publicUrl,
+    })
+    const committed = {
+      ...endpointRecord,
+      phase: 'switching' as const,
+      targetProof: true,
+      sourceConnected: false,
+    }
+    this.journal.resolveCommitted(committed)
+    this.deps.afterJournalCommitted?.()
+    this.persistAcknowledgementCleanup(
+      await this.acknowledgePromotedWithinDeadline(record.manifest, record.targetMachineId),
+    )
+    this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
+    return committed
   }
 
   private outcome(

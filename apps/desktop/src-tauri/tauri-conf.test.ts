@@ -17,6 +17,10 @@ const repairPermission = readFileSync(
 const cargoSource = readFileSync(join(__dirname, 'Cargo.toml'), 'utf8')
 const webStyles = readFileSync(join(__dirname, '../../web/src/styles.css'), 'utf8')
 const webMainSource = readFileSync(join(__dirname, '../../web/src/app/main.tsx'), 'utf8')
+const htmlFilePanelSource = readFileSync(
+  join(__dirname, '../../web/src/features/files/HtmlFilePanel.tsx'),
+  'utf8',
+)
 const webLinkHostSource = readFileSync(
   join(__dirname, '../../web/src/components/PodiumLinkHost.tsx'),
   'utf8',
@@ -170,6 +174,15 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('.title("Server connection blocked")')
     expect(mainSource).toContain('.on_navigation(move |url|')
     expect(mainSource).toContain('bootstrap::validate_desktop_navigation(url)')
+    expect(bootstrapSource).toContain('url.scheme() == "about"')
+    expect(bootstrapSource).toContain('url.host_str().is_none()')
+    expect(bootstrapSource).toContain('matches!(url.path(), "blank" | "srcdoc")')
+
+    // Artifact previews are sandboxed srcdoc frames. WebKit reports their hostless document URL
+    // through the same callback as top-level navigation, so this is part of the transport contract.
+    expect(htmlFilePanelSource).toContain("const allowScripts = scope.kind === 'artifact'")
+    expect(htmlFilePanelSource).toContain("sandbox={allowScripts ? 'allow-scripts' : ''}")
+    expect(htmlFilePanelSource).toContain('srcDoc={srcDoc}')
 
     expect(mainSource).toContain('window.__PODIUM_SERVER_TRANSPORT_BLOCKED__ = true')
     expect(mainSource).toContain('server_transport_blocked_injection(&error)')

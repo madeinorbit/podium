@@ -262,6 +262,43 @@ describe('auth-route', () => {
     expect(setCookie).not.toMatch(/Secure/i)
   })
 
+  test('exchanges a short-lived server-transfer claim once for a new origin cookie', async () => {
+    await setPassword('hunter2')
+    const claim = 'transfer-claim-token-abcdefghijklmnopqrstuvwxyz'
+    store.auth.createClientSession(
+      hashToken(claim),
+      FIRST_ADMIN_USER_ID,
+      new Date(Date.now() + 60_000).toISOString(),
+      'server-transfer-claim',
+    )
+    const app = makeApp()
+    const response = await app.request('/auth/server-transfer-claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: claim, next: '/issues?moved=1' }).toString(),
+    })
+    expect(response.status).toBe(303)
+    expect(response.headers.get('location')).toBe('/issues?moved=1')
+    expect(response.headers.get('set-cookie')).toMatch(/podium_session=.*HttpOnly.*SameSite=Lax/i)
+    expect(store.auth.getClientSession(hashToken(claim))).toBeUndefined()
+
+    const replacement = cookieValue(response)
+    expect(replacement).toBeTruthy()
+    const status = await app.request('/auth/status', {
+      headers: { cookie: `podium_session=${replacement}` },
+    })
+    expect(await status.json()).toMatchObject({ authed: true, userId: FIRST_ADMIN_USER_ID })
+
+    const replay = await app.request('/auth/server-transfer-claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: claim, next: '//attacker.example' }).toString(),
+    })
+    expect(replay.status).toBe(303)
+    expect(replay.headers.get('location')).toBe('/?serverTransferClaim=invalid')
+    expect(replay.headers.get('set-cookie')).toBeNull()
+  })
+
   test('native login returns one HTTPS bearer and records a mobile device session', async () => {
     await setPassword('hunter2')
     const response = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {

@@ -100,38 +100,55 @@ export async function readActiveOperation(trpc: Trpc): Promise<Operation | null>
  * caller decides whether a given terminal operation is still worth showing
  * (`use-update-state.ts`); this function only fetches it.
  */
-export async function readLatestOperation(trpc: Trpc): Promise<Operation | null> {
-  const rows = await trpc.operations.history.query({ kind: 'update', limit: 1 })
+export async function readLatestOperation(
+  trpc: Trpc,
+  kind: string,
+): Promise<Operation | null> {
+  const rows = await trpc.operations.history.query({ kind, limit: 1 })
   return parseOperation(rows[0])
 }
 
 /**
  * Start the one update operation. Single-flight lives on the SERVER (P6): a
  * second tab pressing this gets the running operation back (`alreadyRunning`),
- * not a second one, and both tabs then render the same object — which is why
- * this answers nothing and lets the poll do the rendering.
+ * not a second one, and both tabs immediately render that authoritative object.
  *
  * `surface` still identifies browser reload asks. Current all-in-one payloads
  * use their fleet machine step; a desktop-install ask can only survive in a
  * pre-transition persisted operation.
  */
-export async function startUpdate(trpc: Trpc, surface?: string): Promise<void> {
+export interface StartUpdateOutcome {
+  operationId?: string
+  alreadyRunning?: boolean
+  operation: Operation | null
+  legacy: boolean
+}
+
+function startOutcome(answer: unknown): StartUpdateOutcome {
+  const value = (answer ?? {}) as {
+    operationId?: unknown
+    alreadyRunning?: unknown
+    operation?: unknown
+  }
+  const operation = parseOperation(value.operation)
+  return {
+    operation,
+    legacy: false,
+    operationId: typeof value.operationId === 'string' ? value.operationId : operation?.id,
+    alreadyRunning: value.alreadyRunning === true,
+  }
+}
+
+export async function startUpdate(trpc: Trpc, surface?: string): Promise<StartUpdateOutcome> {
   try {
     const answer = await trpc.updates.start.mutate(surface ? { surface } : undefined)
-    // THE ANSWER IS READ EVEN THOUGH IT IS NOT RETURNED (POD-3224).
-    //
-    // This function still answers nothing — folding the returned operation is a
-    // behaviour change, and this issue is about seeing, not deciding. But the
-    // server DID say which operation the click produced, or that one was already
-    // running, and throwing that on the floor unrecorded is why "I pressed
-    // Update and the offer came back" has never been diagnosable: nobody could
-    // tell a start that never happened from a start whose operation the next
-    // poll simply had not folded yet.
     noteStartAnswer('start', answer)
+    return startOutcome(answer)
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
     updatesLog.info('this server has no updates.start; falling back to converge', {})
     await trpc.updates.converge.mutate()
+    return { operation: null, legacy: true }
   }
 }
 
@@ -169,7 +186,7 @@ function noteStartAnswer(action: 'start' | 'retry', answer: unknown): void {
   })
 }
 
-export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<void> {
+export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<StartUpdateOutcome> {
   // Nothing to retry the remainder OF: start a fresh operation instead of
   // asking the server about an id we do not have.
   if (!operationId) {
@@ -177,13 +194,15 @@ export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<voi
     return startUpdate(trpc)
   }
   try {
-    noteStartAnswer('retry', await trpc.updates.retry.mutate({ id: operationId }))
+    const answer = await trpc.updates.retry.mutate({ id: operationId })
+    noteStartAnswer('retry', answer)
+    return startOutcome(answer)
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
     updatesLog.info('this server has no updates.retry; starting a fresh operation', {
       operationId,
     })
-    await startUpdate(trpc)
+    return startUpdate(trpc)
   }
 }
 

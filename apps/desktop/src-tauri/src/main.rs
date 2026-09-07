@@ -265,22 +265,43 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env(
+            "PODIUM_DESKTOP_VERSION",
+            std::env::var("PODIUM_DESKTOP_VERSION")
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+        )
+        .env(
+            "PODIUM_DESKTOP_ARTIFACT_DIGEST",
+            crate::updater::native_installed_digest().unwrap_or_default(),
+        )
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
 }
 
-fn replacement_daemon_command(
-    runnable: &Path,
-    server_url: &str,
-    shutdown_file: &Path,
-) -> Command {
+fn remote_parent_command(runnable: &Path, _server_url: &str, shutdown_file: &Path) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
     let mut command = Command::new(runnable);
     command
-        .args(["daemon", "--server", server_url, "--takeover"])
+        .args(["parent", "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
+        .env(
+            DESKTOP_SUCCESSOR_FILE_ENV,
+            runnable
+                .parent()
+                .expect("payload entrypoint has an install directory")
+                .join(".desktop-successor-pid"),
+        )
         .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env(
+            "PODIUM_DESKTOP_VERSION",
+            std::env::var("PODIUM_DESKTOP_VERSION")
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+        )
+        .env(
+            "PODIUM_DESKTOP_ARTIFACT_DIGEST",
+            crate::updater::native_installed_digest().unwrap_or_default(),
+        )
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
@@ -547,10 +568,13 @@ fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
     if length <= 0 {
         return None;
     }
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(length as usize);
-    Some(std::path::PathBuf::from(
-        std::ffi::OsStr::from_bytes(&buffer[..end]),
-    ))
+    let end = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(length as usize);
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        &buffer[..end],
+    )))
 }
 
 #[cfg(target_os = "macos")]
@@ -806,8 +830,7 @@ fn spawn_respawn_monitor<F, S, D>(
                 SUPERVISION_POLL,
                 Some(&successor),
                 local_restart.as_ref(),
-            )
-            else {
+            ) else {
                 log::info!("native backend monitor stopped: child slot is empty; label={label}");
                 break;
             };
@@ -940,7 +963,9 @@ fn spawn_respawn_monitor<F, S, D>(
             match spawned {
                 Ok(mut new_child) => {
                     let spawned_details = child_details(&new_child);
-                    log::info!("native backend respawn spawn succeeded; label={label} {spawned_details}");
+                    log::info!(
+                        "native backend respawn spawn succeeded; label={label} {spawned_details}"
+                    );
                     // Shutdown can begin between the check above and this store. By then the
                     // exit handlers have already emptied the slot, so a child parked here now
                     // would outlive the app and keep holding its port. Re-check under the lock
@@ -954,7 +979,9 @@ fn spawn_respawn_monitor<F, S, D>(
                     log::info!("native backend child slot stored; label={label} {spawned_details}");
                     backoff_ms = 500;
                 }
-                Err(error) => log::error!("native backend respawn failed; label={label} kind={spawn_kind} error={error}"),
+                Err(error) => log::error!(
+                    "native backend respawn failed; label={label} kind={spawn_kind} error={error}"
+                ),
             }
         }
     });
@@ -1041,7 +1068,7 @@ fn native_desktop_hook(
     // also flips the webview's prefers-color-scheme, which would lock system mode
     // to whatever was last forced.
     let set_theme = ",\n            setTheme: (theme) => window.__TAURI_INTERNALS__.invoke('plugin:window|set_theme', { label: 'main', value: theme })";
-    // This device's paired machine identity (daemon.json), so the web UI can mark the
+    // This device's supervisor-owned machine identity, so the web UI can mark the
     // matching row "this machine". serde_json escaping — the value comes from disk.
     let machine_id = machine_id
         .and_then(|id| serde_json::to_string(id).ok())
@@ -1403,6 +1430,7 @@ fn main() {
             repair_payload
         ])
         .setup(move |app| {
+            std::env::set_var("PODIUM_DESKTOP_VERSION", app.package_info().version.to_string());
             app.manage(native_open_queue.clone());
             #[cfg(target_os = "linux")]
             if let Err(error) = app.deep_link().register_all() {
@@ -1465,6 +1493,7 @@ fn main() {
             // Only the server URL can stop the launch.
             let server_transport_error = match &action {
                 bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. }
                 | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
                     bootstrap::validate_server_transport(server_url).err()
                 }
@@ -1480,6 +1509,7 @@ fn main() {
                 bootstrap::LaunchAction::LocalAllInOne => "all-in-one",
                 bootstrap::LaunchAction::LocalServerOnly => "server",
                 bootstrap::LaunchAction::LocalDaemon { .. } => "daemon",
+                bootstrap::LaunchAction::LocalSupervisor { .. } => "supervisor",
                 bootstrap::LaunchAction::ClientOnly { .. } => "client",
             };
 
@@ -1492,6 +1522,7 @@ fn main() {
             let update_ownership: updater::UpdateOwnership = Arc::new(AtomicBool::new(false));
             app.manage(update_ownership.clone());
             app.manage(updater::PendingUpdate::default());
+            updater::start_supervisor_recovery(app.handle().clone(), shutting_down.clone());
 
             // Child slot is always managed so the window-event / exit handlers can reap whatever
             // (if anything) we spawned. ClientOnly leaves it None.
@@ -1642,7 +1673,7 @@ fn main() {
                                                 .spawn()
                                             },
                                             move |server_url| {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable_daemon,
                                                     server_url,
                                                     &daemon_shutdown_file,
@@ -1669,7 +1700,8 @@ fn main() {
                     remote_window_origin = Some(bootstrap::local_served_http_url(port));
                 }
 
-                bootstrap::LaunchAction::LocalDaemon { server_url, ui_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url, ui_url }
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, ui_url } => {
                     // Spawn the local `podium`; it reads config → daemon mode → connects to the
                     // remote server. There is NO local server, so do not force PODIUM_PORT and do
                     // not wait for a local /health — the web client connects to the remote.
@@ -1684,8 +1716,8 @@ fn main() {
                                 payload_start_error = Some(reason);
                             }
                             Ok(runnable) => {
-                                log::info!("spawning daemon {runnable:?} → {server_url}");
-                                match replacement_daemon_command(
+                                log::info!("spawning machine parent {runnable:?} → {server_url}");
+                                match remote_parent_command(
                                     &runnable,
                                     &server_url,
                                     &shutdown_file,
@@ -1714,7 +1746,7 @@ fn main() {
                                             app.handle().clone(),
                                             None,
                                             move || {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable2,
                                                     &respawn_server_url,
                                                     &shutdown_file2,
@@ -1722,7 +1754,7 @@ fn main() {
                                                 .spawn()
                                             },
                                             move |server_url| {
-                                                replacement_daemon_command(
+                                                remote_parent_command(
                                                     &runnable_daemon,
                                                     server_url,
                                                     &daemon_shutdown_file,
@@ -2051,7 +2083,7 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let machine_id = bootstrap::read_daemon_machine_id();
+            let machine_id = bootstrap::read_supervisor_machine_id();
             // `package_info` reads the version stamped into tauri.conf.json by
             // stage-sidecar. Cargo.toml intentionally keeps the Rust crate at
             // 0.1.0, so CARGO_PKG_VERSION would erase edge/stable prerelease
@@ -2169,7 +2201,8 @@ fn main() {
                         // Redirects and script-assigned locations do not pass through the link
                         // shim. Reapply the transport policy at the webview boundary so a secure
                         // server cannot move this native-capable window onto plaintext remote
-                        // content after startup.
+                        // content after startup. WebKit reports sandboxed iframe documents here
+                        // too; the validator admits only its local about:blank/srcdoc forms.
                         .on_navigation(move |url| {
                             let Err(error) = bootstrap::validate_desktop_navigation(url) else {
                                 return true;
@@ -2606,15 +2639,21 @@ mod tests {
         assert!(pause.should_stand_down_at(false, started + std::time::Duration::from_secs(8)));
         assert!(pause.is_active());
         assert!(!pause.should_stand_down_at(true, started + std::time::Duration::from_secs(9)));
-        assert!(!pause.is_active(), "an identity-checked ready server resumes watching");
+        assert!(
+            !pause.is_active(),
+            "an identity-checked ready server resumes watching"
+        );
 
         *pause.started.lock().unwrap() = Some(started);
         assert!(!pause.should_stand_down_at(false, started + LocalRestartPause::BUDGET));
-        assert!(!pause.is_active(), "a wedged restart cannot suppress fallback forever");
+        assert!(
+            !pause.is_active(),
+            "a wedged restart cannot suppress fallback forever"
+        );
     }
 
     #[test]
-    fn every_daemon_the_desktop_starts_is_marked_supervised() {
+    fn every_parent_the_desktop_starts_owns_machine_presence() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
             &["parent".to_string(), "--takeover".to_string()],
@@ -2623,16 +2662,13 @@ mod tests {
             Path::new("mobile"),
             Path::new("desktop.shutdown"),
         );
-        let daemon = replacement_daemon_command(
+        let remote = remote_parent_command(
             Path::new("podium"),
             "wss://new.example",
             Path::new("desktop.shutdown"),
         );
 
-        for (label, command) in [
-            ("local host sidecar", &host),
-            ("replacement daemon", &daemon),
-        ] {
+        for (label, command) in [("local host sidecar", &host), ("remote parent", &remote)] {
             assert_eq!(
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
                 Some("1"),
@@ -2661,15 +2697,22 @@ mod tests {
             "the parent must have a bridge for reporting each handover successor"
         );
         assert_eq!(
-            host.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            command_env(&remote, DESKTOP_SUCCESSOR_FILE_ENV).as_deref(),
+            Some(".desktop-successor-pid"),
+            "the remote parent must report each handover successor"
+        );
+        assert_eq!(
+            host.get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
             ["parent", "--takeover"],
         );
         assert_eq!(
-            daemon
+            remote
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
-            ["daemon", "--server", "wss://new.example", "--takeover"]
+            ["parent", "--takeover"]
         );
     }
 
@@ -2687,7 +2730,7 @@ mod tests {
             Path::new("mobile"),
             Path::new("desktop.shutdown"),
         );
-        let daemon = replacement_daemon_command(
+        let daemon = remote_parent_command(
             Path::new("podium"),
             "wss://new.example",
             Path::new("desktop.shutdown"),

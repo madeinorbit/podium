@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { localServerUrl, type PodiumConfig } from '@podium/runtime/config'
 import { liveRecord, logDir, type RunRole } from '@podium/runtime/run-registry'
+import type { ServerBindHost } from '@podium/runtime/setup'
 import { unsupervisedEnv } from '@podium/runtime/supervisor'
 import { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
@@ -32,6 +33,8 @@ export interface SpawnOpts {
   local?: boolean
   /** For a remote/join daemon: an explicit server URL to dial. */
   serverUrl?: string
+  /** Explicit server listen address inherited by parent-supervised children. */
+  bindHost?: ServerBindHost
 }
 
 /** Spawn one component detached, logging to ~/.podium/logs/<role>.log. Returns its PID. */
@@ -60,6 +63,7 @@ export function spawnDetached(
   // The local split daemon resolves its server URL from PODIUM_PORT (ws://localhost:<port>), so
   // both components must carry it.
   if (opts.port) env.PODIUM_PORT = String(opts.port)
+  if (opts.bindHost) env.PODIUM_HOST = opts.bindHost
   const child: ChildProcess = spawn(cmd, args, {
     detached: true,
     stdio: ['ignore', fd, fd],
@@ -72,13 +76,16 @@ export function spawnDetached(
 /** Poll the local server's <host>:<port>/health until it answers 200 or the budget runs out. */
 export async function waitForHealth(
   port: number,
+  bindHost?: ServerBindHost,
   budgetMs = 15_000,
   stepMs = 250,
 ): Promise<boolean> {
   const deadline = Date.now() + budgetMs
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${localServerUrl(port)}/health`)
+      const res = await fetch(
+        bindHost ? `http://127.0.0.1:${port}/health` : `${localServerUrl(port)}/health`,
+      )
       if (res.ok) return true
     } catch {
       // not up yet
@@ -98,11 +105,12 @@ export { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 export async function startDetachedStack(
   mode: PodiumConfig['mode'],
   port: number,
+  bindHost?: ServerBindHost,
 ): Promise<{ serverUp: boolean }> {
   if (mode === 'client') return { serverUp: false }
-  spawnDetached('parent', { port })
-  if (mode === 'daemon') return { serverUp: true }
-  return { serverUp: await waitForHealth(port) }
+  spawnDetached('parent', { port, ...(bindHost ? { bindHost } : {}) })
+  if (mode === 'daemon' || mode === 'supervisor') return { serverUp: true }
+  return { serverUp: await waitForHealth(port, bindHost) }
 }
 
 /**
@@ -115,7 +123,8 @@ export async function ensureDetachedUp(
 ): Promise<{ started: RunRole[] }> {
   if (config.mode === 'client') return { started: [] }
   if (liveRecord('parent')) return { started: [] }
-  spawnDetached('parent', { port })
-  if (config.mode !== 'daemon') await waitForHealth(port)
+  spawnDetached('parent', { port, ...(config.bindHost ? { bindHost: config.bindHost } : {}) })
+  if (config.mode !== 'daemon' && config.mode !== 'supervisor')
+    await waitForHealth(port, config.bindHost)
   return { started: ['parent'] }
 }

@@ -1,7 +1,7 @@
-// Daemon⇄server connectivity status file (issue #19). The daemon is the only writer; the
-// CLI (`podium status`) is the reader — so "up" can reflect whether the daemon is actually
-// TALKING to its server, not merely that a PID exists. Lives next to daemon.json (the paired
-// identity) so isolated/test daemons never touch the real state dir.
+// Machine⇄server connectivity status file (issue #19). A supervisor-owned install writes
+// this from its machine plane; a legacy standalone daemon remains the compatibility writer.
+// The CLI (`podium status`) is the reader, so "up" reflects an authenticated machine path,
+// not merely a PID. It lives in the selected state root beside the machine identity.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -16,10 +16,18 @@ import { stateDir } from './config'
 export const DAEMON_BLOCKED_EXIT_CODE = 78
 
 export const ConnectivityStatus = z.object({
-  /** connected = helloOk seen on the live socket; disconnected = retrying with backoff;
+  /** connecting = opening the socket; awaiting-ack = hello sent but not acknowledged;
+   *  connected = helloOk seen on the live socket; disconnected = retrying with backoff;
    *  unauthorized = transport reached the server but auth failed (never retried);
    *  blocked = another terminal protocol/configuration refusal. */
-  state: z.enum(['connected', 'disconnected', 'unauthorized', 'blocked']),
+  state: z.enum([
+    'connecting',
+    'awaiting-ack',
+    'connected',
+    'disconnected',
+    'unauthorized',
+    'blocked',
+  ]),
   /** The server URL this status describes. */
   serverUrl: z.string().optional(),
   /** ISO time of the last successful handshake (survives disconnects — "last seen"). */

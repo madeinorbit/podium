@@ -36,7 +36,7 @@ const DECLARED: readonly FleetContractName[] = [
   'machines.transferOwnership',
   'machines.adopt',
   'machines.revoke',
-  'machines.transferServer',
+  'machines.moveServer',
   'machines.pairingCode',
   'repos.add',
   'repos.addMany',
@@ -139,7 +139,7 @@ describe('the fleet contracts', () => {
       'machines.adopt': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
-      'machines.transferServer': 'machine',
+      'machines.moveServer': 'machine',
       'machines.pairingCode': 'pairing-token',
       'repos.add': 'repo-prefix',
       'repos.addMany': 'repo-prefix',
@@ -191,7 +191,7 @@ describe('the fleet contracts', () => {
       'machines.setUpdateChannel': 'manage',
       'machines.share': 'manage',
       'machines.transferOwnership': 'manage',
-      'machines.transferServer': 'manage',
+      'machines.moveServer': 'manage',
       // ADOPTION IS THE ONE `see`, and it is a rule rather than a weaker check:
       // `machineVerbsFor` grants an admin `see` only while the owner is null, so
       // `see` here resolves to "an admin, on an unowned machine" and nothing
@@ -228,7 +228,7 @@ describe('the fleet contracts', () => {
       if (!errs.callerSuppliedTargetId) continue
       expect([name, errs.distinguishesUnauthorizedFromUnreachable]).toEqual([
         name,
-        contract.policy.machineVerb === 'use' || name === 'machines.transferServer',
+        contract.policy.machineVerb === 'use' || name === 'machines.moveServer',
       ])
       expect([name, errs.invisibleFailsAs]).toEqual([name, 'nonexistent'])
     }
@@ -259,7 +259,7 @@ describe('the fleet contracts', () => {
       'machines.setUpdateChannel': 'hub',
       'machines.share': 'hub',
       'machines.transferOwnership': 'hub',
-      'machines.transferServer': 'hub',
+      'machines.moveServer': 'hub',
       'machines.adopt': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',
@@ -336,7 +336,7 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt', 'machines.transferServer']
+    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt', 'machines.moveServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])

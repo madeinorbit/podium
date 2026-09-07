@@ -102,6 +102,7 @@ function harness(input: {
   enabled?: boolean
   loadPerCore?: number | null
   idleShellMinutes?: number | null
+  transferFenceActive?: () => boolean
   backstopMinutes?: number | null
   scheduledWakeups?: Set<string>
   fail?: Set<string>
@@ -125,6 +126,7 @@ function harness(input: {
   const toMachine: Array<{ machineId: string; type: string }> = []
   const deps: HostsDeps = {
     getSettings: async () => settings,
+    transferFenceActive: input.transferFenceActive ?? (() => false),
     clients: () => [],
     machineName: async (id) => id,
     sessions: async () => input.sessions,
@@ -505,6 +507,32 @@ describe('idle-session cap', () => {
     await service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual([])
+  })
+
+  it('keeps metrics live but defers idle-shell parking until the transfer fence opens', () => {
+    let fenced = true
+    const sessions = [shell(asSessionId('idle-shell'))]
+    const { service, shellParked } = harness({
+      sessions,
+      maxIdleSessions: null,
+      idleShellMinutes: 30,
+      transferFenceActive: () => fenced,
+    })
+
+    service.onHostMetrics(asMachineId('local'), sample(10))
+    expect(service.hostMetricsMessage()).toMatchObject({
+      hosts: [{ hostname: 'box', machineId: 'local' }],
+    })
+    expect(shellParked).toEqual([])
+    expect(sessions[0]?.status).toBe('live')
+    // A premature resume request remains write-free while SQLite is fenced.
+    service.resumeAfterTransferFence()
+    expect(shellParked).toEqual([])
+
+    fenced = false
+    service.resumeAfterTransferFence()
+    expect(shellParked).toEqual(['idle-shell'])
+    expect(sessions[0]?.status).toBe('hibernated')
   })
 
   it('leaves count pressure off when the target is unlimited', async () => {

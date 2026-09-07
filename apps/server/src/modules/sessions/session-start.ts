@@ -486,10 +486,12 @@ export class SessionStart {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then
         // rebroadcast.
-        void this.ports.repository.persist(session).catch((error) => {
-          log.error('failed to persist session activity', { error })
-        })
-        this.ports.broadcastSessions()
+        void this.ports.repository
+          .persistActivityIfWritable(session)
+          .then((written) => {
+            if (written) this.ports.broadcastSessions()
+          })
+          .catch((error) => log.error('failed to persist session activity', { error }))
       },
       ...(input.resume ? { resume: input.resume } : {}),
       // THE MINT SITE STATES THE CLAIM (POD-2392). This is the one moment the

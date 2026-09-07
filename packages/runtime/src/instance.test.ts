@@ -215,13 +215,11 @@ it('named durable backend env is private unless explicitly overridden', () => {
   expect(env).toMatchObject({
     PODIUM_INSTANCE: 'blue',
     ABDUCO_SOCKET_DIR: bounded,
-    TMUX_TMPDIR: bounded,
   })
   expect(bounded).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
-  const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a', TMUX_TMPDIR: '/shared/t' }
+  const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a' }
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
-  expect(shared.TMUX_TMPDIR).toBe('/shared/t')
 })
 
 it('pins a named instance somewhere abduco can actually bind a socket', () => {

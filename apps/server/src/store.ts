@@ -61,6 +61,7 @@ import {
   type SnapshotVerifierDeps,
 } from './migrations/snapshot-verifier'
 import { syncServerTables } from './migrations/sync-server-tables'
+import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
@@ -210,6 +211,7 @@ export class SessionStore {
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
+  readonly updateRecovery: UpdateRecoveryStore
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
@@ -246,7 +248,7 @@ export class SessionStore {
   static async open(
     path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
-    snapshotVerifierDeps: SnapshotVerifierDeps = {},
+    options: SnapshotVerifierDeps & { queryOnly?: boolean } = {},
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
       onReportFailure: (error) =>
@@ -280,7 +282,7 @@ export class SessionStore {
         })
         await executor.exclusive(async () => configureStoreConnection(database))
       }
-      const store = new SessionStore(path, hostMachineId, snapshotVerifierDeps, database, executor)
+      const store = new SessionStore(path, hostMachineId, options, database, executor)
       await store.initialize()
       return store
     } catch (error) {
@@ -292,7 +294,7 @@ export class SessionStore {
   private constructor(
     private readonly path: string,
     hostMachineId: MachineId,
-    snapshotVerifierDeps: SnapshotVerifierDeps,
+    options: SnapshotVerifierDeps & { queryOnly?: boolean },
     database: SqlDatabase,
     executor: RootStoreExecutor<QueryClient>,
   ) {
@@ -300,7 +302,7 @@ export class SessionStore {
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.snapshotVerifier = new SnapshotVerifier(path, snapshotVerifierDeps)
+    this.snapshotVerifier = new SnapshotVerifier(path, options)
     this.db = database
     this.executor = executor
 
@@ -340,6 +342,8 @@ export class SessionStore {
       this.hostMachineId,
       this.tableWrites,
     )
+    await this.conversations.ensureFts(this.searchIndexEnabled)
+    await this.superagent.seedGlobalThread()
     this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
@@ -618,6 +622,11 @@ export class SessionStore {
   }
 
   private transferFenceHeld = false
+
+  /** Synchronous write guard for activity callbacks sharing this connection. */
+  get transferFenceActive(): boolean {
+    return this.transferFenceHeld
+  }
 
   /** In-process fence only: mint-session remains a separate writer until E.5. */
   async beginTransferFence(): Promise<void> {

@@ -14,11 +14,8 @@ import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { browseDirectories } from '../../repo-registry'
-import type { Context } from '../../trpc'
-import { mods } from '../../trpc'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
-import { visibleMachinesFor } from '../sessions/command-ctx'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -94,9 +91,6 @@ export const REPO_QUERIES = {
     return GitHubCliResultMessage.omit({ type: true, requestId: true }).parse(result)
   }),
 } as const
-
-export const serverTransferStatusQuery = async (ctx: Context) =>
-  await mods(ctx).serverTransfer.publicStatus(await visibleMachinesFor(mods(ctx), ctx.capability))
 
 export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect

@@ -59,6 +59,8 @@ export const gatewayCapabilityMinter = {
 export interface DaemonAcceptorDeps {
   readonly machines: MachineAuthenticator
   readonly connectionId: string
+  /** Recovery-only authenticates durable rows without refreshing them. */
+  readonly verifyOnly?: boolean
 }
 
 interface ResolvedDaemonAcceptorDeps {
@@ -88,7 +90,10 @@ export interface PreparedDaemonAcceptor {
 const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
-      machines: createResolvedMachineDirectory(deps.machines),
+      machines: createResolvedMachineDirectory(
+        deps.machines,
+        deps.verifyOnly ? { verifyOnly: true } : {},
+      ),
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [
@@ -110,6 +115,20 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): PreparedDaemonAc
   kind: 'preparedDaemonAcceptor',
   deps,
 })
+
+/** The authenticated parent-owned machine plane; no legacy frame adapter. */
+export const createMachineSupervisorAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
+  createHandshakeAcceptor({
+    registry: createDefaultAuthRegistry({
+      machines: createMachineDirectory(deps.machines, { source: 'supervisor' }),
+      mint: gatewayCapabilityMinter,
+    }),
+    supportedCaps: [],
+    transport: {
+      endpoint: '/machine',
+      connectionId: deps.connectionId,
+    },
+  })
 
 export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }

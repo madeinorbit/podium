@@ -41,6 +41,10 @@ class FakeSocket extends EventEmitter {
 
   send(_data: string): void {}
 
+  terminate(): void {
+    this.close()
+  }
+
   close(): void {
     if (this.readyState === 3) return
     this.readyState = 3

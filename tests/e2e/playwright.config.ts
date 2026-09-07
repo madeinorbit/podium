@@ -30,6 +30,11 @@ export default defineConfig({
         launchOptions: { args: ['--no-sandbox', '--disable-dev-shm-usage'] },
       },
     },
+    {
+      name: 'webkit-desktop',
+      testMatch: '**/pwa-update-handoff.browser.e2e.ts',
+      use: { ...devices['Desktop Safari'] },
+    },
     { name: 'webkit-iphone', use: { ...devices['iPhone 13'] } },
   ],
   webServer: [
@@ -51,8 +56,7 @@ export default defineConfig({
       //
       // Timeout is harness boot only (~5s to /health). 180s is generous headroom,
       // not a multi-minute build budget.
-      command:
-        'bun browser-dist-preflight.ts && bun --conditions=@podium/source serve-harness.ts',
+      command: 'bun browser-dist-preflight.ts && bun --conditions=@podium/source serve-harness.ts',
       env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge', PODIUM_E2E_RUN_ID: RUN_ID },
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,

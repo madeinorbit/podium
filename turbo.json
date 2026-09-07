@@ -107,6 +107,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/dist-bun/abduco.bin",
+        "$TURBO_ROOT$/dist-bun/podium-host.bin",
         "$TURBO_ROOT$/apps/**",
         "$TURBO_ROOT$/packages/**",
         "$TURBO_ROOT$/services/**",

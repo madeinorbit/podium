@@ -367,6 +367,17 @@ export function AppShell({
                 createReplicaFn={kernel.assembly.createReplicaFn}
                 feed={kernel.assembly.feed}
                 createOutboxFn={kernel.assembly.createOutboxFn}
+                onServerRelocation={(publicUrl, _transferId, claimToken) => {
+                  const next = `${window.location.pathname}${window.location.search}${window.location.hash}`
+                  const destination = new URL(next, `${publicUrl.replace(/\/$/, '')}/`)
+                  if (!claimToken) {
+                    window.location.replace(destination.toString())
+                    return
+                  }
+                  const claim = new URL('/auth/server-transfer-claim', publicUrl)
+                  claim.hash = new URLSearchParams({ token: claimToken, next }).toString()
+                  window.location.replace(claim.toString())
+                }}
               >
                 <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
                 <ReplicaReadyPodiumLinkHost

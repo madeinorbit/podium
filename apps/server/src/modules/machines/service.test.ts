@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
 import { asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
-import type { DaemonPtyInputBatch } from '@podium/protocol'
+import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import type { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
@@ -24,7 +24,7 @@ function makeService(): MachinesService {
     // truthful answer for a fixture with no rows and keeps these socket-identity
     // tests about sockets.
     store: {
-      machines: { addMachineComponent: () => false },
+      machines: { addMachineComponent: () => false, setPresenceSource: () => {} },
     } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
@@ -41,6 +41,27 @@ const keystroke: ControlMessage = { type: 'input', sessionId: asSessionId('s1'),
 function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
   const got: ControlMessage[] = []
   return { send: (m) => got.push(m), got }
+}
+
+function storedService(recoveryOnly = false): { svc: MachinesService; store: SessionStore } {
+  const store = new SessionStore(':memory:')
+  store.machines.upsertMachine({
+    id: MACHINE,
+    name: 'vmi',
+    hostname: 'vmi.local',
+    tokenHash: 'token-hash',
+    ownerUserId: asUserId('user:sole'),
+  })
+  const svc = new MachinesService({
+    instanceId: 'default',
+    store,
+    recoveryOnly,
+    hostMachineId: store.hostMachineId,
+    sessionsChangedForMachine: () => {},
+    clients: () => [],
+    machinesForPrincipal: () => [],
+  } satisfies MachinesDeps)
+  return { svc, store }
 }
 
 describe('MachinesService daemon socket identity', () => {
@@ -158,6 +179,183 @@ describe('MachinesService daemon socket identity', () => {
         data: Buffer.from(input.bytes).toString('base64'),
       },
     ])
+  })
+})
+
+describe('MachinesService supervisor presence', () => {
+  const build = {
+    appVersion: '0.5.0',
+    wireSchemaDigest: 'new-schema',
+    installKind: 'installed',
+  } as const
+  const grant = {
+    type: 'updateGrant',
+    grantId: 'g-supervisor',
+    target: {
+      version: '0.5.1',
+      critical: false,
+      artifacts: {},
+    },
+  } as ControlMessage
+
+  test('keeps a daemon failure online and degraded, then routes the grant only to the supervisor', () => {
+    const { svc } = storedService()
+    const daemon = recorder()
+    const participant: ControlMessage[] = []
+    const supervisor: MachineSupervisorControlMessage[] = []
+    const observedAt = '2026-08-26T12:00:00.000Z'
+    svc.attach(MACHINE, daemon.send)
+    svc.attachUpdateParticipant(MACHINE, (message) => participant.push(message))
+    svc.attachSupervisor(MACHINE, (message) => supervisor.push(message), build, [
+      'update.delivery.feed',
+    ])
+    svc.recordSupervisorReport(
+      MACHINE,
+      {
+        server: { policy: 'enabled', state: 'available', observedAt },
+        agentExecution: { policy: 'enabled', state: 'available', observedAt },
+      },
+      observedAt,
+    )
+    expect(supervisor[0]).toEqual({
+      type: 'serviceAssignment',
+      assignment: { server: false, agentExecution: true },
+    })
+
+    svc.detach(MACHINE, daemon.send)
+    expect(svc.listMachines()[0]).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      appVersion: '0.5.0',
+      services: {
+        agentExecution: {
+          policy: 'enabled',
+          state: 'stopped',
+          reason: 'agent execution plane is disconnected',
+        },
+      },
+    })
+
+    svc.toMachine(MACHINE, grant)
+    expect(supervisor.at(-1)).toEqual(grant)
+    expect(participant).toEqual([])
+    expect(daemon.got).toEqual([])
+  })
+
+  test.each([
+    false,
+    true,
+  ])('retains recovery transport without writes while sealed (boot=%s)', (recoveryOnly) => {
+    const { svc, store } = storedService(recoveryOnly)
+    const daemon = recorder()
+    const old = (_message: MachineSupervisorControlMessage) => {}
+    const fresh = (_message: MachineSupervisorControlMessage) => {}
+    store.beginTransferFence()
+    // Explicit recovery mode also protects callers that do not expose a live fence.
+    const bootFence = recoveryOnly
+      ? vi.spyOn(store, 'transferFenceActive', 'get').mockReturnValue(false)
+      : undefined
+    const before = store.machines.getMachine(MACHINE)
+    try {
+      svc.attach(MACHINE, daemon.send, ['recovery-cap'])
+      svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
+      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      expect(svc.detachSupervisor(MACHINE, old)).toBe(false)
+      expect(svc.detachSupervisor(MACHINE, fresh)).toBe(true)
+      svc.recordComponent(MACHINE, 'daemon')
+      svc.recordLegacyBuild(MACHINE, build, [], new Date().toISOString())
+      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      const status = {
+        policy: 'enabled' as const,
+        state: 'available' as const,
+        observedAt: new Date().toISOString(),
+      }
+      svc.recordSupervisorReport(
+        MACHINE,
+        { server: status, agentExecution: status },
+        status.observedAt,
+      )
+      svc.resumeAfterTransferFence()
+      expect(store.machines.getMachine(MACHINE)).toEqual(before)
+      expect(svc.daemonSupports(MACHINE, 'recovery-cap')).toBe(true)
+      svc.toMachine(MACHINE, keystroke)
+      expect(daemon.got).toEqual([keystroke])
+      if (!recoveryOnly) {
+        store.endTransferFence()
+        svc.resumeAfterTransferFence()
+        expect(store.machines.getMachine(MACHINE)?.components).toContain('daemon')
+      }
+    } finally {
+      bootFence?.mockRestore()
+      store.close()
+    }
+  })
+
+  test('fences a replaced supervisor and keeps the successor authoritative', () => {
+    const { svc } = storedService()
+    const old: MachineSupervisorControlMessage[] = []
+    const successor: MachineSupervisorControlMessage[] = []
+    const oldSend = (message: MachineSupervisorControlMessage) => old.push(message)
+    const successorSend = (message: MachineSupervisorControlMessage) => successor.push(message)
+
+    svc.attachSupervisor(MACHINE, oldSend, build, ['update.delivery.feed'])
+    svc.attachSupervisor(MACHINE, successorSend, build, ['update.delivery.feed'])
+    expect(svc.detachSupervisor(MACHINE, oldSend)).toBe(false)
+    svc.toMachine(MACHINE, grant)
+
+    expect(successor.at(-1)).toEqual(grant)
+    expect(old).toHaveLength(1)
+  })
+
+  test('uses the same thirty-second grace before a detached supervisor becomes offline', () => {
+    vi.useFakeTimers()
+    try {
+      const { svc } = storedService()
+      const send = (_message: MachineSupervisorControlMessage) => {}
+      svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
+      expect(svc.detachSupervisor(MACHINE, send)).toBe(true)
+      expect(svc.listMachines()[0]?.online).toBe(true)
+
+      vi.advanceTimersByTime(30_001)
+      expect(svc.listMachines()[0]?.online).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('promoted server host identity', () => {
+  test('a server-only promoted host reuses its target row without minting another machine', () => {
+    const source = asMachineId('former-host')
+    const target = asMachineId('promoted-host')
+    const store = new SessionStore(':memory:', target)
+    for (const id of [source, target]) {
+      store.machines.upsertMachine({
+        id,
+        name: id,
+        hostname: id,
+        tokenHash: sha256(`${id}-secret`),
+        ownerUserId: asUserId('user:sole'),
+      })
+    }
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: target,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: () => [],
+    } satisfies MachinesDeps)
+    const before = store.machines.listMachines().map(({ id }) => id)
+
+    expect(svc.onlineMachineIds()).toEqual([])
+    expect(svc.ensureHostMachine('promoted-hostname', 'promoted-secret')).toBe(target)
+    expect(store.machines.listMachines().map(({ id }) => id)).toEqual(before)
+    expect(store.machines.getMachine(target)).toMatchObject({
+      id: target,
+      hostname: 'promoted-hostname',
+    })
+    store.close()
   })
 })
 
@@ -406,6 +604,33 @@ describe('MachinesService inventory persistence (#222)', () => {
     await store.machines.touchMachine(MACHINE, 'vmi-renamed')
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
     expect((await store.machines.getMachine(MACHINE))?.hostname).toBe('vmi-renamed')
+  })
+
+  test('coalesces inventory while the transfer fence is read-only and resumes after abort', () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    const latest: Inventory = {
+      ...INV,
+      podiumVersion: '10.0.1',
+    }
+
+    store.beginTransferFence()
+    expect(() => svc.recordInventory(MACHINE, INV)).not.toThrow()
+    expect(() => svc.recordInventory(MACHINE, latest)).not.toThrow()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+    // Reconciliation cannot weaken or bypass the physical fence.
+    svc.resumeAfterTransferFence()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+
+    store.endTransferFence()
+    svc.resumeAfterTransferFence()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(latest)
   })
 
   test('records the native identity fingerprint selected on the target machine', async () => {

@@ -12,31 +12,31 @@
  * the real attribution function says so.
  */
 
-import type { SessionBinding } from '@podium/agent-runtime'
-import { STRIPPED_CODEX_CREDENTIALS } from '@podium/agent-runtime'
-import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
-import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
-import type { AgentFrame, AgentSession } from '@podium/pty'
-import { asSessionId, type SessionId } from '@podium/model'
-import { scopeUnitName } from '@podium/pty'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { OpencodeJournal, OpencodeJournalEntry, SessionBinding } from '@podium/agent-runtime'
+import { STRIPPED_CODEX_CREDENTIALS } from '@podium/agent-runtime'
+import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
+import { asSessionId, type SessionId } from '@podium/model'
+import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
+import type { AgentFrame, AgentSession } from '@podium/pty'
+import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AppliedGeometryRecord } from '../control/applied-geometry'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
+  CLIENT_TERMINAL_INPUT_MAX_BYTES,
+  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
   type ClientTerminalKind,
   clientTerminalLabel,
   codexAttachLabel,
   createOpencodeClientTerminals,
-  CLIENT_TERMINAL_INPUT_MAX_BYTES,
-  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
   grokAttachLabel,
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
 import { createOpencodeHost, opencodeScopeLabel, STRIPPED_PROVIDER_KEYS } from './opencode-server'
-import type { OpencodeJournal, OpencodeJournalEntry } from '@podium/agent-runtime'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
@@ -131,6 +131,9 @@ interface HarnessOptions {
   /** Browser/replay history already owned by a master that survived the daemon. */
   priorFrames?: { streamId: string; data: Uint8Array }[]
   spawnError?: Error
+  /** The daemon's applied-size record (POD-3290), when a test cares what this
+   *  attach wrote into it. */
+  appliedGeometry?: AppliedGeometryRecord
 }
 
 interface Harness {
@@ -140,7 +143,6 @@ interface Harness {
     args: string[]
     env?: Record<string, string>
     stripEnv?: readonly string[]
-    preserveReplayOnAdopt?: boolean
   }[]
   reclaimed: string[]
   released: string[]
@@ -163,6 +165,7 @@ function harness(opts: HarnessOptions = {}) {
     fire: () => {},
   }
   const terminals = createOpencodeClientTerminals({
+    ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     releaseStream: (streamId) => state.released.push(streamId),
     spawn: async (o) => {
@@ -172,7 +175,6 @@ function harness(opts: HarnessOptions = {}) {
         args: o.args ?? [],
         ...(o.env ? { env: o.env } : {}),
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
-        ...(o.preserveReplayOnAdopt ? { preserveReplayOnAdopt: true } : {}),
       })
       if (opts.spawnError) throw opts.spawnError
       const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
@@ -468,10 +470,6 @@ describe('the client terminal a server-family attach produces', () => {
 
     terminals.adopt(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
-    // Production PTY adoption suppresses its pre-adoption repaint only when
-    // this server-family capability crosses the injected spawn seam.
-    expect(state.spawns[0]?.preserveReplayOnAdopt).toBe(true)
-
     // SessionTerminal performs this nudge after replaying retained bytes to a
     // newly attached browser. Adoption must ACK it without a TUI repaint.
     expect(terminals.redraw(SESSION)).toBe(true)
@@ -1533,5 +1531,101 @@ describe('the session’s lifecycle owns its attachment', () => {
     const endpoint = await host.adopt(binding)
     await endpoint?.kill()
     expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+  })
+})
+
+/**
+ * THE ONE APPLY SITE OUTSIDE `control/session.ts` (POD-3290).
+ *
+ * Opening a client terminal is the daemon really putting a session at a size,
+ * and nothing outside this module can see it happen — so this is where that
+ * fact enters the applied-size record every daemon size report reads from.
+ */
+describe('opening a client terminal is what records an applied size', () => {
+  it('records the size it OPENED the client at', async () => {
+    const appliedGeometry = new AppliedGeometryRecord()
+    const { terminals } = harness({ appliedGeometry })
+    // ARMED: nothing is recorded until the attach actually spawns.
+    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // `DEFAULT_GEOMETRY` — the readable birth size a client is created at. It is
+    // in the record because it was APPLIED, which is what separates it from the
+    // identical-looking 120x40 the server-family binds used to invent.
+    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })
+  })
+
+  it('records NOTHING when it adopted a master that was already running', async () => {
+    const appliedGeometry = new AppliedGeometryRecord()
+    const { terminals } = harness({ appliedGeometry, adopted: true })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // An adopted master survived this daemon at a size of its own. Recording the
+    // birth geometry here would invent a size for a terminal nobody sized.
+    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+  })
+
+  it('forgets the size when the terminal it belonged to is closed', async () => {
+    const appliedGeometry = new AppliedGeometryRecord()
+    const { terminals } = harness({ appliedGeometry })
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })
+
+    await terminals.close(SESSION)
+
+    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+  })
+})
+
+describe('under backend=host the client terminal lives in the host, not abduco (SPEC-6)', () => {
+  it('spawn, the master probe and reclaim all go to the daemon durable object', async () => {
+    const calls: string[] = []
+    const client = fakeClient()
+    const hostAdapter = {
+      kind: 'host' as const,
+      spawn: async (o: { label: string }) => {
+        calls.push(`spawn:host:${o.label}`)
+        return client
+      },
+      attach: async () => {
+        throw new Error('not used')
+      },
+      has: async () => true,
+      kill: async (label: string) => {
+        calls.push(`kill:host:${label}`)
+      },
+      list: async () => [],
+      socketPath: async () => undefined,
+      waitForSocket: async () => '',
+      hasMasterSync: (label: string) => {
+        calls.push(`probe:host:${label}`)
+        return true
+      },
+      attachCommand: (t: string) => `podium-host attach ${t}`,
+    }
+    const durable = {
+      backend: 'host' as const,
+      primary: hostAdapter,
+      all: [hostAdapter],
+      spawn: hostAdapter.spawn,
+      locate: async () => undefined,
+      has: hostAdapter.has,
+      kill: hostAdapter.kill,
+      list: hostAdapter.list,
+      hasMasterSync: hostAdapter.hasMasterSync,
+    }
+    const terminals = createOpencodeClientTerminals({
+      durable,
+      frames: () => {},
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    await terminals.attach({ sessionId: SESSION, target })
+    await terminals.close(SESSION) // a live record is reclaimed without a probe
+    terminals.adopt(SESSION) // an adoption holds no session and probes by label
+    const label = opencodeAttachLabel(SESSION)
+    expect(calls).toEqual([`spawn:host:${label}`, `kill:host:${label}`, `probe:host:${label}`])
   })
 })

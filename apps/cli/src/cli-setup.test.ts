@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
+import { NETWORK_OPTIONS } from '@podium/runtime/setup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   repairConfig,
@@ -11,8 +12,18 @@ import {
   runVpsSetup,
   shouldRunCliSetup,
 } from './cli-setup'
+import { scriptedIO } from './setup-ui'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
+
+/** The reachability `select` hands back the whole NETWORK_OPTIONS entry, so a scripted
+ *  answer names one by index: 0 = Tailscale Funnel, 3 = manual reverse proxy. */
+const net = (i: number) => NETWORK_OPTIONS[i]
+/** A backend stub that never spawns a process and echoes the persistence it was asked for. */
+const echoBackend = async (o: { persistence: 'systemd' | 'detached' }) => ({
+  effectivePersistence: o.persistence,
+  message: '',
+})
 
 describe('shouldRunCliSetup (when `podium setup` launches the terminal flow)', () => {
   it('does not launch setup for a bare `podium` on an already-configured box', () => {
@@ -53,39 +64,33 @@ describe('runCliSetup', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  const run = (answers: string[], setPw: () => Promise<void> = vi.fn(async () => {})) => {
-    let i = 0
-    return runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
-      setPassword: setPw,
-      // Stub the backend starter so tests never spawn processes; echo the requested persistence.
-      startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-      waitForEnrollment: async () => {},
-    })
+  // One ordered answer queue per run, in the order an operator would give them. Returns the
+  // scripted IO so a test can also assert on what was asked and what was printed.
+  const start = (answers: unknown[], setPw: () => Promise<void> = vi.fn(async () => {})) => {
+    const s = scriptedIO(answers)
+    return {
+      ...s,
+      done: runCliSetup(s.io, 18787, {
+        setPassword: setPw,
+        startBackend: echoBackend,
+        waitForEnrollment: async () => {},
+      }),
+    }
   }
+  const run = (answers: unknown[], setPw: () => Promise<void> = vi.fn(async () => {})) =>
+    start(answers, setPw).done
 
   describe('first run (mode menu)', () => {
     it('sets up a fresh VPS directly as all-in-one without asking topology or telemetry', async () => {
-      const prompts: string[] = []
-      let index = 0
-      const answers = ['1', 'https://vps.ts.net', 's3cret', '']
       const startBackend = vi.fn(async () => ({
         effectivePersistence: 'systemd' as const,
         message: 'started',
       }))
+      const { io, prompts } = scriptedIO([net(0), 'https://vps.ts.net', 's3cret', true])
 
-      await runVpsSetup(
-        {
-          prompt: async (question) => {
-            prompts.push(question)
-            return answers[index++] ?? ''
-          },
-          print: () => {},
-        },
-        18787,
-        { setPassword: vi.fn(async () => {}), startBackend },
-      )
+      await runVpsSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend })
 
-      expect(prompts).not.toContain('Choose (blank to cancel): ')
+      expect(prompts).not.toContain('What do you want this machine to do?')
       expect(prompts.some((prompt) => prompt.includes('telemetry'))).toBe(false)
       expect(loadConfig()).toMatchObject({
         mode: 'all-in-one',
@@ -101,14 +106,13 @@ describe('runCliSetup', () => {
     })
 
     it('restarts once against the effective config when systemd falls back to detached', async () => {
-      const answers = ['1', 'https://vps.ts.net', 's3cret', '']
-      let index = 0
       const startBackend = vi
         .fn()
         .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'fallback' })
         .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'ready' })
 
-      await runVpsSetup({ prompt: async () => answers[index++] ?? '', print: () => {} }, 18787, {
+      const { io } = scriptedIO([net(0), 'https://vps.ts.net', 's3cret', true])
+      await runVpsSetup(io, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend,
         waitForEnrollment: async () => {},
@@ -127,9 +131,44 @@ describe('runCliSetup', () => {
       expect(loadConfig().persistence).toBe('detached')
     })
 
+    it('under activateImmediately the backend FIRST BOOTS against a config that already names the persistence', async () => {
+      // The defect this pins, found end-to-end on two containers: `podium install-finish`
+      // configured a hub, started it, and printed "Installed." — while /readiness answered
+      // `activation_pending / restart_required` with the data plane BLOCKED and
+      // `stale: ["persistence"]`, because the value was written after the process it
+      // configures had already booted. Minting a join code on the new hub returned
+      // `server_not_ready`. A one-paste install must not need a restart to work.
+      //
+      // Asserted at the MOMENT OF THE CALL, not afterwards: the end state is identical either
+      // way, so a test that read the config after the flow would pass on the broken code.
+      let persistenceAtBoot: string | undefined
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => {
+        persistenceAtBoot = loadConfig().persistence
+        return { effectivePersistence: o.persistence, message: 'started' }
+      })
+      const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
+      await runCliSetup(io, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+        activateImmediately: true,
+      })
+      expect(persistenceAtBoot).toBe('systemd')
+    })
+
+    it('a plain `podium setup` does NOT pre-write it — that box is already running', async () => {
+      let persistenceAtBoot: string | undefined
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => {
+        persistenceAtBoot = loadConfig().persistence
+        return { effectivePersistence: o.persistence, message: 'started' }
+      })
+      const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
+      await runCliSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend })
+      expect(persistenceAtBoot).toBeUndefined()
+    })
+
     it('host a server here (all-in-one) → set URL then password', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', 's3cret', 'n'], setPw)
+      await run(['all-in-one', net(0), 'https://box.ts.net', 's3cret', false], setPw)
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
       expect(loadConfig().networkOption).toBe('tailscale-funnel')
@@ -138,7 +177,7 @@ describe('runCliSetup', () => {
     })
 
     it('host the relay only (server) persists mode=server', async () => {
-      await run(['2', '1', 'https://relay.ts.net', '', 'open', 'y'])
+      await run(['server', net(0), 'https://relay.ts.net', '', true, true])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
       expect(loadConfig().networkOption).toBe('tailscale-funnel')
@@ -147,7 +186,7 @@ describe('runCliSetup', () => {
 
     it('a blank password leaves the host open only after explicit confirmation', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', '', 'open', 'n'], setPw)
+      await run(['all-in-one', net(0), 'https://box.ts.net', '', true, false], setPw)
       expect(setPw).not.toHaveBeenCalled()
     })
 
@@ -156,9 +195,33 @@ describe('runCliSetup', () => {
         effectivePersistence: o.persistence,
         message: 'ok',
       }))
-      let i = 0
-      const answers = ['1', '1', 'https://box.ts.net', 's3cret', ''] // blank persistence → systemd
-      await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+      // `undefined` = the operator pressed Enter without choosing, so the confirm's
+      // initialValue (systemd, the recommended option) stands.
+      const { io } = scriptedIO(['all-in-one', net(0), 'https://box.ts.net', 's3cret', undefined])
+      await runCliSetup(io, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+        waitForEnrollment: async () => {},
+      })
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'systemd',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+      expect(loadConfig().persistence).toBe('systemd')
+    })
+
+    it('a CANCEL at the persistence question keeps the recommended systemd path', async () => {
+      // The config is already written by the time this is asked, so the backend has to start
+      // one way or the other. Ctrl-C here must not silently downgrade to detached, which
+      // would leave a machine that quietly fails to come back after a reboot.
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
+        effectivePersistence: o.persistence,
+        message: 'ok',
+      }))
+      // Queue ends before the persistence confirm — the scripted stand-in for Ctrl-C.
+      const { io } = scriptedIO(['all-in-one', net(0), 'https://box.ts.net', 's3cret'])
+      await runCliSetup(io, 18787, {
         setPassword: vi.fn(async () => {}),
         startBackend,
         waitForEnrollment: async () => {},
@@ -172,31 +235,15 @@ describe('runCliSetup', () => {
     })
 
     it('labels blank password as the no-password confirmation path', async () => {
-      const prompts: string[] = []
-      let i = 0
-      const answers = ['1', '1', 'https://box.ts.net', '', 'open', 'n']
-      await runCliSetup(
-        {
-          prompt: async (q) => {
-            prompts.push(q)
-            return answers[i++] ?? ''
-          },
-          print: () => {},
-        },
-        18787,
-        {
-          setPassword: vi.fn(async () => {}),
-          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-          waitForEnrollment: async () => {},
-        },
-      )
-      expect(prompts).toContain('Password (recommended; blank starts no-password confirmation): ')
-      expect(prompts).toContain('Type "open" to run without a password: ')
+      const { prompts, done } = start(['all-in-one', net(0), 'https://box.ts.net', '', true, false])
+      await done
+      expect(prompts).toContain('Password (leave blank to run without one)')
+      expect(prompts).toContain('Run without a password?')
     })
 
     it('re-prompts for a password when no-password confirmation is not typed', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', '', 'no', 's3cret', 'n'], setPw)
+      await run(['all-in-one', net(0), 'https://box.ts.net', '', false, 's3cret', false], setPw)
       expect(setPw).toHaveBeenCalledWith('s3cret')
     })
 
@@ -212,9 +259,9 @@ describe('runCliSetup', () => {
         effectivePersistence: o.persistence,
         message: '',
       }))
-      let i = 0
-      const answers = ['3', token, 'n'] // join, then decline systemd → detached
-      await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+      // join, then decline systemd → detached
+      const { io } = scriptedIO(['daemon', token, false])
+      await runCliSetup(io, 18787, {
         setPassword: setPw,
         startBackend,
         waitForEnrollment: async () => {},
@@ -232,26 +279,40 @@ describe('runCliSetup', () => {
     })
 
     it('a blank join code cancels without writing config', async () => {
-      await run(['3', ''])
+      await run(['daemon'])
       expect(loadConfig().mode).toBeUndefined()
     })
 
     it('re-prompts on an invalid URL', async () => {
-      await run(['1', '1', 'nope', 'https://box.ts.net', 'pw', 'n'])
+      await run(['all-in-one', net(0), 'nope', 'https://box.ts.net', 'pw', false])
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     })
 
     it('Ctrl-C/EOF during the password step leaves the box UNCONFIGURED (#21)', async () => {
       // URL was pasted, then stdin only ever yields '' (EOF): no password, no explicit
       // "open" ack → the flow must abort WITHOUT writing mode/publicUrl.
-      await run(['1', '1', 'https://box.ts.net'])
+      await run(['all-in-one', net(0), 'https://box.ts.net'])
       expect(loadConfig()).toEqual({})
     })
 
     it('declining the no-password ack repeatedly aborts without saving (#21)', async () => {
       const setPw = vi.fn(async () => {})
       await run(
-        ['1', '1', 'https://box.ts.net', '', 'no', '', 'no', '', 'no', '', 'no', '', 'no'],
+        [
+          'all-in-one',
+          net(0),
+          'https://box.ts.net',
+          '',
+          false,
+          '',
+          false,
+          '',
+          false,
+          '',
+          false,
+          '',
+          false,
+        ],
         setPw,
       )
       expect(setPw).not.toHaveBeenCalled()
@@ -259,21 +320,13 @@ describe('runCliSetup', () => {
     })
 
     it('gives up (bounded) when the URL prompt only ever returns empty', async () => {
-      const out: string[] = []
-      let calls = 0
-      await runCliSetup(
-        {
-          prompt: async () => {
-            calls++
-            return calls === 1 ? '1' : '' // pick all-in-one, then never paste a URL
-          },
-          print: (s) => out.push(s),
-        },
-        18787,
-      )
+      // Pick all-in-one and a network option, then never paste a URL. The queue drains,
+      // which is the scripted stand-in for Ctrl-C, and the flow must END rather than spin —
+      // the condition readline could only report as '' forever.
+      const { output, done } = start(['all-in-one', net(0), '', '', ''])
+      await done
       expect(loadConfig().publicUrl).toBeUndefined()
-      expect(calls).toBeLessThan(50)
-      expect(out.join('\n')).toContain('giving up')
+      expect(output.join('\n')).toContain('nothing saved')
     })
   })
 
@@ -334,17 +387,10 @@ describe('runCliSetup', () => {
   describe('corrupt config protection + --repair (#21)', () => {
     it('runCliSetup refuses to walk the flow over an existing-but-invalid config', async () => {
       writeFileSync(join(dir, 'config.json'), '{not json')
-      const out: string[] = []
-      const prompt = vi.fn(async () => '1')
-      await runCliSetup({ prompt, print: (s) => out.push(s) }, 18787, {
-        setPassword: vi.fn(async () => {}),
-        startBackend: vi.fn(async () => ({
-          effectivePersistence: 'systemd' as const,
-          message: '',
-        })),
-      })
-      expect(out.join('\n')).toContain('--repair')
-      expect(prompt).not.toHaveBeenCalled() // bailed before any prompt
+      const { output, prompts, done } = start(['all-in-one'])
+      await done
+      expect(output.join('\n')).toContain('--repair')
+      expect(prompts).toEqual([]) // bailed before asking anything
       expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe('{not json') // untouched
     })
 
@@ -375,7 +421,7 @@ describe('runCliSetup', () => {
 
     it('change the login password only (option 5), leaving the URL', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['5', 'rotated-pw'], setPw)
+      await run(['password', 'rotated-pw'], setPw)
       expect(setPw).toHaveBeenCalledWith('rotated-pw')
       expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
@@ -386,7 +432,7 @@ describe('runCliSetup', () => {
       // The trailing CHANGE is the confirmation a REPLACEMENT now asks for: this
       // box already has a URL, and every machine that joined at it is about to be
       // stranded (PDM-26).
-      await run(['4', '1', 'https://new.ts.net', 'CHANGE'], setPw)
+      await run(['url', net(0), 'https://new.ts.net', 'CHANGE'], setPw)
       expect(loadConfig().publicUrl).toBe('https://new.ts.net')
       expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(loadConfig().mode).toBe('all-in-one')
@@ -395,20 +441,20 @@ describe('runCliSetup', () => {
 
     it('switch an existing host to daemon by pasting a join code', async () => {
       const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'EFGH-5678' })
-      await run(['3', token])
+      await run(['daemon', token])
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().serverUrl).toBe('wss://relay.example')
     })
 
     it('a blank menu choice changes nothing', async () => {
-      await run([''])
+      await run([])
       expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
     })
 
     it('change telemetry only (option 6), leaving mode/URL/password alone', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['6', 'y', 'n'], setPw)
+      await run(['telemetry', true, false], setPw)
       expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'off' })
       expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
@@ -420,30 +466,26 @@ describe('runCliSetup', () => {
   // Telemetry step [spec:SP-f933]
   // ------------------------------------------------------------------
   describe('telemetry step (the last step of the host flow)', () => {
-    const HOST_ANSWERS = ['1', '1', 'https://box.ts.net', 's3cret', 'n']
+    const HOST_ANSWERS: unknown[] = ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false]
 
     it('is reached only AFTER the install works (step 8)', async () => {
       const order: string[] = []
-      const answers = [...HOST_ANSWERS, 'y', 'y']
-      let i = 0
-      await runCliSetup(
-        {
-          prompt: async (q) => {
-            if (q.includes('systemd')) order.push('persistence')
-            if (q.includes('usage reports')) order.push('telemetry')
-            return answers[i++] ?? ''
-          },
-          print: () => {},
+      const s = scriptedIO([...HOST_ANSWERS, true, true])
+      const io = {
+        ...s.io,
+        confirm: async (o: { message: string; initialValue?: boolean }) => {
+          if (o.message.includes('systemd')) order.push('persistence')
+          if (o.message.includes('usage reports')) order.push('telemetry')
+          return s.io.confirm(o)
         },
-        18787,
-        {
-          setPassword: vi.fn(async () => {}),
-          startBackend: async (o) => {
-            order.push('startBackend')
-            return { effectivePersistence: o.persistence, message: '' }
-          },
+      }
+      await runCliSetup(io, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend: async (o) => {
+          order.push('startBackend')
+          return { effectivePersistence: o.persistence, message: '' }
         },
-      )
+      })
       // Telemetry is the last thing asked, and the backend is already up when
       // it is — which is exactly why consent must be read fresh at flush (D9).
       expect(order).toEqual(['persistence', 'startBackend', 'telemetry'])
@@ -451,22 +493,9 @@ describe('runCliSetup', () => {
     })
 
     it('shows the example report and the opt-out routes in the prompt', async () => {
-      const printed: string[] = []
-      let i = 0
-      const answers = [...HOST_ANSWERS, 'n', 'n']
-      await runCliSetup(
-        {
-          prompt: async () => answers[i++] ?? '',
-          print: (s) => printed.push(s),
-        },
-        18787,
-        {
-          setPassword: vi.fn(async () => {}),
-          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-          waitForEnrollment: async () => {},
-        },
-      )
-      const out = printed.join('\n')
+      const { output, done } = start([...HOST_ANSWERS, false, false])
+      await done
+      const out = output.join('\n')
       expect(out).toContain('Anonymous telemetry (opt-in)')
       expect(out).toContain('"installAge": "1-7d"')
       expect(out).toContain('podium telemetry off')
@@ -474,18 +503,18 @@ describe('runCliSetup', () => {
     })
 
     it('defaults to NO — Enter-Enter opts out of both', async () => {
-      await run([...HOST_ANSWERS, '', ''])
+      await run([...HOST_ANSWERS, false, false])
       expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'off' })
       expect(loadConfig().telemetry?.installId).toBeUndefined()
     })
 
     it('records an explicit off (which is not the same as never asked)', async () => {
-      await run([...HOST_ANSWERS, 'n', 'n'])
+      await run([...HOST_ANSWERS, false, false])
       expect(loadConfig().telemetry?.usage).toBe('off')
     })
 
     it('each tier is consented independently', async () => {
-      await run([...HOST_ANSWERS, 'n', 'y'])
+      await run([...HOST_ANSWERS, false, true])
       expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'on' })
     })
 
@@ -503,24 +532,8 @@ describe('runCliSetup', () => {
     it('DO_NOT_TRACK suppresses the PROMPT, not just the sending', async () => {
       process.env.DO_NOT_TRACK = '1'
       try {
-        const prompts: string[] = []
-        let i = 0
-        const answers = [...HOST_ANSWERS]
-        await runCliSetup(
-          {
-            prompt: async (q) => {
-              prompts.push(q)
-              return answers[i++] ?? ''
-            },
-            print: () => {},
-          },
-          18787,
-          {
-            setPassword: vi.fn(async () => {}),
-            startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-            waitForEnrollment: async () => {},
-          },
-        )
+        const { prompts, done } = start([...HOST_ANSWERS])
+        await done
         expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
         // Not even an 'off' is written: we never asked, so we record nothing.
         expect(loadConfig().telemetry).toBeUndefined()
@@ -533,7 +546,7 @@ describe('runCliSetup', () => {
     it('PODIUM_TELEMETRY=off suppresses the prompt too', async () => {
       process.env.PODIUM_TELEMETRY = 'off'
       try {
-        await run([...HOST_ANSWERS, 'y', 'y'])
+        await run([...HOST_ANSWERS, true, true])
         expect(loadConfig().telemetry).toBeUndefined()
       } finally {
         delete process.env.PODIUM_TELEMETRY
@@ -542,24 +555,8 @@ describe('runCliSetup', () => {
 
     it('the JOIN path is never prompted (D10 — the hub decided)', async () => {
       const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
-      const prompts: string[] = []
-      let i = 0
-      const answers = ['3', token, 'n']
-      await runCliSetup(
-        {
-          prompt: async (q) => {
-            prompts.push(q)
-            return answers[i++] ?? ''
-          },
-          print: () => {},
-        },
-        18787,
-        {
-          setPassword: vi.fn(async () => {}),
-          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-          waitForEnrollment: async () => {},
-        },
-      )
+      const { prompts, done } = start(['daemon', token, false])
+      await done
       expect(loadConfig().mode).toBe('daemon')
       expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
       expect(loadConfig().telemetry).toBeUndefined()
@@ -576,23 +573,15 @@ describe('runCliSetup', () => {
     })
 
     it('the telemetry menu entry is host-only', async () => {
-      const printed: string[] = []
-      await runCliSetup({ prompt: async () => '', print: (s) => printed.push(s) }, 18787, {
-        setPassword: vi.fn(async () => {}),
-        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-        waitForEnrollment: async () => {},
-      })
-      // Fresh box (no mode): no host-only entries at all.
-      expect(printed.join('\n')).not.toContain('Change telemetry')
+      // Fresh box (no mode): the host-only entries are not OFFERED at all.
+      const fresh = start([])
+      await fresh.done
+      expect(fresh.prompts.join('\n')).not.toContain('Change telemetry')
 
       saveConfig({ mode: 'all-in-one', publicUrl: 'https://x.ts.net' })
-      const hostPrinted: string[] = []
-      await runCliSetup({ prompt: async () => '', print: (s) => hostPrinted.push(s) }, 18787, {
-        setPassword: vi.fn(async () => {}),
-        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-        waitForEnrollment: async () => {},
-      })
-      expect(hostPrinted.join('\n')).toContain('6) Change telemetry')
+      const host = start([])
+      await host.done
+      expect(host.prompts.join('\n')).toContain('Change telemetry')
     })
   })
 })
@@ -614,27 +603,22 @@ describe('runCliSetup under a deployment that owns the answers', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  const run = (answers: string[], deps: Record<string, unknown> = {}) => {
-    let i = 0
-    const out: string[] = []
+  const run = (answers: unknown[], deps: Record<string, unknown> = {}) => {
+    const s = scriptedIO(answers)
     return {
-      out,
-      done: runCliSetup(
-        { prompt: async () => answers[i++] ?? '', print: (s) => out.push(s) },
-        18787,
-        {
-          setPassword: vi.fn(async () => {}),
-          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-          waitForEnrollment: async () => {},
-          ...deps,
-        },
-      ),
+      out: s.output,
+      done: runCliSetup(s.io, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend: echoBackend,
+        waitForEnrollment: async () => {},
+        ...deps,
+      }),
     }
   }
 
   it('refuses the mode menu items under PODIUM_MODE, before asking anything else', async () => {
     vi.stubEnv('PODIUM_MODE', 'server')
-    const { out, done } = run(['1'])
+    const { out, done } = run(['all-in-one'])
     await done
     expect(out.join('\n')).toMatch(/PODIUM_MODE is set in this deployment's environment/)
     expect(loadConfig().mode).toBeUndefined()
@@ -643,7 +627,7 @@ describe('runCliSetup under a deployment that owns the answers', () => {
   it('refuses the URL edit under PODIUM_PUBLIC_URL', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
     vi.stubEnv('PODIUM_PUBLIC_URL', 'https://forced.example')
-    const { out, done } = run(['4'])
+    const { out, done } = run(['url'])
     await done
     expect(out.join('\n')).toMatch(/PODIUM_PUBLIC_URL is set in this deployment's environment/)
     expect(loadConfig().publicUrl).toBe('https://a.example')
@@ -652,7 +636,8 @@ describe('runCliSetup under a deployment that owns the answers', () => {
   it('asks before replacing a live public URL, and leaves it alone on a refusal', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
     // menu 4 → network option 4 (manual) → the new URL → the confirmation word
-    const { out, done } = run(['4', '4', 'https://b.example', 'no'])
+    // A blank confirmation is a refusal: the prompt says "leave blank to keep".
+    const { out, done } = run(['url', net(3), 'https://b.example', ''])
     await done
     expect(out.join('\n')).toMatch(/strands every machine that joined at the old URL/)
     expect(loadConfig().publicUrl).toBe('https://a.example')
@@ -660,21 +645,21 @@ describe('runCliSetup under a deployment that owns the answers', () => {
 
   it('replaces it when the operator types the word', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
-    const { done } = run(['4', '4', 'https://b.example', 'CHANGE'])
+    const { done } = run(['url', net(3), 'https://b.example', 'CHANGE'])
     await done
     expect(loadConfig().publicUrl).toBe('https://b.example')
   })
 
   it('--confirm-url-change answers the question ahead of a prompt that cannot be shown', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
-    const { done } = run(['4', '4', 'https://b.example'], { confirmUrlChange: true })
+    const { done } = run(['url', net(3), 'https://b.example'], { confirmUrlChange: true })
     await done
     expect(loadConfig().publicUrl).toBe('https://b.example')
   })
 
   it('re-pasting the SAME URL is never a change and is never questioned', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
-    const { out, done } = run(['4', '4', 'https://a.example'])
+    const { out, done } = run(['url', net(3), 'https://a.example'])
     await done
     expect(out.join('\n')).not.toMatch(/strands every machine/)
     expect(loadConfig().publicUrl).toBe('https://a.example')

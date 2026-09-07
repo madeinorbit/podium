@@ -73,6 +73,7 @@ import {
   readLatestOperation,
   retryUpdate,
   startUpdate,
+  type StartUpdateOutcome,
 } from './operations-client'
 import { computeTouched } from './touched'
 import {
@@ -126,7 +127,6 @@ export type PanelActionKind = PrimaryActionKind | 'cancel'
 
 export interface UseUpdateStateOptions {
   httpOrigin: string
-  needRefresh: boolean
   reload?: () => void | Promise<void>
   surface?: UpdateSurface
   serverName?: string
@@ -148,6 +148,8 @@ export interface UpdateStateResult {
   approveProposal: () => Promise<void>
   /** Every action goes through here, and every rejection comes back as view state. */
   run: (kind: PanelActionKind) => Promise<void>
+  /** Refresh polled facts without a manual update check or desktop feed check. */
+  refreshState: () => void
   checkNow: () => Promise<void>
   /** The user has seen a terminal outcome: stop showing it (see `acknowledge`). */
   acknowledge: () => void
@@ -472,6 +474,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
   const [pending, setPending] = useState<PanelActionKind | null>(null)
+  const generation = useRef(0)
+  const awaitingObservation = useRef(false)
+  const recoveryWithoutId = useRef(false)
+  const actionBaseline = useRef<{ latestId: string | null | undefined; startedAt: number }>({
+    latestId: undefined,
+    startedAt: 0,
+  })
+  const [observationWait, setObservationWait] = useState(false)
   const [proposal, setProposal] = useState<ReleaseProposal | null | undefined>()
   const [proposalPending, setProposalPending] = useState(false)
   const [proposalError, setProposalError] = useState<string | undefined>()
@@ -534,9 +544,31 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     )
   }
 
-  const active = isOperationActive(live) || proposal?.state === 'building'
+  const foldObservedOperation = useCallback((op: Operation | null, at: number): void => {
+    if (op) {
+      watched.current.add(op.id)
+      rememberWatched(op.id, at)
+    }
+    noteActiveUpdate(isOperationActive(op), at)
+    setOperation(op)
+    setNow(at)
+  }, [])
+
+  useEffect(() => {
+    if (!observationWait) return
+    const timer = window.setTimeout(() => {
+      awaitingObservation.current = false
+      setObservationWait(false)
+      setPending(null)
+      setActionError({ message: 'The update could not be confirmed. Try again.' })
+    }, 90_000)
+    return () => window.clearTimeout(timer)
+  }, [observationWait])
+
+  const active = isOperationActive(live) || proposal?.state === 'building' || observationWait
 
   const query = usePolledQuery<{
+    generation: number
     operation: Operation | null | undefined
     latest: Operation | null | undefined
     fleet: UpdateFleetState | undefined
@@ -550,13 +582,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // rather than rejecting the batch, so an unreachable fleet never costs the
     // panel the operation it could read.
     read: async () => {
+      const observedGeneration = generation.current
       const live = await safelyReadOperation(() => readActiveOperation(trpc))
       const [latest, fleet, serverRaw, buildRaw, proposal] = await Promise.all([
         // The OUTCOME, which `active` cannot carry: it filters terminal states
         // out by design, so "done" and "failed" would blink out of existence at
         // the moment they became true. Only asked when nothing is running.
         live === null
-          ? safelyReadOperation(() => readLatestOperation(trpc))
+          ? safelyReadOperation(() => readLatestOperation(trpc, 'update'))
           : Promise.resolve(undefined),
         // The fleet snapshot only feeds the OFFER's place rows. While an
         // operation exists the operation's own steps say where it is, so this
@@ -572,7 +605,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           return raw === null ? null : ReleaseProposalSchema.parse(raw)
         }),
       ])
-      return { operation: live, latest, fleet, serverRaw, buildRaw, proposal }
+      return {
+        generation: observedGeneration,
+        operation: live,
+        latest,
+        fleet,
+        serverRaw,
+        buildRaw,
+        proposal,
+      }
     },
     /**
      * A READING THE PANEL ASKED FOR AND DID NOT GET (POD-3224 follow-up).
@@ -605,7 +646,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
-    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw, proposal }) => {
+    onData: ({
+      generation: observedGeneration,
+      operation: live,
+      latest,
+      fleet,
+      serverRaw,
+      buildRaw,
+      proposal,
+    }) => {
       const at = clock()
       /**
        * WHICH ARMS ANSWERED (POD-3224).
@@ -630,30 +679,30 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         build: buildRaw === undefined ? 'unread' : 'read',
         proposal: proposal === undefined ? 'unread' : (proposal?.state ?? 'none'),
       })
-      if (live) {
-        watched.current.add(live.id)
-        rememberWatched(live.id, at)
+      if (observedGeneration === generation.current) {
+        if (live !== undefined) foldObservedOperation(live, at)
+        if (latest !== undefined) setLatest(latest)
+        if (awaitingObservation.current && recoveryWithoutId.current && live === null && latest) {
+          const baseline = actionBaseline.current
+          // A new lifecycle history row can be the entire update after a cut
+          // answer. Do not turn an already-known completion into fresh news.
+          const newHistory =
+            latest.id !== baseline.latestId &&
+            (baseline.latestId !== undefined ||
+              (latest.createdAt ?? latest.startedAt ?? -Infinity) >= baseline.startedAt)
+          if (newHistory && isOperationTerminal(latest)) {
+            watched.current.add(latest.id)
+            rememberWatched(latest.id, at)
+          }
+        }
+        // A successful active read, or a complete active+history "none", is
+        // authoritative. Failed history cannot lose a fast terminal outcome.
+        if (awaitingObservation.current && (live || (live === null && latest !== undefined))) {
+          awaitingObservation.current = false
+          setObservationWait(false)
+          setPending(null)
+        }
       }
-      /**
-       * THE ONE FACT A PAGE CANNOT ASK FOR ONCE IT NEEDS IT (POD-2762).
-       *
-       * When the server stops answering, the chunk-recovery path has to decide
-       * how patient to be, and the only thing that could tell it — "is this a
-       * handover or is something wrong?" — is the server that has just gone
-       * quiet. This poll is where that was last knowable, so it leaves the
-       * answer somewhere a code path with no store, no context and no socket
-       * can still read it.
-       *
-       * Only on an arm that actually ANSWERED: `undefined` means the read
-       * failed, and a failed read is not evidence that nothing is running. It
-       * would be exactly the wrong moment to conclude that, because a read
-       * failing is the first sign of the outage this fact exists to explain.
-       */
-      if (live !== undefined) noteActiveUpdate(isOperationActive(live), at)
-      // A failed arm is not a negative answer. Keep the last fact — including
-      // the initial unknown — until that arm itself succeeds.
-      if (live !== undefined) setOperation(live)
-      if (latest !== undefined) setLatest(latest)
       if (serverRaw !== undefined) {
         const next = parseServerVersion(serverRaw)
         // WHAT THE SERVER IS SERVING, when it moves. This is the fact behind
@@ -671,6 +720,27 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   })
 
   const refresh = query.refresh
+
+  const acceptStartOutcome = useCallback(
+    (outcome?: StartUpdateOutcome): void => {
+      generation.current += 1
+      if (outcome?.operationId) {
+        watched.current.add(outcome.operationId)
+        rememberWatched(outcome.operationId, clock())
+      }
+      if (outcome?.operation) {
+        foldObservedOperation(outcome.operation, clock())
+      } else {
+        recoveryWithoutId.current = !outcome?.operationId
+        awaitingObservation.current = true
+        setObservationWait(true)
+        // Idle recovery changes cadence and reads immediately. Already-active
+        // polling needs an explicit post-action read, even if an old read hangs.
+        if (active) refresh()
+      }
+    },
+    [active, clock, foldObservedOperation, refresh],
+  )
 
   // THE RENDER CLOCK. Only while something is moving: a panel showing an offer
   // has nothing that ages, and a timer running against a still surface is the
@@ -758,7 +828,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     touched.app = false
     touched.phone = false
   }
-  if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
+  if (desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const offerInput: UpdateInput = {
     localVersion,
@@ -792,8 +862,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * THE ONE LOCAL FACT (§3.5). Deliberately about the build running THIS PAGE —
    * `pageBuildVersion()` reads the page's own meta tag — and not about the
    * served dist, which is the server's business and is already a step of the
-   * operation. A service worker holding a newer build is the same fact arriving
-   * by another route.
+   * operation. Service-worker notifications only nudge a fresh poll; they do
+   * not establish that this page is stale.
    *
    * -------------------------------------------------------------------------
    * WHY THE SERVED BUNDLE IS ONE OF THE REASONS (POD-2721)
@@ -827,7 +897,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   )?.target
   const operationTargetVersion = operationTarget?.version
   const behind =
-    options.needRefresh ||
     skew !== 'ok' ||
     assets === 'replaced' ||
     (operationTargetVersion !== undefined &&
@@ -906,11 +975,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   /**
    * THE PANEL'S INPUTS, WHENEVER THEY CHANGE (POD-3224, question 5).
    *
-   * Six independent facts decide what the panel says and what its button does,
-   * and until now an operator looking at a stuck panel could observe none of
-   * them. `needRefresh` in particular is a LATCH — the library sets it and only
-   * `hide()` clears it — so "the panel says Reload and the page is current" is a
-   * statement about which of these six disagreed, and it was unanswerable.
+   * Polled verdicts decide what the panel says and what its button does.
+   * The service-worker notification is only a poll nudge, never a verdict.
    *
    * TWO THINGS KEEP THIS OFF THE PER-SECOND WIRE, and both are deliberate:
    *
@@ -924,7 +990,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    *    the very transition the line exists for.
    */
   const inputsSignature = [
-    String(options.needRefresh),
     skew,
     assets,
     String(behind),
@@ -937,7 +1002,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const inputsFieldsRef = useRef<Record<string, unknown>>({})
   inputsFieldsRef.current = {
     surface,
-    needRefresh: options.needRefresh,
     skew,
     assets,
     behind,
@@ -1002,6 +1066,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
        * restart the update itself requested".
        */
       const startedAt = clock()
+      if (kind === 'start' || kind === 'retry') {
+        actionBaseline.current = { latestId: latest === null ? null : latest?.id, startedAt }
+      }
       updatesLog.info('update action started', {
         action: kind,
         surface,
@@ -1013,10 +1080,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       try {
         switch (kind) {
           case 'start':
-            await startUpdate(trpc, surface)
+            acceptStartOutcome(await startUpdate(trpc, surface))
             break
           case 'retry':
-            await retryUpdate(trpc, operationId)
+            acceptStartOutcome(await retryUpdate(trpc, operationId))
             break
           case 'cancel': {
             if (!operationId) break
@@ -1066,7 +1133,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           action: kind,
           elapsedMs: clock() - startedAt,
         })
-        refresh()
+        if (kind !== 'start' && kind !== 'retry') refresh()
       } catch (error) {
         // EVERY rejection lands here. This is the catch the old `runAction`
         // never had: a refused `installUpdate` used to stop a spinner and say
@@ -1085,7 +1152,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
            * the write and never paint that expected handoff as a second,
            * contradictory failure; poll the operation that owns the progress.
            */
-          refresh()
+          acceptStartOutcome()
         } else {
           const actionError = toActionError(error)
           updatesLog.warn('update action failed', {
@@ -1098,14 +1165,16 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           setActionError(actionError)
         }
       } finally {
-        setPending(null)
+        if (!awaitingObservation.current) setPending(null)
         setDesktopProgress(undefined)
       }
     },
     [
+      acceptStartOutcome,
       clock,
       desktopChannel,
       expectedDesktopVersion,
+      latest,
       operationId,
       options.reload,
       refresh,
@@ -1190,6 +1259,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     approveProposal,
     run,
     checkNow,
+    refreshState: query.refresh,
     acknowledge,
   }
 }

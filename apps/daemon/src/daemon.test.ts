@@ -29,18 +29,19 @@ import {
 } from '@podium/protocol/daemon'
 import {
   abducoHasSession,
+  hostHasSession,
   isAbducoAvailable,
-  isTmuxAvailable,
+  isHostAvailable,
   killAbducoSession,
-  killTmuxServer,
+  killHostSession,
+  listLiveHostLabels,
   reapAbducoTestSessions,
-  tmuxHasSession,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
-import type { DaemonContext } from './control/context'
+import type { DaemonContext, DurableBackend } from './control/context'
 import { launchServerDriverSession, sessionHandlers } from './control/session'
 import {
   controlFrameByteLength,
@@ -53,6 +54,7 @@ import {
   startDaemon,
 } from './daemon'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { parseBackendArg } from './durable-backend'
 import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
@@ -82,6 +84,12 @@ afterAll(async () => {
   // Before the tmp rm below: unlinking a socket dir orphans its master forever.
   if (isAbducoAvailable()) {
     await reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+  }
+  if (isHostAvailable()) {
+    for (const label of await listLiveHostLabels()) {
+      const m = /^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/.exec(label)
+      if (m && Number(m[1]) === process.pid) await killHostSession(label)
+    }
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -290,8 +298,8 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      // direct Bun.Terminal path keeps these fixtures/assertions deterministic (no tmux dependency)
-      tmux: false,
+      // direct Bun.Terminal path keeps these fixtures/assertions deterministic
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
@@ -801,7 +809,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
@@ -901,7 +909,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1780,37 +1788,60 @@ describe('server-driver admission control path', () => {
 })
 
 describe('durable backend resolution', () => {
-  const both = { abduco: true, tmux: true }
-  const neither = { abduco: false, tmux: false }
+  const available = { abduco: true }
+  const neither = { abduco: false }
 
-  it('prefers abduco, falls back to tmux, then none', () => {
-    expect(resolveDurableBackend({}, both)).toBe('abduco')
-    expect(resolveDurableBackend({}, { abduco: false, tmux: true })).toBe('tmux')
+  it('prefers abduco, then none', () => {
+    expect(resolveDurableBackend({}, available)).toBe('abduco')
     expect(resolveDurableBackend({}, neither)).toBe('none')
   })
 
-  it('an explicit backend wins (operator intent, even over availability probes)', () => {
-    expect(resolveDurableBackend({ backend: 'tmux' }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ backend: 'none' }, both)).toBe('none')
-    expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
+  it('SPEC-6: prefers the host when it can be built, and PODIUM_DURABLE_BACKEND overrides the probe', () => {
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, {})).toBe('host')
+    expect(resolveDurableBackend({}, { host: false, abduco: true }, {})).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'abduco' })).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'none' })).toBe('none')
+    // A misspelt value is ignored (and warned about), not silently taken as none.
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'tmux' })).toBe('host')
+    // An explicit option outranks the environment.
+    expect(resolveDurableBackend({ backend: 'abduco' }, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'host' })).toBe('abduco')
+    expect(parseBackendArg(['--backend', 'host'])).toBe('host')
+    expect(parseBackendArg(['--backend=none'])).toBe('none')
+    expect(parseBackendArg(['--port', '1'])).toBeUndefined()
+    expect(() => parseBackendArg(['--backend', 'screen'])).toThrow(/--backend/)
   })
 
-  it('maps the legacy tmux boolean: true forces tmux, false forces none', () => {
-    expect(resolveDurableBackend({ tmux: true }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ tmux: false }, both)).toBe('none')
+  it('an explicit backend wins (operator intent, even over availability probes)', () => {
+    expect(resolveDurableBackend({ backend: 'none' }, available)).toBe('none')
+    expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
   })
 
   it('explains a none-backend per platform: expected on Windows, missing tools elsewhere', () => {
     expect(noDurableBackendWarning('win32')).toContain('ConPTY')
     expect(noDurableBackendWarning('win32')).not.toContain('abduco')
-    expect(noDurableBackendWarning('linux')).toContain('neither abduco nor tmux')
+    expect(noDurableBackendWarning('linux')).toContain('abduco not found')
     // Both wordings must state the consequence the operator cares about.
     expect(noDurableBackendWarning('win32')).toContain('survive')
     expect(noDurableBackendWarning('linux')).toContain('survive')
   })
 })
 
-describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
+
+/**
+ * SPEC-6 items 13–14: the survival suite runs against whichever durable host
+ * `PODIUM_DURABLE_BACKEND` names — abduco by default, our own podium-host when
+ * set to `host`. The claims differ where the hosts differ and say so inline.
+ */
+const DURABLE_BACKEND: Exclude<DurableBackend, 'none'> =
+  process.env.PODIUM_DURABLE_BACKEND === 'host' ? 'host' : 'abduco'
+const durableAvailable = (): boolean =>
+  DURABLE_BACKEND === 'host' ? isHostAvailable() : isAbducoAvailable()
+const hasDurable = (label: string): Promise<boolean> =>
+  DURABLE_BACKEND === 'host' ? hostHasSession(label) : abducoHasSession(label)
+const killDurable = (label: string): Promise<void> =>
+  DURABLE_BACKEND === 'host' ? killHostSession(label) : killAbducoSession(label)
+
+describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
   it('keeps the abduco session alive after the daemon closes, reattaches, and fails for a missing label', async () => {
     const sessionId = asSessionId(`ab-survive-${process.pid}`)
     const label = `podium-${sessionId}`
@@ -1833,7 +1864,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      backend: 'abduco',
+      backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -1852,7 +1883,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -1865,16 +1896,27 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
-      // so frames flow again from the re-attached client.
-      await waitFor(() =>
+      const framesFlow = (): boolean =>
         received.some(
           (m) =>
             m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
             m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
+        )
+      if (DURABLE_BACKEND === 'host') {
+        // SPEC-6 item 13: the bind after the re-bind carries the program's real
+        // size (the stage 5 record). The fresh-daemon case below is where the
+        // host's size-neutral reattach itself is pinned; this daemon still holds
+        // the bridge, and that path repaints as it always has.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.geometry).toEqual(G)
+      }
+      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
+      // so frames flow again from the re-attached client.
+      await waitFor(framesFlow)
 
       // A reattach for a label no backend knows → reattachFailed.
       const goneId = `ab-gone-${process.pid}`
@@ -1893,10 +1935,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Closing the daemon only kills the attach client — the session survives.
       daemonClosed = true
       await daemon.close()
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
     } finally {
       if (!daemonClosed) await daemon.close()
-      await killAbducoSession(label)
+      await killDurable(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1933,7 +1975,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
       agentRelay: { port: 0 },
-      backend: 'abduco' as const,
+      backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind: unknown, opts: { cwd: string }) => ({
         cmd: process.execPath,
@@ -1970,10 +2012,12 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+      // The program's last screen before the restart: the highest paint counter seen.
+      const lastPaintBefore = Math.max(...[...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1])))
 
-      // The daemon dies; the agent keeps running in its own abduco master.
+      // The daemon dies; the agent keeps running in its own durable host.
       await first.close()
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
 
       received.length = 0
       connected = nextConnection()
@@ -2003,7 +2047,26 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       const reattachBind = received.find(
         (m) => m.type === 'bind' && m.sessionId === sessionId,
       ) as Extract<DaemonMessage, { type: 'bind' }>
-      expect(reattachBind).not.toHaveProperty('geometry')
+      // …except that the host can READ the size the program is at, and says so:
+      // the real size, never the stale belief (SPEC-6 item 13).
+      if (DURABLE_BACKEND === 'host') expect(reattachBind.geometry).toEqual(G)
+      else expect(reattachBind).not.toHaveProperty('geometry')
+
+      if (DURABLE_BACKEND === 'host') {
+        // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server's log is empty after
+        // a deploy that restarted both halves, so it sends redraw{replayRequired}.
+        // The host replays its ring: the daemon emits the program's LAST SCREEN
+        // as it was before the restart — same paint counter, so the program was
+        // not signalled into painting a new one — and nothing else.
+        received.length = 0
+        send({ type: 'redraw', sessionId, replayRequired: true })
+        await waitFor(() => painted().includes(`paint=${lastPaintBefore} `))
+        await new Promise((r) => setTimeout(r, 500))
+        const paints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+        expect(Math.max(...paints)).toBe(lastPaintBefore)
+        expect(painted()).toContain(`cols=${G.cols} rows=${G.rows}`)
+        received.length = 0
+      }
 
       // The first viewport request is what moves it — and, because the master
       // signals the program on every resize packet, is also what repaints it.
@@ -2012,12 +2075,103 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await waitFor(() => painted().includes('cols=120 rows=45'))
     } finally {
       await (second ?? first).close()
-      await killAbducoSession(label)
+      await killDurable(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 40000)
 
-  it('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
+  it.skipIf(!isAbducoAvailable() || !isHostAvailable())(
+    'MIXED FLEET (SPEC-6 item 14): a session created under abduco reattaches after a restart onto the host backend',
+    async () => {
+      const sessionId = asSessionId(`ab-mixed-${process.pid}`)
+      const label = `podium-${sessionId}`
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const port = (wss.address() as { port: number }).port
+      const received: DaemonMessage[] = []
+      let serverSocket!: WS
+      const nextConnection = (): Promise<void> =>
+        new Promise<void>((r) => {
+          wss.once('connection', (ws) => {
+            serverSocket = ws
+            handshakeAndCollect(ws, received)
+            r()
+          })
+        })
+      const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+        const startedAt = Date.now()
+        while (!fn()) {
+          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+          await new Promise((r) => setTimeout(r, 20))
+        }
+      }
+      const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+      const painted = (): string =>
+        received
+          .filter(
+            (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+              m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map((f) => decode(f)))
+          .join('')
+      const base = {
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        agentRelay: { port: 0 },
+        discovery: { background: false, cachePath: ':memory:' },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+        launch: (_kind: unknown, opts: { cwd: string }) => ({
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cwd: opts.cwd,
+        }),
+      }
+      let connected = nextConnection()
+      const first = await startDaemon({ ...base, backend: 'abduco' })
+      await connected
+      let second: Awaited<ReturnType<typeof startDaemon>> | undefined
+      try {
+        send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+        await first.close()
+        expect(await abducoHasSession(label)).toBe(true)
+
+        // The machine switched hosts while the session was alive under abduco.
+        received.length = 0
+        connected = nextConnection()
+        second = await startDaemon({ ...base, backend: 'host' })
+        await connected
+        send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd: '/tmp',
+          lastKnownGeometry: G,
+        })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+        // It came back through abduco's adapter — and behaves as an abduco session.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.cmd).toContain('abduco -a')
+        expect(bind).not.toHaveProperty('geometry')
+        received.length = 0
+        send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+        await waitFor(() => painted().includes('cols=120 rows=45'))
+      } finally {
+        await (second ?? first).close()
+        await killAbducoSession(label)
+        await new Promise<void>((r) => wss.close(() => r()))
+      }
+    },
+    40000,
+  )
+
+  it.skipIf(DURABLE_BACKEND === 'host')('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
     // all kill a session's abduco ATTACH CLIENT. The master + agent live on in
     // their own scope, so the daemon must stay silent — a stray agentExit makes
@@ -2394,143 +2548,6 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
   }, 20000)
 })
 
-describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
-  it('keeps the tmux session alive after the daemon closes', async () => {
-    const sessionId = asSessionId(`survive-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    try {
-      serverSocket.send(
-        encode({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G }),
-      )
-      // wait for the daemon to confirm it bound the session
-      const start = Date.now()
-      while (!received.some((m) => m.type === 'bind' && m.sessionId === sessionId)) {
-        if (Date.now() - start > 5000) throw new Error('bind timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // closing the daemon only detaches the tmux client — the agent server survives.
-      await daemon.close()
-      expect(await tmuxHasSession(label)).toBe(true)
-    } finally {
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-
-  it('reattach re-binds to a live tmux session, and reports failure for a missing one', async () => {
-    const sessionId = asSessionId(`reattach-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
-    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
-      const startedAt = Date.now()
-      while (!fn()) {
-        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-    }
-    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-
-    try {
-      // Spawn a session so a real podium-<id> tmux server exists.
-      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
-      received.length = 0
-      send({
-        type: 'reattach',
-        sessionId,
-        durableLabel: label,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        lastKnownGeometry: G,
-      })
-      // The daemon re-binds: it replies with a fresh `bind` for this sessionId...
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // ...and frames flow again from the re-attached tmux client.
-      await waitFor(() =>
-        received.some(
-          (m) =>
-            m.type === 'agentFrameBatch' &&
-            m.sessionId === sessionId &&
-            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
-
-      // A reattach for a label that has no live tmux session → reattachFailed.
-      const goneId = `gone-${process.pid}`
-      send({
-        type: 'reattach',
-        sessionId: goneId,
-        durableLabel: `podium-${goneId}-missing`,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        lastKnownGeometry: G,
-      })
-      await waitFor(() =>
-        received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
-      )
-    } finally {
-      await daemon.close()
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-})
-
 describe('daemon conversation discovery', () => {
   it('background quick scan pushes the worker delta as conversationsChanged', async () => {
     // The periodic scan runs on the worker and emits a delta; conversationsChanged
@@ -2560,7 +2577,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -2610,7 +2627,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
@@ -2663,7 +2680,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: client,
@@ -2731,7 +2748,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       // No background loop, so the ONLY indexRefresh job is the on-demand scan.
@@ -2770,7 +2787,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
     })
@@ -2808,7 +2825,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
     })
@@ -2840,7 +2857,7 @@ describe('daemon memory breakdown', () => {
         bootstrapToken: 'test',
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         agentRelay: { port: 0 },
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         workerClient: inlineWorkerClient(),
@@ -2908,7 +2925,7 @@ describe('Codex identity receipt recovery', () => {
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
         bootstrapToken: 'test',
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
@@ -2982,7 +2999,7 @@ describe('agent state instrumentation', () => {
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       hooks: { port: 0, settingsDir },
@@ -3406,7 +3423,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:', homeDir },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })

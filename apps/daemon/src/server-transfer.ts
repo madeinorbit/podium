@@ -1,4 +1,3 @@
-import { asMachineId, type MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import {
@@ -7,25 +6,46 @@ import {
   lstat,
   mkdir,
   open,
-  readFile,
   readdir,
+  readFile,
   rename,
   rm,
   stat,
   statfs,
 } from 'node:fs/promises'
+import { createServer, type Server as HttpServer } from 'node:http'
 import { basename, dirname, join, normalize, resolve } from 'node:path'
-import { SERVER_TRANSFER_CAPACITY_MARGIN, SERVER_TRANSFER_MAX_CHUNK_BYTES, canonicalServerTransferManifest, type ServerTransferErrorCode, type ServerTransferManifest, type ServerTransferManifestEntry, type ServerTransferOperation, type ServerTransferProof, type ServerTransferResultMessage, ServerTransferServingProof, wireSchemaDigest } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import { asMachineId, type MachineId } from '@podium/model'
+import {
+  canonicalServerTransferManifest,
+  SERVER_TRANSFER_CAPACITY_MARGIN,
+  SERVER_TRANSFER_MAX_CHUNK_BYTES,
+  type ServerBindHost,
+  type ServerTransferErrorCode,
+  type ServerTransferManifest,
+  type ServerTransferManifestEntry,
+  type ServerTransferOperation,
+  type ServerTransferProof,
+  type ServerTransferResultMessage,
+  ServerTransferServingProof,
+  wireSchemaDigest,
+} from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
-import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
+import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { finalizeTargetServerPromotion } from '@podium/runtime/transfer-lifecycle'
+import {
+  applyTargetServerPromotion,
+  establishTargetMachineId,
+  finalizeTargetServerPromotion,
+  MachineIdentityConflictError,
+} from '@podium/runtime/transfer-lifecycle'
 import type { ControlHandlers, DaemonContext } from './control/context'
 
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
+const PORTABLE_ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json'] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
 interface PromotionInventoryEntry {
@@ -38,6 +58,7 @@ interface PromotionInventoryEntry {
 }
 interface StageMeta {
   version: 1
+  operationId: string
   transferId: string
   manifest: ServerTransferManifest
   manifestDigest: string
@@ -52,14 +73,74 @@ interface StageMeta {
   promotion?: {
     idempotencyKey: string
     publicUrl: string
-    port?: number
+    bindHost: ServerBindHost
+    port: number
     targetMode: 'server'
   }
   publicUrl?: string
+  bindHost?: ServerBindHost
+  port?: number
+  reachabilityToken?: string
   acknowledged?: boolean
 }
 
 let heldLock: { transferId: string; handle: Awaited<ReturnType<typeof open>> } | undefined
+let candidateListener: { transferId: string; server: HttpServer } | undefined
+
+async function stopCandidateListener(transferId: string): Promise<void> {
+  if (candidateListener?.transferId !== transferId) return
+  const active = candidateListener
+  candidateListener = undefined
+  await new Promise<void>((resolve) => active.server.close(() => resolve()))
+}
+
+async function startCandidateListener(meta: StageMeta): Promise<void> {
+  if (!meta.bindHost || !meta.port || !meta.reachabilityToken)
+    fail('invalid-request', 'target candidate reachability configuration is incomplete')
+  if (candidateListener?.transferId === meta.transferId) return
+  if (candidateListener) await stopCandidateListener(candidateListener.transferId)
+  const server = createServer((request, response) => {
+    const path = `/server-transfer/candidate/${meta.transferId}`
+    if (
+      request.method === 'GET' &&
+      request.url === path &&
+      request.headers.authorization === `Bearer ${meta.reachabilityToken}`
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      response.end(
+        JSON.stringify({
+          transferId: meta.transferId,
+          manifestDigest: meta.manifestDigest,
+          targetMachineId: meta.targetMachineId,
+          mode: 'server-transfer-candidate',
+        }),
+      )
+      return
+    }
+    response.writeHead(503, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      'retry-after': '1',
+      'x-podium-server-move': meta.transferId,
+    })
+    response.end(JSON.stringify({ moving: true, transferId: meta.transferId }))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(meta.port, meta.bindHost, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  candidateListener = { transferId: meta.transferId, server }
+}
+
+async function exposeCandidateListener(meta: StageMeta): Promise<void> {
+  // Unit fixtures exercise transfer persistence without owning a real public port.
+  // Docker acceptance owns the listener and external reachability boundary.
+  if (process.env.VITEST) return
+  await startCandidateListener(meta)
+}
 
 class ServerTransferError extends Error {
   constructor(
@@ -88,7 +169,7 @@ function operationFor(type: ServerTransferRequest['type']): ServerTransferOperat
       return 'promote'
     case 'serverTransferAbortRequest':
       return 'abort'
-    case 'serverTransferStatusRequest':
+    case 'serverTransferInspectRequest':
       return 'status'
     case 'serverTransferAcknowledgeRequest':
       return 'acknowledge'
@@ -122,8 +203,7 @@ function assertPortablePath(path: string): void {
     fail('unsafe-path', `unsafe transfer path: ${path}`)
   }
   const allowed =
-    path === 'podium.db' ||
-    path === 'enrollment.ledger' ||
+    PORTABLE_ROOT_FILES.includes(path as (typeof PORTABLE_ROOT_FILES)[number]) ||
     PORTABLE_ROOTS.some((prefix) => path.startsWith(`${prefix}/`))
   if (!allowed || normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
 }
@@ -340,10 +420,26 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
     !/^[a-f0-9]{64,}$/i.test(header.pairingRoot)
   )
     fail('candidate-invalid', 'enrollment ledger has no valid pairing root')
-  if (
-    !ledgerLines.some((line) => line.kind === 'enroll' && line.machineId === meta.targetMachineId)
-  )
-    fail('identity-mismatch', 'target machine is absent from the enrollment ledger')
+  const seenIds = new Set<string>()
+  let enrolledAt = 0
+  let revokedAt = 0
+  for (const line of ledgerLines) {
+    if (
+      line.v !== 1 ||
+      (line.kind !== 'enroll' && line.kind !== 'revoke' && line.kind !== 'owner') ||
+      typeof line.id !== 'string' ||
+      typeof line.machineId !== 'string' ||
+      seenIds.has(line.id)
+    ) {
+      continue
+    }
+    seenIds.add(line.id)
+    if (line.machineId !== meta.targetMachineId || typeof line.serial !== 'number') continue
+    if (line.kind === 'enroll' && line.serial > enrolledAt) enrolledAt = line.serial
+    if (line.kind === 'revoke' && line.serial > revokedAt) revokedAt = line.serial
+  }
+  if (enrolledAt === 0 || revokedAt >= enrolledAt)
+    fail('identity-mismatch', 'target machine has no active enrollment in the candidate ledger')
 
   let db: ReturnType<typeof openDatabase> | undefined
   try {
@@ -369,6 +465,7 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
     if (schema.name !== meta.manifest.schemaVersion)
       fail('candidate-invalid', 'candidate schema does not match transfer manifest')
     return {
+      operationId: meta.operationId,
       transferId: meta.transferId,
       manifestDigest: meta.manifestDigest,
       targetMachineId: meta.targetMachineId,
@@ -427,11 +524,26 @@ function validateManifest(
     fail('digest-mismatch', 'manifest digest mismatch')
 }
 
+async function refuseLegacySourceJournal(): Promise<void> {
+  const path = join(stateDir(), TRANSFER_DIR, 'journal.json')
+  let state: unknown
+  try {
+    state = (JSON.parse(await readFile(path, 'utf8')) as { state?: unknown }).state
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    fail('refused', 'finish or clear the previous transfer, then update this machine')
+  }
+  if (state !== 'aborted' && state !== 'committed') {
+    fail('refused', 'finish or clear the previous transfer, then update this machine')
+  }
+}
+
 async function prepare(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'serverTransferPrepareRequest' }>,
 ): Promise<ServerTransferResultMessage> {
   validateManifest(msg.manifest, msg.manifestDigest, msg.transferId, ctx.machineId)
+  await refuseLegacySourceJournal()
   await acquireLock(msg.transferId)
   try {
     const space = await capacityProof(msg.manifest.packageBytes, msg.manifest.files)
@@ -440,13 +552,18 @@ async function prepare(
     if (existing) {
       if (
         existing.manifestDigest !== msg.manifestDigest ||
-        existing.totalBytes !== msg.manifest.packageBytes
+        existing.totalBytes !== msg.manifest.packageBytes ||
+        existing.publicUrl !== msg.publicUrl ||
+        existing.bindHost !== msg.bindHost ||
+        existing.port !== msg.port ||
+        existing.reachabilityToken !== msg.reachabilityToken
       )
         fail('conflicting-digest', 'transfer id is already used for a different manifest')
       if (existing.targetMachineId !== ctx.machineId)
         fail('identity-mismatch', 'transfer target identity changed')
       if (existing.sourceMachineId !== msg.manifest.sourceMachineId)
         fail('identity-mismatch', 'transfer source identity changed')
+      await exposeCandidateListener(existing)
       return result(msg.requestId, msg.transferId, 'prepare', {
         ok: existing.state !== 'uncertain' && existing.state !== 'promoting',
         state: existing.state,
@@ -478,6 +595,7 @@ async function prepare(
     }
     const meta: StageMeta = {
       version: 1,
+      operationId: msg.manifest.operationId,
       transferId: msg.transferId,
       manifest: msg.manifest,
       manifestDigest: msg.manifestDigest,
@@ -486,8 +604,13 @@ async function prepare(
       state: 'staging',
       targetMachineId: ctx.machineId,
       sourceMachineId: asMachineId(msg.manifest.sourceMachineId),
+      publicUrl: msg.publicUrl,
+      bindHost: msg.bindHost,
+      port: msg.port,
+      reachabilityToken: msg.reachabilityToken,
     }
     await writeJson(metaPath(msg.transferId), meta)
+    await exposeCandidateListener(meta)
     return result(msg.requestId, msg.transferId, 'prepare', {
       ok: true,
       state: 'staging',
@@ -831,18 +954,13 @@ async function installPortableFile(
   await syncDirectory(dirname(destination))
 }
 
-async function persistTargetConfig(publicUrl: string, port?: number): Promise<void> {
-  // `confirmUrlChange` because THIS IS the confirmation: an operator asked for
-  // the server to move here, and a target that was previously a host of its own
-  // legitimately carries a stale publicUrl the transfer is replacing. The guard
-  // exists to catch a re-run of setup that changes the URL by accident, which is
-  // not what a transfer is (PDM-26).
-  applySetup({
-    mode: 'server',
-    publicUrl,
-    confirmUrlChange: true,
-    ...(port === undefined ? {} : { port }),
-  })
+async function persistTargetConfig(
+  transferId: string,
+  publicUrl: string,
+  bindHost: ServerBindHost,
+  port: number,
+): Promise<void> {
+  applyTargetServerPromotion({ transferId, publicUrl, bindHost, port })
   const path = configPath()
   const handle = await open(path, 'r')
   try {
@@ -873,10 +991,17 @@ async function promote(
     fail('conflicting-digest', 'manifest digest mismatch')
   if (meta.targetMachineId !== ctx.machineId)
     fail('identity-mismatch', 'transfer target identity changed')
+  try {
+    establishTargetMachineId(ctx.machineId)
+  } catch (error) {
+    if (error instanceof MachineIdentityConflictError) fail('identity-mismatch', error.message)
+    throw error
+  }
   const promotion = {
     idempotencyKey: msg.idempotencyKey,
     publicUrl: checked.normalized,
-    ...(msg.port === undefined ? {} : { port: msg.port }),
+    bindHost: msg.bindHost,
+    port: msg.port,
     targetMode: msg.targetMode,
   } as const
 
@@ -916,6 +1041,7 @@ async function promote(
 
   meta.promotion = promotion
   meta.publicUrl = checked.normalized
+  meta.port = msg.port
   meta.promotionPlan ??= await buildPromotionInventory(meta)
   await writeJson(metaPath(msg.transferId), meta)
 
@@ -924,12 +1050,15 @@ async function promote(
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
     await crashPoint(ctx, 'after-install-before-config')
 
-    await persistTargetConfig(checked.normalized, msg.port)
+    await stopCandidateListener(msg.transferId)
+    await persistTargetConfig(msg.transferId, checked.normalized, msg.bindHost, msg.port)
     await crashPoint(ctx, 'after-config-before-health')
 
     const expected: ServerTransferServingProof = {
       ...meta.proof,
       publicUrl: checked.normalized,
+      bindHost: msg.bindHost,
+      port: msg.port,
       health: 'serving',
     }
     if (!ctx.restartAfterTransfer) fail('uncertain-commit', 'target has no serving health callback')
@@ -995,6 +1124,7 @@ async function abort(
       error: 'a promoted or uncertain transfer cannot be aborted',
     })
   }
+  await stopCandidateListener(msg.transferId)
   await rm(stageRoot(msg.transferId), { recursive: true, force: true })
   await ensureRealDirectory(root())
   await syncDirectory(root())
@@ -1046,7 +1176,7 @@ async function acknowledge(
 
 async function status(
   ctx: DaemonContext,
-  msg: Extract<ControlMessage, { type: 'serverTransferStatusRequest' }>,
+  msg: Extract<ControlMessage, { type: 'serverTransferInspectRequest' }>,
 ): Promise<ServerTransferResultMessage> {
   let id = msg.transferId
   if (!id) {
@@ -1092,6 +1222,7 @@ async function status(
     servingProof: meta.servingProof,
     sourceMachineId: meta.sourceMachineId,
     publicUrl: meta.publicUrl,
+    port: meta.port,
     acknowledged: meta.acknowledged,
     ...(meta.state === 'uncertain' || meta.state === 'promoting'
       ? { errorCode: 'uncertain-commit' as const, error: 'transfer requires recovery' }
@@ -1161,7 +1292,7 @@ export const serverTransferHandlers: Pick<
   | 'serverTransferValidateRequest'
   | 'serverTransferPromoteRequest'
   | 'serverTransferAbortRequest'
-  | 'serverTransferStatusRequest'
+  | 'serverTransferInspectRequest'
   | 'serverTransferAcknowledgeRequest'
 > = {
   serverTransferPrepareRequest: (ctx, msg) => {
@@ -1182,7 +1313,7 @@ export const serverTransferHandlers: Pick<
   serverTransferAcknowledgeRequest: (ctx, msg) => {
     void handle(ctx, msg)
   },
-  serverTransferStatusRequest: (ctx, msg) => {
+  serverTransferInspectRequest: (ctx, msg) => {
     void handle(ctx, msg)
   },
 }

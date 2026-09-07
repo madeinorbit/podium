@@ -6,6 +6,7 @@ import type { AccountId, HarnessAgent, Inventory } from '@podium/model'
 import { canonicalHeadlessTurnFacts, type HeadlessTurnEvent } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
+import { durableFor } from './durable.js'
 import {
   HeadlessTurnError,
   type HeadlessTurnHandle,
@@ -203,10 +204,10 @@ async function runHeadlessTurnRequest(
         event,
       })
     }
-    handle =
-      ctx.backend === 'abduco'
-        ? runDurableHeadlessTurn(msg.turnId, msg.sessionId, spec, emit, snapshot)
-        : runHeadlessTurn(spec, emit, snapshot)
+    const durable = durableFor(ctx)
+    handle = durable
+      ? runDurableHeadlessTurn(msg.turnId, msg.sessionId, spec, emit, snapshot, durable)
+      : runHeadlessTurn(spec, emit, snapshot)
   } catch (err) {
     ctx.send({
       type: 'headlessTurnResult',

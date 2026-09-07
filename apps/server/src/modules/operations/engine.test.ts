@@ -16,6 +16,7 @@ import {
   UNKNOWN_KIND_ERROR_CODE,
 } from './engine'
 import {
+  ADOPTION_DEFERRED,
   type OperationKindDefinition,
   OperationKindRegistry,
   type StepOutcome,
@@ -629,6 +630,9 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     await run(engine, 'test')
 
     expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(store.get('op_1')?.state).toBe('canceled')
+    expect(store.get('op_1')?.finishedAt).not.toBeNull()
+    expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect((await store.get('op_1'))?.state).toBe('canceled')
     expect((await store.get('op_1'))?.finishedAt).not.toBeNull()
   })
@@ -717,6 +721,45 @@ describe('adoption after a restart (P3, §3.4)', () => {
     expect(first).not.toHaveBeenCalled()
     expect(adopted[0]?.state).toBe('done')
     expect((await store.get('op_1'))?.state).toBe('done')
+  })
+
+  it('defers adoption without a row write or runner, then persists one final retry', async () => {
+    const { store, registry } = harness()
+    store.insert(midFlight())
+    const before = store.get('op_1')
+    const ensure = vi.fn(done)
+    let final = false
+    registry.register(
+      testKind({
+        reconcile: (operation) =>
+          final
+            ? {
+                ...operation,
+                state: 'done',
+                finishedAt: 20,
+                steps: (operation.steps ?? []).map((item) => ({
+                  ...item,
+                  state: 'done' as const,
+                })),
+              }
+            : ADOPTION_DEFERRED,
+        runners: { first: runner(ensure), second: runner(ensure) },
+      }),
+    )
+
+    const engine = successor(store, registry)
+    await engine.adoptOnBoot(() => ({ state: 'promoting' }))
+
+    expect(store.get('op_1')).toEqual(before)
+    expect(ensure).not.toHaveBeenCalled()
+    expect(engine.isAdoptionDeferred('op_1')).toBe(true)
+
+    final = true
+    const settled = await engine.resumeDeferredAdoption('op_1', { state: 'promoted' })
+    expect(settled?.state).toBe('done')
+    expect(store.get('op_1')?.state).toBe('done')
+    expect(engine.isAdoptionDeferred('op_1')).toBe(false)
+    expect(ensure).not.toHaveBeenCalled()
   })
 
   it('re-runs the step reality says is still outstanding', async () => {
@@ -1466,12 +1509,16 @@ describe('restating a deferred promise (POD-3040)', () => {
     expect(finished?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     h.clock.advance(5_000)
+    await h.engine.recordDeferred(id, [
     await h.engine.recordDeferred(id, [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
 
     const after = (await h.store.get(id))?.operation
     expect(after?.deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
+
+    const after = h.store.get(id)?.operation
+    expect(after?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
     // The outcome is history and stays exactly as it was.
     expect(after?.state).toBe('done')
     expect(after?.finishedAt).toBe(finished?.finishedAt)
@@ -1508,22 +1555,40 @@ describe('observers', () => {
     const store = new OperationStore(syncQueriesOver(db))
     const registry = new OperationKindRegistry()
     registry.register(testKind())
-    const seen: string[] = []
+    const seen: Array<[string, string | undefined]> = []
     const engine = new OperationEngine({
       store,
       registry,
       clock: fakeClock().clock,
       newId: () => 'op_1',
+      onChanged: (row, previousState) => {
       onChanged: async (row) => {
         // What an observer reads must already be what the database holds.
+        expect(row.state).toBe(store.get(row.id)?.state)
+        seen.push([row.state, previousState])
         expect(row.state).toBe((await store.get(row.id))?.state)
         seen.push(row.state)
       },
     })
 
     await run(engine, 'test')
-    expect(seen[0]).toBe('running')
-    expect(seen.at(-1)).toBe('done')
+    expect(seen[0]).toEqual(['running', undefined])
+    expect(seen.at(-1)).toEqual(['done', 'running'])
+    await engine.recordDeferred('op_1', [{ id: 'offline', reason: 'target-superseded' }])
+    expect(seen.at(-1)).toEqual(['done', 'done'])
+    store.insert({
+      id: 'running',
+      kind: 'test',
+      exclusionGroup: 'lifecycle',
+      state: 'running',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    engine.recordDetails('running', { note: 'same state' })
+    expect(seen.at(-1)).toEqual(['running', 'running'])
+    db.prepare('UPDATE operations SET payload = ? WHERE id = ?').run('unparseable', 'running')
+    await engine.adoptOnBoot(() => ({}))
+    expect(seen.at(-1)).toEqual(['failed', 'running'])
   })
 })
 

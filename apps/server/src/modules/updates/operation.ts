@@ -1,3 +1,4 @@
+import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
@@ -8,6 +9,7 @@ import type {
   OperationError,
   OperationStep,
   StepPlace,
+  UpdateGrantMessage,
   UpdateTarget,
   UpdateTrustRoot,
 } from '@podium/protocol'
@@ -29,6 +31,7 @@ import type {
   StepProgressPatch,
   StepRunner,
 } from '../operations/kinds'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import type { UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
@@ -87,12 +90,6 @@ import {
  */
 
 export const UPDATE_OPERATION_KIND = 'update'
-
-/**
- * §3.0: `update` and a future `server-move` share one group, so the two can
- * never interleave. Named here because `update` is the kind that introduces it.
- */
-export const LIFECYCLE_EXCLUSION_GROUP = 'lifecycle'
 
 /** The update kind's own narration. See `operations/engine.ts` for the framework's. */
 const log = createLogger('server:updates')
@@ -210,6 +207,7 @@ export const UPDATE_ERROR_CODES = [
   'server-did-not-reach-target',
   'web-build-failed',
   'preparation-failed',
+  'legacy-transfer-in-progress',
 ] as const
 export type UpdateErrorCode = (typeof UPDATE_ERROR_CODES)[number]
 
@@ -326,6 +324,7 @@ export type UpdateFailure =
     }
   | { code: 'web-build-failed'; detail?: string }
   | { code: 'preparation-failed'; detail?: string }
+  | { code: 'legacy-transfer-in-progress'; detail?: string }
 
 /**
  * The §7 table's middle column, rendered from the union. Copy lives with the
@@ -566,6 +565,12 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
           'The app rebuild failed on the server. Machines that already updated stay updated. Try again.',
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
+    case 'legacy-transfer-in-progress':
+      return {
+        code: failure.code,
+        message: 'Finish or clear the previous server transfer, then update this machine.',
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
     case 'preparation-failed':
       return {
         code: failure.code,
@@ -616,6 +621,7 @@ export interface UpdateOperationDetails {
   fromVersion?: string
   /** Verified restore point available when this attempt began or created by it. */
   databaseSnapshotPath?: string
+  coordinatorSnapshotGrantId?: string
   /**
    * EVERY ROUND OF GRANTS THIS OPERATION'S WAVE ISSUED (POD-2754), oldest
    * first — see {@link WaveRound} for why a record and not an observation.
@@ -815,7 +821,7 @@ type DeliverableTarget = {
  * can name bytes a particular machine has told us it cannot install.
  */
 export function machineCanTakeTargetNow(
-  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>,
   target: DeliverableTarget,
 ): boolean {
   if (!machineCanUseTargetTrust(machine, target.trust)) return false
@@ -829,7 +835,7 @@ export function machineCanTakeTargetNow(
 /** Is there anyone here this descriptor can be handed to as it stands? */
 export function fleetCanTakeTargetNow(
   target: DeliverableTarget,
-  machines: readonly Pick<WaveMachine, 'deliveryCaps'>[],
+  machines: readonly Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>[],
 ): boolean {
   if (!needsDevelopmentBundle(target)) return true
   return machines.some((machine) => machineCanTakeTargetNow(machine, target))
@@ -869,7 +875,10 @@ function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
   if (!machineCanUseTargetTrust(machine, target.trust)) return false
-  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
+  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
+    return false
+  }
+  if (machine.deliveryCaps === undefined && machine.presenceSource !== 'supervisor') return true
   return !machineCanTakeTargetNow(machine, target)
 }
 
@@ -909,6 +918,14 @@ function machineCarriedBy(
  * step's first pass.
  */
 function placeOf(machine: WaveMachine): StepPlace {
+  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
+    return {
+      id: machine.id,
+      ...(machine.name ? { name: machine.name } : {}),
+      state: 'cannot-take-delivery',
+      detail: machine.deliveryUnavailableReason ?? 'cannot take delivery',
+    }
+  }
   return {
     id: machine.id,
     ...(machine.name ? { name: machine.name } : {}),
@@ -940,6 +957,7 @@ function deferralReason(
 ): string {
   if (!machine.online) return 'offline'
   if (!machineCanUseTargetTrust(machine, target.trust)) return 'legacy-instance-trust'
+  if (machine.deliveryUnavailableReason) return machine.deliveryUnavailableReason
   // A machine that has never said what it is cannot be given a platform reason.
   if (machine.platform === undefined) return 'cannot-take-delivery'
   // …and this one is about the MACHINE alone, so no target can excuse it.
@@ -973,10 +991,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const host = input.hostMachineId
     ? input.fleet.find((machine) => machine.id === input.hostMachineId)
     : undefined
-  // Server-only desktop mode intentionally has no local daemon, hence no host
-  // machine report. Process ownership is the authoritative fact; a supervised
-  // daemon row remains the backward-compatible corroborating signal.
-  const desktopHosted = input.desktopSupervised === true || host?.supervised === true
+  // Crash ownership is a local runtime fact, never persisted fleet policy.
+  const desktopHosted = input.desktopSupervised === true
   const hostUpdatesThroughFleet =
     host?.online === true && isPackagedRolloutTarget(host) && host.version !== target.version
   const steps: OperationPlan['steps'] = []
@@ -1029,10 +1045,14 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       (packable &&
         machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
         packWouldCoverPlatform(machine)))
-  const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
-  // §3.6: a machine outside the live wave must not hold the outcome open. Deferred
-  // records distinguish transient offline delivery from permanent verifier incompatibility;
-  // only the former can converge merely by reconnecting.
+  const explicitDeliveryRefusal = (machine: WaveMachine): boolean =>
+    machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
+  const core = behind.filter(
+    (machine) => machine.online && (canTakeEventually(machine) || explicitDeliveryRefusal(machine)),
+  )
+  // §3.6: a machine that is asleep must not hold the outcome open. It goes to
+  // `deferred` with an honest note and the standing reconciliation converges it
+  // when it reconnects.
   for (const machine of behind) {
     if (core.includes(machine)) continue
     deferred.push({
@@ -1052,8 +1072,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   if (
-    !desktopHosted &&
     !hostUpdatesThroughFleet &&
+    (input.onlyMachines === undefined || (input.hostMachineId !== undefined && input.onlyMachines.includes(input.hostMachineId))) &&
     input.serverInstallKind !== 'source' &&
     serverDiffers &&
     input.canRestartServer
@@ -1069,6 +1089,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   if (
     !desktopHosted &&
+    !hostUpdatesThroughFleet &&
     !sourceCannotTakeTarget &&
     webBehind &&
     (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
@@ -1285,10 +1306,11 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
     const places = (machines.places ?? []).map((place) => {
       const machine = directory.get(place.id)
       if (!machine) return place
-      // The directory is refreshed from the daemon handshake, so a machine
-      // REPORTING the target has proved it, whatever the dead process believed
-      // it was in the middle of.
-      if (machine.version === targetVersion) {
+      // Production passes the restored service projection, before sockets open.
+      // Persisted directory versions are pre-health announcements, not proof of
+      // a new boot. Preserve previously completed places, but promote a new one
+      // only with live, execution-fenced current state.
+      if (machine.online && machine.state === 'current' && machine.version === targetVersion) {
         return { ...place, state: 'current', percent: 100 }
       }
       /**
@@ -1375,10 +1397,10 @@ export interface UpdateOperationContext {
   /** The served website's commit, both dists (see `websiteDigestReader`). */
   servedWebDigest?: () => string | undefined
   /** Installed coordinator-only: place and verify the exact target before restart. */
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
-  requestCoordinatorRestart?: () => void
+  requestCoordinatorRestart?: () => void | Promise<void>
   /** The dev publisher's readiness, for naming a failed website build. */
   preparation?: () => {
     webReady: boolean
@@ -1407,6 +1429,7 @@ export interface UpdateOperationContext {
   >
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   /**
    * MUST BE AWAITED WHERE DURABILITY IS THE POINT.
    *
@@ -1551,6 +1574,9 @@ export const UPDATE_STEP_DEADLINES: Record<string, StepDeadlines> = {
 
 /** In-flight preparation, per operation: `ensure()` twice must be one build. */
 const preparing = new Map<string, Promise<unknown>>()
+const heldCoordinatorUpdates = new Map<string, PreparedCoordinatorUpdate>()
+let coordinatorRuns = new WeakMap<UpdatesService, Map<string, Promise<StepOutcome>>>()
+const canceledCoordinatorUpdates = new Set<string>()
 
 /**
  * Watch something this process handed off, reporting when it ends — and saying
@@ -1643,6 +1669,12 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
   reversible: true,
   ensure: async ({ operation, context }) => {
     const details = updateOperationDetails(operation)
+    if (context.legacyTransferActive?.()) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }),
+      }
+    }
     if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
     const published = context.updates.target(details.channel)
     if (published?.version === details.target.version && !needsDevelopmentBundle(published)) {
@@ -1765,6 +1797,34 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
 }) => {
   const details = updateOperationDetails(operation)
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+  if (context.legacyTransferActive?.()) {
+    return { state: 'failed', error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }) }
+  }
+  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    const hostId = context.hostMachineId
+    // A host absent at plan time belongs to the later server step. Holding it
+    // here prevents auto-ticks on attach from racing that step's snapshot.
+    if ((step.places ?? []).some((place) => place.id === hostId)) {
+      context.updates.handleCoordinatorUpdate(hostId, {
+        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, step.id) !== false &&
+          context.legacyTransferActive?.() !== true,
+        dispatch: (grant) => {
+          void ensureCoordinatorReplacement(operation, context, step.id, grant).then(
+            (outcome) => {
+              if (outcome.state === 'failed') context.report?.(operation.id, step.id, { ...outcome, state: 'failed' })
+            },
+            (error: unknown) => context.report?.(operation.id, step.id, {
+              state: 'failed',
+              error: describeUpdateOperationFailure({
+                code: 'preparation-failed',
+                detail: error instanceof Error ? error.message : String(error),
+              }),
+            }),
+          )
+        },
+      })
+    }
+  }
 
   /**
    * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
@@ -1949,6 +2009,13 @@ export async function projectMachines(
      * always allowed to overrule a verdict — a machine that is now ON the target
      * did not, in the end, fail to update.
      */
+    if (place.state === 'cannot-take-delivery') {
+      return {
+        ...place,
+        ...(machine.name ? { name: machine.name } : {}),
+        detail: machine.deliveryUnavailableReason ?? place.detail ?? 'cannot take delivery',
+      }
+    }
     if (
       !machine.online &&
       machine.version !== targetVersion &&
@@ -2026,7 +2093,9 @@ export async function projectMachines(
     }
   }
 
-  const done = places.filter((place) => place.state === 'current').length
+  const done = places.filter(
+    (place) => place.state === 'current' || place.state === 'cannot-take-delivery',
+  ).length
   return { places, progress: { done, total: places.length } }
 }
 
@@ -2071,7 +2140,7 @@ async function settleMachines(
   operation: Operation,
   step: OperationStep,
   context: UpdateOperationContext,
-): Promise<StepOutcome | undefined> {
+): (StepOutcome & { state: 'done' | 'failed' }) | undefined {
   const { places, progress } = await projectMachines(operation, step, context)
   const failedPlaces = places.filter(
     (place) => place.state !== undefined && TERMINAL_STATES.has(place.state as never),
@@ -2119,46 +2188,111 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
   reversible: false,
   ensure: async ({ operation, context }) => {
     const details = updateOperationDetails(operation)
-    if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
-    if (context.appVersion() === details.target.version) {
-      return { state: 'done', detail: 'The server is on the new version.' }
+    if (context.hostMachineId && context.prepareCoordinatorUpdate && details &&
+        context.appVersion() !== details.target.version) {
+      const hostId = context.hostMachineId
+      let replacement: Promise<StepOutcome> | undefined
+      context.updates.handleCoordinatorUpdate(hostId, {
+        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, UPDATE_STEP_SERVER) !== false &&
+          context.legacyTransferActive?.() !== true,
+        dispatch: (grant) => {
+          replacement = ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER, grant)
+        },
+      })
+      context.updates.grantCoordinatorUpdate(hostId, details.channel, details.target, {
+        initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_SERVER },
+        eligibility: 'the operation reached its coordinator replacement step after the fleet',
+      })
+      const run = replacement ?? Promise.resolve({ state: 'failed', error: { code: 'coordinator-update-inactive' } } as StepOutcome)
+      return run
     }
-    if (!context.requestCoordinatorRestart) {
+    return ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER)
+  },
+}
+
+/** Re-entry joins the same preparation, snapshot and activation, even after it resolves. */
+function ensureCoordinatorReplacement(
+  operation: Operation,
+  context: UpdateOperationContext,
+  stepId: string,
+  grant?: UpdateGrantMessage,
+): Promise<StepOutcome> {
+  let runs = coordinatorRuns.get(context.updates)
+  if (!runs) coordinatorRuns.set(context.updates, runs = new Map())
+  const key = JSON.stringify([operation.id, stepId, grant?.grantId])
+  const existing = runs.get(key)
+  if (existing) return existing
+  // Register before any preparation can synchronously report progress and re-enter.
+  const run = Promise.resolve().then(() => runCoordinatorReplacement(operation, context, stepId, grant))
+  runs.set(key, run)
+  return run
+}
+
+/** Both grant routes cross the same durable barrier; only the grant's issuer differs. */
+async function runCoordinatorReplacement(
+  operation: Operation,
+  context: UpdateOperationContext,
+  stepId: string,
+  grant?: UpdateGrantMessage,
+): Promise<StepOutcome> {
+  const originalDetails = updateOperationDetails(operation)
+  const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
+  const active = () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, stepId) !== false &&
+    context.legacyTransferActive?.() !== true &&
+    (!grant || (context.hostMachineId !== undefined &&
+      context.updates.coordinatorGrantActive(context.hostMachineId, grant)))
+  if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+  if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+  if (grant && grant.target.version !== originalDetails?.target.version)
+    return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+  if (!grant && context.appVersion() === details.target.version) {
+    return { state: 'done', detail: 'The server is on the new version.' }
+  }
+  if (!context.requestCoordinatorRestart) {
+    return {
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'server-did-not-reach-target',
+        observedVersion: context.appVersion(),
+        targetVersion: details.target.version,
+      }),
+    }
+  }
+  if (
+    (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
+    !context.recordOperationDetails
+  ) {
+    return {
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'preparation-failed',
+        detail: 'Database snapshot support is unavailable; the server was not restarted.',
+      }),
+    }
+  }
+  let prepared: PreparedCoordinatorUpdate | void = undefined
+  if (context.prepareCoordinatorUpdate) {
+    try {
+      prepared = await context.prepareCoordinatorUpdate(details.target, grant)
+      if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const classified = classifyMachineFailure(detail)
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
-          code: 'server-did-not-reach-target',
-          observedVersion: context.appVersion(),
-          targetVersion: details.target.version,
+          code: classified === 'artifact-unreachable' ? classified : 'download-failed',
+          detail,
         }),
       }
     }
-    if (
-      (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
-      !context.recordOperationDetails
-    ) {
-      return {
-        state: 'failed',
-        error: describeUpdateOperationFailure({
-          code: 'preparation-failed',
-          detail: 'Database snapshot support is unavailable; the server was not restarted.',
-        }),
-      }
-    }
-    if (context.prepareCoordinatorUpdate) {
-      try {
-        await context.prepareCoordinatorUpdate(details.target)
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        const classified = classifyMachineFailure(detail)
-        return {
-          state: 'failed',
-          error: describeUpdateOperationFailure({
-            code: classified === 'artifact-unreachable' ? classified : 'download-failed',
-            detail,
-          }),
-        }
-      }
+  }
+  let activated = false
+  try {
+    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (prepared?.committed &&
+        (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
+      return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
     }
     // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
     // request path, not the restart path: a timeout, a corrupt file or an
@@ -2172,8 +2306,11 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         detail: `Database snapshot failed; the server was not restarted: ${detail}`,
       }),
     })
-    let databaseSnapshotPath: string | undefined
-    if (context.prepareVerifiedDatabaseSnapshot) {
+    let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
+      ? details.databaseSnapshotPath : undefined
+    if (databaseSnapshotPath) {
+      // Adoption reuses only this exact grant's already durable verification.
+    } else if (context.prepareVerifiedDatabaseSnapshot) {
       let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
       try {
         verification = await context.prepareVerifiedDatabaseSnapshot(
@@ -2185,7 +2322,11 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       }
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
-      await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+      try {
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
+      }
     } else if (context.createDatabaseSnapshot) {
       try {
         databaseSnapshotPath = await context.createDatabaseSnapshot(
@@ -2193,17 +2334,41 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
           details.target.version,
         )
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
-        await context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     }
-    context.requestCoordinatorRestart()
+    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    try {
+      if (prepared) await prepared.activate()
+      else await context.requestCoordinatorRestart()
+      activated = true
+    } catch (error) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({
+          code: 'preparation-failed',
+          detail: `Coordinator activation refused: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+      }
+    }
     return {
       state: 'running',
       detail: `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`,
     }
-  },
+  } finally {
+    if (prepared && heldCoordinatorUpdates.get(operation.id) === prepared) {
+      heldCoordinatorUpdates.delete(operation.id)
+    }
+    if (!activated && prepared) {
+      try {
+        await prepared.cancel()
+      } catch (error) {
+        log.warn('could not cancel held coordinator preparation', { operationId: operation.id, err: error })
+      }
+    }
+  }
 }
 
 /**
@@ -2322,6 +2487,11 @@ export function updateOperationKind(): OperationKindDefinition<
       [UPDATE_STEP_MACHINES]: machinesRunner,
       [UPDATE_STEP_SERVER]: serverRunner,
       [UPDATE_STEP_WEB]: webRunner,
+    },
+    onCancel: async ({ operation }) => {
+      canceledCoordinatorUpdates.add(operation.id)
+      await heldCoordinatorUpdates.get(operation.id)?.cancel()
+      return { cleanup: 'complete' }
     },
     deadlines: UPDATE_STEP_DEADLINES,
     describeStall: describeUpdateStall,
@@ -2592,7 +2762,8 @@ export function createUpdateFleetBridge(deps: {
   return bridge
 }
 
-const isArrived = (place: StepPlace): boolean => place.state === 'current'
+const isArrived = (place: StepPlace): boolean =>
+  place.state === 'current' || place.state === 'cannot-take-delivery'
 
 /**
  * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).
@@ -2709,6 +2880,9 @@ export function supersededDeferredPlaces(
  * never shown as an error).
  */
 export async function planInputFrom(context: UpdateOperationContext): Promise<UpdatePlanInput> {
+  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    context.updates.reserveCoordinatorUpdate(context.hostMachineId)
+  }
   const target = context.updates.target(context.channel)
   if (!target) throw new Error(`no ${context.channel} update target is published`)
   return {
@@ -2735,4 +2909,7 @@ export async function planInputFrom(context: UpdateOperationContext): Promise<Up
 /** Reset the module-level in-flight preparation map. Tests only. */
 export function resetUpdateOperationState(): void {
   preparing.clear()
+  heldCoordinatorUpdates.clear()
+  coordinatorRuns = new WeakMap()
+  canceledCoordinatorUpdates.clear()
 }

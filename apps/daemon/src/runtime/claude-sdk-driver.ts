@@ -1,19 +1,20 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import {
-  attachKindsForDriver,
-  configureFieldsForDriver,
   type AgentSessionHandle,
+  attachKindsForDriver,
   type ClaudeSdkRuntime,
   type ClaudeSdkRuntimeHost,
+  configureFieldsForDriver,
   createClaudeSdkRuntime,
   type PendingInteraction,
   type RuntimeEvent,
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
-import type { AccountId, AgentRuntimeState, Geometry, ResumeRef, SessionId } from '@podium/model'
+import type { AccountId, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
+import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import type { HeadlessTurnSpec } from '../headless-drivers'
 import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
@@ -40,30 +41,34 @@ export async function emitClaudeBinding(
     cwd: string
     agentKind: 'claude-code'
     /**
-     * The grid this daemon put the session at, when it put it at one (MODEL
-     * rule 1, POD-3279). The launch path passes the size it created the child
-     * at; ADOPTING or RESUMING a survivor passes nothing, because rebinding a
-     * child that was already running applies no size to it.
+     * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), not a geometry.
+     *
+     * What stood here was `geometry?: Geometry`, and its launch caller filled it
+     * with a hardcoded `120x40`: an EMBEDDED SDK session has no pty, no attach
+     * client and no terminal of any kind, so there was never a size to report.
+     * The field is now the record, `bindFrame` is the only thing that reads it,
+     * and this family's binds come out bare — the same answer the adopt and
+     * resume arms already gave by passing nothing.
      */
-    geometry?: Geometry
+    appliedGeometry?: AppliedGeometryRecord
   },
   handle: AgentSessionHandle,
 ): Promise<void> {
   publishedClaudeBindings.add(handle)
-  send({
-    type: 'bind',
-    sessionId: input.sessionId,
-    cmd: 'Claude Agent SDK (embedded)',
-    cwd: input.cwd,
-    agentKind: input.agentKind,
-    ...(input.geometry ? { geometry: input.geometry } : {}),
-    runtimeContract: true,
-    driverId: handle.binding.driver,
-    // POD-3087: what this driver's configure() can change, read off its own
-    // declaration so no consumer has to keep a second copy of it.
-    configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-    attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-  })
+  send(
+    bindFrame(input.appliedGeometry, {
+      sessionId: input.sessionId,
+      cmd: 'Claude Agent SDK (embedded)',
+      cwd: input.cwd,
+      agentKind: input.agentKind,
+      runtimeContract: true,
+      driverId: handle.binding.driver,
+      // POD-3087: what this driver's configure() can change, read off its own
+      // declaration so no consumer has to keep a second copy of it.
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    }),
+  )
   send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
   if (handle.binding.resume) {
     send({
@@ -115,6 +120,8 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
 export function createDaemonClaudeSdkRuntime(deps: {
   send(msg: DaemonMessage): void
   host: TerminalRuntimeHost
+  /** This daemon's applied-size record (POD-3290) — see `emitClaudeBinding`. */
+  appliedGeometry?: AppliedGeometryRecord
   /** `ctx.homeDir` — the named instance's agent home, when there is one. */
   homeDir?: string
   /** Installed Claude executable captured from this daemon generation. */
@@ -322,7 +329,11 @@ export function createDaemonClaudeSdkRuntime(deps: {
           sessionId: input.sessionId,
           cwd: input.cwd,
           agentKind: 'claude-code',
-          geometry: { cols: 120, rows: 40 },
+          // THE RECORD, WHICH THIS LAUNCH LEAVES EMPTY (POD-3290). An embedded
+          // SDK child is not attached to a terminal, so the bind is bare and the
+          // server keeps W unknown until a viewer asks — instead of the
+          // `120x40` that used to go out here as a report.
+          ...(deps.appliedGeometry ? { appliedGeometry: deps.appliedGeometry } : {}),
         },
         handle,
       )

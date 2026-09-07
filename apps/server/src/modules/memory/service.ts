@@ -76,9 +76,12 @@ export class MemoryService {
   private readonly searcher: MemorySearchService
   private readonly lake: TranscriptLake
 
+  /** Whether the boot repair is permitted; a query-only recovery assembly opts out. */
+  private readonly repairsSubagentEvidence: boolean
+
   constructor(
     private readonly deps: MemoryServiceDeps,
-    options: { mirrorLakeDir?: string } = {},
+    options: { mirrorLakeDir?: string; repairSubagentSegmentPaths?: boolean } = {},
   ) {
     this.latestConversations = new StagedProjection<ConversationSummaryWire[]>(
       [],
@@ -95,6 +98,7 @@ export class MemoryService {
       },
       options,
     )
+    this.repairsSubagentEvidence = options.repairSubagentSegmentPaths !== false
   }
 
   /**
@@ -105,8 +109,13 @@ export class MemoryService {
    * composition root runs it after the object exists, so constructing a memory
    * service never touches the database. The order the root calls it in is the
    * order the constructor established.
+   *
+   * Recovery-only assembly holds a query-only connection, so its composition
+   * root explicitly disables this boot writer; every writable boot keeps the
+   * default and repairs before serving conversation reads.
    */
   async repairSubagentEvidence(): Promise<void> {
+    if (!this.repairsSubagentEvidence) return
     await this.deps.store.conversations.registry.repairSubagentSegmentPaths()
   }
 

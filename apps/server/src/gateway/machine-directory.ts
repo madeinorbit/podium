@@ -61,13 +61,19 @@ export interface MachineAuthenticator {
    *  written as a constant here: the directory must not be a second opinion about who
    *  the host is, and there is no id in this process that is not minted material. */
   readonly hostMachineId: MachineId
-  authenticateDaemon(frame: MachineAuthenticationInput): Promise<MachineAuthenticationResult>
+  authenticateDaemon(
+    frame: MachineAuthenticationInput,
+    options?: MachineDirectoryOptions,
+  ): Promise<MachineAuthenticationResult>
 }
 
 /** A one-frame answer prepared before entering the synchronous protocol acceptor. */
 export interface ResolvedMachineAuthenticator {
   readonly hostMachineId: MachineId
-  authenticateDaemon(frame: MachineAuthenticationInput): MachineAuthenticationResult
+  authenticateDaemon(
+    frame: MachineAuthenticationInput,
+    options?: MachineDirectoryOptions,
+  ): MachineAuthenticationResult
 }
 
 const resolved = (
@@ -88,6 +94,11 @@ const resolved = (
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
+export interface MachineDirectoryOptions {
+  readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
+}
+
 export interface AsyncMachineDirectory {
   verifyDaemonSecret(secret: string, observed?: PeerObservations): Promise<ResolvedMachine | null>
   verifyMachineToken(
@@ -98,7 +109,10 @@ export interface AsyncMachineDirectory {
   redeemPairCode(code: string, request?: PairingRequest): Promise<PairedMachine | null>
 }
 
-export const createMachineDirectory = (machines: MachineAuthenticator): AsyncMachineDirectory => ({
+export const createMachineDirectory = (
+  machines: MachineAuthenticator,
+  options: MachineDirectoryOptions = {},
+): AsyncMachineDirectory => ({
   /**
    * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
    * (`ensureHostMachine` registers this host with it at startup), so verifying the
@@ -111,12 +125,15 @@ export const createMachineDirectory = (machines: MachineAuthenticator): AsyncMac
     secret: string,
     observed?: PeerObservations,
   ): Promise<ResolvedMachine | null> {
-    const auth = await machines.authenticateDaemon({
-      type: 'hello',
-      machineId: machines.hostMachineId,
-      token: secret,
-      hostname: observed?.hostname ?? machines.hostMachineId,
-    })
+    const auth = await machines.authenticateDaemon(
+  {
+        type: 'hello',
+        machineId: machines.hostMachineId,
+        token: secret,
+        hostname: observed?.hostname ?? machines.hostMachineId,
+      },
+      options,
+    )
     return auth.ok
       ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
       : null
@@ -136,12 +153,15 @@ export const createMachineDirectory = (machines: MachineAuthenticator): AsyncMac
     observed?: PeerObservations,
   ): Promise<ResolvedMachine | null> {
     if (machineHint === undefined) return null
-    const auth = await machines.authenticateDaemon({
-      type: 'hello',
-      machineId: asMachineId(machineHint),
-      token,
-      hostname: observed?.hostname ?? machineHint,
-    })
+    const auth = await machines.authenticateDaemon(
+  {
+        type: 'hello',
+        machineId: asMachineId(machineHint),
+        token,
+        hostname: observed?.hostname ?? machineHint,
+      },
+      options,
+    )
     return auth.ok
       ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
       : null
@@ -159,14 +179,17 @@ export const createMachineDirectory = (machines: MachineAuthenticator): AsyncMac
     // A brand-new machine has no prior identity to authenticate, so it proposes
     // one. `MachinesService` decides what row results; this adapter passes the
     // proposal through and reports back whatever came out (or null on refuse).
-    if (request?.machineId === undefined) return null
-    const auth = await machines.authenticateDaemon({
-      type: 'pair',
-      code,
-      machineId: request.machineId,
-      hostname: request.hostname ?? request.machineId,
-      ...(request.name === undefined ? {} : { name: request.name }),
-    })
+    if (options.verifyOnly || request?.machineId === undefined) return null
+    const auth = await machines.authenticateDaemon(
+  {
+        type: 'pair',
+        code,
+        machineId: request.machineId,
+        hostname: request.hostname ?? request.machineId,
+        ...(request.name === undefined ? {} : { name: request.name }),
+      },
+      options,
+    )
     if (!auth.ok || auth.token === undefined) return null
     return {
       ...resolved(
@@ -188,14 +211,18 @@ export const createMachineDirectory = (machines: MachineAuthenticator): AsyncMac
  */
 export const createResolvedMachineDirectory = (
   machines: ResolvedMachineAuthenticator,
+  options: MachineDirectoryOptions = {},
 ): MachineDirectory => ({
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: machines.hostMachineId,
-      token: secret,
-      hostname: observed?.hostname ?? machines.hostMachineId,
-    })
+    const auth = machines.authenticateDaemon(
+  {
+        type: 'hello',
+        machineId: machines.hostMachineId,
+        token: secret,
+        hostname: observed?.hostname ?? machines.hostMachineId,
+      },
+      options,
+    )
     return auth.ok
       ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
       : null
@@ -207,26 +234,32 @@ export const createResolvedMachineDirectory = (
     observed?: PeerObservations,
   ): ResolvedMachine | null {
     if (machineHint === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: asMachineId(machineHint),
-      token,
-      hostname: observed?.hostname ?? machineHint,
-    })
+    const auth = machines.authenticateDaemon(
+  {
+        type: 'hello',
+        machineId: asMachineId(machineHint),
+        token,
+        hostname: observed?.hostname ?? machineHint,
+      },
+      options,
+    )
     return auth.ok
       ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
       : null
   },
 
   redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null {
-    if (request?.machineId === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'pair',
-      code,
-      machineId: request.machineId,
-      hostname: request.hostname ?? request.machineId,
-      ...(request.name === undefined ? {} : { name: request.name }),
-    })
+    if (options.verifyOnly || request?.machineId === undefined) return null
+    const auth = machines.authenticateDaemon(
+  {
+        type: 'pair',
+        code,
+        machineId: request.machineId,
+        hostname: request.hostname ?? request.machineId,
+        ...(request.name === undefined ? {} : { name: request.name }),
+      },
+      options,
+    )
     if (!auth.ok || auth.token === undefined) return null
     return {
       ...resolved(

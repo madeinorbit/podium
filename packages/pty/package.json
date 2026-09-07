@@ -2,7 +2,7 @@
   "name": "@podium/pty",
   "version": "0.0.0",
   "private": true,
-  "description": "Harness-agnostic Bun.Terminal PTY kernel with durable session hosts (abduco, tmux, systemd scopes), byte framing, OSC title scan and redraw.",
+  "description": "Harness-agnostic Bun.Terminal PTY kernel with durable session hosts (abduco, systemd scopes), byte framing, OSC title scan and redraw.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

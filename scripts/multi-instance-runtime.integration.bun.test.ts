@@ -4,15 +4,18 @@
  *
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
+import './legacy-cli-update.integration.bun.test'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
   cpSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -22,7 +25,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
-import { SESSION_COOKIE } from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
 import {
   ABDUCO_SUN_PATH_MAX,
   abducoSocketDir,
@@ -39,15 +42,27 @@ import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,
   durableSessionLabel,
+  ensureInstanceStateIdentity,
   instanceSocketRuntimeDir,
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
+import { readDaemonHealth } from '@podium/runtime/daemon-health'
+import { writeParentRequest, readParentResult } from '@podium/runtime/parent-control'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
+import { buildVendoredHost } from '../packages/pty/src/host-bin'
+import {
+  MachineUpdateExecutor,
+  readMachineUpdateJournal,
+} from '../packages/runtime/src/machine-update'
+import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
+import type { UpdateGrantMessage } from '@podium/protocol'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -74,6 +89,7 @@ const running: RunningInstance[] = []
 let packagedCli: string | undefined
 const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
 let packagedSource: RunningInstance | undefined
+const NAMED_MEMBER_TOKEN = 'named-instance-member'
 
 const allocatedPorts = new Set<number>()
 const freePort = (): number => {
@@ -122,6 +138,14 @@ async function seedLegacyNamedState(spec: InstanceSpec): Promise<void> {
       (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
       VALUES ('local', 'legacy-host', 'legacy-host', 'legacy-token', 't', 't', NULL)`,
   ).run()
+  db.prepare(
+    `INSERT INTO users (id, display_name, role, created_at, disabled_at)
+     VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
+  ).run()
+  db.prepare(
+    `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
+     VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
+  ).run(createHash('sha256').update(NAMED_MEMBER_TOKEN).digest('hex'))
   db.close()
 }
 
@@ -136,9 +160,11 @@ function instanceEnv(
     'PODIUM_SESSION_ID',
     'PODIUM_SESSION_INSTANCE',
     'PODIUM_HOME',
+    // Packaged isolation cases must not inherit the hosting dev publisher opt-in.
+    'PODIUM_DEV_SOURCE_ROOT',
+    'PODIUM_DEV_ARTIFACT_BASE_URL',
     'NOTIFY_SOCKET',
     'ABDUCO_SOCKET_DIR',
-    'TMUX_TMPDIR',
   ])
     delete env[key]
   Object.assign(env, {
@@ -173,15 +199,17 @@ function buildPackagedCli(): string {
   const distDir = join(buildRoot, 'dist-bun')
   mkdirSync(scriptsDir, { recursive: true })
   mkdirSync(distDir, { recursive: true })
-  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts', 'embedded-host.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
   }
-  for (const dir of ['apps', 'packages', 'node_modules']) {
+  for (const dir of ['apps', 'packages']) {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
   const embeddedAbduco = join(distDir, 'abduco.bin')
   expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
+  const embeddedHost = join(distDir, 'podium-host.bin')
+  expect(buildVendoredHost(embeddedHost)).toBe(embeddedHost)
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
     process.execPath,
@@ -211,11 +239,11 @@ function startInstance(
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
   const configFile = join(spec.stateDir, 'config.json')
-  const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
-  writeFileSync(configFile, JSON.stringify({ ...config, mode: 'all-in-one' }))
+  const existingConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
+  writeFileSync(configFile, JSON.stringify({ ...existingConfig, mode: 'all-in-one' }))
   const child = spawn(
     process.execPath,
-    ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],
+    ['--conditions=@podium/source', CLI, '--instance', spec.id, 'parent', '--takeover'],
     { cwd: ROOT, env: instanceEnv(spec, overrides), stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let output = ''
@@ -307,11 +335,12 @@ async function runPackagedCli(
   executable: string,
   spec: InstanceSpec,
   args: string[],
+  envOverrides: Record<string, string | undefined> = {},
 ): Promise<CliResult> {
   const child = spawn(executable, args, {
     // A packaged executable must not depend on being launched from the checkout.
     cwd: TEST_ROOT,
-    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined }),
+    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined, ...envOverrides }),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stdout = ''
@@ -340,6 +369,7 @@ function packagedDiagnostics(spec: InstanceSpec): string {
   const files = [
     'config.json',
     'connectivity.json',
+    'supervisor.json',
     'logs/parent.log',
     'logs/daemon.log',
     'logs/parent.ndjson',
@@ -355,6 +385,79 @@ function packagedDiagnostics(spec: InstanceSpec): string {
         : `--- ${relative}: missing ---`
     })
     .join('\n')
+}
+
+/** Failure evidence belongs to the three transfer runtimes, before fixture cleanup. */
+async function transferDiagnostics(specs: InstanceSpec[], marker: string): Promise<string> {
+  const redact = (key: string, value: unknown): unknown =>
+    /token|secret|password|cookie|authorization|privatekey/i.test(key) ? '[redacted]' : value
+  const bounded = (value: unknown): string => JSON.stringify(value, redact, 2).slice(-16_384)
+  const sections = [
+    `fault marker ${marker}: ${existsSync(marker) ? readFileSync(marker, 'utf8').trim() : 'missing'}`,
+  ]
+  for (const spec of specs) {
+    sections.push(`TRANSFER INSTANCE ${spec.stateDir} port=${spec.port}`)
+    const files = [
+      'config.json',
+      'supervisor.json',
+      'connectivity.json',
+      'supervisor-transfer-pending.json',
+      '.server-transfer/journal.json',
+      'run/parent.pid',
+      'run/server.pid',
+      'run/daemon.pid',
+      'run/daemon-health.json',
+      'logs/parent.log',
+      'logs/server.log',
+      'logs/daemon.log',
+      'logs/parent.ndjson',
+      'logs/server.ndjson',
+      'logs/daemon.ndjson',
+    ]
+    try {
+      for (const entry of readdirSync(join(spec.stateDir, '.server-transfer'))
+        .filter((name) => /^[0-9a-f-]{36}$/i.test(name))
+        .slice(0, 4)) {
+        files.push(`.server-transfer/${entry}/state.json`)
+      }
+    } catch {}
+    for (const relative of files) {
+      const file = Bun.file(join(spec.stateDir, relative))
+      if (!(await file.exists())) continue
+      const tail = await file.slice(Math.max(0, file.size - 16_384)).text()
+      let text: string
+      try {
+        text = bounded(JSON.parse(tail))
+      } catch {
+        text = tail
+          .split('\n')
+          .map((line) => {
+            try {
+              return JSON.stringify(JSON.parse(line), redact)
+            } catch {
+              return line
+            }
+          })
+          .join('\n')
+      }
+      sections.push(`${relative}:\n${text}`)
+    }
+    const api = createTRPCClient<AppRouter>({
+      links: [
+        httpBatchLink({
+          url: `http://127.0.0.1:${spec.port}/trpc`,
+          fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(1_500) }),
+        }),
+      ],
+    })
+    const results = await Promise.allSettled([
+      api.operations.active.query({ group: 'lifecycle' }),
+      api.operations.history.query({ kind: 'server-move', limit: 3 }),
+      api.machines.list.query(),
+    ])
+    sections.push(`operation active/history and machines:\n${bounded(results)}`)
+  }
+  return sections.join('\n')
 }
 
 function jsonOutput(result: CliResult): { data?: unknown } {
@@ -387,18 +490,30 @@ async function packagedCoordinator(): Promise<RunningInstance> {
   return packagedSource
 }
 
+// Several isolated parents drain their roles sequentially through the CLI.
+// Bun's default five-second hook budget can interrupt this cleanup halfway.
 afterAll(async () => {
   for (const { executable, spec } of packagedSpecs) {
     await runPackagedCli(executable, spec, ['stop']).catch(() => {})
   }
   for (const instance of running) {
     if (instance.child.exitCode === null && instance.child.signalCode === null) {
+      // Stop through the isolated instance CLI so its parent drains both roles.
+      // Killing only the parent strands the server and daemon after this file.
+      await runCli(instance, ['stop']).catch((error) => console.error(error))
+      await waitUntil(
+        () => instance.child.exitCode !== null || instance.child.signalCode !== null,
+        `${instance.id} parent cleanup`,
+        10_000,
+      ).catch((error) => console.error(error))
+    }
+    if (instance.child.exitCode === null && instance.child.signalCode === null) {
       instance.child.kill('SIGKILL')
       await new Promise<void>((resolve) => instance.child.once('exit', () => resolve()))
     }
   }
   rmSync(TEST_ROOT, { recursive: true, force: true })
-})
+}, 120_000)
 
 describe('long instance durable sockets', () => {
   it('arms the old overflow, starts a real bounded session, and refuses an impossible override', async () => {
@@ -413,12 +528,7 @@ describe('long instance durable sockets', () => {
     const oldSocketDir = join(stateDir, 'runtime', 'abduco')
     const impossibleDir = join('/tmp', `podium-refusal-${process.pid}-${'x'.repeat(28)}`)
     mkdirSync(oldSocketDir, { recursive: true })
-    const oldPath = abducoSocketPathname(
-      oldSocketDir,
-      oldLabel,
-      userInfo().username,
-      hostname(),
-    )
+    const oldPath = abducoSocketPathname(oldSocketDir, oldLabel, userInfo().username, hostname())
     expect(Buffer.byteLength(oldPath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
 
     const previous = {
@@ -426,7 +536,6 @@ describe('long instance durable sockets', () => {
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
       PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
       ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
-      TMUX_TMPDIR: process.env.TMUX_TMPDIR,
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
     }
     const restore = () => {
@@ -455,7 +564,6 @@ describe('long instance durable sockets', () => {
       process.env.PODIUM_STATE_DIR = stateDir
       process.env.PODIUM_ABDUCO = bin
       delete process.env.ABDUCO_SOCKET_DIR
-      delete process.env.TMUX_TMPDIR
       process.env.PODIUM_NO_SCOPE = '1'
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
       label = durableSessionLabel(sessionId, instanceId)
@@ -512,6 +620,35 @@ describe('long instance durable sockets', () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('dispatches supervisor lifecycle and progress through the production gateway', async () => {
+    const spec = makeSpec('blue', 'machine-events')
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        '--conditions=@podium/source',
+        join(ROOT, 'scripts/fixtures/machine-events-runtime.ts'),
+      ],
+      {
+        cwd: ROOT,
+        env: instanceEnv(spec),
+        stdout: 'pipe',
+        stderr: 'inherit',
+      },
+    )
+    try {
+      const [stdout, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        child.exited,
+      ])
+      expect(code, stdout).toBe(0)
+      expect(stdout).toContain('"machineEvents":"passed"')
+      console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))
+    } finally {
+      child.kill()
+      await child.exited
+    }
+  }, 60_000)
+
   it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
     const foreign = makeSpec('blue', 'foreign-blue')
     mkdirSync(foreign.stateDir, { recursive: true })
@@ -548,8 +685,168 @@ describe('multi-instance runtime isolation', () => {
     expect(mutation.stderr).toContain("for instance 'blue'")
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
-  })
-  it('accepts a legitimate daemon from the compiled packaged join path', async () => {
+  }, 30_000)
+  it('keeps a packaged canary fenced across real hello, slow startup, and child failure', async () => {
+    // Keep another independent production runtime alive throughout the proof.
+    const unrelated = await packagedCoordinator()
+    const executable = buildPackagedCli()
+    for (const outcome of ['healthy', 'failed'] as const) {
+      const spec = makeSpec('blue', `canary-startup-${outcome}`)
+      ensureInstanceStateIdentity({ instanceId: spec.id, dir: spec.stateDir })
+      const installDir = join(TEST_ROOT, `canary-install-${outcome}`)
+      mkdirSync(installDir)
+      const gate = join(installDir, 'hold-daemon')
+      const waiting = join(installDir, 'daemon-waiting')
+      const failed = join(installDir, 'daemon-failed')
+      const digest = 'sha256-canary-startup-fixture'
+      const machineId = asMachineId(randomUUID())
+      writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
+      writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+      writeFileSync(join(installDir, 'VERSION'), '9.9.9')
+      writeFileSync(join(installDir, 'ARTIFACT.sha256'), digest)
+      writeFileSync(gate, '')
+      // Only delay/fail the child launch. The compiled CLI, supervisor socket,
+      // real server/daemon, default health probes and confirmBoot are production.
+      const wrapper = join(installDir, 'podium')
+      writeFileSync(
+        wrapper,
+        `#!/bin/bash
+if [ "$1" = daemon ]; then
+  : > "$CANARY_WAITING"
+  while [ -e "$CANARY_GATE" ]; do /bin/sleep 0.05; done
+  if [ "$CANARY_OUTCOME" = failed ]; then
+    : > "$CANARY_FAILED"
+    exit 23
+  fi
+fi
+exec "$CANARY_REAL_CLI" "$@"
+`,
+      )
+      chmodSync(wrapper, 0o755)
+      const machines: WaveMachine[] = [
+        {
+          id: machineId,
+          version: '9.9.8',
+          state: 'current',
+          online: true,
+          busy: false,
+          presenceSource: 'supervisor',
+          deliveryCaps: ['update.delivery.feed'],
+        },
+        { id: 'next-machine', version: '9.9.8', state: 'current', online: true, busy: false },
+      ]
+      const grants: UpdateGrantMessage[] = []
+      const updates = new UpdatesService({
+        machines: () => machines,
+        send: (_id, message) => {
+          if (message.type === 'updateGrant') grants.push(message)
+        },
+        now: () => Date.now(),
+        nextGrantId: () => `startup-${grants.length + 1}`,
+        concurrency: 3,
+        fleetChannel: () => 'dev',
+      })
+      updates.setTarget({
+        version: '9.9.9',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
+      expect(updates.authorize()).toEqual([machineId])
+      const runtimeDir = join(spec.stateDir, 'runtime')
+      // Seed the already-activated predecessor journal through the executor.
+      // Artifact preparation/activation are fixtures; this test owns BOOT, not delivery.
+      const adapter = {
+        runningVersion: () => '9.9.8',
+        runningDigest: () => digest,
+        prepare: async () => ({ digest }),
+        activate: async () => {},
+        discard: async () => {},
+        restart: async () => 'handover-pending' as const,
+      }
+      await new MachineUpdateExecutor({
+        runtimeDir,
+        adapter,
+        report: (message) => updates.onStatus(machineId, message),
+      }).accept(grants[0]!)
+      expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+      const env = instanceEnv(spec, {
+        PODIUM_HOME: installDir,
+        PODIUM_LOGGING_MODE: 'foreground',
+        CANARY_GATE: gate,
+        CANARY_WAITING: waiting,
+        CANARY_FAILED: failed,
+        CANARY_OUTCOME: outcome,
+        CANARY_REAL_CLI: executable,
+      })
+      const child = spawn(executable, ['parent', '--takeover'], {
+        cwd: TEST_ROOT,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''
+      child.stdout?.on('data', (chunk) => {
+        output += String(chunk)
+      })
+      child.stderr?.on('data', (chunk) => {
+        output += String(chunk)
+      })
+      running.push({ ...spec, child, output: () => output })
+      packagedSpecs.push({ executable, spec })
+      try {
+        const api = trpc(spec)
+        await waitUntil(async () => {
+          if (!existsSync(waiting)) return false
+          try {
+            const row = (await api.machines.list.query()).find((m) => m.id === machineId)
+            if (row?.presenceSource !== 'supervisor' || row.appVersion !== '9.9.9') return false
+            machines[0]!.version = row.appVersion
+            return true
+          } catch {
+            return false
+          }
+        }, 'real supervisor target hello while daemon launch is held')
+        expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+        for (let i = 0; i < 5; i++) {
+          expect(updates.fleet()[0]?.state).toBe('restarting')
+          updates.tick()
+          expect(grants).toHaveLength(1)
+          await Bun.sleep(50)
+        }
+        rmSync(gate)
+        if (outcome === 'healthy') {
+          await waitUntil(
+            () => readMachineUpdateJournal(runtimeDir)?.phase === 'current',
+            'compiled parent default health gate and exact boot confirmation',
+          )
+          expect((await version(spec))?.daemonConnected).toBe(true)
+          // Read the actual durable production boot verdict through its normal
+          // status serializer. Fleet transport is covered separately by socket tests.
+          new MachineUpdateExecutor({
+            runtimeDir,
+            adapter: { ...adapter, runningVersion: () => '9.9.9' },
+            report: (message) => updates.onStatus(machineId, message),
+          }).replay()
+          expect(updates.fleet()[0]?.state).toBe('current')
+          expect(grants).toHaveLength(2)
+        } else {
+          await waitUntil(
+            () => existsSync(failed) && output.includes('supervised child exited'),
+            'failed production child launch',
+          )
+          expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
+          expect(updates.fleet()[0]?.state).toBe('restarting')
+          updates.tick()
+          expect(grants).toHaveLength(1)
+        }
+        expect((await version(unrelated))?.instanceId).toBe('default')
+      } finally {
+        rmSync(gate, { force: true })
+        await runPackagedCli(executable, spec, ['stop'], { PODIUM_HOME: installDir })
+      }
+    }
+  }, 180_000)
+
+  it('enrolls a packaged machine through its supervisor without a duplicate row', async () => {
     const source = await packagedCoordinator()
     const sourceApi = trpc(source)
     const pairing = await sourceApi.machines.pairingCode.mutate()
@@ -572,24 +869,250 @@ describe('multi-instance runtime isolation', () => {
 
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
     expect(joined.stdout).toContain('podium joined as')
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
       token?: string
+      updatePubkey?: string
     }
     expect(identity.token).toBeTruthy()
+    expect(identity.updatePubkey).toBeTruthy()
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
-          (machine) => machine.id === identity.machineId && machine.online,
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.presenceSource === 'supervisor' &&
+            machine.services?.agentExecution.state === 'available',
         ),
-      'compiled packaged daemon enrollment',
+      'compiled packaged supervisor enrollment',
     )
+    const matchingRows = (await sourceApi.machines.list.query()).filter(
+      (machine) => machine.id === identity.machineId,
+    )
+    expect(matchingRows).toHaveLength(1)
+    expect(matchingRows[0]).toMatchObject({
+      serviceAssignment: { server: false, agentExecution: true },
+      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
+      services: {
+        server: { policy: 'disabled', state: 'stopped' },
+        agentExecution: { policy: 'enabled', state: 'available' },
+      },
+    })
     expect(
       JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
     ).toMatchObject({
       state: 'connected',
     })
-  }, 120_000)
+
+    const record = (name: string): { pid: number; version?: string } =>
+      JSON.parse(readFileSync(join(fleet.stateDir, 'run', name), 'utf8'))
+    await waitUntil(
+      () => existsSync(join(fleet.stateDir, 'run', 'supervisor-ready.json')),
+      'daemon-only production boot health gate',
+    )
+    expect(record('supervisor-ready.json')).toMatchObject({
+      pid: record('parent.pid').pid,
+      version: '9.9.9',
+    })
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+    })
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')).processId,
+    ).toBe(record('parent.pid').pid)
+
+    const daemonRecord = record('daemon.pid')
+    process.kill(daemonRecord.pid, 'SIGKILL')
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.deliveryCaps?.includes('update.delivery.feed') === true &&
+        row.services?.agentExecution.state === 'stopped'
+      )
+    }, 'daemon failure under live supervisor')
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).find((machine) => machine.id === identity.machineId)
+          ?.services?.agentExecution.state === 'available',
+      'daemon recovery under live supervisor',
+    )
+
+    // Exercise the same production daemon restart + health gate used by source
+    // demotion. Topology persistence/endpoint transfer belongs to its own lane.
+    const topologyId = randomUUID()
+    writeParentRequest(
+      {
+        requestId: topologyId,
+        kind: 'topology',
+        expectedVersion: 'topology',
+        requestedAt: new Date().toISOString(),
+        children: ['daemon'],
+        restartDaemon: true,
+        topologyHealth: 'daemon',
+      },
+      fleet.stateDir,
+    )
+    const beforeDemotion = record('daemon.pid').pid
+    process.kill(record('parent.pid').pid, 'SIGUSR1')
+    await waitUntil(
+      () => readParentResult(topologyId, fleet.stateDir) !== undefined,
+      'production demotion daemon health boundary',
+    )
+    expect(readParentResult(topologyId, fleet.stateDir)?.ok).toBe(true)
+    expect(record('daemon.pid').pid).not.toBe(beforeDemotion)
+    expect(readDaemonHealth(fleet.stateDir)?.processId).toBe(record('daemon.pid').pid)
+
+    // Seed only the durable, already-installed update authority. Both parents,
+    // the daemon handshake/convergence callback and all health probes are real.
+    // Same-version handover deliberately does not test download or binary swap.
+    const grant = {
+      type: 'updateGrant',
+      grantId: randomUUID(),
+      issuedAt: Date.now(),
+      target: { version: '9.9.9', critical: false, artifacts: {} },
+    }
+    mkdirSync(join(fleet.stateDir, 'runtime'), { recursive: true })
+    writeFileSync(
+      join(fleet.stateDir, 'runtime', 'machine-update.json'),
+      JSON.stringify({
+        format: 1,
+        grant,
+        fingerprint: updateFingerprint(grant),
+        previousVersion: '9.9.8',
+        phase: 'current',
+        updatedAt: Date.now(),
+        completed: {},
+        authority: grant.issuedAt,
+      }),
+    )
+    const outgoingPid = record('parent.pid').pid
+    writeParentRequest(
+      {
+        requestId: randomUUID(),
+        kind: 'handover',
+        expectedVersion: '9.9.9',
+        requestedAt: new Date().toISOString(),
+        releaseHadMigrations: false,
+      },
+      fleet.stateDir,
+    )
+    process.kill(outgoingPid, 'SIGUSR1')
+    await waitUntil(
+      () => record('supervisor-ready.json').pid !== outgoingPid,
+      'daemon-only successor production health gate',
+    )
+    await waitUntil(() => {
+      try {
+        process.kill(outgoingPid, 0)
+        return false
+      } catch {
+        return true
+      }
+    }, 'outgoing parent commits production handover')
+    expect(record('supervisor-ready.json').pid).toBe(record('parent.pid').pid)
+    expect(readDaemonHealth(fleet.stateDir)).toMatchObject({
+      state: 'connected',
+      processId: record('daemon.pid').pid,
+      appVersion: '9.9.9',
+      convergedVersion: '9.9.9',
+    })
+
+    const stopped = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopped.code, `${stopped.stdout}\n${stopped.stderr}`).toBe(0)
+    const legacyIdentity = {
+      machineId: identity.machineId,
+      token: identity.token,
+      updatePubkey: identity.updatePubkey,
+    }
+    writeFileSync(join(fleet.stateDir, 'daemon.json'), JSON.stringify(legacyIdentity))
+    rmSync(join(fleet.stateDir, 'supervisor.json'))
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'config.json'), 'utf8')),
+    ).not.toHaveProperty('pairCode')
+
+    const restarted = await runPackagedCli(executable, fleet, [])
+    expect(restarted.code, `${restarted.stdout}\n${restarted.stderr}`).toBe(0)
+    await waitUntil(
+      () => existsSync(join(fleet.stateDir, 'supervisor.json')),
+      'legacy credential import',
+    )
+    expect(JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8'))).toMatchObject(
+      legacyIdentity,
+    )
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.presenceSource === 'supervisor',
+        ),
+      'legacy machine supervisor restart',
+    )
+    expect(
+      (await sourceApi.machines.list.query()).filter(
+        (machine) => machine.id === identity.machineId,
+      ),
+    ).toHaveLength(1)
+
+    const stopBeforeLockout = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopBeforeLockout.code, `${stopBeforeLockout.stdout}\n${stopBeforeLockout.stderr}`).toBe(
+      0,
+    )
+    const configPath = join(fleet.stateDir, 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...config,
+        mode: 'supervisor',
+        agentExecutionLockout: true,
+      }),
+    )
+    const supervisorOnly = await runPackagedCli(executable, fleet, [])
+    expect(supervisorOnly.code, `${supervisorOnly.stdout}\n${supervisorOnly.stderr}`).toBe(0)
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.presenceSource === 'supervisor' &&
+        row.deliveryCaps?.includes('update.delivery.feed') === true &&
+        row.services?.agentExecutionLockout === true &&
+        row.services.agentExecution.reason === 'refused by local policy'
+      )
+    }, 'supervisor-only lockout report')
+
+    const stopBeforeUnlock = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopBeforeUnlock.code, `${stopBeforeUnlock.stdout}\n${stopBeforeUnlock.stderr}`).toBe(0)
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...config,
+        mode: 'supervisor',
+        agentExecutionLockout: false,
+      }),
+    )
+    const unlocked = await runPackagedCli(executable, fleet, [])
+    expect(unlocked.code, `${unlocked.stdout}\n${unlocked.stderr}`).toBe(0)
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.services?.agentExecutionLockout !== true &&
+        row.services?.agentExecution.state === 'available'
+      )
+    }, 'cleared lockout agent availability')
+  }, 180_000)
 
   /**
    * FLEET DAEMON LOG CAPTURE, ACROSS THE SOCKET (POD-3156).
@@ -628,13 +1151,16 @@ describe('multi-instance runtime isolation', () => {
       'detached',
     ])
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
     }
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
-          (machine) => machine.id === identity.machineId && machine.online,
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.services?.agentExecution.state === 'available',
         ),
       'remote daemon enrollment for log capture',
     )
@@ -725,6 +1251,306 @@ describe('multi-instance runtime isolation', () => {
     })
   }, 120_000)
 
+  it('keeps a compiled server-only machine online and updateable without a daemon', async () => {
+    const spec = makeSpec('blue', 'packaged-server-only')
+    mkdirSync(spec.stateDir, { recursive: true })
+    writeFileSync(
+      join(spec.stateDir, 'config.json'),
+      JSON.stringify({ mode: 'server', persistence: 'detached', port: spec.port }),
+    )
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec })
+
+    const started = await runPackagedCli(executable, spec, [], { PODIUM_ADOPT_STATE: '1' })
+    expect(started.code, `${started.stdout}\n${started.stderr}\n${packagedDiagnostics(spec)}`).toBe(
+      0,
+    )
+    await waitUntil(async () => (await version(spec))?.instanceId === 'blue', 'server-only host')
+    await waitUntil(async () => {
+      const row = (await trpc(spec).machines.list.query())[0]
+      return (
+        row?.online === true &&
+        row.presenceSource === 'supervisor' &&
+        row.services?.server.state === 'available'
+      )
+    }, 'server-only supervisor report')
+    const rows = await trpc(spec).machines.list.query()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      serviceAssignment: { server: true, agentExecution: false },
+      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
+      services: {
+        server: { policy: 'enabled', state: 'available' },
+        agentExecution: { policy: 'disabled', state: 'stopped' },
+      },
+    })
+  }, 120_000)
+
+  for (const interrupted of [false, true]) {
+    it(`transfers compiled supervised machines and restarts both roles${interrupted ? ' after in-flight recovery' : ''}`, async () => {
+      const label = interrupted ? 'transfer-recovery' : 'transfer-live'
+      const source = makeSpec('blue', `${label}-source`)
+      const target = makeSpec('blue', `${label}-target`)
+      const observer = makeSpec('blue', `${label}-observer`)
+      const executable = buildPackagedCli()
+      const specs = [source, target, observer]
+      for (const spec of specs) packagedSpecs.push({ executable, spec })
+      const read = (spec: InstanceSpec, path: string): any =>
+        JSON.parse(readFileSync(join(spec.stateDir, path), 'utf8'))
+      const daemonReady = (spec: InstanceSpec, endpoint: string): boolean => {
+        try {
+          const health = readDaemonHealth(spec.stateDir)
+          return (
+            health?.state === 'connected' &&
+            health.serverUrl === endpoint &&
+            health.processId === read(spec, 'run/daemon.pid').pid
+          )
+        } catch {
+          return false
+        }
+      }
+      const run = async (spec: InstanceSpec, args: string[], env: Record<string, string> = {}) => {
+        const result = await runPackagedCli(executable, spec, args, env)
+        expect(
+          result.code,
+          `${result.stdout}\n${result.stderr}\n${packagedDiagnostics(spec)}`,
+        ).toBe(0)
+      }
+      const sourceApi = trpc(source)
+      const targetApi = trpc(target)
+      const publicUrl = `http://127.0.0.1:${target.port}`
+      const sourceUrl = `ws://127.0.0.1:${source.port}`
+      const marker = join(TEST_ROOT, `${label}-fault`)
+      const waitForTransfer = async (
+        predicate: () => boolean | Promise<boolean>,
+        description: string,
+        timeoutMs = 60_000,
+      ) => {
+        const deadline = Date.now() + timeoutMs
+        while (!(await predicate())) {
+          const journalPath = join(source.stateDir, '.server-transfer/journal.json')
+          if (existsSync(journalPath)) {
+            const journal = read(source, '.server-transfer/journal.json')
+            if (
+              journal.state === 'aborted' ||
+              (journal.state === 'commit-uncertain' && !existsSync(marker))
+            ) {
+              throw new Error(`${description}: transfer terminated in ${journal.state}`)
+            }
+          }
+          if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
+          await Bun.sleep(100)
+        }
+      }
+      mkdirSync(source.stateDir, { recursive: true })
+      writeFileSync(
+        join(source.stateDir, 'config.json'),
+        JSON.stringify({
+          mode: 'all-in-one',
+          persistence: 'detached',
+          port: source.port,
+        }),
+      )
+      try {
+        await run(source, [], {
+          PODIUM_ADOPT_STATE: '1',
+          ...(interrupted
+            ? {
+                PODIUM_SERVER_MOVE_CRASH_POINT: 'after-promote',
+                PODIUM_SERVER_MOVE_FAULT_ONCE_FILE: marker,
+              }
+            : {}),
+        })
+        await waitForTransfer(
+          async () => (await version(source))?.instanceId === 'blue',
+          `${label} source`,
+        )
+        const sourceId = readFileSync(join(source.stateDir, 'machine.id'), 'utf8').trim()
+        for (const spec of [target, observer]) {
+          const pairing = await sourceApi.machines.pairingCode.mutate()
+          await run(spec, [
+            'setup',
+            '--join',
+            encodeJoin({ v: 1, serverUrl: sourceUrl, pairCode: pairing.code }),
+            '--persist',
+            'detached',
+          ])
+        }
+        const targetId = read(target, 'supervisor.json').machineId
+        const observerId = read(observer, 'supervisor.json').machineId
+        await waitForTransfer(async () => {
+          const rows = await sourceApi.machines.list.query()
+          return (
+            [sourceId, targetId, observerId].every((id) =>
+              rows.some(
+                (row) =>
+                  row.id === id &&
+                  row.online &&
+                  row.presenceSource === 'supervisor' &&
+                  row.deliveryCaps?.includes(SERVER_MOVE_CAPABILITY),
+              ),
+            ) && rows.find((row) => row.id === targetId)?.serverMoveEligibility?.eligible === true
+          )
+        }, `${label} real transfer eligibility`)
+        // Supervisor presence precedes agent transport. Endpoint handoff correctly
+        // leaves offline machines behind, so every intended participant must have
+        // a real current daemon connection before the transfer snapshots the fleet.
+        await waitForTransfer(
+          () => specs.every((spec) => daemonReady(spec, sourceUrl)),
+          `${label} source target and observer daemon readiness`,
+        )
+        const started = await sourceApi.machines.moveServer.mutate({
+          targetMachineId: targetId,
+          publicUrl,
+          bindHost: '127.0.0.1',
+          confirmation: 'TRANSFER SERVER',
+        })
+        expect(started.started).toBe(true)
+        if (!started.started) throw new Error('server transfer did not start')
+        if (interrupted) {
+          await waitForTransfer(() => existsSync(marker), `${label} source crashed after promotion`)
+          await waitForTransfer(
+            async () => {
+              try {
+                const operation = await sourceApi.operations.active.query({ group: 'lifecycle' })
+                const awaiting = operation?.awaiting
+                return (
+                  Array.isArray(awaiting) &&
+                  awaiting.some(
+                    (ask: unknown) =>
+                      typeof ask === 'object' &&
+                      ask !== null &&
+                      'id' in ask &&
+                      ask.id === 'server-move-recovery',
+                  )
+                )
+              } catch {
+                return false
+              }
+            },
+            `${label} fenced recovery surface`,
+            120_000,
+          )
+          // Restart the real target while its daemon still owes the sealed source recovery.
+          await run(target, ['stop'])
+          await run(target, [])
+          await waitForTransfer(
+            async () => (await version(target)) !== undefined,
+            `${label} restarted target`,
+          )
+          await waitForTransfer(
+            () => daemonReady(target, sourceUrl),
+            `${label} target recovery daemon reconnected to sealed source`,
+          )
+          await expect(
+            sourceApi.issues.create.mutate({
+              repoPath: TEST_ROOT,
+              title: 'Must remain fenced',
+              startNow: false,
+            }),
+          ).rejects.toThrow()
+          const recovered = await sourceApi.operations.settleAsk.mutate({
+            id: started.operationId,
+            actionId: 'server-move-recovery',
+          })
+          expect(recovered.handled).toBe(true)
+        }
+        await waitForTransfer(
+          () => {
+            try {
+              return (
+                read(source, 'config.json').mode === 'daemon' &&
+                read(source, '.server-transfer/journal.json').state === 'committed' &&
+                read(target, 'config.json').mode === 'server' &&
+                read(target, 'config.json').serverUrl === undefined
+              )
+            } catch {
+              return false
+            }
+          },
+          `${label} durable finalization`,
+          120_000,
+        )
+        const assertTopology = async () => {
+          await waitForTransfer(
+            async () => {
+              try {
+                const rows = await targetApi.machines.list.query()
+                return (
+                  [sourceId, targetId, observerId].every((id) =>
+                    rows.some(
+                      (row) => row.id === id && row.online && row.presenceSource === 'supervisor',
+                    ),
+                  ) &&
+                  rows.find((row) => row.id === targetId)?.services?.agentExecution.state ===
+                    'stopped' &&
+                  rows.find((row) => row.id === sourceId)?.services?.agentExecution.state ===
+                    'available'
+                )
+              } catch {
+                return false
+              }
+            },
+            `${label} rebound supervisor planes`,
+            120_000,
+          )
+          expect(read(source, 'supervisor.json').assignment).toEqual({
+            server: false,
+            agentExecution: true,
+          })
+          expect(read(target, 'supervisor.json').assignment).toEqual({
+            server: true,
+            agentExecution: false,
+          })
+          for (const spec of specs) {
+            expect(read(spec, 'connectivity.json')).toMatchObject({
+              state: 'connected',
+              serverUrl: `ws://127.0.0.1:${target.port}`,
+            })
+          }
+          expect(await version(source)).toBeUndefined()
+          const rows = await targetApi.machines.list.query()
+          expect(rows.find((row) => row.id === sourceId)?.serviceAssignment).toEqual({
+            server: false,
+            agentExecution: true,
+          })
+          expect(rows.find((row) => row.id === targetId)?.serviceAssignment).toEqual({
+            server: true,
+            agentExecution: false,
+          })
+        }
+        await assertTopology()
+        for (const spec of [source, target]) await run(spec, ['stop'])
+        // Restart the actual finalized durable state. The focused runtime tests
+        // separately inject the config/assignment atomic-write crash window.
+        await run(target, [])
+        await run(source, [])
+        await assertTopology()
+        // A completed move must not hide failed presence callbacks behind the
+        // SQLite fence. Check both the live seal and recovery-only reconnects.
+        for (const spec of specs) {
+          const file = Bun.file(join(spec.stateDir, 'logs/server.log'))
+          if (!(await file.exists())) continue
+          const tail = await file.slice(Math.max(0, file.size - 262_144)).text()
+          expect(
+            tail.includes('attempt to write a readonly database'),
+            `${label}: readonly write in ${spec.stateDir}; see bounded failure diagnostics`,
+          ).toBe(false)
+        }
+        console.log(
+          `PASS ${label}: compiled transfer, three endpoint rebinds, durable assignments, finalized restarts${interrupted ? ', sealed-source refusal and target restart during recovery' : ''}`,
+        )
+      } catch (error) {
+        console.error(await transferDiagnostics(specs, marker))
+        throw error
+      } finally {
+        for (const spec of specs) await runPackagedCli(executable, spec, ['stop']).catch(() => {})
+      }
+    }, 480_000)
+  }
+
   it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
@@ -781,8 +1607,9 @@ describe('multi-instance runtime isolation', () => {
         updateChannel: 'edge',
       },
     )
-    named.child.kill('SIGKILL')
-    await new Promise<void>((resolve) => named.child.once('exit', () => resolve()))
+    const stopped = await runCli(named, ['stop'])
+    expect(stopped.code, stopped.stderr).toBe(0)
+    await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')
   })
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
@@ -792,6 +1619,18 @@ describe('multi-instance runtime isolation', () => {
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
+    for (const instance of [compat, named]) {
+      await waitUntil(async () => {
+        const rows = await trpc(instance).machines.list.query()
+        return (
+          rows.length === 1 &&
+          rows[0]?.online === true &&
+          rows[0]?.presenceSource === 'supervisor' &&
+          rows[0]?.services?.server.state === 'available' &&
+          rows[0]?.services?.agentExecution.state === 'available'
+        )
+      }, `${instance.id} all-in-one supervisor`)
+    }
     for (const [port, label] of [
       [compat.hookPort, 'compat hook'],
       [named.hookPort, 'named hook'],
@@ -859,21 +1698,7 @@ describe('multi-instance runtime isolation', () => {
 
     // A second authenticated member is still inside the SAME named deployment,
     // but the instance label grants no execute authority over its host machine.
-    const memberToken = 'named-instance-member'
-    const memberDb = openDatabase(join(named.stateDir, 'podium.db'))
-    memberDb
-      .prepare(
-        `INSERT INTO users (id, display_name, role, created_at, disabled_at)
-         VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
-      )
-      .run()
-    memberDb
-      .prepare(
-        `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
-         VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
-      )
-      .run(createHash('sha256').update(memberToken).digest('hex'))
-    memberDb.close()
+    const memberToken = NAMED_MEMBER_TOKEN
     const memberApi = trpc(named, SESSION_COOKIE + '=' + memberToken)
     await expect(
       memberApi.sessions.create.mutate({

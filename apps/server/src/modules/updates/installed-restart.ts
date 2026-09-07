@@ -21,7 +21,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { UpdateTarget } from '@podium/protocol'
+import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import { readMachineUpdateJournal, updateFingerprint } from '@podium/runtime/machine-update'
+import { stateDir } from '@podium/runtime/config'
 import { resolveInstallDir } from '@podium/runtime/config'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { liveRecord } from '@podium/runtime/run-registry'
@@ -38,7 +41,21 @@ import { liveRecord } from '@podium/runtime/run-registry'
  */
 const log = createLogger('server:updates')
 
+/** A receipt for exactly the preparation this operation requested. */
+export interface PreparedCoordinatorUpdate {
+  readonly committed?: boolean
+  activate(): Promise<void>
+  cancel(): Promise<void>
+}
+
+export type PrepareCoordinatorUpdate = (
+  target: UpdateTarget,
+  grant?: UpdateGrantMessage,
+) => Promise<PreparedCoordinatorUpdate | void>
+
 export interface InstalledUpdateDeps {
+  /** Instance-local control directory; defaults to this process's runtime. */
+  runtimeDir?: string
   env?: NodeJS.ProcessEnv
   /** The pin the parent must verify dev-published bundles against. */
   pinnedPubkey?: string
@@ -100,7 +117,7 @@ export function parentAvailable(): boolean {
  */
 export function createInstalledCoordinatorUpdate(
   deps: InstalledUpdateDeps = {},
-): ((target: UpdateTarget) => Promise<void>) | undefined {
+): PrepareCoordinatorUpdate | undefined {
   const hasParent = deps.hasParent ?? parentAvailable
   if (!hasParent()) return undefined
   const requestSwap =
@@ -112,7 +129,8 @@ export function createInstalledCoordinatorUpdate(
         ...(pinnedPubkey ? { pinnedPubkey } : {}),
       }))
 
-  return async (target) => {
+  return async (target, authorizedGrant) => {
+    let prepared: PreparedCoordinatorUpdate | undefined
     const startedAt = Date.now()
     log.info('asking the parent to swap this server onto a new bundle', {
       targetVersion: target.version,
@@ -120,7 +138,46 @@ export function createInstalledCoordinatorUpdate(
       pinned: deps.pinnedPubkey !== undefined,
     })
     try {
-      await requestSwap(target, deps.pinnedPubkey)
+      if (
+        (deps.env ?? process.env).PODIUM_MACHINE_UPDATE_OWNER === 'supervisor' &&
+        !deps.requestSwap
+      ) {
+        const runtimeDir = deps.runtimeDir ?? join(stateDir(), 'runtime')
+        if (!authorizedGrant)
+          throw new Error('Coordinator preparation requires a durable operation grant.')
+        const grant = authorizedGrant
+        if (updateFingerprint(grant.target) !== updateFingerprint(target))
+          throw new Error('Coordinator preparation does not match the authorized exact target.')
+        await requestMachineUpdate(runtimeDir, '/prepare', grant)
+        const deadline = Date.now() + 20 * 60_000
+        let committed = false
+        while (true) {
+          const status = readMachineUpdateJournal(runtimeDir)
+          if (status?.grant.grantId !== grant.grantId)
+            throw new Error('Coordinator preparation authority was replaced.')
+          committed = ['activating', 'restarting', 'current'].includes(status.phase)
+          if (status.phase === 'prepared' || committed) break
+          if (['rejected', 'stuck', 'canceled'].includes(status.phase))
+            throw new Error(status.detail ?? 'Supervisor preparation failed.')
+          if (Date.now() >= deadline) throw new Error('Supervisor preparation timed out.')
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        prepared = {
+          committed,
+          activate: async () => {
+            // Never infer authority from whichever same-version journal happens
+            // to be present after the asynchronous database verification.
+            const current = readMachineUpdateJournal(runtimeDir)
+            if (current?.grant.grantId !== grant.grantId ||
+                current.fingerprint !== updateFingerprint({ target, repair: grant.repair === true }))
+              throw new Error('Coordinator preparation authority was replaced.')
+            await requestMachineUpdate(runtimeDir, '/activate', { grantId: grant.grantId })
+          },
+          cancel: async () => {
+            await requestMachineUpdate(runtimeDir, '/cancel', { grantId: grant.grantId })
+          },
+        }
+      } else await requestSwap(target, deps.pinnedPubkey)
     } catch (err) {
       // The parent's own sentence, recorded HERE as well: the step turns it into
       // a user-facing failure and the parent writes its own line, but only this
@@ -137,6 +194,7 @@ export function createInstalledCoordinatorUpdate(
       elapsedMs: Date.now() - startedAt,
     })
     deps.onInstalled?.(target.version)
+    return prepared
   }
 }
 
@@ -161,7 +219,7 @@ function installedVersionOnDisk(env: NodeJS.ProcessEnv): string | undefined {
  */
 export function createInstalledCoordinatorRestart(
   deps: InstalledRestartDeps,
-): (() => void) | undefined {
+): (() => void | Promise<void>) | undefined {
   const env = deps.env ?? process.env
   const hasParent = deps.hasParent ?? parentAvailable
   if (!hasParent()) return undefined
@@ -174,6 +232,10 @@ export function createInstalledCoordinatorRestart(
   const pending = deps.pendingVersion
 
   return () => {
+    if (env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor' && !deps.requestHandover) {
+      throw new Error('Supervisor updates require operation-owned snapshot activation.')
+    }
+
     if (requested) {
       log.debug('a parent handover has already been requested; not asking again', {})
       return

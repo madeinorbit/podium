@@ -23,6 +23,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
+import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
 
@@ -156,5 +157,55 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
     expect(taken).toEqual([[90, 28]])
     expect(timeline).toEqual(['output:5', 'report:90x28'])
     expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+})
+
+/**
+ * WHAT THE REPORT IS READ FROM (POD-3290).
+ *
+ * The frame above is no longer built from the request; it is built from this
+ * daemon's applied-size record, written by the arm that dispatched the resize.
+ * These pin the write, so "the report says what was applied" is a fact about
+ * the record and not a coincidence of the two numbers being equal.
+ */
+describe('the resize handler records what it dispatched, and only that', () => {
+  it('records the grid a bridged session was dispatched', () => {
+    const { ctx } = harness()
+    ctx.bridges.set(SESSION, fakeSession())
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 120, rows: 40 })
+
+    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 120, rows: 40 })
+  })
+
+  it('records the grid a CLIENT TERMINAL took, by the other arm', () => {
+    const { ctx } = harness({
+      clientTerminals: { resize: () => true },
+    } as unknown as Partial<DaemonContext>)
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 90, rows: 28 })
+
+    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 90, rows: 28 })
+  })
+
+  it('records NOTHING for a held request — a request is not an apply', () => {
+    const { ctx } = harness()
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
+
+    // The pty this belongs to does not exist yet. `wireBridge` dispatches it at
+    // bind and records it there; until then there is nothing true to say.
+    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 132, rows: 43 })
+    expect(appliedGeometryFor(ctx).applied(SESSION)).toBeUndefined()
+  })
+
+  it('holds the LAST grid dispatched, which is what a later bind would report', () => {
+    const { ctx } = harness()
+    ctx.bridges.set(SESSION, fakeSession())
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 30 })
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 200, rows: 60 })
+
+    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 200, rows: 60 })
   })
 })

@@ -1,6 +1,6 @@
 import { asMachineId } from '@podium/model'
 import { defaultInstancePorts } from '@podium/runtime/instance'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   alreadyRunningMessage,
   daemonOptionsForPlan,
@@ -76,6 +76,12 @@ describe('resolveModePlan', () => {
       }),
     ).toMatchObject({ pairCode: 'FLAG1' })
   })
+  it('carries the durable bind host into every server launch plan', () => {
+    expect(resolveModePlan(['server'], { mode: 'server', bindHost: '0.0.0.0' })).toMatchObject({
+      mode: 'server',
+      bindHost: '0.0.0.0',
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -93,6 +99,21 @@ function plan(
 ): LaunchPlan {
   return resolvePlan(config, argv, env, tty)
 }
+
+describe('podium install-finish (the installer handoff) [POD-3274]', () => {
+  it('routes to its own plan, carrying the flags through untouched', () => {
+    const argv = ['install-finish', '--dest', '/d', '--bin', '/b', '--command', 'podium']
+    expect(plan({}, argv)).toEqual({ kind: 'install-finish', argv: argv.slice(1) })
+  })
+
+  it('routes even on a fresh box with no config, where setup would otherwise claim it', () => {
+    // A fresh install IS the case this runs in, so a first-run setup branch must not win.
+    expect(
+      plan({}, ['install-finish', '--dest', '/d', '--bin', '/b', '--command', 'podium'], {}, true)
+        .kind,
+    ).toBe('install-finish')
+  })
+})
 
 describe('ordinary local setup inference', () => {
   it('accepts source and desktop launchers only on a loopback bind', () => {
@@ -902,6 +923,21 @@ describe('daemonOptionsForPlan', () => {
     ).toBe(true)
   })
 
+  it('lazily mints the host id for an all-in-one daemon', () => {
+    const readHostMachineId = vi.fn(() => asMachineId('minted-host-machine-id'))
+
+    expect(
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        18787,
+        'local-secret',
+        undefined,
+        readHostMachineId,
+      ).machineId,
+    ).toBe('minted-host-machine-id')
+    expect(readHostMachineId).toHaveBeenCalledOnce()
+  })
+
   it('never claims a split-mode daemon would stop a server by exiting', () => {
     // The daemon unit, the detached daemon and `podium daemon --server …` each
     // own their process. Setting the flag there would refuse updates on exactly
@@ -916,6 +952,8 @@ describe('daemonOptionsForPlan', () => {
   })
 
   it('keeps remote daemon auth based on serverUrl and pair code', () => {
+    const readHostMachineId = vi.fn(() => asMachineId('unused-host-machine-id'))
+
     expect(
       daemonOptionsForPlan(
         {
@@ -926,6 +964,8 @@ describe('daemonOptionsForPlan', () => {
         },
         18787,
         'local-secret',
+        undefined,
+        readHostMachineId,
       ),
     ).toEqual({
       serverUrl: 'wss://relay.example',
@@ -933,6 +973,7 @@ describe('daemonOptionsForPlan', () => {
       installCodexHooks: true,
       installGrokHooks: true,
     })
+    expect(readHostMachineId).not.toHaveBeenCalled()
   })
 })
 

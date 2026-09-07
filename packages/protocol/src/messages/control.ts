@@ -56,12 +56,15 @@ import {
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
+  ServerEndpointCommitRequestMessage,
+  ServerEndpointProbeRequestMessage,
+  ServerEndpointResumeRequestMessage,
   ServerTransferAbortRequestMessage,
   ServerTransferAcknowledgeRequestMessage,
   ServerTransferChunkRequestMessage,
+  ServerTransferInspectRequestMessage,
   ServerTransferPrepareRequestMessage,
   ServerTransferPromoteRequestMessage,
-  ServerTransferStatusRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
 import {
@@ -153,7 +156,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ServerTransferPromoteRequestMessage,
   ServerTransferAbortRequestMessage,
   ServerTransferAcknowledgeRequestMessage,
-  ServerTransferStatusRequestMessage,
+  ServerTransferInspectRequestMessage,
+  ServerEndpointProbeRequestMessage,
+  ServerEndpointCommitRequestMessage,
+  ServerEndpointResumeRequestMessage,
   ShippingJobRequestMessage,
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,

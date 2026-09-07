@@ -1,7 +1,4 @@
 x-fixture: &fixture
-  build:
-    context: ../../..
-    dockerfile: tests/acceptance/server-transfer/Dockerfile
   image: podium-server-transfer-acceptance:local
   networks:
     - transfer
@@ -14,6 +11,9 @@ x-fixture: &fixture
 services:
   source:
     <<: *fixture
+    build:
+      context: ../../..
+      dockerfile: tests/acceptance/server-transfer/Dockerfile
     hostname: source
     command:
       - bun
@@ -32,6 +32,10 @@ services:
       PODIUM_NO_SCOPE: "1"
       PODIUM_NO_RELAY: "1"
       PODIUM_APP_VERSION: docker-transfer-acceptance
+      PODIUM_SERVER_MOVE_CRASH_POINT: ${PODIUM_SERVER_MOVE_CRASH_POINT:-}
+      PODIUM_SERVER_MOVE_FAIL_POINT: ${PODIUM_SERVER_MOVE_FAIL_POINT:-}
+      PODIUM_SERVER_MOVE_FAULT_ONCE_FILE: /coord/source-fault-once
+      PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE: /coord/source-commit-before-ack
       PODIUM_WEB_DIR: /fixture-web
     volumes:
       - source-state:/state
@@ -64,17 +68,36 @@ services:
       - target-agent-home:/agent-home
       - coordination:/coord
 
+  observer:
+    <<: *fixture
+    hostname: observer
+    command:
+      - bun
+      - --conditions=@podium/source
+      - tests/acceptance/server-transfer/machine-supervisor.ts
+      - observer
+    environment:
+      <<: *fixture-environment
+      PODIUM_STATE_DIR: /state
+      PODIUM_AGENT_HOME: /agent-home
+      HOME: /agent-home
+      PODIUM_HOOK_PORT: "45777"
+      PODIUM_AGENT_RELAY_PORT: "45778"
+      PODIUM_NO_SCOPE: "1"
+      PODIUM_NO_RELAY: "1"
+      PODIUM_APP_VERSION: docker-transfer-acceptance
+      PODIUM_WEB_DIR: /fixture-web
+    volumes:
+      - observer-state:/state
+      - observer-agent-home:/agent-home
+      - coordination:/coord
+
   control-proxy:
     <<: *fixture
     hostname: control-proxy
     command: [bun, tests/acceptance/server-transfer/control-proxy.ts]
     volumes:
       - coordination:/coord
-
-  edge:
-    <<: *fixture
-    hostname: edge
-    command: [bun, tests/acceptance/server-transfer/edge-proxy.ts]
 
   scenario:
     <<: *fixture
@@ -87,7 +110,7 @@ services:
       - source
       - target
       - control-proxy
-      - edge
+      - observer
     volumes:
       - coordination:/coord
 
@@ -100,4 +123,6 @@ volumes:
   target-state:
   source-agent-home:
   target-agent-home:
+  observer-state:
+  observer-agent-home:
   coordination:

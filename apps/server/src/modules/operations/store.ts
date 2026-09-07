@@ -1,3 +1,5 @@
+import { UpdateChannel } from '@podium/model'
+import type { UpdateTarget } from '@podium/protocol'
 import {
   isTerminalOperationState,
   type Operation,
@@ -280,6 +282,25 @@ export class OperationStore {
     return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
+  /** Terminal rows whose kind cleanup still needs an idempotent retry. */
+  pendingCleanup(): OperationRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM operations ORDER BY updated_at ASC')
+      .all() as Record<string, unknown>[]
+    return rows.map(toRow).filter((row) => {
+      if (!isTerminalOperationState(row.state) || !row.operation) return false
+      const details = row.operation.details
+      if (!details || typeof details !== 'object') return false
+      const cleanup = details.cleanup
+      return (
+        typeof cleanup === 'object' &&
+        cleanup !== null &&
+        'status' in cleanup &&
+        cleanup.status === 'pending'
+      )
+    })
+  }
+
   /** Newest first — what Settings → Updates lists (§3.7). */
   async history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): Promise<OperationRow[]> {
     // The two arms stay two statements rather than one with a conditional
@@ -296,6 +317,25 @@ export class OperationStore {
             .limit(limit)
             .all()
     return rows.map(toRow)
+  }
+
+  /** Durable consent comes only from a user-started, non-canceled update. */
+  approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
+    return this.approvalRows().find((row) => row.operation?.details?.channel === channel)?.operation
+      ?.details?.target as UpdateTarget | undefined
+  }
+
+  private approvalRows(): OperationRow[] {
+    return this.history('update', -1).filter((row) => {
+      const operation = row.operation
+      const target = operation?.details?.target as UpdateTarget | undefined
+      return (
+        row.state !== 'canceled' &&
+        operation?.createdBy === 'user' &&
+        UpdateChannel.safeParse(operation.details?.channel).success &&
+        typeof target?.version === 'string'
+      )
+    })
   }
 
   /**

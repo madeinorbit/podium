@@ -21,6 +21,8 @@ import {
   type FeatureId,
   type LocalDaemonLink,
   resolveFeatureState,
+  SERVER_MOVE_CAPABILITY,
+  wireSchemaDigest,
 } from '@podium/protocol'
 import {
   loadConfig,
@@ -41,8 +43,28 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
+import { MachineUpdateExecutor, readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import {
+  createHeadlessMachineUpdateAdapter,
+  installedArtifactDigest,
+} from '@podium/runtime/machine-update-headless'
+import {
+  NativeMachineUpdateAdapter,
+  withNativeMachineUpdates,
+} from '@podium/runtime/machine-update-native'
+import { startMachineUpdateControl } from '@podium/runtime/machine-update-control'
+import {
+  createMachineSupervisorConnection,
+  effectiveAssignment,
+  loadSupervisorState,
+  reconcileSupervisorAssignment,
+  targetTransferRecovery,
+  saveSupervisorState,
+} from '@podium/runtime/machine-supervisor'
+import { machineServiceReport } from '@podium/runtime/parent-supervisor'
+import { consumePairCode } from '@podium/runtime/setup'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -54,7 +76,7 @@ export interface ModePlan {
   showSetupHint: boolean
 }
 
-const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
+const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server', 'supervisor']
 
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
@@ -189,6 +211,9 @@ export type LaunchPlan =
       takeover: boolean
     }
   | { kind: 'repair-config' }
+  /** `podium install-finish`: everything install.sh hands off after the verified binary is
+   *  on disk. Not in `podium help` — install.sh is the only caller [POD-3274]. */
+  | { kind: 'install-finish'; argv: string[] }
   | {
       kind: 'join-setup'
       token: string
@@ -654,10 +679,15 @@ export function resolvePlan(
   // Thin parent process [POD-2505]: supervises server + daemon OS children.
   if (argv[0] === 'parent') {
     const takeover = argv.includes('--takeover')
-    const includeDaemon = config.mode !== 'server'
-    const includeServer = config.mode !== 'daemon'
+    const includeDaemon =
+      config.mode !== 'server' && config.mode !== 'supervisor' && config.mode !== 'client'
+    const includeServer =
+      config.mode !== 'daemon' && config.mode !== 'supervisor' && config.mode !== 'client'
     return { kind: 'parent', port, includeDaemon, includeServer, takeover }
   }
+  // `podium install-finish`: the post-handoff installer flow [POD-3274]. Parsed here so a
+  // malformed handoff is a usage error rather than a half-configured box.
+  if (argv[0] === 'install-finish') return { kind: 'install-finish', argv: argv.slice(1) }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
   // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join
@@ -779,6 +809,15 @@ export function resolvePlan(
     }
     return { kind: 'detached-managed', mode: modePlan.mode, port }
   }
+  if (!forceSetup && modePlan.mode === 'supervisor') {
+    return {
+      kind: 'parent',
+      port,
+      includeDaemon: false,
+      includeServer: false,
+      takeover: argv.includes('--takeover'),
+    }
+  }
 
   // In-process hosting. `forceSetup` here is the headless `podium setup` fallback: serve
   // the web setup UI (server only), claim no run-registry role.
@@ -835,6 +874,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
     '  parent                Supervise server (+ janitor worker) and daemon children',
+    '  supervisor            Run only machine presence and update delivery',
     '  client                Nothing to run locally; points at a remote server',
     '',
     '  --instance <id>        Select an isolated Podium instance (default: default)',
@@ -992,10 +1032,10 @@ export function daemonOptionsForPlan(
   plan: ModePlan,
   serverPort: number,
   localBootstrapToken?: string,
-  /** This host's minted id (`<stateDir>/machine.id`). Defaulted rather than required so
-   *  the argv-shaped tests keep calling this with three arguments; the same file the
-   *  server read is the same file read here, because it is the same host. */
-  hostMachineId: MachineId = readOrCreateLocalMachineId(),
+  /** This host's minted id (`<stateDir>/machine.id`), when already known. */
+  hostMachineId?: MachineId,
+  /** Injected only so tests can prove remote planning never touches local identity. */
+  readHostMachineId: () => MachineId = readOrCreateLocalMachineId,
 ): DaemonStartOptions {
   const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : localServerWsUrl(serverPort)
   if (!serverUrl)
@@ -1005,7 +1045,10 @@ export function daemonOptionsForPlan(
     if (plan.mode !== 'all-in-one') return {}
     if (!localBootstrapToken)
       throw new Error('podium all-in-one daemon needs local bootstrap token')
-    return { bootstrapToken: localBootstrapToken, machineId: hostMachineId }
+    return {
+      bootstrapToken: localBootstrapToken,
+      machineId: hostMachineId ?? readHostMachineId(),
+    }
   })()
 
   return {
@@ -1071,6 +1114,7 @@ export interface HostModules {
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
+    recoveryOnly: boolean
   }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
@@ -1166,6 +1210,7 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
+  let recoveryOnly = false
   const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
@@ -1185,13 +1230,14 @@ async function runInProcess(
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
+    recoveryOnly = server.recoveryOnly
     console.log(`podium server up on ${localServerUrl(serverPort)}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
   }
-  if (roles.daemon && host) {
+  if (roles.daemon && host && !recoveryOnly) {
     let daemonOptions: DaemonStartOptions
     if (plan.daemonAuth === 'local-split') {
       // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine
@@ -1502,9 +1548,9 @@ export async function main(
       return
     }
     case 'server-transfer-promote': {
-      const { promoteTargetServerRole } = await import('./role-reconcile')
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
       try {
-        await promoteTargetServerRole({ transferId: plan.transferId })
+        await requestParentTopology({ children: ['server', 'daemon'], health: 'server' })
       } catch (error) {
         console.error((error as Error).message)
         process.exit(2)
@@ -1512,8 +1558,8 @@ export async function main(
       return
     }
     case 'server-transfer-retire-daemon': {
-      const { retireTargetDaemon } = await import('./role-reconcile')
-      await retireTargetDaemon({ acknowledged: true })
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
+      await requestParentTopology({ children: ['server'], health: 'none' })
       return
     }
     case 'parent': {
@@ -1526,9 +1572,25 @@ export async function main(
       const { fileURLToPath } = await import('node:url')
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
       const compiled = import.meta.url.includes('/$bunfs/')
+      const supervisorState = loadSupervisorState(stateDir())
+      let topologyConfig = config
+      const targetRecovery = targetTransferRecovery(supervisorState, config)
+      const localBootstrapToken = plan.includeServer ? readOrCreateDaemonSecret() : undefined
+      if (plan.includeServer && !targetRecovery) {
+        supervisorState.machineId = readOrCreateLocalMachineId()
+        supervisorState.token = localBootstrapToken
+        saveSupervisorState(stateDir(), supervisorState)
+      }
+      let configuredAssignment = reconcileSupervisorAssignment(supervisorState, config)
+      supervisorState.assignment = configuredAssignment
+      saveSupervisorState(stateDir(), supervisorState)
+      let runningAssignment = effectiveAssignment({
+        configured: configuredAssignment,
+        agentExecutionLockout: config.agentExecutionLockout,
+      })
       const children: Array<'server' | 'daemon'> = [
-        ...(plan.includeServer ? (['server'] as const) : []),
-        ...(plan.includeDaemon ? (['daemon'] as const) : []),
+        ...(runningAssignment.server ? (['server'] as const) : []),
+        ...(runningAssignment.agentExecution || targetRecovery ? (['daemon'] as const) : []),
       ]
       /**
        * A SUCCESSOR is a parent spawned by a live predecessor during
@@ -1540,12 +1602,46 @@ export async function main(
        */
       const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
       const installDir = resolveInstallDir(process.env)
+      const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+      const runningDigest = installedArtifactDigest(installDir)
+      const runtimeDir = join(stateDir(), 'runtime')
+      const pendingUpdate = readMachineUpdateJournal(runtimeDir)
+      let updateControl: Awaited<ReturnType<typeof startMachineUpdateControl>> | undefined
+      let supervisorConnection: ReturnType<typeof createMachineSupervisorConnection> | undefined
       const parent = new ParentProcess({
         port: plan.port,
         children,
-        finalizePendingGrant: children.includes('server')
-          ? (expectedVersion) => finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
-          : undefined,
+        daemonLocal: runningAssignment.server && !targetRecovery,
+        onTopology: (desired) => {
+          topologyConfig = loadConfig()
+          configuredAssignment = reconcileSupervisorAssignment(
+            loadSupervisorState(stateDir()),
+            topologyConfig,
+          )
+          supervisorState.assignment = configuredAssignment
+          saveSupervisorState(stateDir(), supervisorState)
+          runningAssignment = {
+            server: desired.includes('server'),
+            agentExecution: desired.includes('daemon'),
+          }
+          supervisorConnection?.reconfigure()
+        },
+        runningIdentity: { version: appVersion, digest: runningDigest },
+        releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
+        childEnv: () => ({
+          PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
+          PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
+          PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),
+          ...(supervisorState.token
+            ? { PODIUM_SUPERVISOR_MACHINE_TOKEN: supervisorState.token }
+            : {}),
+          ...(supervisorState.updatePubkey
+            ? { PODIUM_SUPERVISOR_UPDATE_PUBKEY: supervisorState.updatePubkey }
+            : {}),
+        }),
+        onSnapshot: () => supervisorConnection?.report(),
+        finalizePendingGrant: (expectedVersion) =>
+          finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion),
         env: {
           ...process.env,
           ...(compiled
@@ -1590,6 +1686,8 @@ export async function main(
           })
         },
         onExit: async () => {
+          supervisorConnection?.close()
+          await updateControl?.close()
           await parentLogging.close().catch(() => {})
         },
         reportSuccessorPid: (pid) => {
@@ -1632,8 +1730,123 @@ export async function main(
           process.exit(1)
         }
       }
+      const desktopManaged = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
+      const installedPayload = compiled || process.env.PODIUM_HOME !== undefined
+      const deliveryCaps = [
+        SERVER_MOVE_CAPABILITY,
+        ...(installedPayload ? ['update.delivery.feed'] : []),
+      ]
+      const machineServerUrl = (): string => {
+        // Remote endpoint commits may happen in the daemon while the parent remains live.
+        // Resolve again on every dial, including after the old coordinator retires.
+        const current = loadConfig()
+        const endpoint = runningAssignment.server ? localServerWsUrl(plan.port) : current.serverUrl
+        if (!endpoint) throw new Error('machine supervisor has no coordinating server URL')
+        return endpoint
+      }
+      const nativeAdapter = desktopManaged
+        ? new NativeMachineUpdateAdapter({
+            runtimeDir,
+            version: process.env.PODIUM_DESKTOP_VERSION ?? appVersion,
+            digest: process.env.PODIUM_DESKTOP_ARTIFACT_DIGEST || undefined,
+          })
+        : undefined
+      const payloadAdapter = createHeadlessMachineUpdateAdapter({
+        installDir,
+        runningVersion: appVersion,
+        runningDigest,
+        caps: deliveryCaps,
+        pinnedPubkey: () => supervisorState.updatePubkey,
+        restart: async (grant, prepared) => {
+          parent.setUpdateMigrationKnowledge(prepared.releaseHadMigrations)
+          await parent.handover(grant.target.version)
+        },
+      })
+      const updateRunner = new MachineUpdateExecutor({
+        runtimeDir,
+        adapter: nativeAdapter
+          ? withNativeMachineUpdates(payloadAdapter, nativeAdapter)
+          : payloadAdapter,
+        report: (status) => supervisorConnection?.send(status),
+        log: (phase, fields) => console.error('[machine update]', phase, JSON.stringify(fields)),
+      })
+      await updateRunner.recoverBeforeBoot()
+      supervisorConnection = createMachineSupervisorConnection({
+        serverUrl: machineServerUrl,
+        stateDir: stateDir(),
+        state: supervisorState,
+        ...(config.pairCode ? { pairCode: config.pairCode } : {}),
+        bootstrapToken: () => (runningAssignment.server ? readOrCreateDaemonSecret() : undefined),
+        build: {
+          appVersion,
+          wireSchemaDigest: wireSchemaDigest(),
+          installKind: installedPayload ? 'installed' : 'source',
+        },
+        deliveryCaps,
+        report: () =>
+          machineServiceReport({
+            snap: parent.snapshot(),
+            assignment: configuredAssignment,
+            running: runningAssignment,
+            agentExecutionLockout: config.agentExecutionLockout,
+            crashOwner: desktopManaged ? 'desktop' : (config.persistence ?? 'foreground'),
+          }),
+        acceptAssignment: () => {
+          // The transfer writer can commit before its topology request arrives.
+          // Do not let the old coordinator overwrite that durable assignment.
+          const current = loadConfig()
+          return (
+            current.mode === topologyConfig.mode && current.serverUrl === topologyConfig.serverUrl
+          )
+        },
+        onAssignment: (assignment) => {
+          configuredAssignment = reconcileSupervisorAssignment(
+            { ...supervisorState, assignment },
+            topologyConfig,
+          )
+          supervisorState.assignment = configuredAssignment
+          saveSupervisorState(stateDir(), supervisorState)
+        },
+        onGrant: (grant, authority) => {
+          void updateRunner.accept(grant, true, false, authority).catch((error) =>
+            supervisorConnection?.send({
+              type: 'updateStatus',
+              grantId: grant.grantId,
+              targetVersion: grant.target.version,
+              version: appVersion,
+              state: 'rejected',
+              detail: String(error),
+            }),
+          )
+        },
+        onConnected: () => updateRunner.replay(),
+        onPaired: () => {
+          if (!config.pairCode) return
+          try {
+            consumePairCode(config.pairCode)
+          } catch {}
+        },
+      })
+      supervisorConnection.start()
+      if (!supervisorState.token && config.pairCode && !children.includes('server')) {
+        await supervisorConnection.waitUntilConnected()
+      }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
-      await parent.start()
+      if (
+        pendingUpdate &&
+        !pendingUpdate.grant.target.native &&
+        ['activating', 'restarting'].includes(pendingUpdate.phase) &&
+        (appVersion !== pendingUpdate.grant.target.version ||
+          runningDigest !== pendingUpdate.prepared?.digest)
+      ) {
+        await updateRunner.confirmBoot(true)
+      }
+      const { startParentWithUpdateConfirmation } = await import('./parent-boot-confirmation')
+      await startParentWithUpdateConfirmation(parent, updateRunner, async () => {
+        const control = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter)
+        if (parent.bootHealthSignal.aborted) await control.close()
+        else updateControl = control
+      })
       // Health-gated unit retirement: only the NEW parent proving healthy may
       // shed leftover units. A failed gate aborts onto the still-armed legacy set.
       // Skip when this parent is not a managed install (foreground tests, desktop).
@@ -1665,6 +1878,23 @@ export async function main(
         console.log(`Backed up the invalid config to ${r.backupPath}`)
         if (r.error) console.log(`(it failed to parse: ${r.error})`)
         console.log('Run `podium setup` to configure this box fresh.')
+      }
+      return
+    }
+    case 'install-finish': {
+      const { parseInstallFinishArgs, runInstallFinish } = await import('./install-finish')
+      const parsed = parseInstallFinishArgs(plan.argv, process.env)
+      if ('error' in parsed) {
+        console.error(parsed.error)
+        process.exit(2)
+      }
+      const { clackIO } = await import('./setup-ui')
+      try {
+        await runInstallFinish(clackIO(), parsed)
+      } catch (e) {
+        // install.sh reports a non-zero exit as a failed install, which is what this is.
+        console.error(`podium install-finish failed: ${(e as Error).message}`)
+        process.exit(1)
       }
       return
     }
@@ -1798,30 +2028,20 @@ export async function main(
     }
     case 'interactive-setup': {
       const { runCliSetup } = await import('./cli-setup')
-      const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      })
+      const { clackIO } = await import('./setup-ui')
       await runCliSetup(
-        { prompt: (q) => rl.question(q), print: (s) => console.log(s) },
+        clackIO(),
         plan.port,
         // `--confirm-url-change` answers the "this strands joined machines"
         // question ahead of time, for a run that cannot answer a prompt.
         argv.includes('--confirm-url-change') ? { confirmUrlChange: true } : {},
       )
-      rl.close()
       return
     }
     case 'interactive-vps-setup': {
       const { runVpsSetup } = await import('./cli-setup')
-      const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      })
-      await runVpsSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
-      rl.close()
+      const { clackIO } = await import('./setup-ui')
+      await runVpsSetup(clackIO(), plan.port)
       return
     }
     case 'client': {

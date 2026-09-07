@@ -346,6 +346,55 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     })
   })
 
+  app.get('/auth/server-transfer-claim', (c) =>
+    c.html(
+      `<!doctype html><meta charset="utf-8"><title>Moving Podium…</title><p>Connecting to the moved server…</p><script>const p=new URLSearchParams(location.hash.slice(1));history.replaceState(null,'',location.pathname);const token=p.get('token');const next=p.get('next')||'/';if(!token){location.replace('/');}else{const f=document.createElement('form');f.method='post';f.action='/auth/server-transfer-claim';for(const [name,value] of [['token',token],['next',next]]){const i=document.createElement('input');i.type='hidden';i.name=name;i.value=value;f.appendChild(i);}document.body.appendChild(f);f.submit();}</script>`,
+      200,
+      {
+        'cache-control': 'no-store',
+        'content-security-policy':
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'none'; base-uri 'none'; form-action 'self'",
+        'referrer-policy': 'no-referrer',
+      },
+    ),
+  )
+
+  app.post('/auth/server-transfer-claim', async (c) => {
+    if (!store) return c.redirect('/?serverTransferClaim=unavailable', 303)
+    let body: Record<string, string | File>
+    try {
+      body = await c.req.parseBody()
+    } catch {
+      return c.redirect('/?serverTransferClaim=invalid', 303)
+    }
+    const token = typeof body.token === 'string' ? body.token : ''
+    const requestedNext = typeof body.next === 'string' ? body.next : '/'
+    const next =
+      requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/'
+    const tokenHash = hashToken(token)
+    const session = store.getClientSession(tokenHash)
+    if (
+      token.length < 32 ||
+      session?.label !== 'server-transfer-claim' ||
+      !store.isClientSessionValid(tokenHash, new Date(now()).toISOString())
+    ) {
+      return c.redirect('/?serverTransferClaim=invalid', 303)
+    }
+    // Rotate the claim into an ordinary HttpOnly browser session. The plaintext
+    // claim was carried only in the old authenticated WebSocket and URL fragment;
+    // after this response it no longer authenticates anything.
+    const replacement = randomBytes(32).toString('base64url')
+    store.deleteClientSession(tokenHash)
+    store.createClientSession(
+      hashToken(replacement),
+      session.userId,
+      new Date(now() + SESSION_TTL_MS).toISOString(),
+      'login',
+    )
+    setSessionCookie(c, replacement, opts.trustedProxyHops)
+    return c.redirect(next, 303)
+  })
+
   app.post('/auth/login', async (c) => {
     if (!(await loginRequired())) {
       // No password configured → auth is disabled; there's nothing to log into.

@@ -251,47 +251,41 @@ describe.skipIf(!hasCompiler)('reconnecting to a running agent', () => {
    * the repaint nudge is a real resize of the attach pty, and the attach client
    * forwards it like any other.
    */
-  for (const [name, preserveReplayOnAdopt] of [
-    ['with the attach-time repaint', false],
-    ['without it', true],
-  ] as const) {
-    it(`${name}, a reconnect at a stale size neither moves nor signals the agent`, async () => {
-      const label = `podium-attach-neutral-adopt-${process.pid}-${preserveReplayOnAdopt}`
-      labels.push(label)
-      const first = await spawnAbducoAgent({
-        label,
-        cmd: process.execPath,
-        args: [chattyFixture],
-        cols: 137,
-        rows: 43,
-      })
-      let buf = ''
-      first.onFrame((f) => {
-        buf += Buffer.from(f.data).toString('utf8')
-      })
-      await waitFor(() => /cols=137 rows=43/.test(buf), 'the agent to reach the spawn size', 12000)
-      await wait(500)
-      const settled = signals(buf).length
+  it('a reconnect at a stale size neither moves nor signals the agent', async () => {
+    const label = `podium-attach-neutral-adopt-${process.pid}`
+    labels.push(label)
+    const first = await spawnAbducoAgent({
+      label,
+      cmd: process.execPath,
+      args: [chattyFixture],
+      cols: 137,
+      rows: 43,
+    })
+    let buf = ''
+    first.onFrame((f) => {
+      buf += Buffer.from(f.data).toString('utf8')
+    })
+    await waitFor(() => /cols=137 rows=43/.test(buf), 'the agent to reach the spawn size', 12000)
+    await wait(500)
+    const settled = signals(buf).length
 
-      // A reconnect whose last-known geometry is WRONG — a stale belief, which is
-      // exactly what survives a daemon restart.
-      const again = await spawnAbducoAgent({
-        label,
-        cmd: process.execPath,
-        args: [chattyFixture],
-        cols: 90,
-        rows: 20,
-        preserveReplayOnAdopt,
-      })
-      expect(again.adopted).toBe(true)
-      await wait(1500) // the nudge restores on the agent's next frame; it is chatty
+    // A reconnect whose last-known geometry is WRONG — a stale belief, which is
+    // exactly what survives a daemon restart.
+    const again = await spawnAbducoAgent({
+      label,
+      cmd: process.execPath,
+      args: [chattyFixture],
+      cols: 90,
+      rows: 20,
+    })
+    expect(again.adopted).toBe(true)
+    await wait(1500) // the nudge restores on the agent's next frame; it is chatty
 
-      expect(signals(buf)).toHaveLength(settled)
-      expect(buf).not.toContain('cols=90')
-      again.dispose()
-      first.dispose()
-    }, 40000)
-  }
+    expect(signals(buf)).toHaveLength(settled)
+    expect(buf).not.toContain('cols=90')
+    again.dispose()
+    first.dispose()
+  }, 40000)
 })
 
 describe.skipIf(!hasCompiler)('the first ask after a size-neutral attach', () => {
@@ -315,7 +309,11 @@ describe.skipIf(!hasCompiler)('the first ask after a size-neutral attach', () =>
     const settled = signals(o.text()).length
 
     // The daemon-shaped reattach: size-neutral, carrying the size it believes.
-    const session = attachAbducoAgent({ label, cols: 111, rows: 37, sizeNeutral: true })
+    const session = attachAbducoAgent({
+      label,
+      sizeNeutral: true,
+      fallbackGeometry: { cols: 111, rows: 37 },
+    })
     try {
       await wait(800)
       expect(signals(o.text())).toHaveLength(settled) // the attach itself: silent
@@ -366,9 +364,8 @@ describe.skipIf(!hasCompiler)('what a size-neutral attach does to its own pty', 
 
     const session = attachAbducoAgent({
       label: 'podium-attach-neutral-seam',
-      cols: 111,
-      rows: 37,
       sizeNeutral: true,
+      fallbackGeometry: { cols: 111, rows: 37 },
       backend,
     })
     try {

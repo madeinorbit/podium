@@ -10,20 +10,24 @@ joining extra machines to it.
 
 ## Install a new instance
 
-One line, no build toolchain — it selects the prebuilt Linux x86_64 or ARM64 headless
-bundle, installs any missing runtime tools with the host package manager, verifies the
-bundle signature, and installs to `~/.local/share/podium` with a `podium` symlink in
-`~/.local/bin`:
+One line, no build toolchain:
 
 ```bash
 curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh
 ```
 
-When it finishes it prints `Done. Run: podium`. Then start it:
+`install.sh` is a **bootstrap**. It selects the prebuilt Linux x86_64 or ARM64 headless bundle,
+installs the few tools it needs to download and verify one (a downloader, `base64`, `openssl`,
+`tar`, `gzip`, CA certificates) with the host package manager, verifies the bundle's Ed25519
+signature, installs to `~/.local/share/podium` with a `podium` symlink in `~/.local/bin` — and
+then hands control to that verified binary, which does everything else. The verified binary is
+both the trust boundary and the interface boundary, so from that point the install runs from
+signed code [POD-3274].
 
-```bash
-podium
-```
+Because it reconnects `/dev/tty`, the piped form above still gets a real terminal: on an
+interactive host the installer walks the setup questions itself, so one paste leaves you with a
+configured machine. Without a terminal (CI, a provisioning script) it installs, reports, and
+leaves the configuring to `podium setup`.
 
 ### `PATH` persistence
 
@@ -36,12 +40,13 @@ duplicates. The **current** shell is not affected: open a new login shell, or ru
 `export PATH="$HOME/.local/bin:$PATH"` once.
 
 Set `PODIUM_NO_MODIFY_PATH=1` to skip this entirely (for images or config management that own
-`PATH` themselves); the installer then just prints the directory to add. Systemd services do not
+`PATH` themselves); the installer then just names the directory to add. Systemd services do not
 read shell startup files at all — the user units ship their own `Environment=PATH`, so the daemon
 finds the agent CLIs regardless of this setting.
 
-With no config yet, `podium` immediately runs in `all-in-one` mode (server + daemon in one
-process) on port **18787** and prints a setup URL. You have two ways to finish setup:
+If setup did not run inline — no terminal, or you declined — `podium` with no config runs in
+`all-in-one` mode (server + daemon in one process) on port **18787** and prints a setup URL.
+You have two ways to finish setup:
 
 - **Web setup** — open the printed URL (`http://localhost:18787/`) in a browser and walk
   through the networking step in the UI.
@@ -169,8 +174,12 @@ Run `podium join-config <TOKEN>` as that user first so the daemon has its config
   not touch (see [`PATH` persistence](#path-persistence)); add the line there yourself.
 - **Prerequisite bootstrap fails.** The installer can use apt, apk, dnf, yum, zypper, or pacman
   and runs unattended as root or through passwordless `sudo`. On another distro, install
-  `ca-certificates`, `curl` (or `wget`), `openssl`, `git`, `tar`, `gzip`, `bash`, and
-  `coreutils`, then re-run the command.
+  `ca-certificates`, `curl` (or `wget`), `openssl`, `tar`, `gzip`, and `coreutils`, then re-run
+  the command. `git` and `bash` are needed only by the agent installers, which run after the
+  handoff and report their own failures.
+- **`the installed binary could not be run`.** The bundle unpacked but will not execute — most
+  often `/tmp` or `~/.local/share` mounted `noexec`. Nothing was configured. Remount, then run
+  the `install-finish` command the installer prints to finish without re-downloading.
 - **No systemd on the box.** In `--join` mode Podium starts a detached daemon and records its
   PID/status itself. Use `podium status` and `podium stop` to inspect or stop it.
 - **Daemon can't reach the server.** A daemon dials the server's URL over the tailnet. If the

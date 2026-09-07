@@ -152,7 +152,7 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 
 | Working on… | Lives in… |
 |-------------|-----------|
-| PTY/tmux spawn, attach, resize, kill | `@podium/pty` |
+| PTY spawn, attach, resize, kill (abduco durable hosts) | `@podium/pty` |
 | Harness / recent-conversation / project / worktree discovery | `@podium/harness` (used by `apps/daemon`) |
 | Agent state detection (provider interface, reducer, per-agent providers) | `@podium/harness` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |

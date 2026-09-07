@@ -4,7 +4,7 @@
  * The server's whole teardown vocabulary toward a daemon is two frames — the
  * generic `kill` (hibernate, stop, archive-park, shell-park, stale-park) and
  * `sessionBindingRetire` (row deleted) — and both land in `stopSessionProcess`,
- * which reaped the PTY family's identities: the bridge and the abduco/tmux
+ * which reaped the PTY family's identities: the bridge and the abduco
  * durable host. A server-driver session has neither. Its process lives behind a
  * handle in `ctx.opencodeRuntime`/`ctx.codexRuntime`/`ctx.grokRuntime`, and
  * before this module nothing on the teardown path ever asked those registries —

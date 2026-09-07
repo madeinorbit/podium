@@ -15,7 +15,6 @@ afterEach(() => {
     'PODIUM_SESSION_ID',
     'PODIUM_STATE_DIR',
     'ABDUCO_SOCKET_DIR',
-    'TMUX_TMPDIR',
   ]) {
     if (savedEnv[key] === undefined) delete process.env[key]
     else process.env[key] = savedEnv[key]
@@ -30,7 +29,6 @@ describe('bootstrapDaemonInstance', () => {
     process.env.PODIUM_INSTANCE = 'blue'
     process.env.PODIUM_STATE_DIR = root
     delete process.env.ABDUCO_SOCKET_DIR
-    delete process.env.TMUX_TMPDIR
 
     const boot = bootstrapDaemonInstance()
     const socketDir = instanceSocketRuntimeDir('blue', root)
@@ -60,7 +58,6 @@ describe('bootstrapDaemonInstance', () => {
     expect(marker.instanceId).toBe('blue')
     expect(marker.instanceUuid).toMatch(INSTANCE_UUID_PATTERN)
     expect(process.env.ABDUCO_SOCKET_DIR).toBe(socketDir)
-    expect(process.env.TMUX_TMPDIR).toBe(socketDir)
   })
 
   it('does not create a Unix hook socket path on Windows', () => {
@@ -104,7 +101,6 @@ describe('bootstrapDaemonInstance', () => {
     process.env.PODIUM_INSTANCE = 'blue'
     process.env.PODIUM_STATE_DIR = root
     delete process.env.ABDUCO_SOCKET_DIR
-    delete process.env.TMUX_TMPDIR
 
     expect(bootstrapDaemonInstance().hookSocketPath).toBe(
       join(instanceSocketRuntimeDir('blue', root), 'codex-hooks.sock'),

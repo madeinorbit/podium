@@ -46,7 +46,6 @@ export const unitTestExclude = [
   'packages/pty/test/session.test.ts',
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
-  'packages/pty/src/tmux.test.ts',
   // Drives the real claude binary (self-skips without PODIUM_REAL_CLI=1);
   // the agent-smoke lane owns it.
   'packages/pty/test/harness-smoke/**',

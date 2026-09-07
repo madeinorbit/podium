@@ -1,6 +1,6 @@
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type Operation, parseOperation } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { SuperagentService } from '../../modules/superagent'
 import { SessionRegistry } from '../../relay'
@@ -184,6 +184,41 @@ describe('operations.history', () => {
     const { caller } = await harness()
     expect(await caller.operations.history()).toEqual([])
   })
+})
+
+describe('operations action authorization', () => {
+  it.each(['settleAsk', 'action'] as const)(
+    '%s authorizes a managed target through the real machines ownership adapter',
+    async (procedure) => {
+      const { registry, caller, operations } = harness()
+      const targetMachineId = registry.modules.machines.ensureHostMachine('Target machine')
+      const onAction = vi.fn(async () => ({ outcome: 'recovered' }))
+      operations.kinds.register(
+        testKind({
+          plan: () => ({
+            steps: [{ id: 'first' }],
+            details: { targetMachineId },
+            awaiting: [{ id: 'recover', required: true }],
+          }),
+          runners: { first: { ensure: done } },
+          onAction,
+        }),
+      )
+      const started = await operations.engine.start('test')
+      if (!started.started) throw new Error('expected a live operation')
+
+      const input = { id: started.operation.id, actionId: 'recover' }
+      const result =
+        procedure === 'settleAsk'
+          ? await caller.operations.settleAsk(input)
+          : await caller.operations.action(input)
+
+      expect(result).toEqual({ handled: true, result: { outcome: 'recovered' } })
+      expect(onAction).toHaveBeenCalledWith(
+        expect.objectContaining({ actionId: 'recover', mode: 'engine' }),
+      )
+    },
+  )
 })
 
 describe('operations.cancel', () => {

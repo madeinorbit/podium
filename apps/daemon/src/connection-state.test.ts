@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
@@ -14,7 +14,10 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { readConnectivity } from '@podium/runtime/connectivity'
+import { readConnectivity, writeConnectivity } from '@podium/runtime/connectivity'
+import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
+import { ParentProcess } from '@podium/runtime/parent-process'
+import { removeRecord, writeRecord } from '@podium/runtime/run-registry'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import {
   readOrCreateUpdateSigningKey,
@@ -32,6 +35,7 @@ import { createRuntimeEventOutbox } from './runtime-event-outbox'
 const roots: string[] = []
 const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -157,8 +161,21 @@ describe('daemon connection credential state machine', () => {
     await state.close()
   })
 
-  it('persists the live process and boot convergence proof after authentication', async () => {
-    const options = localOptions(() => {})
+  it.each([
+    {},
+    { identityReadOnly: true },
+    { bootstrapToken: 'local-secret' },
+  ])('publishes role health independently of machine presence (%j)', async (extra) => {
+    const options = localOptions(() => {}, extra)
+    vi.stubEnv('PODIUM_STATE_DIR', options.identityDir!)
+    writeRecord({ role: 'daemon', pid: process.pid, startedAt: new Date().toISOString() })
+    // Construct only: use the actual default probe without spawning a parent or role.
+    const parent = new ParentProcess({ port: 1, children: ['daemon'], env: {} })
+    const probe = () => parent['deps'].probeDaemonHealth()
+    const machinePresence = writeConnectivity(
+      { state: 'connected', processId: 1, appVersion: 'supervisor' },
+      options.identityDir,
+    )
     const build = { ...buildReport(process.env, undefined), appVersion: '2.0.0' }
     const state = createDaemonConnection({
       options,
@@ -174,13 +191,65 @@ describe('daemon connection credential state machine', () => {
     })
 
     await state.start()
-    expect(readConnectivity(options.identityDir as string)).toMatchObject({
+    expect(readDaemonHealth(options.identityDir)).toMatchObject({
       state: 'connected',
       processId: process.pid,
       appVersion: '2.0.0',
       convergedVersion: '2.0.0',
     })
+    expect(await probe()).toEqual({
+      connected: true, appVersion: '2.0.0', convergedVersion: '2.0.0',
+    })
+    if (options.identityReadOnly || options.bootstrapToken) {
+      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+    } else {
+      expect(readConnectivity(options.identityDir)?.processId).toBe(process.pid)
+    }
     await state.close()
+    expect(readDaemonHealth(options.identityDir)?.state).toBe('disconnected')
+    expect((await probe()).connected).toBe(false)
+    if (options.identityReadOnly || options.bootstrapToken) {
+      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+    }
+    const next = connection(options, { token: 'token' })
+    await next.start()
+    expect(readDaemonHealth(options.identityDir)?.convergedVersion).toBeUndefined()
+    await next.close()
+  })
+
+  it('refuses missing, corrupt, mismatched and dead daemon witnesses in the default probe', async () => {
+    const dir = temp()
+    vi.stubEnv('PODIUM_STATE_DIR', dir)
+    const parent = new ParentProcess({ port: 1, children: ['daemon'], env: {} })
+    const probe = () => parent['deps'].probeDaemonHealth()
+    const down = { connected: false, appVersion: null, convergedVersion: null }
+    const witness = { state: 'connected' as const, processId: process.pid,
+      appVersion: '2.0.0', convergedVersion: '2.0.0' }
+    const record = (pid: number) => writeRecord({
+      role: 'daemon', pid, startedAt: new Date().toISOString(),
+    })
+    record(process.pid)
+    // Even matching legacy machine presence cannot substitute for role health.
+    writeConnectivity(witness, dir)
+    expect(await probe()).toEqual(down)
+    writeFileSync(join(dir, 'run', 'daemon-health.json'), '{invalid')
+    expect(await probe()).toEqual(down)
+    writeDaemonHealth({ ...witness, processId: undefined }, dir)
+    expect(await probe()).toEqual(down)
+    // This positive PID is beyond supported OS PID ranges; no child is spawned.
+    const deadPid = 2_147_483_647
+    writeDaemonHealth({ ...witness, processId: deadPid }, dir)
+    expect(await probe()).toEqual(down)
+    record(deadPid)
+    expect(await probe()).toEqual(down)
+    writeDaemonHealth(witness, dir)
+    removeRecord('daemon')
+    expect(await probe()).toEqual(down)
+    record(process.pid)
+    for (const state of ['connecting', 'awaiting-ack', 'disconnected', 'unauthorized', 'blocked'] as const) {
+      writeDaemonHealth({ ...witness, state }, dir)
+      expect((await probe()).connected).toBe(false)
+    }
   })
 
   it('pins the server key on first bootstrap and refuses later rotation', async () => {
@@ -384,6 +453,11 @@ class FakeSocket extends EventEmitter {
   sent: Array<string | Uint8Array> = []
   closeImmediately = true
   closeCalls = 0
+  terminateCalls = 0
+  constructor(closeImmediately = true) {
+    super()
+    this.closeImmediately = closeImmediately
+  }
   send(data: string | Uint8Array): void {
     this.sent.push(data)
   }
@@ -397,12 +471,69 @@ class FakeSocket extends EventEmitter {
     this.readyState = 3
     this.emit('close')
   }
+  terminate(): void {
+    this.terminateCalls += 1
+    this.finishClose()
+  }
   message(value: PeerHelloReply): void {
     this.emit('message', Buffer.from(JSON.stringify(value)) as RawData)
   }
   binary(data: Uint8Array): void {
     this.emit('message', data as RawData, true)
   }
+}
+
+interface ScheduledTimer {
+  readonly fn: () => void
+  readonly ms: number
+  cleared: boolean
+}
+
+function timerHarness() {
+  const scheduled: ScheduledTimer[] = []
+  const timers: ReconnectTimers = {
+    setTimeout: vi.fn((fn: () => void, ms: number) => {
+      const timer = { fn, ms, cleared: false }
+      scheduled.push(timer)
+      return timer
+    }),
+    clearTimeout: vi.fn((handle: unknown) => {
+      ;(handle as ScheduledTimer).cleared = true
+    }),
+  }
+  const next = (ms: number): ScheduledTimer | undefined =>
+    scheduled.find((timer) => timer.ms === ms && !timer.cleared)
+  const runNext = (ms: number): void => {
+    const timer = next(ms)
+    if (!timer) throw new Error(`no pending ${ms}ms timer`)
+    timer.cleared = true
+    timer.fn()
+  }
+  return { timers, next, runNext }
+}
+
+function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identityDir = temp()) {
+  let socketIndex = 0
+  const onConnected = vi.fn()
+  const onTerminal = vi.fn()
+  const state = createDaemonConnection({
+    options: { serverUrl: 'ws://server', identityDir, reconnectTimers: timers },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+    onConnected,
+    onTerminal,
+    openSocket: () => {
+      const active = sockets[socketIndex++]
+      if (!active) throw new Error('test exhausted its fake sockets')
+      return active
+    },
+  })
+  return { state, onConnected, onTerminal }
 }
 
 function remoteHarness() {
@@ -700,35 +831,175 @@ it('delivers local typed output by reference without changing JSON sends', async
   await state.close()
 })
 
-it('reports transport loss as backoff and schedules a retry', async () => {
+it('closes an open-stalled socket and enters reconnect backoff', async () => {
   const socket = new FakeSocket()
-  const setTimeout = vi.fn((_fn: () => void, ms: number) => ({ ms }))
-  const state = createDaemonConnection({
-    options: {
-      serverUrl: 'ws://server',
-      identityDir: temp(),
-      reconnectTimers: { setTimeout, clearTimeout: vi.fn() },
-    },
-    build: buildReport(process.env, undefined),
-    machineId: MACHINE_ID,
-    identity: { token: 'token' },
-    receiveApplicationFrame: vi.fn(),
-    sendApplicationFrame: vi.fn(() => true),
-    queueDrainOutbox: createQueueDrainOutbox(temp()),
-    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
-    onConnected: vi.fn(),
-    onTerminal: vi.fn(),
-    openSocket: () => socket,
+  const harness = timerHarness()
+  const identityDir = temp()
+  writeConnectivity(
+    { state: 'disconnected', serverUrl: 'ws://server', retryBackoffMs: 5_000 },
+    identityDir,
+  )
+  const { state } = remoteConnection([socket], harness.timers, identityDir)
+
+  void state.start()
+
+  expect(state.state).toBe('connecting')
+  expect(readDaemonHealth(identityDir)).toMatchObject({
+    state: 'connecting',
+    processId: process.pid,
   })
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  harness.runNext(10_000)
+
+  expect(socket.terminateCalls).toBe(1)
+  expect(socket.closeCalls).toBe(0)
+  expect(state.state).toBe('backoff')
+  expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
+  expect(readConnectivity(identityDir)).toMatchObject({
+    state: 'disconnected',
+    retryBackoffMs: 500,
+    lastError: 'WebSocket open timed out after 10000ms',
+  })
+  await state.close()
+})
+
+it('forcefully terminates an acknowledgement stall when graceful close emits nothing', async () => {
+  const socket = new FakeSocket(false)
+  const harness = timerHarness()
+  const identityDir = temp()
+  const { state } = remoteConnection([socket], harness.timers, identityDir)
+
+  void state.start()
+  socket.emit('open')
+
+  expect(socket.sent).toHaveLength(1)
+  expect(state.state).toBe('awaiting-ack')
+  expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  socket.close()
+  expect(socket.closeCalls).toBe(1)
+  expect(state.state).toBe('awaiting-ack')
+
+  harness.runNext(10_000)
+
+  expect(socket.terminateCalls).toBe(1)
+  expect(state.state).toBe('backoff')
+  expect(readConnectivity(identityDir)?.lastError).toBe(
+    'peerHello acknowledgement timed out after 10000ms',
+  )
+  await state.close()
+})
+
+it('ignores late events from a superseded socket generation', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const { state, onTerminal } = remoteConnection(sockets, harness.timers)
 
   const started = state.start()
-  socket.emit('open')
-  socket.message(ok)
+  harness.runNext(10_000)
+  harness.runNext(500)
+
+  sockets[0]?.emit('open')
+  sockets[0]?.message({
+    type: 'peerHelloRejected',
+    reason: 'auth-failed',
+    message: 'late denial',
+  })
+  sockets[0]?.emit('error', new Error('late error'))
+  sockets[0]?.emit('close')
+
+  expect(state.state).toBe('connecting')
+  expect(sockets[0]?.sent).toHaveLength(0)
+  expect(harness.next(500)).toBeUndefined()
+  expect(onTerminal).not.toHaveBeenCalled()
+
+  sockets[1]?.emit('open')
+  sockets[1]?.message(ok)
   await started
-  socket.emit('close')
+
+  sockets[0]?.message({
+    type: 'peerHelloRejected',
+    reason: 'auth-failed',
+    message: 'later denial',
+  })
+  sockets[0]?.emit('error', new Error('later error'))
+  sockets[0]?.emit('close')
+
+  expect(state.state).toBe('connected')
+  expect(onTerminal).not.toHaveBeenCalled()
+  await state.close()
+})
+
+it('clears handshake deadlines after progress and shutdown', async () => {
+  const connectedSocket = new FakeSocket()
+  const connectedHarness = timerHarness()
+  const { state: connected } = remoteConnection([connectedSocket], connectedHarness.timers)
+
+  const started = connected.start()
+  const openDeadline = connectedHarness.next(10_000)
+  connectedSocket.emit('open')
+  expect(openDeadline?.cleared).toBe(true)
+
+  const acknowledgementDeadline = connectedHarness.next(10_000)
+  connectedSocket.message(ok)
+  await started
+  expect(acknowledgementDeadline?.cleared).toBe(true)
+  expect(connectedHarness.next(10_000)).toBeUndefined()
+  await connected.close()
+
+  const openingSocket = new FakeSocket()
+  const openingHarness = timerHarness()
+  const { state: opening } = remoteConnection([openingSocket], openingHarness.timers)
+  void opening.start()
+  const shutdownDeadline = openingHarness.next(10_000)
+
+  await opening.close()
+
+  expect(shutdownDeadline?.cleared).toBe(true)
+  expect(openingHarness.next(10_000)).toBeUndefined()
+})
+
+it('normally reconnects and resets truthful connectivity state', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const identityDir = temp()
+  const { state, onConnected } = remoteConnection(sockets, harness.timers, identityDir)
+
+  const started = state.start()
+  sockets[0]?.emit('open')
+  sockets[0]?.message(ok)
+  await started
+  sockets[0]?.emit('close')
 
   expect(state.state).toBe('backoff')
-  expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 500)
+  expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
+  expect(readConnectivity(identityDir)).toMatchObject({
+    state: 'disconnected',
+    retryBackoffMs: 500,
+  })
+
+  harness.runNext(500)
+
+  expect(state.state).toBe('connecting')
+  expect(readDaemonHealth(identityDir)).toMatchObject({
+    state: 'connecting',
+    processId: process.pid,
+  })
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+
+  sockets[1]?.emit('open')
+  expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
+  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  sockets[1]?.message(ok)
+
+  expect(state.state).toBe('connected')
+  expect(onConnected).toHaveBeenCalledTimes(2)
+  expect(harness.next(10_000)).toBeUndefined()
   await state.close()
 })
 
@@ -874,7 +1145,7 @@ it('repeats an abandonment report until the server acknowledges its durable corr
   expect(sent).toHaveLength(1)
   expect(outbox.pending()).toHaveLength(1)
 
-  retries[0]?.()
+  retries.at(-1)?.()
   expect(sent).toHaveLength(2)
   expect(sent[1]).toEqual(sent[0])
 

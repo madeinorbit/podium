@@ -22,9 +22,12 @@ import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
+import type { AppliedGeometryRecord } from './applied-geometry'
+import type { Durable } from './durable'
 
-/** What holds the agent's PTY across daemon restarts. `none` = bare Bun.Terminal. */
-export type DurableBackend = 'abduco' | 'tmux' | 'none'
+/** What holds the agent's PTY across daemon restarts: our own podium-host, abduco,
+ *  or `none` = bare Bun.Terminal. */
+export type DurableBackend = 'host' | 'abduco' | 'none'
 
 /**
  * Everything a control-frame handler may touch, made explicit (#195). One
@@ -53,6 +56,13 @@ export interface DaemonContext {
   durableLabels: Map<SessionId, string>
   durableLabelFor(sessionId: SessionId): string
   backend: DurableBackend
+  /** The one object every durable-host call goes through (SPEC-6); absent when
+   *  `backend` is `none`. Contexts built by hand may omit it and get one derived
+   *  from `backend` (see `durableFor`). */
+  durable?: Durable
+  /** The seq after the last output byte this daemon saw per session, for the host
+   *  backend's exact reattach replay. Read at reattach; `tail` when unknown. */
+  durableSeqs: Map<SessionId, () => bigint | undefined>
   /** Legacy pure argv builder retained as a test seam. Production launches through harnessRuntime. */
   launch: typeof agentLaunchCommand
   /** Generation-bound executable inventory and launch service. */
@@ -78,6 +88,16 @@ export interface DaemonContext {
    * and applied by wireBridge instead of being dropped (POD-628).
    */
   pendingResizes: Map<SessionId, { cols: number; rows: number }>
+  /**
+   * THE ONE PLACE THIS DAEMON RECORDS WHAT SIZE IT ACTUALLY APPLIED (POD-3290).
+   *
+   * Every size a daemon reports — `bind`'s optional geometry and every
+   * `geometryApplied` frame — is read out of here, and nothing else may write
+   * one. Optional and created on first use through `appliedGeometryFor(ctx)`:
+   * per daemon, so a restart that reattaches a surviving master starts with an
+   * empty record and binds bare, which is the truth about what IT applied.
+   */
+  appliedGeometry?: AppliedGeometryRecord
   /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
   composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
@@ -195,6 +215,19 @@ export interface DaemonContext {
    * the forwarding module's, so the context carries the handle and no policy.
    */
   logForwarding: import('@podium/runtime/log-forward').DaemonLogForwarding
+
+  /** Server-move endpoint handoff is owned by the reconnecting transport. */
+  probeServerTransferCandidate(input: {
+    transferId: string
+    manifestDigest: string
+    publicUrl: string
+    reachabilityToken: string
+    targetMachineId: MachineId
+  }): Promise<void>
+  quiesceServerEndpoint(transferId: string): void
+  resumeServerEndpoint(transferId: string): void
+  prepareServerEndpointCommit(transferId: string, publicUrl: string): Promise<string>
+  activateServerEndpoint(transferId: string): void
 
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (

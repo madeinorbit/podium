@@ -137,6 +137,7 @@ export const DAEMON_FRAME_PORTS = {
   credentialExportResult: ['rpc'],
   credentialInstallResult: ['rpc'],
   serverTransferResult: ['rpc'],
+  serverEndpointResult: ['rpc'],
   shippingJobResult: ['rpc'],
   shippingEvidenceResult: ['rpc'],
   shippingRepairApplyResult: ['rpc'],
@@ -240,6 +241,7 @@ export const MACHINE_SCOPE_CARRIER = {
   shippingJobResult: 'request-correlated',
   shippingEvidenceResult: 'request-correlated',
   shippingRepairApplyResult: 'request-correlated',
+  serverEndpointResult: 'request-correlated',
 } as const satisfies Partial<Record<DaemonMessage['type'], 'principal' | 'request-correlated'>>
 
 export type MachineAdjacentFrameType = keyof typeof MACHINE_SCOPE_CARRIER

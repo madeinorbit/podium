@@ -5,7 +5,7 @@
  *  - **backend** — `Bun.spawn({ terminal })`, feature-detected rather than assumed
  *    because a stale Bun in the daemon once rendered every remote terminal black.
  *  - **durable hosts** — abduco (with the vendored ISC source built/embedded on
- *    demand) and tmux, plus the per-master systemd transient scopes that keep an
+ *    demand), plus the per-master systemd transient scopes that keep an
  *    agent's CPU/IO weight off the daemon's. A durable host is what makes a
  *    session survive the daemon.
  *  - **framing / redraw / OSC scan** — {@link wrapPty} turns raw PTY output into
@@ -24,6 +24,8 @@ export * from './abduco.js'
 export * from './abduco-bin.js'
 export * from './backends/index.js'
 export * from './cgroup.js'
+export * from './host.js'
+export * from './host-bin.js'
 export * from './osc-title.js'
 export * from './session.js'
-export * from './tmux.js'
+export * from './shell-quote.js'

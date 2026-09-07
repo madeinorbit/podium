@@ -7,6 +7,9 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   Inventory,
   MachineComponent,
+  MachinePresenceSource,
+  MachineServiceAssignment,
+  MachineServiceReport,
   type MachineId,
   UpdateChannel,
   type UpdateChannel as UpdateChannelValue,
@@ -43,6 +46,31 @@ function parseCaps(raw: string | null): string[] {
   } catch {
     return []
   }
+}
+
+function parseAssignment(raw: unknown): MachineServiceAssignment {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = MachineServiceAssignment.safeParse(JSON.parse(raw))
+      if (parsed.success) return parsed.data
+    } catch {}
+  }
+  return { server: false, agentExecution: true }
+}
+
+function parseServiceReport(raw: unknown): MachineServiceReport | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = MachineServiceReport.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+function parsePresenceSource(raw: unknown): MachinePresenceSource | null {
+  const parsed = MachinePresenceSource.safeParse(raw)
+  return parsed.success ? parsed.data : null
 }
 
 /**
@@ -90,7 +118,9 @@ type MachineSelect = Pick<
   | 'wireSchemaDigest'
   | 'installKind'
   | 'deliveryCapsJson'
-  | 'supervised'
+  | 'presenceSource'
+  | 'serviceAssignmentJson'
+  | 'serviceReportJson'
   | 'buildReportedAt'
   | 'podiumManaged'
   | 'updateChannelOverride'
@@ -110,7 +140,9 @@ const MACHINE_COLUMNS = {
   wireSchemaDigest: machines.wireSchemaDigest,
   installKind: machines.installKind,
   deliveryCapsJson: machines.deliveryCapsJson,
-  supervised: machines.supervised,
+  presenceSource: machines.presenceSource,
+  serviceAssignmentJson: machines.serviceAssignmentJson,
+  serviceReportJson: machines.serviceReportJson,
   buildReportedAt: machines.buildReportedAt,
   podiumManaged: machines.podiumManaged,
   updateChannelOverride: machines.updateChannelOverride,
@@ -141,9 +173,9 @@ function toRecord(r: MachineSelect): MachineRecord {
     wireSchemaDigest: r.wireSchemaDigest,
     installKind: r.installKind,
     deliveryCaps: parseCaps(r.deliveryCapsJson),
-    // A row written before the column existed reads NULL → false, which is the
-    // truthful answer: a supervised daemon re-asserts the flag on every hello.
-    supervised: r.supervised === true,
+    presenceSource: parsePresenceSource(r.presenceSource),
+    serviceAssignment: parseAssignment(r.serviceAssignmentJson),
+    serviceReport: parseServiceReport(r.serviceReportJson),
     buildReportedAt: r.buildReportedAt,
     components: parseComponents(r.componentsJson),
   }
@@ -369,23 +401,62 @@ export class MachinesRepository {
       .run()
   }
 
-  /** Persist the daemon's advisory build report and the capabilities it offered. */
-  async setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): Promise<void> {
-    await this.db
-      .update(machines)
-      .set({
-        appVersion: build.appVersion ?? null,
-        wireSchemaDigest: build.wireSchemaDigest ?? null,
-        installKind: build.installKind ?? null,
-        deliveryCapsJson: JSON.stringify(caps),
-        // Written on EVERY report, not only when true: a machine that stops
-        // being desktop-supervised (the app uninstalled, a standalone daemon
-        // installed in its place) must lose the exclusion on its next hello.
-        supervised: build.supervised === true,
-        buildReportedAt: at,
-      })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+  /** Persist a compatibility-path build report. */
+  setMachineBuild(
+    id: string,
+    build: PeerBuild,
+    caps: string[],
+    at: string,
+    source?: MachinePresenceSource,
+  ): void {
+    this.db
+      .prepare(
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = COALESCE(?, presence_source), build_reported_at = ? WHERE id = ?',
+      )
+      .run(
+        build.appVersion ?? null,
+        build.wireSchemaDigest ?? null,
+        build.installKind ?? null,
+        JSON.stringify(caps),
+        source ?? null,
+        at,
+        id,
+      )
+  }
+
+  /** One supervisor report atomically owns presence, build and service truth. */
+  setSupervisorPresence(
+    id: string,
+    build: PeerBuild,
+    caps: string[],
+    services: MachineServiceReport,
+    at: string,
+  ): void {
+    this.db
+      .prepare(
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, presence_source = ?, service_report_json = ?, build_reported_at = ?, last_seen_at = ? WHERE id = ?',
+      )
+      .run(
+        build.appVersion ?? null,
+        build.wireSchemaDigest ?? null,
+        build.installKind ?? null,
+        JSON.stringify(caps),
+        'supervisor',
+        JSON.stringify(services),
+        at,
+        at,
+        id,
+      )
+  }
+
+  setServiceAssignment(id: string, assignment: MachineServiceAssignment): void {
+    this.db
+      .prepare('UPDATE machines SET service_assignment_json = ? WHERE id = ?')
+      .run(JSON.stringify(assignment), id)
+  }
+
+  setPresenceSource(id: string, source: MachinePresenceSource): void {
+    this.db.prepare('UPDATE machines SET presence_source = ? WHERE id = ?').run(source, id)
   }
 
   /** Constant-time token comparison using sha-256 hex. */

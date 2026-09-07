@@ -12,6 +12,30 @@ function scheduleHarness() {
 }
 
 describe('retireSourceAfterTransfer', () => {
+  it('asks the live parent to retire the server and restart the daemon remotely', () => {
+    const harness = scheduleHarness()
+    const signalTopology = vi.fn(() => ({ ok: true as const, pid: 10, requestId: 'move' }))
+    const spawnProcess = vi.fn() as unknown as Spawn
+    const exit = vi.fn()
+
+    retireSourceAfterTransfer('wss://podium.example.com', {
+      signalTopology,
+      spawnProcess,
+      schedule: harness.schedule,
+      exit,
+    })
+
+    expect(signalTopology).not.toHaveBeenCalled()
+    harness.work[0]?.callback()
+    expect(signalTopology).toHaveBeenCalledWith({
+      children: ['daemon'],
+      restartDaemon: true,
+      health: 'daemon',
+    })
+    expect(spawnProcess).not.toHaveBeenCalled()
+    expect(exit).not.toHaveBeenCalled()
+  })
+
   it('lets the desktop supervisor own the replacement daemon', () => {
     const harness = scheduleHarness()
     const spawnMock = vi.fn()
@@ -20,6 +44,7 @@ describe('retireSourceAfterTransfer', () => {
 
     retireSourceAfterTransfer('wss://podium.example.com', {
       env: { PODIUM_DESKTOP_SUPERVISED: '1' },
+      signalTopology: () => ({ ok: false as const, reason: 'no-parent' }),
       spawnProcess,
       schedule: harness.schedule,
       exit,
@@ -41,6 +66,7 @@ describe('retireSourceAfterTransfer', () => {
 
     retireSourceAfterTransfer('wss://podium.example.com', {
       env: {},
+      signalTopology: () => ({ ok: false as const, reason: 'no-parent' }),
       spawnProcess,
       schedule: harness.schedule,
       exit,

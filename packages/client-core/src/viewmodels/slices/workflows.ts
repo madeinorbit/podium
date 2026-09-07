@@ -291,6 +291,10 @@ export type ProfilePlacementState =
    *  reason `unauthorized` is: "wake it up" and "it cannot ever" are opposite
    *  recoveries and a single "unavailable" tells the user neither. */
   | 'incapable'
+  /** Agent hosting is deliberately disabled on the selected machine. */
+  | 'disabled'
+  /** Agent hosting is assigned but its execution plane is unavailable. */
+  | 'degraded'
   /** The profile names no machine. Nothing is chosen on the principal's behalf. */
   | 'unplaced'
   /** The profile names a machine the principal cannot even SEE. Indistinguishable
@@ -331,6 +335,8 @@ export interface PlacementOptions<M> {
   /** Runs no Podium daemon (POD-2700). Reported separately so the control can
    *  say "cannot", never "not right now". */
   readonly incapable: readonly M[]
+  readonly disabled: readonly M[]
+  readonly degraded: readonly M[]
 }
 
 export function placementOptions<M extends { id: string; online: boolean }>(
@@ -343,5 +349,7 @@ export function placementOptions<M extends { id: string; online: boolean }>(
     unauthorized: by('unauthorized'),
     unreachable: by('unreachable'),
     incapable: by('incapable'),
+    disabled: by('disabled'),
+    degraded: by('degraded'),
   }
 }

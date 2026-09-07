@@ -247,11 +247,6 @@ export function abducoSocketPathname(
   return join(socketDir, 'abduco', username, `${label}@${host}`)
 }
 
-/** Exact pathname tmux constructs for `tmux -L <label>`. */
-export function tmuxSocketPathname(socketDir: string, label: string, uid: number): string {
-  return join(socketDir, `tmux-${uid}`, label)
-}
-
 export function linuxUnixSocketPathFits(path: string): boolean {
   return Buffer.byteLength(path) <= LINUX_UNIX_SOCKET_PATH_BYTES
 }
@@ -698,7 +693,7 @@ export function rekeyInstanceStateIdentity(
 
 /**
  * Pin named-instance durable backend sockets to private per-instance roots.
- * Explicit ABDUCO_SOCKET_DIR/TMUX_TMPDIR values are preserved as an intentional
+ * An explicit ABDUCO_SOCKET_DIR is preserved as an intentional
  * sharing/configuration choice. The default instance keeps legacy global sockets.
  *
  * THE ABDUCO ROOT IS NOT UNDER THE STATE DIRECTORY, and that is the fix for
@@ -716,8 +711,6 @@ export function rekeyInstanceStateIdentity(
  *     pin would have made a named instance able to start a terminal.
  *
  * See {@link instanceAbducoSocketRoot} for the budget and the ladder of roots.
- * TMUX_TMPDIR stays state-owned: tmux composes a much shorter path
- * (`<dir>/tmux-<uid>/default`) and has never been near the ceiling.
  *
  * SOCKETS MOVE for a named instance that did not set ABDUCO_SOCKET_DIR itself,
  * so masters created by an older build are not found after an upgrade and their
@@ -741,13 +734,6 @@ export function applyInstanceRuntimeEnv(
     const projected = abducoSocketPathname(legacyDir, label, currentUsername(), hostname())
     env.ABDUCO_SOCKET_DIR = linuxUnixSocketPathFits(projected) ? legacyDir : shortDir
     mkdirSync(env.ABDUCO_SOCKET_DIR, { recursive: true, mode: 0o700 })
-  }
-  if (!env.TMUX_TMPDIR) {
-    const legacyDir = join(dir, 'runtime', 'tmux')
-    const uid = typeof process.getuid === 'function' ? process.getuid() : 0
-    const projected = tmuxSocketPathname(legacyDir, label, uid)
-    env.TMUX_TMPDIR = linuxUnixSocketPathFits(projected) ? legacyDir : shortDir
-    mkdirSync(env.TMUX_TMPDIR, { recursive: true, mode: 0o700 })
   }
   return env
 }

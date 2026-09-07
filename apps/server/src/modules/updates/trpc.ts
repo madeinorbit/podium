@@ -1,5 +1,7 @@
+import type { PrepareCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
+import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -8,10 +10,11 @@ import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version
 import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { legacyTransferInProgress } from '../server-transfer/journal'
 import type { OperationsModule } from '../operations'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import {
   fleetCanTakeTargetNow,
-  LIFECYCLE_EXCLUSION_GROUP,
   planInputFrom,
   planUpdateOperation,
   UPDATE_OPERATION_KIND,
@@ -289,14 +292,15 @@ export function updateOperationContext(input: {
   retryOf?: string
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
-  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
+  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   createDatabaseSnapshot: (
     fromVersion: string,
     targetVersion: string,
   ) => Promise<string | undefined>
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
-  requestCoordinatorRestart?: () => void
+  legacyTransferActive?: () => boolean
+  requestCoordinatorRestart?: () => void | Promise<void>
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
   preparation?: () => {
@@ -330,6 +334,7 @@ export function updateOperationContext(input: {
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
+    ...(input.legacyTransferActive ? { legacyTransferActive: input.legacyTransferActive } : {}),
     // `…Locked`, and AWAITED: a runner is invoked from inside the operation's
     // chain, so queueing here would be waiting for ourselves — and the server
     // step has to have its snapshot path durable before it asks this process to
@@ -389,6 +394,7 @@ async function contextFor(
     ...(options.includeDatabaseSnapshot
       ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
       : {}),
+    legacyTransferActive: () => legacyTransferInProgress(stateDir()),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
     ...(ctx.prepareCoordinatorUpdate
@@ -761,14 +767,14 @@ export function updateProcedures() {
         }
         return { outcome, fleet: await updateFleet(ctx) }
       }),
-    repairCompatibility: t.procedure.mutation(({ ctx }) => {
+    repairCompatibility: t.procedure.mutation(async ({ ctx }) => {
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: 'This Podium installation cannot rebuild its web app automatically.',
         })
       }
-      ctx.requestCoordinatorRestart()
+      await ctx.requestCoordinatorRestart()
       return { state: 'in-progress' as const, version: serverBuildVersion() }
     }),
     /**

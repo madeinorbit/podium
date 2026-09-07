@@ -113,6 +113,10 @@ export function handoffRejectionText(
       return 'inventory pending'
     case 'harness-probe-timed-out':
       return `probe ${machine ? agentProbeTimeoutDescription(machine, agentKind) : 'timed out'}; retry`
+    case 'agents-disabled':
+      return 'agents off'
+    case 'agents-unavailable':
+      return 'agents degraded'
     case 'harness-missing':
       return `no ${panelLabel(agentKind)}`
     case 'repo-missing':

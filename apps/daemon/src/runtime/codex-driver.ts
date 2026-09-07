@@ -33,11 +33,11 @@
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import {
   attachKindsForDriver,
-  configureFieldsForDriver,
   CODEX_APP_SERVER_DRIVER_ID,
   type CodexJournal,
   type CodexRuntime,
   type CodexRuntimeHost,
+  configureFieldsForDriver,
   createCodexRuntime,
   type PendingInteraction,
   type RuntimeEvent,
@@ -45,6 +45,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 
@@ -54,6 +55,17 @@ const log = createLogger('daemon:codex-driver')
 export interface CodexSessionHost {
   send(msg: DaemonMessage): void
   host: CodexRuntimeHost
+  /**
+   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
+   * written by nothing in this file. A server-family session has no terminal at
+   * launch, so the record is empty and the bind is bare — which is the point:
+   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
+   * client nobody had opened, and the server took it for a report.
+   *
+   * Optional because a host can be built without a daemon behind it; absent
+   * reads as "applied nothing", which is the same bare bind.
+   */
+  appliedGeometry?: AppliedGeometryRecord
 }
 
 export interface CodexSessionLaunch {
@@ -303,35 +315,38 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
        * actually is; a fake `abduco -a …` would put a lie in the one field an
        * operator reads to find out what is running.
        *
-       * The geometry is nominal: nothing renders frames for this family, and the
-       * field is required by the frame.
+       * NO GEOMETRY (POD-3290). What stood here was `{ cols: 120, rows: 40 }`,
+       * called "nominal" by this very comment and justified by the field being
+       * required — which it no longer is (stage 3). Launching an app-server puts
+       * nothing at a size, so the applied-size record is empty and the one bind
+       * builder states nothing about the grid.
        */
       driverTiming.sessionReady(handle.binding)
-      deps.send({
-        type: 'bind',
-        sessionId: input.sessionId,
-        cmd: `codex app-server (${handle.binding.driver})`,
-        cwd: input.cwd,
-        agentKind: 'codex',
-        geometry: { cols: 120, rows: 40 },
-        /**
-         * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023's
-         * lesson, unchanged here). The server records it on the row and W4's
-         * migrated senders branch on it to choose between the contract and the
-         * legacy PTY path. A SERVER session that got it wrong would be handed to
-         * a path that types at a PTY this session does not have — the write
-         * would go nowhere and report success.
-         *
-         * Hardcoded `true` rather than probed, because reaching this line IS the
-         * proof: the handle above was constructed and registered.
-         */
-        runtimeContract: true,
-        driverId: handle.binding.driver,
-        // POD-3087: what this driver's configure() can change, read off its own
-        // declaration so no consumer has to keep a second copy of it.
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      })
+      deps.send(
+        bindFrame(deps.appliedGeometry, {
+          sessionId: input.sessionId,
+          cmd: `codex app-server (${handle.binding.driver})`,
+          cwd: input.cwd,
+          agentKind: 'codex',
+          /**
+           * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023's
+           * lesson, unchanged here). The server records it on the row and W4's
+           * migrated senders branch on it to choose between the contract and the
+           * legacy PTY path. A SERVER session that got it wrong would be handed to
+           * a path that types at a PTY this session does not have — the write
+           * would go nowhere and report success.
+           *
+           * Hardcoded `true` rather than probed, because reaching this line IS the
+           * proof: the handle above was constructed and registered.
+           */
+          runtimeContract: true,
+          driverId: handle.binding.driver,
+          // POD-3087: what this driver's configure() can change, read off its own
+          // declaration so no consumer has to keep a second copy of it.
+          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+        }),
+      )
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })

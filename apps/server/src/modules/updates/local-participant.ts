@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  SERVER_MOVE_CAPABILITY,
   type PeerBuild,
   type UpdateStatusMessage,
   type UpdateTarget,
@@ -126,7 +127,13 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
   deps.machines.setMachineBuild(
     deps.machineId,
     build,
-    ['update.delivery.feed'],
+    // The participant is the supervisor-backed writer for the coordinator's
+    // machine row. Its grant runner only takes feed delivery, but the running
+    // server also implements the server-move source protocol. Keep that
+    // capability visible after the participant replaces the daemon's absent
+    // build report in an all-in-one parent topology; source preflight uses the
+    // row as the same-version guard before it fences the database.
+    ['update.delivery.feed', SERVER_MOVE_CAPABILITY],
     new Date(now()).toISOString(),
   )
   deps.machines.attachUpdateParticipant(deps.machineId, receive)

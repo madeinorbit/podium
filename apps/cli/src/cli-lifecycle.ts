@@ -68,6 +68,12 @@ function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
       : ''
     return [`  ! server link${target}: disconnected${err}${retry}${lastSeen}`]
   }
+  if (c.state === 'connecting') {
+    return [`  … server link${target}: connecting${lastSeen}`]
+  }
+  if (c.state === 'awaiting-ack') {
+    return [`  … server link${target}: awaiting handshake acknowledgement${lastSeen}`]
+  }
   return [`  ✓ server link${target}: connected${lastSeen}`]
 }
 
@@ -97,8 +103,12 @@ export function renderStatus(view: StatusView): string {
           ? ['parent', 'server']
           : ['server', 'janitor']
         : config.mode === 'daemon'
-          ? ['daemon']
-          : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
+          ? byRole.has('parent')
+            ? ['parent', 'daemon']
+            : ['daemon']
+          : config.mode === 'supervisor'
+            ? ['parent']
+            : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
   for (const role of roles) {
     const rec = byRole.get(role)
     if (rec) {

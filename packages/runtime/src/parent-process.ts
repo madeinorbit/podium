@@ -24,11 +24,11 @@
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode } from './config'
-import { readConnectivity } from './connectivity'
+import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
+import { readDaemonHealth } from './daemon-health'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -62,12 +62,16 @@ import {
 import { type ParentUpdateSwapResult, parseUpdateTarget } from './parent-update-swap'
 import { liveRecord, logDir } from './run-registry'
 import { sdNotify, watchdogPetIntervalMs } from './sd-notify'
+import { watchSupervisor } from './supervisor'
 import { oldBundlePresent, pruneOldBundle, restoreOldBundle } from './update-install'
 
 const log = createLogger('runtime:parent')
 
 export const PARENT_SUCCESSOR_PID_ENV = 'PODIUM_PARENT_SUCCESSOR_PID'
 export const PARENT_HANDOVER_EXPECTED_VERSION_ENV = 'PODIUM_HANDOVER_EXPECTED_VERSION'
+/** Absolute predecessor-owned deadline; startup and later recovery share this budget. */
+export const PARENT_HANDOVER_DEADLINE_ENV = 'PODIUM_HANDOVER_DEADLINE'
+const HANDOVER_HEALTH_TIMEOUT_MS = 90_000
 export const PARENT_POST_UPDATE_ENV = 'PODIUM_PARENT_POST_UPDATE'
 /**
  * Set on a daemon child only when this parent also supervises its sibling
@@ -106,9 +110,12 @@ export type SpawnChildFn = (
 
 export type HealthProbeFn = (port: number) => Promise<HandoverHealthProbe>
 export type DaemonHealthProbeFn = () => Promise<DaemonHandoverHealthProbe>
+export type ServerReadyProbeFn = (port: number) => Promise<boolean>
 
 export interface ParentProcessDeps {
   installDir?: string
+  /** Boot-captured supervisor identity, required by the machine updater. */
+  runningIdentity?: { version: string; digest?: string }
   /**
    * Where `run/` lives. Distinct from `installDir`: a rollback RENAMES the
    * install directory, so the control files must not be inside it. Defaults to
@@ -120,10 +127,16 @@ export interface ParentProcessDeps {
   port: number
   /** Which OS children to supervise. Default: server then daemon. */
   children?: readonly SupervisedChild[]
+  /** A promoted target retains its remote recovery daemon until explicit acknowledgement. */
+  daemonLocal?: boolean
+  /** Refresh parent-owned assignment/endpoint before changed children are spawned. */
+  onTopology?: (children: readonly SupervisedChild[]) => void
   env?: NodeJS.ProcessEnv
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
   probeHealth?: HealthProbeFn
+  /** Recovery-compatible GET /health probe used during server-role promotion. */
+  probeServerReady?: ServerReadyProbeFn
   /** Daemon-only readiness proof from the remote connection + boot reconciliation record. */
   probeDaemonHealth?: DaemonHealthProbeFn
   /**
@@ -174,6 +187,8 @@ export interface ParentProcessDeps {
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   onSnapshot?: (snap: ParentSnapshot) => void
+  /** Parent-owned credential handoff, evaluated for every daemon spawn. */
+  childEnv?: () => NodeJS.ProcessEnv
   /** How long a component may claim to be running without advancing (watchdog). */
   componentWedgedMs?: number
   /** Watchdog pet cadence. Default: half of WATCHDOG_USEC, per systemd's margin. */
@@ -236,6 +251,14 @@ export function installInvocation(
  * `components.daemon` as a bare string is gone: the server emits an object
  * (`{state: 'connected'}`), so that branch was dead and the declared type lied.
  */
+async function defaultProbeServerReady(port: number): Promise<boolean> {
+  try {
+    return (await fetch(`http://127.0.0.1:${port}/health`)).ok
+  } catch {
+    return false
+  }
+}
+
 async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
   const down: HandoverHealthProbe = {
     serverRunning: false,
@@ -243,7 +266,9 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
     daemonConnected: false,
   }
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/version`)
+    const res = await fetch(`http://127.0.0.1:${port}/version`, {
+      signal: AbortSignal.timeout(2_000),
+    })
     if (!res.ok) return down
     const body = (await res.json()) as {
       appVersion?: string
@@ -276,7 +301,7 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
 }
 
 async function defaultProbeDaemonHealth(): Promise<DaemonHandoverHealthProbe> {
-  const connectivity = readConnectivity()
+  const connectivity = readDaemonHealth()
   const daemon = liveRecord('daemon')
   const isCurrentProcess =
     connectivity?.processId !== undefined && connectivity.processId === daemon?.pid
@@ -292,11 +317,20 @@ const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout
 export class ParentProcess {
   private snap: ParentSnapshot
   private readonly childProcs = new Map<SupervisedChild, ChildProcess>()
-  private readonly childOrder: readonly SupervisedChild[]
+  private readonly topologyStops = new Set<SupervisedChild>()
+  private childOrder: SupervisedChild[]
+  private daemonLocal: boolean
   private readonly deps: Required<
     Pick<
       ParentProcessDeps,
-      'port' | 'spawn' | 'probeHealth' | 'probeDaemonHealth' | 'notify' | 'now' | 'sleep'
+      | 'port'
+      | 'spawn'
+      | 'probeHealth'
+      | 'probeServerReady'
+      | 'probeDaemonHealth'
+      | 'notify'
+      | 'now'
+      | 'sleep'
     >
   > &
     ParentProcessDeps
@@ -310,6 +344,7 @@ export class ParentProcess {
   private tickTimer: ReturnType<typeof setInterval> | undefined
   private handoverInFlight: Promise<void> | undefined
   private successor: ChildProcess | undefined
+  private stopShellWatch: (() => void) | undefined
   private signalsInstalled = false
   private readonly installedHandlers: Array<[NodeJS.Signals, () => void]> = []
   private mainPidDeclared = false
@@ -317,17 +352,30 @@ export class ParentProcess {
   private lastPetMs = 0
   private readonly petIntervalMs: number
   private bootHealthy = false
+  private bootExpected: string | undefined
+  private bootObservation: Promise<void> | undefined
+  private onBootHealthy: ((signal: AbortSignal) => Promise<void> | void) | undefined
+  private readonly bootAbort = new AbortController()
+  private readonly incomingDeadline: number | undefined
+  private bootDeadlineTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** Cancels queued boot confirmation when this parent stops owning startup. */
+  get bootHealthSignal(): AbortSignal {
+    return this.bootAbort.signal
+  }
 
   constructor(deps: ParentProcessDeps) {
     this.env = { ...(deps.env ?? process.env) }
     this.installDir = deps.installDir ?? resolveInstallDir(this.env)
     this.installBinary = deps.installBinary ?? defaultInstallBinary(this.installDir, this.env)
-    this.childOrder = deps.children ?? CHILD_START_ORDER
+    this.childOrder = [...(deps.children ?? CHILD_START_ORDER)]
+    this.daemonLocal = deps.daemonLocal ?? this.childOrder.includes('server')
     this.deps = {
       ...deps,
       port: deps.port,
       spawn: deps.spawn ?? spawn,
       probeHealth: deps.probeHealth ?? defaultProbeHealth,
+      probeServerReady: deps.probeServerReady ?? defaultProbeServerReady,
       probeDaemonHealth: deps.probeDaemonHealth ?? defaultProbeDaemonHealth,
       notify: deps.notify ?? sdNotify,
       now: deps.now ?? Date.now,
@@ -340,12 +388,52 @@ export class ParentProcess {
       const carried = this.env[PARENT_RELEASE_MIGRATIONS_ENV]
       if (carried === '1' || carried === '0') this.deps.releaseHadMigrations = carried === '1'
     }
+    if (this.isSuccessor()) {
+      const carried = this.env[PARENT_HANDOVER_DEADLINE_ENV]
+      const deadline =
+        carried === undefined ? this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS : Number(carried)
+      // A malformed inherited budget must not authorize unbounded recovery.
+      this.incomingDeadline = Number.isFinite(deadline) && deadline > 0 ? deadline : 0
+    }
     const incoming = this.env[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     this.snap = incoming
       ? { ...emptyParentSnapshot('handover_incoming'), expectedVersion: incoming }
       : emptyParentSnapshot('booting')
     if (this.env[PARENT_POST_UPDATE_ENV] === '1') {
       this.snap = markPostUpdate(this.snap, this.deps.now())
+    }
+  }
+
+  setUpdateMigrationKnowledge(value: boolean | undefined): void {
+    this.deps.releaseHadMigrations = value
+  }
+
+  private readyPath(): string {
+    return join(this.deps.stateDir ?? stateDir(), 'run', 'supervisor-ready.json')
+  }
+  private publishReady(): void {
+    if (!this.deps.runningIdentity) return
+    const path = this.readyPath()
+    mkdirSync(join(this.deps.stateDir ?? stateDir(), 'run'), { recursive: true })
+    const temporary = `${path}.${process.pid}.tmp`
+    writeFileSync(temporary, JSON.stringify({ ...this.deps.runningIdentity, pid: process.pid }), {
+      mode: 0o600,
+    })
+    renameSync(temporary, path)
+  }
+  private successorReady(pid: number, version: string): boolean {
+    if (!this.deps.runningIdentity) return true
+    try {
+      const value = JSON.parse(readFileSync(this.readyPath(), 'utf8'))
+      const digestPath = join(this.installDir, 'ARTIFACT.sha256')
+      const digest = existsSync(digestPath) ? readFileSync(digestPath, 'utf8').trim() : undefined
+      return (
+        value.pid === pid &&
+        value.version === version &&
+        (digest === undefined || value.digest === digest)
+      )
+    } catch {
+      return false
     }
   }
 
@@ -396,10 +484,20 @@ export class ParentProcess {
     }
     this.installedHandlers.push([PARENT_HANDOVER_SIGNAL, handover])
     process.on(PARENT_HANDOVER_SIGNAL, handover)
+    // The desktop can die during enrollment or native update recovery, including
+    // when there are no child roles to notice its death. Arm before any boot await.
+    this.stopShellWatch = watchSupervisor(
+      () => {
+        void this.onTerminationSignal('SIGTERM')
+      },
+      { env: this.env },
+    )
   }
 
   /** Detach the handlers again. For tests, which share one process across cases. */
   removeSignalHandlers(): void {
+    this.stopShellWatch?.()
+    this.stopShellWatch = undefined
     for (const [sig, handler] of this.installedHandlers.splice(0)) {
       process.removeListener(sig, handler)
     }
@@ -470,6 +568,10 @@ export class ParentProcess {
           await this.runSwapRequest(request)
           return
         }
+        if (request.kind === 'topology') {
+          await this.runTopologyRequest(request)
+          return
+        }
         // A remote packaged daemon performs its own artifact swap, so this old
         // parent did not run `runSwapRequest` and cannot learn the migration
         // fact anywhere else. Preserve UNKNOWN: only an explicit publisher-
@@ -487,6 +589,105 @@ export class ParentProcess {
       }
     })()
     await this.handoverInFlight
+  }
+
+  private async runTopologyRequest(request: ParentRequest): Promise<void> {
+    const answer = (ok: boolean, error?: string): void => {
+      writeParentResult({
+        requestId: request.requestId,
+        kind: request.kind,
+        ok,
+        ...(error ? { error } : {}),
+        completedAt: new Date(this.deps.now()).toISOString(),
+      })
+      clearParentRequest()
+    }
+    try {
+      if (!request.children) throw new Error('topology request carried no child set')
+      await this.reconcileTopology(
+        request.children,
+        request.topologyHealth ?? 'none',
+        request.restartDaemon === true,
+      )
+      answer(true)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('parent topology reconciliation failed', { err: error })
+      answer(false, message)
+    }
+  }
+
+  async reconcileTopology(
+    requested: readonly SupervisedChild[],
+    health: 'server' | 'daemon' | 'none',
+    restartDaemon = false,
+  ): Promise<void> {
+    const desired = CHILD_START_ORDER.filter((child) => requested.includes(child))
+    if (desired.length !== requested.length || new Set(requested).size !== requested.length) {
+      throw new Error('topology request carried an invalid child set')
+    }
+    this.deps.onTopology?.(desired)
+    const previous = [...this.childOrder]
+    this.childOrder = desired
+    if (desired.includes('daemon') && (restartDaemon || !previous.includes('daemon'))) {
+      this.daemonLocal = desired.includes('server')
+    }
+    const toStop = [...previous]
+      .reverse()
+      .filter(
+        (child) =>
+          !desired.includes(child) ||
+          (child === 'daemon' && restartDaemon && desired.includes(child)),
+      )
+    for (const child of toStop) await this.stopChildForTopology(child)
+    for (const child of desired) {
+      if (!this.childProcs.has(child)) await this.spawnChild(child)
+    }
+    const deadline = this.deps.now() + 45_000
+    while (health !== 'none' && this.deps.now() < deadline) {
+      const healthy =
+        health === 'server'
+          ? await this.deps.probeServerReady(this.deps.port)
+          : (await this.deps.probeDaemonHealth()).connected
+      if (healthy) {
+        this.snap = {
+          ...this.snap,
+          phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
+        }
+        this.publish()
+        return
+      }
+      await this.deps.sleep(200)
+    }
+    if (health !== 'none') throw new Error('topology health gate timed out')
+    this.snap = {
+      ...this.snap,
+      phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
+    }
+    this.publish()
+  }
+
+  private async stopChildForTopology(child: SupervisedChild): Promise<void> {
+    const proc = this.childProcs.get(child)
+    if (proc && proc.exitCode === null) {
+      this.topologyStops.add(child)
+      try {
+        proc.kill('SIGTERM')
+        const deadline = this.deps.now() + 5_000
+        while (this.deps.now() < deadline && this.childProcs.has(child)) {
+          await this.deps.sleep(50)
+        }
+        if (this.childProcs.has(child) && proc.exitCode === null) proc.kill('SIGKILL')
+      } finally {
+        this.childProcs.delete(child)
+        this.topologyStops.delete(child)
+      }
+    }
+    this.snap = {
+      ...this.snap,
+      children: { ...this.snap.children, [child]: { status: 'stopped' } },
+    }
+    this.publish()
   }
 
   /**
@@ -543,20 +744,29 @@ export class ParentProcess {
   }
 
   /** Boot children in priority order and signal READY only when the health gate passes. */
-  async start(): Promise<void> {
+  async start(onBootHealthy?: (signal: AbortSignal) => Promise<void> | void): Promise<void> {
+    if (this.stopping || this.terminating || this.bootAbort.signal.aborted) return
+    this.onBootHealthy = onBootHealthy
+    if (this.incomingDeadline !== undefined) {
+      this.bootDeadlineTimer = setTimeout(
+        () => this.bootAbort.abort(),
+        Math.max(0, this.incomingDeadline - this.deps.now()),
+      )
+      this.bootDeadlineTimer.unref?.()
+    }
     // BEFORE the first spawn. See invariant 1.
     this.installSignalHandlers()
     for (const child of this.childOrder) {
-      if (this.terminating) return
+      if (this.stopping || this.terminating) return
       await this.spawnChild(child)
     }
     const expected =
       this.snap.expectedVersion ??
       this.env.PODIUM_APP_VERSION ??
       (await this.readInstalledVersion())
+    this.bootExpected = expected
     const healthy = await this.waitForHealthy(expected, 60_000)
-    this.bootHealthy = healthy
-    if (this.terminating) return
+    if (this.stopping || this.terminating) return
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
       // This is deliberately degraded rather than fatal. During the one-unit
@@ -569,23 +779,59 @@ export class ParentProcess {
       this.startSupervisionLoop()
       return
     }
+    await this.completeBoot(expected)
+    if (!this.stopping && !this.terminating) this.startSupervisionLoop()
+  }
+
+  private canCompleteBoot(): boolean {
+    if (this.incomingDeadline !== undefined && this.deps.now() >= this.incomingDeadline) {
+      this.bootAbort.abort()
+    }
+    return (
+      !this.bootAbort.signal.aborted &&
+      !this.stopping &&
+      !this.terminating &&
+      this.snap.phase !== 'handover_outgoing' &&
+      this.snap.phase !== 'rolling_back'
+    )
+  }
+
+  /** One ownership/READY/confirmation transition, including recovery after the first timeout. */
+  private async completeBoot(expected: string): Promise<void> {
+    if (this.bootHealthy || !this.canCompleteBoot()) return
+    // A successor must never reclaim its predecessor; this hook only writes its own role.
+    await this.deps.claimRole?.()
+    if (!this.canCompleteBoot()) return
+    this.bootHealthy = true
     this.finalizePendingGrant(expected)
     this.snap = {
       ...this.snap,
       phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
     }
     this.publish()
-    // Only now does this process own the `parent` role: a successor that claimed
-    // it at spawn time would have reclaimed — that is, SIGTERMed — the parent
-    // still supervising the serving stack.
-    await this.deps.claimRole?.()
-    this.pruneStaleOldBundle(healthy)
+    this.publishReady()
+    this.pruneStaleOldBundle(true)
     this.deps.notify('READY=1')
-    // First pet immediately, so a stall right after boot has the full
-    // WatchdogSec budget rather than that minus one pet interval.
     this.deps.notify('WATCHDOG=1')
     this.lastPetMs = this.deps.now()
-    this.startSupervisionLoop()
+    await this.onBootHealthy?.(this.bootAbort.signal)
+  }
+
+  private async observeBootHealth(): Promise<void> {
+    if (this.bootHealthy || this.bootExpected === undefined || !this.canCompleteBoot()) return
+    if (this.bootObservation) return
+    this.bootObservation = (async () => {
+      const expected = this.bootExpected!
+      const { healthy } = await this.probeBootHealth(expected)
+      if (healthy && this.canCompleteBoot()) await this.completeBoot(expected)
+    })()
+    try {
+      await this.bootObservation
+    } catch (error) {
+      log.error('later boot health observation failed', { err: error })
+    } finally {
+      this.bootObservation = undefined
+    }
   }
 
   private startSupervisionLoop(): void {
@@ -661,37 +907,50 @@ export class ParentProcess {
       return ok
     }
     while (this.deps.now() < deadline) {
-      if (this.terminating) return settle(false, 'terminating')
-      if (!wantsServer && wantsDaemon) {
-        const probe = await this.deps.probeDaemonHealth()
-        const versionOk =
-          expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
-        last = { connected: probe.connected, appVersion: probe.appVersion, versionOk }
-        const ok =
-          this.snap.phase === 'handover_incoming'
-            ? isDaemonHandoverHealthy(probe, expectedVersion)
-            : probe.connected && versionOk
-        if (ok) return settle(true, 'healthy')
-        await this.deps.sleep(200)
-        continue
-      }
-      const probe = await this.deps.probeHealth(this.deps.port)
+      if (!this.canCompleteBoot()) return settle(false, 'terminating')
+      const result = await this.probeBootHealth(expectedVersion)
+      last = result.detail
+      if (!this.canCompleteBoot()) return settle(false, 'terminating')
+      if (result.healthy) return settle(true, 'healthy')
+      await this.deps.sleep(200)
+    }
+    return settle(false, 'timed-out')
+  }
+
+  /** Both initial and later checks use the same role-specific health proof. */
+  private async probeBootHealth(expectedVersion: string): Promise<{
+    healthy: boolean
+    detail: Record<string, unknown>
+  }> {
+    const wantsDaemon = this.requiresDaemon()
+    if (!this.childOrder.includes('server')) {
+      if (!wantsDaemon) return { healthy: true, detail: {} }
+      const probe = await this.deps.probeDaemonHealth()
       const versionOk =
-        expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
-      last = {
+        expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
+      return {
+        // Phase becomes degraded at the first timeout. Successor ownership does not.
+        healthy: this.isSuccessor()
+          ? isDaemonHandoverHealthy(probe, expectedVersion)
+          : probe.connected && versionOk,
+        detail: { connected: probe.connected, appVersion: probe.appVersion, versionOk },
+      }
+    }
+    const probe = await this.deps.probeHealth(this.deps.port)
+    const versionOk =
+      expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
+    return {
+      healthy: wantsDaemon
+        ? isHandoverHealthy(probe, expectedVersion) ||
+          (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
+        : probe.serverRunning && versionOk,
+      detail: {
         serverRunning: probe.serverRunning,
         serverVersion: probe.serverVersion,
         daemonConnected: probe.daemonConnected,
         versionOk,
-      }
-      const ok = wantsDaemon
-        ? isHandoverHealthy(probe, expectedVersion) ||
-          (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
-        : probe.serverRunning && versionOk
-      if (ok) return settle(true, 'healthy')
-      await this.deps.sleep(200)
+      },
     }
-    return settle(false, 'timed-out')
   }
 
   /**
@@ -723,10 +982,11 @@ export class ParentProcess {
       // A parent with no server is a joined fleet member. `--local` there would
       // manufacture a host secret the remote source has never seen and turn a
       // legitimate pair code into `peerHelloRejected auth-failed`.
-      localDaemon: this.childOrder.includes('server'),
+      localDaemon: this.daemonLocal,
     })
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,
+      ...(this.deps.childEnv?.() ?? {}),
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
@@ -759,7 +1019,7 @@ export class ParentProcess {
     }
     proc.once('exit', (code, signal) => {
       this.childProcs.delete(child)
-      if (this.stopping || this.terminating) return
+      if (this.stopping || this.terminating || this.topologyStops.has(child)) return
       // Outgoing handover: the successor reclaims children via --takeover. Do not
       // treat those exits as crashes or schedule restarts that race the new parent.
       if (this.snap.phase === 'handover_outgoing') return
@@ -782,6 +1042,9 @@ export class ParentProcess {
   private async tick(): Promise<void> {
     if (this.stopping || this.terminating) return
     await this.pollComponents()
+    if (this.stopping || this.terminating) return
+    await this.observeBootHealth()
+    if (this.stopping || this.terminating) return
     // A failed boot stays supervised for topology rollback, but it never pets a
     // watchdog it did not arm with READY. Otherwise the first timer tick would
     // erase the distinction this boot gate establishes.
@@ -897,6 +1160,7 @@ export class ParentProcess {
 
   /** Restore `.old`, restart children on it, clear post-update arming, report. */
   async rollback(because = 'a post-update crash loop'): Promise<void> {
+    this.bootAbort.abort()
     this.snap = { ...this.snap, phase: 'rolling_back' }
     this.publish()
     log.warn('rolling back to .old bundle', { because })
@@ -948,6 +1212,9 @@ export class ParentProcess {
    * process that might never become healthy, and nothing ever pointed it back.
    */
   async handover(expectedVersion: string): Promise<void> {
+    if (this.stopping || this.terminating) return
+    this.bootAbort.abort()
+    const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS)
     const priorPhase = this.snap.phase
     this.snap = beginHandoverOutgoing(markPostUpdate(this.snap, this.deps.now()), expectedVersion)
     this.publish()
@@ -962,6 +1229,7 @@ export class ParentProcess {
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       [PARENT_SUCCESSOR_ENV]: '1',
+      [PARENT_HANDOVER_DEADLINE_ENV]: String(deadline),
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',
       // The migration fact travels WITH the successor, or the successor guesses
@@ -1001,8 +1269,8 @@ export class ParentProcess {
     }
 
     try {
-      const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
       const wantsServer = this.childOrder.includes('server')
+      const wantsDaemon = this.requiresDaemon()
       while (this.deps.now() < deadline) {
         if (this.terminating) return
         if (successorExited || successor.exitCode !== null) {
@@ -1010,13 +1278,17 @@ export class ParentProcess {
         }
         const healthy = wantsServer
           ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion, {
-              requiresDaemon: this.requiresDaemon(),
+              requiresDaemon: wantsDaemon,
             })
-          : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+          : wantsDaemon
+            ? isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+            : liveRecord('parent')?.pid === successorPid
+        if (this.stopping || this.terminating) return
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
-        if (healthy) {
+        if (this.deps.now() >= deadline) break
+        if (healthy && this.successorReady(successorPid, expectedVersion)) {
           // The gate has passed: NOW tell systemd where its main process moved.
           // nginx-reload pattern, but strictly after health, never before.
           this.deps.notify(`MAINPID=${successorPid}`)
@@ -1036,6 +1308,7 @@ export class ParentProcess {
         }
         await this.deps.sleep(250)
       }
+      if (this.stopping || this.terminating) return
       await this.abortHandover(successor, expectedVersion, priorPhase)
       throw new Error(
         `handover timed out waiting for healthy successor (expected version ${expectedVersion})`,
@@ -1203,6 +1476,8 @@ export class ParentProcess {
   }
 
   async stop(): Promise<void> {
+    this.bootAbort.abort()
+    if (this.bootDeadlineTimer) clearTimeout(this.bootDeadlineTimer)
     if (this.tickTimer) {
       clearInterval(this.tickTimer)
       this.tickTimer = undefined

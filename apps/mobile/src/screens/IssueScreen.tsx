@@ -280,9 +280,9 @@ function IssueContent({
     return (id: string | undefined | null) =>
       resolveIssueEdge(
         id,
-        (targetId) => byId.get(targetId),
+        (targetId) => byId.get(targetId as IssueId),
         'opaque',
-        (targetId) => replica.exitKind?.('issue', targetId),
+        (targetId) => replica.exitKind?.('issue', targetId as IssueId),
       )
   }, [issues, replica])
 
