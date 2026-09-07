@@ -46,8 +46,8 @@ const menuItem = (multiSelect = false): TranscriptItem =>
   }) as unknown as TranscriptItem
 
 function harness(opts: { phase?: string; needKind?: string; items?: TranscriptItem[] } = {}) {
-  const answerAskUserQuestion = vi.fn(() => ({ ok: true }))
-  const resumeAndSend = vi.fn(() => ({ ok: true }))
+  const answerAskUserQuestion = vi.fn(async () => ({ ok: true }))
+  const resumeAndSend = vi.fn(async () => ({ ok: true }))
   const deps: AnswerDeliveryDeps = {
     getSession: (id) =>
       id === 'sess_1'
@@ -131,7 +131,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
 
   it('propagates a failed text send instead of claiming delivery', async () => {
     const h = harness({ phase: 'idle' })
-    h.resumeAndSend.mockReturnValueOnce({ ok: false, reason: 'unknown session' } as never)
+    h.resumeAndSend.mockResolvedValueOnce({ ok: false, reason: 'unknown session' } as never)
     const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'x',

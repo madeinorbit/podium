@@ -31,16 +31,13 @@ export interface AnswerDeliveryDeps {
       choices?: AnswerChoice[]
       skip?: boolean
       principal: InboxPrincipalReference
-    }): {
-      ok: boolean
-      reason?: string
-    } | Promise<{ ok: boolean; reason?: string }>
+    }): Promise<{ ok: boolean; reason?: string }>
     resumeAndSend(input: {
       sessionId: SessionId
       text: string
       principal: InboxPrincipalReference
       allowErrored?: boolean
-    }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
+    }): Promise<{ ok: boolean; reason?: string }>
     /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
      *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
      *  behaviour they were written to pin. */
