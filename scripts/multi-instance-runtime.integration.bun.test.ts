@@ -1607,8 +1607,9 @@ exec "$CANARY_REAL_CLI" "$@"
         updateChannel: 'edge',
       },
     )
-    named.child.kill('SIGKILL')
-    await new Promise<void>((resolve) => named.child.once('exit', () => resolve()))
+    const stopped = await runCli(named, ['stop'])
+    expect(stopped.code, stopped.stderr).toBe(0)
+    await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')
   })
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
