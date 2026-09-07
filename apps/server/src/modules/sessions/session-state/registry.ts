@@ -277,8 +277,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       // precedence rule protects the HUMAN's choice, and an agent's pick is not
       // the human's just because it was delegated.
       if (principal.humanDirect) {
-        deps.sessions.renameSession({ sessionId: sessionIdOf(input.sessionId), name })
-        return undefined
+        return deps.sessions.renameSession({ sessionId: sessionIdOf(input.sessionId), name })
       }
       // Non-human actor: route through the agent-naming path, which enforces the
       // precedence rule and REFUSES a user-set name instead of overwriting it.

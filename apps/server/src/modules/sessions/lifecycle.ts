@@ -617,15 +617,11 @@ export class SessionLifecycle {
   private mutateSessionMeta(...args: Parameters<SessionMetaOps['mutateSessionMeta']>): Promise<void> {
     return this.sessionMetaOps.mutateSessionMeta(...args)
   }
-  renameSession(input: { sessionId: SessionId; name: string }): void {
-    this.naming.rename(input)
+  renameSession(input: { sessionId: SessionId; name: string }): Promise<void> {
+    return this.naming.rename(input)
   }
   /** The AGENT names its own session; refused against a user-set name. */
-  setAgentName(input: { sessionId: SessionId; name: string }): {
-    ok: boolean
-    name?: string
-    reason?: string
-  } {
+  setAgentName(input: { sessionId: SessionId; name: string }): ReturnType<SessionNaming['setAgentName']> {
     return this.naming.setAgentName(input)
   }
   setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {

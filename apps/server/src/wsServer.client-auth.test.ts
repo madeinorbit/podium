@@ -280,7 +280,7 @@ describe('/client WS auth gate', () => {
 
     const client = await connectDeltaClient(url)
     await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedBootstrap'))
-    registry.modules.sessions.renameSession({ sessionId, name: 'feed-only-renamed' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'feed-only-renamed' })
     registry.modules.sessions.flushBroadcasts()
     await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedDelta'))
 

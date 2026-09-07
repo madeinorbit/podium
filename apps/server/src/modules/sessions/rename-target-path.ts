@@ -268,19 +268,19 @@ export async function renameOnTargetPath(
  * intermediate state this whole programme exists to stop creating, and the shadow
  * comparison would be comparing two implementations of the same bug.
  */
-function applyRename(
+async function applyRename(
   deps: RenameTargetDeps,
   input: SessionRenameInput,
   principal: CommandPrincipal,
-): SessionRenameOutcome {
+): Promise<SessionRenameOutcome> {
   if (principal.kind === 'user') {
-    deps.sessions.renameSession({ sessionId: input.sessionId, name: input.name })
+    await deps.sessions.renameSession({ sessionId: input.sessionId, name: input.name })
     return { ok: true, name: input.name.trim(), nameSource: 'user' }
   }
 
   // Non-human actor: the agent-naming path, which enforces the precedence rule and
   // REFUSES a user-set name instead of overwriting it.
-  const result = deps.sessions.setAgentName({ sessionId: input.sessionId, name: input.name })
+  const result = await deps.sessions.setAgentName({ sessionId: input.sessionId, name: input.name })
   if (result.ok && result.name !== undefined) {
     return { ok: true, name: result.name, nameSource: 'agent' }
   }

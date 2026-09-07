@@ -131,7 +131,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.naming = new SessionNaming({
     session: (sessionId) => bag.sessions.get(sessionId),
-    mutate: (sessionId, write) => bag.mutateSessionMeta(sessionId, write),
+    mutate: (sessionId, write) => {
+      const metadata: SessionMetaOps = bag.sessionMetaOps
+      return metadata.mutateSessionMeta(sessionId, write)
+    },
   })
   bag.machineReconciler = new SessionMachineReconciler({
     sessions: () => bag.sessions.values(),

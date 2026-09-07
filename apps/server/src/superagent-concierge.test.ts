@@ -447,7 +447,7 @@ describe('search_all tool', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
     registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
@@ -485,7 +485,7 @@ describe('search_all tool', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
+    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
     const out = await sa.callMcpTool(
       'search_all',
       { query: 'capacitor', kinds: ['issue'] },

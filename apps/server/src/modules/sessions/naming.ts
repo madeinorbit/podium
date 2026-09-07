@@ -60,7 +60,7 @@ export interface SessionNamingPorts {
    * The write is handed a DRAFT of the durable half [POD-3330]; what it assigns
    * becomes visible on the live session when the commit returns.
    */
-  mutate(sessionId: SessionId, write: (draft: SessionDurableState) => void | (() => void)): void
+  mutate(sessionId: SessionId, write: (draft: SessionDurableState) => void | (() => void)): Promise<void>
 }
 
 export class SessionNaming {
@@ -71,8 +71,8 @@ export class SessionNaming {
    * curated slot, stamped `nameSource = 'user'`. That stamp is sovereign:
    * {@link setAgentName} refuses against it forever after.
    */
-  rename({ sessionId, name }: { sessionId: SessionId; name: string }): void {
-    this.ports.mutate(sessionId, (draft) => {
+  rename({ sessionId, name }: { sessionId: SessionId; name: string }): Promise<void> {
+    return this.ports.mutate(sessionId, (draft) => {
       const clean = name.trim()
       draft.name = clean
       draft.nameSource = clean ? 'user' : undefined
@@ -87,11 +87,11 @@ export class SessionNaming {
    * over the derived `title` — but stamped 'agent', and REFUSED when the user
    * already named it.
    */
-  setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): {
+  async setAgentName({ sessionId, name }: { sessionId: SessionId; name: string }): Promise<{
     ok: boolean
     name?: string
     reason?: string
-  } {
+  }> {
     const session = this.ports.session(sessionId)
     if (!session) return { ok: false, reason: 'session not found' }
     const norm = normalizeAgentName(name)
@@ -104,7 +104,7 @@ export class SessionNaming {
         reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
       }
     }
-    this.ports.mutate(sessionId, (draft) => {
+    await this.ports.mutate(sessionId, (draft) => {
       draft.name = norm.name
       draft.nameSource = 'agent'
     })

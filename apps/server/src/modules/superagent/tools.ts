@@ -251,7 +251,7 @@ export async function buildSuperagentTools(
           spawnedBy,
           ownerUserId,
         })
-        if (str(args.name)) sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
+        if (str(args.name)) await sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
         const first = str(args.firstMessage)
         if (first) {
           // Durable queued send: delivers once the CLI settles, survives a failed
@@ -472,7 +472,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!await getSession(sessionId)) return 'unknown session'
-        sessions.renameSession({
+        await sessions.renameSession({
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
         })
