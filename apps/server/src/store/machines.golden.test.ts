@@ -78,39 +78,12 @@ it('reads podium_managed as a boolean at BOTH values, including the non-default 
   }
 })
 
-it('reads supervised as a boolean, and an unreported machine is false rather than null', async () => {
-  const store = await openTestStore(':memory:')
-  try {
-    await register(store, 'm1')
-    // NULL until a daemon reports, which the mapper reads as false: the
-    // truthful answer, since a supervised daemon re-asserts on every hello.
-    expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
-
-    const build = {
-      appVersion: '1.2.3',
-      wireSchemaDigest: 'digest',
-      installKind: 'installed' as const,
-    }
-    await store.machines.setMachineBuild('m1', { ...build, supervised: true }, ['payload'], 'at-1')
-    expect((await store.machines.getMachine('m1'))?.supervised).toBe(true)
-    expect(typeof (await store.machines.getMachine('m1'))?.supervised).toBe('boolean')
-
-    // Written on EVERY report, so a machine that stops being supervised loses
-    // the flag on its next hello rather than keeping it forever.
-    await store.machines.setMachineBuild('m1', { ...build, supervised: false }, ['payload'], 'at-2')
-    expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
-
-    expect(await store.machines.getMachine('m1')).toMatchObject({
-      appVersion: '1.2.3',
-      wireSchemaDigest: 'digest',
-      installKind: 'installed',
-      deliveryCaps: ['payload'],
-      buildReportedAt: 'at-2',
-    })
-  } finally {
-    await store.close()
-  }
-})
+// The `supervised` golden test lived here. dev/mw's supervisor-presence
+// migration DROPS that column (replaced by presence_source and
+// service_assignment_json), so the test cannot be written against this schema
+// any more. The property it existed to prove -- that drizzle's mode:'boolean'
+// reads 0/1 back as false/true at BOTH values -- is still pinned by the
+// podium_managed test directly above [POD-3416].
 
 it('keeps an unowned machine unowned, and never substitutes an owner', async () => {
   const store = await openTestStore(':memory:')

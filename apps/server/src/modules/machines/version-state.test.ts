@@ -1,7 +1,6 @@
 import { asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { deriveVersionState, MachinesService } from './service'
 import { openTestStore } from '../../test-support/open-test-store'
 
 import { SessionStore } from '../../store'

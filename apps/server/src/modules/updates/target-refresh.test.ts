@@ -59,7 +59,7 @@ describe('startTargetRefresh', () => {
         refreshed.push(channel)
         return opts.refresh?.(channel)
       },
-      operationActive: opts.operationActive ?? (() => false),
+      operationActive: opts.operationActive ?? (async () => false),
       schedule: clock.schedule,
       initialDelayMs: 120_000,
     })
@@ -189,7 +189,7 @@ describe('startTargetRefresh', () => {
     const clock = fakeSchedule()
     startTargetRefresh({
       refresh: vi.fn(async () => {}),
-      operationActive: () => false,
+      operationActive: async () => false,
       schedule: clock.schedule,
       random: () => 0,
     })

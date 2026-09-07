@@ -25,7 +25,7 @@ describe('server move durable reauthorization', () => {
       authorizedBy: admin,
       targetMachineId,
       machines: machines(),
-      roleOf: (userId) => (userId === admin ? 'admin' : undefined),
+      roleOf: async (userId) => (userId === admin ? 'admin' : undefined),
     })
 
     await expect(authorization.reauthorize(phase)).resolves.toBeUndefined()
@@ -41,7 +41,7 @@ describe('server move durable reauthorization', () => {
       authorizedBy,
       targetMachineId,
       machines: machines(),
-      roleOf: () => role,
+      roleOf: async () => role,
     })
 
     for (const phase of ['prepare', 'stage', 'validate', 'fence', 'commit'] as const) {
@@ -56,7 +56,7 @@ describe('server move durable reauthorization', () => {
       authorizedBy: admin,
       targetMachineId,
       machines: machines(asUserId('user:other')),
-      roleOf: () => 'admin',
+      roleOf: async () => 'admin',
     })
 
     await expect(authorization.reauthorize('commit')).rejects.toMatchObject({
