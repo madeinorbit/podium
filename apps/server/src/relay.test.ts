@@ -92,7 +92,7 @@ describe('SessionRegistry', () => {
     const stalePath = '/project/subagents/stale-name.jsonl'
     const seeded = await SessionStore.open(file, TEST_MACHINE)
     const seededRegistry = await SessionRegistry.create(seeded, undefined, { instanceId: 'seed' })
-    const { sessionId } = seededRegistry.modules.sessions.createSession({
+    const { sessionId } = await seededRegistry.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/project',
     })
@@ -1872,7 +1872,7 @@ describe('SessionRegistry', () => {
     const store = await SessionStore.open(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const cid = attachTestClient(reg.clientGateway, sink().send)
     reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
@@ -3610,8 +3610,8 @@ describe('hibernation', () => {
     try {
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
-      store.settings.setSettings({
-        ...store.settings.getSettings(),
+      await store.settings.setSettings({
+        ...(await store.settings.getSettings()),
         hibernation: {
           enabled: true,
           memoryPct: 80,
@@ -3622,7 +3622,7 @@ describe('hibernation', () => {
           backstopMinutes: null,
         },
       })
-      const { sessionId } = reg.modules.sessions.createSession({
+      const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd: '/w',
       })
@@ -3658,16 +3658,16 @@ describe('hibernation', () => {
         }),
       ).not.toThrow()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
-      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+      expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
 
       store.endTransferFence()
-      reg.modules.machines.resumeAfterTransferFence()
-      reg.modules.hosts.resumeAfterTransferFence()
+      await reg.modules.machines.resumeAfterTransferFence()
+      await reg.modules.hosts.resumeAfterTransferFence()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toMatchObject({
         podiumVersion: 'fenced-report',
       })
-      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+      expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
       expect(clearReadAt).toHaveBeenCalledOnce()
     } finally {
       reg.dispose()

@@ -563,20 +563,20 @@ describe('handshake order at the real gateway', () => {
 
 describe('recovery-only daemon handshake verification', () => {
   it('accepts an existing unrevoked token without touching or invalidating its row', async () => {
-    const world = enrollmentHandshakeWorld()
-    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
-    const invalidate = vi.spyOn((await world).machines, 'invalidateMachineCache')
+    const world = await enrollmentHandshakeWorld()
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
-      expect(receiveHello((await world).machines, (await world).machineId, (await world).token, true)).toMatchObject({
+      expect(receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
         kind: 'established',
-        machineId: (await world).machineId,
+        machineId: world.machineId,
         name: 'Durable machine',
       })
       expect(touch).not.toHaveBeenCalled()
       expect(invalidate).not.toHaveBeenCalled()
-      expect((await world).store.machines.getMachine((await world).machineId)?.hostname).toBe('stored.local')
+      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('stored.local')
     } finally {
-      (await world).store.close()
+      world.store.close()
     }
   })
 
@@ -584,52 +584,52 @@ describe('recovery-only daemon handshake verification', () => {
     {
       verdict: 'revoked token',
       setup: async () => {
-        const world = enrollmentHandshakeWorld({ revoked: true })
-        return { world, token: (await world).token }
+        const world = await enrollmentHandshakeWorld({ revoked: true })
+        return { world, token: world.token }
       },
     },
     {
       verdict: 'invalid token',
-      setup: () => {
-        const world = enrollmentHandshakeWorld()
+      setup: async () => {
+        const world = await enrollmentHandshakeWorld()
         return { world, token: 'invalid-token' }
       },
     },
     {
       verdict: 'missing row',
       setup: async () => {
-        const world = enrollmentHandshakeWorld({ row: false })
-        return { world, token: (await world).token }
+        const world = await enrollmentHandshakeWorld({ row: false })
+        return { world, token: world.token }
       },
     },
   ])('rejects a $verdict without writing', async ({ setup }) => {
-    const { world, token } = setup()
-    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
+    const { world, token } = await setup()
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
     try {
       expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe('rejected')
       expect(touch).not.toHaveBeenCalled()
     } finally {
-      (await world).store.close()
+      world.store.close()
     }
   })
 
   it('rejects pairing before consuming its code', async () => {
-    const world = enrollmentHandshakeWorld({ queryOnly: false })
-    const code = (await world).machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
+    const world = await enrollmentHandshakeWorld({ queryOnly: false })
+    const code = world.machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
     const machineId = asMachineId('new-machine')
     try {
       const outcome = receiveDaemonFrame(
         createDaemonAcceptor({
-          machines: (await world).machines,
+          machines: world.machines,
           connectionId: 'verify-only-pair',
           verifyOnly: true,
         }),
         JSON.stringify({ type: 'pair', code, machineId, hostname: 'new.local' }),
       )
       expect((await outcome).kind).toBe('rejected')
-      expect((await world).store.machines.getMachine(machineId)).toBeUndefined()
+      expect(world.store.machines.getMachine(machineId)).toBeUndefined()
       expect(
-        (await world).machines.authenticateDaemon({
+        world.machines.authenticateDaemon({
           type: 'pair',
           code,
           machineId,
@@ -637,23 +637,23 @@ describe('recovery-only daemon handshake verification', () => {
         }),
       ).toMatchObject({ ok: true, machineId })
     } finally {
-      (await world).store.close()
+      world.store.close()
     }
   })
 
   it('keeps ordinary handshake touch and cache invalidation', async () => {
-    const world = enrollmentHandshakeWorld({ queryOnly: false })
-    const touch = vi.spyOn((await world).store.machines, 'touchMachine')
-    const invalidate = vi.spyOn((await world).machines, 'invalidateMachineCache')
+    const world = await enrollmentHandshakeWorld({ queryOnly: false })
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
-      expect((await receiveHello((await world).machines, (await world).machineId, (await world).token, false)).kind).toBe(
+      expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind).toBe(
         'established',
       )
-      expect(touch).toHaveBeenCalledWith((await world).machineId, 'observed.local')
+      expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
       expect(invalidate).toHaveBeenCalledOnce()
-      expect((await world).store.machines.getMachine((await world).machineId)?.hostname).toBe('observed.local')
+      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('observed.local')
     } finally {
-      (await world).store.close()
+      world.store.close()
     }
   })
 })

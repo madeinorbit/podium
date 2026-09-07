@@ -43,7 +43,9 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
   return { send: (m) => got.push(m), got }
 }
 
-async function storedService(recoveryOnly = false): { svc: MachinesService; store: SessionStore } {
+async function storedService(
+  recoveryOnly = false,
+): Promise<{ svc: MachinesService; store: SessionStore }> {
   const store = await SessionStore.open(':memory:')
   store.machines.upsertMachine({
     id: MACHINE,
