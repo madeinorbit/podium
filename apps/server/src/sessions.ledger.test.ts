@@ -39,6 +39,38 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     return registry
   }
 
+  it('awaits metadata persistence and propagates issue attachment failures', async () => {
+    const registry = await makeRegistry()
+    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const issue = await registry.issues.create({ repoPath: '/w', title: 'Attachment', startNow: false })
+    const sessions = registry.modules.sessions
+    const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockRejectedValueOnce(new Error('attach failed'))
+    await expect(sessions.setSessionIssueId(sessionId, issue.id)).rejects.toThrow('attach failed')
+    expect(sessions.getSessionIssueId(sessionId)).toBeNull()
+    append.mockRestore()
+    await sessions.setSessionIssueId(sessionId, issue.id)
+    const attached = await registry.sessionStore.sessions.getSession(sessionId)
+    expect(attached?.issueId).toBe(issue.id)
+    expect(attached?.refIssueId).toBe(issue.id)
+    expect(attached?.refLetter).toBeTruthy()
+    await sessions.setSessionCwd(sessionId, '/w/new')
+    expect((await registry.sessionStore.sessions.getSession(sessionId))?.cwd).toBe('/w/new')
+  })
+
+  it('resolves the trusted principal for snooze and read operations', async () => {
+    const registry = await makeRegistry()
+    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const sessions = registry.modules.sessions
+    await sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
+    expect(await registry.sessionStore.sessions.listSnoozes(FIRST_ADMIN_USER_ID)).toHaveProperty(sessionId)
+    await sessions.clearSnooze(FIRST_ADMIN_USER_ID, sessionId)
+    expect(await registry.sessionStore.sessions.listSnoozes(FIRST_ADMIN_USER_ID)).not.toHaveProperty(sessionId)
+    await sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
+    await sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId)
+    expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
+  })
+
   function deltaClient(registry: SessionRegistry): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))

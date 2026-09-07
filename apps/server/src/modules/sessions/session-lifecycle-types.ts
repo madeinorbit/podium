@@ -68,7 +68,7 @@ export type SnapshotTail = Omit<
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
   sessionIds: string[]
-  write(): void
+  write(): Promise<void>
   changes(): EntityChangeSpec[]
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
@@ -77,7 +77,7 @@ export interface SessionDeletePlan {
 export interface SessionRestorePlan {
   sessionIds: string[]
   restoredSessions: SessionMeta[]
-  write(): void
+  write(): Promise<void>
   changes(): EntityChangeSpec[]
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }

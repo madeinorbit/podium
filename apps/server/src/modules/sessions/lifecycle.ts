@@ -614,8 +614,8 @@ export class SessionLifecycle {
   private readonly mutations!: MutationLedgerPort
   /** Idempotency is MutationLedger's (POD-382); not re-exposed here. */
   /** The write funnel's session-metadata face: apply the field write, persist the */
-  private mutateSessionMeta(...args: any[]): void {
-    ;(this.sessionMetaOps as any).mutateSessionMeta(...args)
+  private mutateSessionMeta(...args: Parameters<SessionMetaOps['mutateSessionMeta']>): Promise<void> {
+    return this.sessionMetaOps.mutateSessionMeta(...args)
   }
   renameSession(input: { sessionId: SessionId; name: string }): void {
     this.naming.rename(input)
@@ -628,8 +628,8 @@ export class SessionLifecycle {
   } {
     return this.naming.setAgentName(input)
   }
-  setArchived(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setArchived(...args)
+  setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {
+    return this.sessionMetaOps.setArchived(...args)
   }
   private parkArchivedSession(sessionId: SessionId): void {
     this.sessionTeardown.parkArchivedSession(sessionId)
@@ -646,17 +646,17 @@ export class SessionLifecycle {
   private async rearmUnread(sessionId: SessionId): Promise<void> {
     await this.state.rearmUnreadForAll(sessionId)
   }
-  setSessionIssueId(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setSessionIssueId(...args)
+  setSessionIssueId(...args: Parameters<SessionMetaOps['setSessionIssueId']>): Promise<void> {
+    return this.sessionMetaOps.setSessionIssueId(...args)
   }
   getSessionIssueId(...args: any[]): any {
     return (this.sessionMetaOps as any).getSessionIssueId(...args)
   }
-  setSessionCwd(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setSessionCwd(...args)
+  setSessionCwd(...args: Parameters<SessionMetaOps['setSessionCwd']>): Promise<void> {
+    return this.sessionMetaOps.setSessionCwd(...args)
   }
-  setWorkState(...args: any[]): void {
-    ;(this.sessionMetaOps as any).setWorkState(...args)
+  setWorkState(...args: Parameters<SessionMetaOps['setWorkState']>): Promise<void> {
+    return this.sessionMetaOps.setWorkState(...args)
   }
   async stopSession(
     input: {
@@ -762,8 +762,8 @@ export class SessionLifecycle {
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)
   }
-  prepareIssueSessionDelete(...args: any[]): any {
-    return (this.sessionMetaOps as any).prepareIssueSessionDelete(...args)
+  prepareIssueSessionDelete(...args: Parameters<SessionMetaOps['prepareIssueSessionDelete']>): ReturnType<SessionMetaOps['prepareIssueSessionDelete']> {
+    return this.sessionMetaOps.prepareIssueSessionDelete(...args)
   }
   prepareIssueSessionRestore(issueId: IssueId): Promise<SessionRestorePlan> {
     return this.sessionMetaOps.prepareIssueSessionRestore(issueId)

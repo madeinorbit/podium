@@ -316,7 +316,7 @@ export class SessionView {
    * else — so passing the live session here would decide against the PREVIOUS
    * attachment and allocate the wrong ref, or none.
    */
-  async prepareRefAllocation(session: SessionDurableFields): Promise<(() => void) | undefined> {
+  async prepareRefAllocation(session: SessionDurableFields): Promise<(() => Promise<void>) | undefined> {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {

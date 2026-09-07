@@ -49,7 +49,7 @@ async function harness(sessions: SessionMeta[] = []) {
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
     getSessionIssueId: (sessionId) => issueBySession.get(sessionId) ?? null,
-    setSessionIssueId: (sessionId, issueId) => issueBySession.set(sessionId, issueId),
+    setSessionIssueId: (sessionId, issueId) => { issueBySession.set(sessionId, issueId) },
   }
   return { store, deps, issueBySession, svc: await IssueService.create(deps) }
 }

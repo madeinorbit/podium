@@ -16,7 +16,10 @@ import type {
 } from '@podium/model'
 import { asUserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { MachinesService } from '../machines/service'
+import type { WriteFunnel } from '../funnel'
+import type { SessionTeardown } from './session-teardown'
+import type { SessionKill } from './session-kill'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
@@ -29,23 +32,21 @@ import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
 
 export interface SessionMetaOpsPorts {
-  broadcastSessions: any
-  funnel: any
-  mutations: any
-  now: any
-  removeSessionRuntime: any
+  broadcastSessions(): void
+  funnel: Pick<WriteFunnel, 'run'>
+  now(): number
+  removeSessionRuntime: SessionKill['removeSessionRuntime']
   repository: Pick<
     SessionRepository,
-    'write' | 'sessionFromStoredRow' | 'installStoredSession' | 'publishSessionProjection'
+    'write' | 'draft' | 'persistDraft' | 'sessionFromStoredRow' | 'prepareStoredSessionInstall' | 'publishSessionProjection'
   >
-  sessionRemovalSpecs: any
-  sessionTeardown: any
-  sessions: any
-  state: any
+  sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[]
+  sessionTeardown: Pick<SessionTeardown, 'tryAutoArchiveStoppedObserved'>
+  sessions: Map<SessionId, Session>
+  state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts' | 'invalidateAllOverlays'>
   store: SessionStore
-  toMachine: any
-  toPtyInput: any
-  view: any
+  toPtyInput: MachinesService['toPtyInput']
+  view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire'>
 }
 
 export class SessionMetaOps {
@@ -187,7 +188,7 @@ export class SessionMetaOps {
    * projection is still unscoped (ADR 2 D2) and therefore still serves one named
    * viewer, but that choice now lives in ONE method instead of on every session.
    */
-  setSnooze({
+  async setSnooze({
     userId,
     sessionId,
     until,
@@ -197,13 +198,13 @@ export class SessionMetaOps {
     until: string | null
   }): Promise<void> {
     return this.ports.state
-      .setSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId, until)
+      .setSnooze(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId, until)
       .then(() => undefined)
   }
 
-  clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
     return this.ports.state
-      .clearSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .clearSnooze(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
       .then(() => undefined)
   }
 
@@ -219,9 +220,9 @@ export class SessionMetaOps {
    * in eleven handlers.
    */
 
-  markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
     return this.ports.state
-      .markRead(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .markRead(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
       .then(() => undefined)
   }
 
@@ -229,9 +230,9 @@ export class SessionMetaOps {
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-  markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
     return this.ports.state
-      .markUnread(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .markUnread(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
       .then(() => undefined)
   }
 
@@ -246,17 +247,20 @@ export class SessionMetaOps {
    */
 
   /** Set (or clear with null) a session's explicit issue attachment. */
-  setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): void {
-    this.mutateSessionMeta(sessionId, (draft) => {
-      draft.issueId = issueId ?? undefined
-      // Naming point (#474): the first attach on a still-unnamed session brands
-      // it with that issue's letter. A detach (null) is NOT a naming point —
-      // the session stays unnamed rather than getting a spurious DRAFT ordinal.
-      //
-      // THE DRAFT, not the session: the attachment this decides on is the one
-      // assigned one line above, and it exists nowhere else until the commit.
-      if (issueId) return this.ports.view.prepareRefAllocation(draft)
-    })
+  async setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): Promise<void> {
+    const session = this.ports.sessions.get(sessionId)
+    if (!session) return
+    const draft = this.ports.repository.draft(session)
+    draft.issueId = issueId ?? undefined
+    // Naming point (#474): the first attach on a still-unnamed session brands
+    // it with that issue's letter. A detach (null) is NOT a naming point —
+    // the session stays unnamed rather than getting a spurious DRAFT ordinal.
+    //
+    // THE DRAFT, not the session: the attachment this decides on is the one
+    // assigned one line above, and it exists nowhere else until the commit.
+    const additionalWrite = issueId ? await this.ports.view.prepareRefAllocation(draft) : undefined
+    await this.ports.repository.persistDraft(session, draft, additionalWrite)
+    this.ports.broadcastSessions()
   }
 
   /** The session's explicit issue attachment (issue-as-workspace), if any. */
@@ -265,9 +269,9 @@ export class SessionMetaOps {
   }
 
   /** Restamp the session's cwd after a hopscotch start minted a new checkout. */
-  setSessionCwd(sessionId: SessionId, cwd: string): void {
-    if (!cwd) return
-    this.mutateSessionMeta(sessionId, (draft) => {
+  setSessionCwd(sessionId: SessionId, cwd: string): Promise<void> {
+    if (!cwd) return Promise.resolve()
+    return this.mutateSessionMeta(sessionId, (draft) => {
       draft.cwd = cwd
     })
   }
@@ -278,16 +282,16 @@ export class SessionMetaOps {
   }: {
     sessionId: SessionId
     workState: WorkState | null
-  }): void {
-    this.ports.state.setWorkState(sessionId, workState)
+  }): Promise<void> {
+    return this.ports.state.setWorkState(sessionId, workState)
   }
 
   /**
    * Cleanly end a session [spec:SP-9904]. Survival table lives on SessionTeardown.
    */
 
-  setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): void {
-    this.ports.state.setArchived(sessionId, archived)
+  setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): Promise<void> {
+    return this.ports.state.setArchived(sessionId, archived)
   }
 
   /** Archive parks a running process (POD-108). See SessionTeardown survival table. */
@@ -301,7 +305,7 @@ export class SessionMetaOps {
       archived: false
     },
     nowMs: number,
-  ): 'applied' | 'precondition' | 'not-due' {
+  ): ReturnType<SessionTeardown['tryAutoArchiveStoppedObserved']> {
     return this.ports.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
@@ -346,10 +350,10 @@ export class SessionMetaOps {
    * mutation (rename/archive/read/issue attachment/work state) goes through
    * here instead of hand-rolling persist+broadcast.
    */
-  mutateSessionMeta(
+  async mutateSessionMeta(
     sessionId: SessionId,
-    write: (draft: SessionDurableState) => void | (() => void),
-  ): void {
+    write: Parameters<SessionRepository['write']>[1],
+  ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     // THE CALLBACK GETS A DRAFT [POD-3330], not the live session. Every field a
@@ -358,10 +362,8 @@ export class SessionMetaOps {
     // second writer committing inside this span can no longer capture these
     // fields off the shared object and make somebody else's half-finished
     // change durable.
-    this.ports.funnel.run({
-      write: () => {
-        this.ports.repository.write(session, write)
-      },
+    await this.ports.funnel.run({
+      write: () => this.ports.repository.write(session, write),
     })
     this.ports.broadcastSessions()
   }
@@ -417,18 +419,18 @@ export class SessionMetaOps {
     })
   }
 
-  prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): SessionDeletePlan {
-    const localMetas = [...this.ports.sessions.values()].map((s) =>
-      s.toMeta(this.ports.view.overlay(s.sessionId)),
-    )
+  async prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): Promise<SessionDeletePlan> {
+    const localMetas = await Promise.all([...this.ports.sessions.values()].map(async (s) =>
+      s.toMeta(await this.ports.view.overlay(s.sessionId)),
+    ))
     const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
     return {
       sessionIds,
-      write: () => {
-        this.ports.store.sessions.softDeleteForIssue(sessionIds, issueId, deletedAt)
+      write: async () => {
+        await this.ports.store.sessions.softDeleteForIssue(sessionIds, issueId, deletedAt)
         for (const sessionId of sessionIds)
-          this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
+          await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
       changes: () => sessionIds.flatMap((sessionId) => this.ports.sessionRemovalSpecs(sessionId)),
       apply: (changes, ledgerCursor) => {
@@ -452,13 +454,19 @@ export class SessionMetaOps {
     // The commit cannot change this answer: restoreDeletedForIssue updates only
     // the sessions table, and loadFromStore does not touch offers.
     const offers = await this.ports.store.sessions.listOffers()
+    const installDrafts = await this.ports.state.prepareStoredDrafts(restored.map(({ session }) => session.sessionId))
+    const installs: Awaited<ReturnType<SessionRepository['prepareStoredSessionInstall']>>[] = []
+    for (const { session } of restored) installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
     const view: Pick<SessionView, 'wire'> = this.ports.view
     const restoredSessions: SessionMeta[] = []
     for (const { session } of restored) restoredSessions.push(await view.wire(session))
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),
       restoredSessions,
-      write: () => this.ports.store.sessions.restoreDeletedForIssue(issueId),
+      write: async () => {
+        await this.ports.store.sessions.restoreDeletedForIssue(issueId)
+        for (const install of installs) await install.write()
+      },
       changes: () =>
         restoredSessions.map((session) => ({
           entity: 'session' as const,
@@ -467,10 +475,8 @@ export class SessionMetaOps {
           value: session,
         })),
       apply: (changes, ledgerCursor) => {
-        this.ports.state.loadFromStore()
-        for (const { session } of restored) {
-          this.ports.repository.installStoredSession(session, offers)
-        }
+        installDrafts()
+        for (const install of installs) install.apply()
         // Restored sessions may carry per-user rows; the overlay is read fresh.
         this.ports.state.invalidateAllOverlays()
         this.ports.repository.publishSessionProjection(changes, ledgerCursor)

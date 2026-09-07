@@ -209,7 +209,7 @@ export class IssueAttentionModule {
       }
     }
     if (prevId === target.id) return await this.store.toWire(target) // self-attach: no-op
-    setSessionIssueId(opts.sessionId, target.id)
+    await setSessionIssueId(opts.sessionId, target.id)
     await this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     await this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
@@ -685,7 +685,7 @@ export class IssueAttentionModule {
     if (!setArchived) return
     for (const s of (await this.store.sessionsFor(row))) {
       if (s.archived) continue
-      setArchived(s.sessionId, true)
+      await setArchived(s.sessionId, true)
     }
   }
 

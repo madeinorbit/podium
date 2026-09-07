@@ -740,28 +740,14 @@ export class SessionRepository {
     return session
   }
 
-  async installStoredSession(
+  /** Prepare off-row reads without exposing a partially installed runtime. */
+  async prepareStoredSessionInstall(
     session: Session,
-    offers: Record<
-      string,
-      { message: string; actions: { label: string; prompt: string }[]; createdAt: string }
-    >,
-  ): Promise<void> {
-    this.sessions.set(session.sessionId, session)
-    // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
-    // offer was posted means the conversation moved past it while we were down —
-    // drop it instead of resurrecting a dead suggestion. (Live continuations are
-    // handled by the working-transition clear; this covers what happened while
-    // the server wasn't watching.)
-    if (session.sessionId in offers) {
-      const offer = offers[session.sessionId]
-      if (offer && session.terminal.lastInputAtMs > Date.parse(offer.createdAt)) {
-        await this.store.sessions.clearOffer(session.sessionId)
-      } else {
-        session.offer = offer
-      }
-    }
-    this.state.installSession(session.sessionId)
+    offers: Awaited<ReturnType<SessionStore['sessions']['listOffers']>>,
+  ): Promise<{ write(): Promise<void>; apply(): void }> {
+    const offer = offers[session.sessionId]
+    const staleOffer = !!offer && session.terminal.lastInputAtMs > Date.parse(offer.createdAt)
+    session.offer = staleOffer ? undefined : offer
     if (session.resume?.value) {
       session.conversationPodiumId = await this.ports.memory.conversationPodiumId(
         { kind: 'system', id: 'session-boot-reconcile' },
@@ -769,7 +755,25 @@ export class SessionRepository {
         session.resume.value,
       )
     }
-    this.commitDurableBaseline(session.sessionId, session.captureDurableState())
+    return {
+      write: async () => {
+        if (staleOffer) await this.store.sessions.clearOffer(session.sessionId)
+      },
+      apply: () => {
+        this.sessions.set(session.sessionId, session)
+        this.state.installSession(session.sessionId)
+        this.commitDurableBaseline(session.sessionId, session.captureDurableState())
+      },
+    }
+  }
+
+  async installStoredSession(
+    session: Session,
+    offers: Awaited<ReturnType<SessionStore['sessions']['listOffers']>>,
+  ): Promise<void> {
+    const install = await this.prepareStoredSessionInstall(session, offers)
+    await install.write()
+    install.apply()
   }
 
   async loadFromStore(): Promise<void> {

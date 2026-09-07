@@ -496,7 +496,7 @@ export class IssueGitWorkflowModule {
     )
     if (existing.length > 0) {
       for (const session of existing) {
-        if (session.cwd !== path) this.store.d.setSessionCwd?.(session.sessionId, path)
+        if (session.cwd !== path) await this.store.d.setSessionCwd?.(session.sessionId, path)
       }
       const originId = wire.deps?.find((dep) => dep.type === 'discovered-from')?.id
       if (originId) {

@@ -90,6 +90,27 @@ describe('issue/session deletion lifecycle', () => {
     registry.dispose()
   })
 
+  it('prepares restore reads before publishing and applies synchronously', async () => {
+    const { registry, store } = await registryWithDaemon()
+    try {
+      const issue = await registry.issues.create({ repoPath: '/repo', title: 'Prepared restore', startNow: false })
+      const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+      const plan = await registry.modules.sessions.prepareIssueSessionRestore(issue.id)
+      const times = vi.spyOn(store.sessions, 'loadDraftTimes').mockRejectedValue(new Error('read during apply'))
+      const docs = vi.spyOn(store.sessions, 'loadDraftDocs').mockRejectedValue(new Error('read during apply'))
+      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(false)
+      expect(plan.apply([], 1)).toBeUndefined()
+      expect(times).not.toHaveBeenCalled()
+      expect(docs).not.toHaveBeenCalled()
+      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(true)
+      times.mockRestore()
+      docs.mockRestore()
+    } finally {
+      registry.dispose()
+    }
+  })
+
   it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', async () => {
     const { registry, store, messages } = await registryWithDaemon()
     const issue = await registry.issues.create({ repoPath: '/repo', title: 'Atomic', startNow: false })

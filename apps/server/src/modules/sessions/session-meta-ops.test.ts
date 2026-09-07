@@ -45,12 +45,14 @@ async function fixture(file = ':memory:') {
     sessionFromStoredRow: vi.fn<SessionMetaOpsPorts['repository']['sessionFromStoredRow']>(
       async () => session,
     ),
-    installStoredSession: vi.fn<SessionMetaOpsPorts['repository']['installStoredSession']>(
+    prepareStoredSessionInstall: vi.fn<SessionMetaOpsPorts['repository']['prepareStoredSessionInstall']>(
       async (restored, offers) => {
         restored.offer = offers[restored.sessionId]
-        sessions.set(restored.sessionId, restored)
+        return { write: async () => {}, apply: () => { sessions.set(restored.sessionId, restored) } }
       },
     ),
+    draft: vi.fn(live => live.captureDurableState()),
+    persistDraft: vi.fn(async (live, draft, write) => { await write?.(); live.installDurableState(draft) }),
     publishSessionProjection: vi.fn(),
   } satisfies SessionMetaOpsPorts['repository']
   const ports: SessionMetaOpsPorts = {
@@ -58,16 +60,18 @@ async function fixture(file = ':memory:') {
     repository,
     sessions,
     broadcastSessions: vi.fn(),
-    funnel: undefined,
-    mutations: undefined,
+    funnel: { run: async op => op.write() },
     now: () => Date.parse(stamp),
     removeSessionRuntime: vi.fn(),
     sessionRemovalSpecs: vi.fn(),
-    sessionTeardown: undefined,
-    state: { loadFromStore: vi.fn(), invalidateAllOverlays: vi.fn() },
-    toMachine: vi.fn(),
+    sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
+    state: {
+      prepareStoredDrafts: vi.fn(async () => vi.fn()), invalidateAllOverlays: vi.fn(),
+      setSnooze: vi.fn(), clearSnooze: vi.fn(), markRead: vi.fn(), markUnread: vi.fn(),
+      setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
+    },
     toPtyInput: vi.fn(),
-    view: { wire: vi.fn(async (s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
+    view: { principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn(async (s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
 }
@@ -163,7 +167,7 @@ describe('async offer persistence', () => {
     expect(changes[0]?.value).toEqual(plan.restoredSessions[0])
     expect(plan.apply([], 0)).toBeUndefined()
     expect(listOffers).toHaveBeenCalledOnce()
-    expect(repository.installStoredSession).toHaveBeenCalledWith(session, { [sessionId]: offer })
+    expect(repository.prepareStoredSessionInstall).toHaveBeenCalledWith(session, { [sessionId]: offer })
     expect(sessions.get(sessionId)?.offer).toEqual(offer)
     expect(await store.sessions.loadDeletedSessionsForIssue(issueId)).toEqual([])
   })
