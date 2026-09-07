@@ -451,22 +451,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     now: () => bag.now(),
     persist: (session, options) =>
-      bag.repository.persist(
+      life.repository.persist(
         session,
         options?.cancelTerminalCandidate
           ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
     write: (session, mutate, options) =>
-      bag.repository.write(
+      life.repository.write(
         session,
         mutate,
         options?.cancelTerminalCandidate
           ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
-    draft: (session) => bag.repository.draft(session),
-    persistDraft: (session, draft) => bag.repository.persistDraft(session, draft),
+    draft: (session) => life.repository.draft(session),
+    persistDraft: (session, draft) => life.repository.persistDraft(session, draft),
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
     usesRawFirstTurn: harnessUsesRawFirstTurn,
@@ -476,7 +476,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     prepareSend: (sessionId, attribution, kind, origin) =>
       life.prepareInboxSend(sessionId, attribution, kind, origin),
     ownerOf: async (sessionId) => (await ownership.sessionOwner(sessionId))?.owner,
-    setSessionDraft: (input) => bag.state.setDraft(input),
+    setSessionDraft: (input) => life.state.setDraft(input),
     draftText: (sessionId) => bag.state.draftText(sessionId),
     resurrect: (sessionId, principal) => {
       bag.bus.emit('session.wakeRequested', { sessionId, principal })
