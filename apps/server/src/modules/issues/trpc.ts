@@ -84,18 +84,18 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
   const record: Record<string, unknown> = {}
   for (const [name, def] of Object.entries<AnyIssueCommandDef>(registry.defs)) {
     const proc = t.procedure.use(guardFor(name, def)).input(def.input)
-    // Not an `async` wrapper: a synchronous handler must stay synchronous, or the
-    // mutation ledger's check-run-record pass stops being one uninterrupted turn
-    // and a replay in the same tRPC batch could interleave with its original.
+    // Check-run-record can yield even for a synchronous handler. MutationLedger
+    // reserves the mutation id before its durable lookup yields and keeps that
+    // join point through receipt recording, so same-batch replays join the owner.
+    // The resolver awaits dispatch here so its rejection is mapped to tRPC once.
     const resolve = async (opts: { ctx: Context; input: unknown }) => {
       try {
-        const out = await familyState(opts.ctx).modules.issueCommands.run(
+        return await familyState(opts.ctx).modules.issueCommands.run(
           issueCaller(opts.ctx),
           name,
           def,
           opts.input,
         )
-        return out instanceof Promise ? await out.catch(rethrowAsTrpc) : out
       } catch (err) {
         return rethrowAsTrpc(err)
       }
