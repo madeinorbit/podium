@@ -347,6 +347,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const pending: Waiter[] = []
   const idleListeners = new Set<() => void>()
   let writeSlotHeld = false
+  let exclusiveSlotHeld = false
   let readsInFlight = 0
   let inFlight = 0
   let state: SchedulerState = options.startOpen ? 'open' : 'accepting'
@@ -358,18 +359,23 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   let finishClose: (() => void) | undefined
 
   function canStart(lane: Lane): boolean {
+    // Concurrent readers may share an ordinary writer, but never an exclusive lease.
+    // Keep this separate from writeSlotHeld so reads retain their independent lane.
+    if (exclusiveSlotHeld) return false
     if (lane === 'exclusive') return inFlight === 0
     if (lane === 'write') return !writeSlotHeld
     return readsUseWriteSlot ? !writeSlotHeld : readsInFlight < readConcurrency
   }
 
   function take(lane: Lane): void {
+    if (lane === 'exclusive') exclusiveSlotHeld = true
     inFlight++
     if (lane === 'read' && !readsUseWriteSlot) readsInFlight++
     else writeSlotHeld = true
   }
 
   function give(lane: Lane): void {
+    if (lane === 'exclusive') exclusiveSlotHeld = false
     inFlight--
     if (lane === 'read' && !readsUseWriteSlot) readsInFlight--
     else writeSlotHeld = false
