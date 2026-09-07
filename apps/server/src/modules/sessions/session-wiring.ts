@@ -1003,8 +1003,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     funnel: bag.funnel,
     now: () => bag.now(),
-    removeSessionRuntime: (id: SessionId, ret?: { retiredAt: string }) =>
-      bag.sessionKill.removeSessionRuntime(id, ret),
+    prepareSessionRuntimeRemoval: (id: SessionId, ret?: { retiredAt: string }) =>
+      bag.sessionKill.prepareSessionRuntimeRemoval(id, ret),
     repository: bag.repository,
     sessionRemovalSpecs: (id: SessionId) => bag.sessionKill.sessionRemovalSpecs(id),
     sessionTeardown: bag.sessionTeardown,

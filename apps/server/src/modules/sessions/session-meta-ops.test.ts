@@ -62,7 +62,7 @@ async function fixture(file = ':memory:') {
     broadcastSessions: vi.fn(),
     funnel: { run: async op => op.write() },
     now: () => Date.parse(stamp),
-    removeSessionRuntime: vi.fn(),
+    prepareSessionRuntimeRemoval: vi.fn(async () => vi.fn()),
     sessionRemovalSpecs: vi.fn(),
     sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
     state: {
@@ -180,5 +180,36 @@ describe('async offer persistence', () => {
     const plan = await ops.prepareIssueSessionRestore(issueId)
     expect(plan.sessionIds).toEqual([])
     expect(plan.restoredSessions).toEqual([])
+  })
+})
+
+
+describe('issue deletion runtime preparation', () => {
+  it('awaits teardown preparation and applies removal synchronously before publishing', async () => {
+    const { ops, ports, sessions, session, repository } = await fixture()
+    session.issueId = issueId
+    sessions.set(sessionId, session)
+    vi.mocked(ports.view.overlay).mockResolvedValue({ readAt: null, snoozedUntil: null })
+    let finish!: (remove: () => void) => void
+    const pending = new Promise<() => void>(resolve => { finish = resolve })
+    vi.mocked(ports.prepareSessionRuntimeRemoval).mockReturnValueOnce(pending)
+    let prepared = false
+    const preparation = ops.prepareIssueSessionDelete(issueId, null).then(plan => {
+      prepared = true
+      return plan
+    })
+    await vi.waitFor(() => expect(ports.prepareSessionRuntimeRemoval).toHaveBeenCalledWith(sessionId))
+    expect(prepared).toBe(false)
+    expect(repository.publishSessionProjection).not.toHaveBeenCalled()
+    const remove = vi.fn(() => { sessions.delete(sessionId) })
+    finish(remove)
+    const plan = await preparation
+    expect(remove).not.toHaveBeenCalled()
+    repository.publishSessionProjection.mockImplementationOnce(() => {
+      expect(sessions.has(sessionId)).toBe(false)
+    })
+    expect(plan.apply([], 12)).toBeUndefined()
+    expect(remove).toHaveBeenCalledOnce()
+    expect(repository.publishSessionProjection).toHaveBeenCalledWith([], 12)
   })
 })

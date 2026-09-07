@@ -35,7 +35,7 @@ export interface SessionMetaOpsPorts {
   broadcastSessions(): void
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
-  removeSessionRuntime: SessionKill['removeSessionRuntime']
+  prepareSessionRuntimeRemoval: SessionKill['prepareSessionRuntimeRemoval']
   repository: Pick<
     SessionRepository,
     'write' | 'draft' | 'persistDraft' | 'sessionFromStoredRow' | 'prepareStoredSessionInstall' | 'publishSessionProjection'
@@ -425,6 +425,9 @@ export class SessionMetaOps {
     ))
     const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
+    const removals: (() => void)[] = []
+    for (const sessionId of sessionIds)
+      removals.push(await this.ports.prepareSessionRuntimeRemoval(sessionId))
     return {
       sessionIds,
       write: async () => {
@@ -434,7 +437,7 @@ export class SessionMetaOps {
       },
       changes: () => sessionIds.flatMap((sessionId) => this.ports.sessionRemovalSpecs(sessionId)),
       apply: (changes, ledgerCursor) => {
-        for (const sessionId of sessionIds) this.ports.removeSessionRuntime(sessionId)
+        for (const remove of removals) remove()
         this.ports.repository.publishSessionProjection(changes, ledgerCursor)
       },
     }
