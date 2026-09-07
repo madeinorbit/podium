@@ -77,7 +77,7 @@ function makeGateway(
   const queue: RuntimeDurableQueuePort = {
     enqueue:
       overrides.queue?.enqueue ??
-      ((input) => {
+      (async (input) => {
         enqueued.push(input)
         return { ok: true, position: 3 }
       }),
@@ -219,7 +219,9 @@ describe('send', () => {
 
   it('reports a queue refusal as a refusal, not as a queued turn nobody holds', async () => {
     const { gateway } = makeGateway({
-      queue: { enqueue: () => ({ ok: false, reason: 'no_resume_ref', detail: 'no resume ref' }) },
+      queue: {
+        enqueue: async () => ({ ok: false, reason: 'no_resume_ref', detail: 'no resume ref' }),
+      },
     })
     const receipt = await gateway.send({
       sessionId: SESSION,

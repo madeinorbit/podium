@@ -1672,7 +1672,7 @@ export class SessionRegistry {
           // session, a race with the daemon's own bind — left the row waiting for
           // the next reconnect. Re-arming here costs a no-op when the bind path
           // already ran.
-          sessionsSvc.inbox.drain(sessionId)
+          await sessionsSvc.inbox.drain(sessionId)
         })
         .catch(async (err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
@@ -3165,7 +3165,7 @@ export class SessionRegistry {
     this.bus.on('transcript.delta', async ({ sessionId, items, reset }) => {
       // A reset can replay an old interrupt marker while a new prompt is queued.
       // Only a fresh tail event is evidence about the current delivery.
-      if (reset !== true) sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
+      if (reset !== true) await sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(async () => await messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
@@ -3175,7 +3175,8 @@ export class SessionRegistry {
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
     this.queuedInputSweep = setInterval(
-      () => sessionsSvc.inbox.sweepQueuedInputs(),
+      // NOT awaited: a backstop tick owns no caller to answer (rule 57).
+      () => void sessionsSvc.inbox.sweepQueuedInputs(),
       QUEUED_INPUT_SWEEP_MS,
     )
     this.queuedInputSweep.unref?.()

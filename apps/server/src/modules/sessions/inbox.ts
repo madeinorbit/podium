@@ -213,21 +213,21 @@ export interface InboxQueuePort {
     inputOrigin: ObservationInputOrigin
     principal: InboxPrincipalReference
     sourceMessageId: string | null
-  }): boolean
-  list(sessionId: SessionId): QueuedInboxMessage[]
+  }): Promise<boolean>
+  list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
-  bumpAttempts(id: string): void
+  bumpAttempts(id: string): Promise<void>
   /** A FRESH PROCESS HAS NEVER BEEN TYPED INTO (POD-1242). Attempts bound how
    *  many copies of a row one CLI may receive; the count dies with that CLI.
    *  UNBRANDED BY DECISION: queue primary key, as above. */
-  resetAttempts?(id: string): void
+  resetAttempts?(id: string): Promise<void>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
-  delete(id: string): void
+  delete(id: string): Promise<void>
   /** Every session holding at least one pending row — the work list for
    *  {@link SessionInbox.sweepQueuedInputs} (POD-1703). Optional so the many
    *  fixtures that satisfy this port with enqueue/list/delete alone stay valid;
    *  without it the sweep is a no-op rather than a crash. */
-  sessionsWithPending?(): SessionId[]
+  sessionsWithPending?(): Promise<SessionId[]>
 }
 
 export interface InboxAuthorizationPort {
@@ -266,7 +266,11 @@ export interface InboxAttentionPort {
     next: AgentRuntimeState
     observation?: AgentObservation
   }): void
-  answered(input: { ownerUserId: UserId; sessionId: SessionId; attribution: Attribution }): void
+  answered(input: {
+    ownerUserId: UserId
+    sessionId: SessionId
+    attribution: Attribution
+  }): Promise<void>
   /** A queued input was not witnessed before its bounded confirmation window. */
   promptFailed(input: {
     ownerUserId?: UserId
@@ -274,7 +278,7 @@ export interface InboxAttentionPort {
     text: string
     reason: string
     initialPrompt: boolean
-  }): void
+  }): Promise<void>
 }
 
 export interface SessionInboxDeps {
@@ -659,7 +663,7 @@ export class SessionInbox {
    * recovery behavior. The live binding facts are intentionally transient, so
    * this cannot infer authority from a requested or historical driver.
    */
-  recoverQueuedAfterExit(sessionId: SessionId): boolean {
+  async recoverQueuedAfterExit(sessionId: SessionId): Promise<boolean> {
     const session = this.deps.getSession(sessionId)
     if (
       !session ||
@@ -673,7 +677,7 @@ export class SessionInbox {
     ) {
       return false
     }
-    const head = this.deps.queue.list(sessionId)[0]
+    const head = (await this.deps.queue.list(sessionId))[0]
     if (!head) return false
     this.invalidateDrain(sessionId)
     this.deps.resurrect(sessionId, head.principal)
@@ -697,12 +701,12 @@ export class SessionInbox {
    * keeps the proof requirement recognizable if the server restarts before the
    * first turn is observed.
    */
-  queueInitialPrompt(input: InboxSendInput): {
+  async queueInitialPrompt(input: InboxSendInput): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
-    return this.queueText({
+  }> {
+    return await this.queueText({
       ...input,
       mutationId: asMutationId(initialPromptQueueId(input.sessionId)),
     })
@@ -754,11 +758,11 @@ export class SessionInbox {
     return undefined
   }
 
-  sendText(input: InboxSendInput): {
+  async sendText(input: InboxSendInput): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
       ? sessionSendRefusalReason(session, input.allowErrored === true)
@@ -770,7 +774,7 @@ export class SessionInbox {
         session.queuedMessageCount > 0 ||
         this.isDraining(input.sessionId))
     ) {
-      return this.queueText(input)
+      return await this.queueText(input)
     }
     if (session && this.needsInputReadiness(session)) {
       // THE READINESS QUEUE MUST NOT SWALLOW A REFUSAL (POD-2828).
@@ -790,7 +794,7 @@ export class SessionInbox {
       // that has since moved on.
       const refusal = this.readinessQueueRefusal(session)
       if (refusal) return refusal
-      return this.queueText(input)
+      return await this.queueText(input)
     }
     // THE SAME QUESTION AS `needsInputReadiness`, ASKED OF A HARNESS THAT CAN
     // ANSWER IT FROM STATUS (POD-2823). A process that has bound but not
@@ -805,22 +809,23 @@ export class SessionInbox {
       this.deps.composerReadiness(session.agentKind) === 'process-settle' &&
       !hasSeenUserTurn(session)
     ) {
-      return this.queueText(input)
+      return await this.queueText(input)
     }
     return this.typeText(input)
   }
 
-  resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): {
+  async resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
     if (blockedReason) return { ok: false, reason: blockedReason }
-    if (session.status === 'live' && session.queuedMessageCount === 0) return this.sendText(input)
-    return this.queueText({ ...input, mutationId: input.mutationId })
+    if (session.status === 'live' && session.queuedMessageCount === 0)
+      return await this.sendText(input)
+    return await this.queueText({ ...input, mutationId: input.mutationId })
   }
 
   interruptText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
@@ -882,7 +887,7 @@ export class SessionInbox {
       }
       return await this.contractInterrupt(session, input)
     }
-    const cancelledDelivery = this.cancelInterruptedDelivery(
+    const cancelledDelivery = await this.cancelInterruptedDelivery(
       input.sessionId,
       true,
       input.sourceMessageId,
@@ -1009,22 +1014,25 @@ export class SessionInbox {
   /** Apply the same cancellation when the operator used the native CLI instead
    *  of Podium's stop control. Transcript parsers normalize every harness's
    *  wording to `event: interrupt`, so delivery policy stays provider-neutral. */
-  onTranscriptDelta(sessionId: SessionId, items: readonly { event?: string }[]): void {
+  async onTranscriptDelta(
+    sessionId: SessionId,
+    items: readonly { event?: string }[],
+  ): Promise<void> {
     if (!items.some((item) => item.event === 'interrupt')) return
-    this.cancelInterruptedDelivery(sessionId)
+    await this.cancelInterruptedDelivery(sessionId)
   }
 
-  private cancelInterruptedDelivery(
+  private async cancelInterruptedDelivery(
     sessionId: SessionId,
     includeUnattempted = false,
     sourceMessageId?: string,
-  ): boolean {
+  ): Promise<boolean> {
     const verification = this.submitVerificationGeneration.delete(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return verification
     // Only the head can have crossed into the CLI. Rows behind it have not been
     // part of the interrupted interaction and remain individually retractable.
-    const rows = this.deps.queue.list(sessionId)
+    const rows = await this.deps.queue.list(sessionId)
     const head = sourceMessageId
       ? rows.find((row) => row.sourceMessageId === sourceMessageId)
       : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
@@ -1037,7 +1045,7 @@ export class SessionInbox {
       }
       return verification
     }
-    this.deps.queue.delete(head.id)
+    await this.deps.queue.delete(head.id)
     this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
     })
@@ -1067,11 +1075,11 @@ export class SessionInbox {
     return abort.bytes
   }
 
-  queueText(input: InboxSendInput & { mutationId?: MutationId }): {
+  async queueText(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
-  } {
+  }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
@@ -1089,12 +1097,15 @@ export class SessionInbox {
     // case the earlier pass gave up, but never stack a duplicate behind it.
     // `cancelQueuedMessage` retracts by the same key, so a second row would also
     // survive a cancellation that was meant to remove the message entirely.
-    if (input.sourceMessageId && this.hasQueuedMessage(input.sessionId, input.sourceMessageId)) {
+    if (
+      input.sourceMessageId &&
+      (await this.hasQueuedMessage(input.sessionId, input.sourceMessageId))
+    ) {
       if (parked) this.deps.resurrect(input.sessionId, principal)
-      this.drain(input.sessionId)
+      await this.drain(input.sessionId)
       return { ok: true, queued: true }
     }
-    const inserted = this.deps.queue.enqueue({
+    const inserted = await this.deps.queue.enqueue({
       id: input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
       text: input.text,
@@ -1122,22 +1133,25 @@ export class SessionInbox {
     }
     // Ask for the wake; the reaction decides and reports. See the port's note.
     if (parked) this.deps.resurrect(input.sessionId, principal)
-    this.drain(input.sessionId)
+    await this.drain(input.sessionId)
     return { ok: true, queued: true }
   }
 
   /** Current FIFO position for a message-ledger row already handed to the
    * SessionInbox queue. The lookup is intentionally live so a drained head
    * immediately moves the remaining row to its honest new ordinal. */
-  queuedMessagePosition(sessionId: SessionId, sourceMessageId: string): number | undefined {
-    const position = this.deps.queue
-      .list(sessionId)
-      .findIndex((row) => row.sourceMessageId === sourceMessageId)
+  async queuedMessagePosition(
+    sessionId: SessionId,
+    sourceMessageId: string,
+  ): Promise<number | undefined> {
+    const position = (await this.deps.queue.list(sessionId)).findIndex(
+      (row) => row.sourceMessageId === sourceMessageId,
+    )
     return position >= 0 ? position + 1 : undefined
   }
 
   /** Reconstruct a lost wake intent from the durable queue after liveness proof. */
-  reconcileQueuedWake(sessionId: SessionId): void {
+  async reconcileQueuedWake(sessionId: SessionId): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (
       !session ||
@@ -1146,19 +1160,19 @@ export class SessionInbox {
       (session.agentKind !== 'shell' && !session.resume)
     )
       return
-    const head = this.deps.queue.list(sessionId)[0]
+    const head = (await this.deps.queue.list(sessionId))[0]
     if (head) this.deps.resurrect(sessionId, head.principal)
   }
 
   /** Remove every still-pending PTY row backed by one message-ledger intent. */
-  cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
+  async cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
     const session = this.deps.getSession(sessionId)
     if (!session) return false
-    const matches = this.deps.queue
-      .list(sessionId)
-      .filter((row) => row.sourceMessageId === sourceMessageId)
+    const matches = (await this.deps.queue.list(sessionId)).filter(
+      (row) => row.sourceMessageId === sourceMessageId,
+    )
     if (matches.length === 0) return false
-    for (const row of matches) this.deps.queue.delete(row.id)
+    for (const row of matches) await this.deps.queue.delete(row.id)
     this.deps.write(session, (draft) => {
       draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - matches.length)
       // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
@@ -1169,8 +1183,10 @@ export class SessionInbox {
     return true
   }
 
-  hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
-    return this.deps.queue.list(sessionId).some((row) => row.sourceMessageId === sourceMessageId)
+  async hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
+    return (await this.deps.queue.list(sessionId)).some(
+      (row) => row.sourceMessageId === sourceMessageId,
+    )
   }
 
   /**
@@ -1190,7 +1206,7 @@ export class SessionInbox {
    * attempt budget, so a pass that still cannot deliver costs one no-op. That is
    * what makes it safe to run over every pending session on a fixed interval.
    */
-  sweepQueuedInputs(): void {
+  async sweepQueuedInputs(): Promise<void> {
     // SINGLE-FLIGHT ON THE SWEEP, over the per-session one the fan-out already
     // has (POD-3258). `drain` is fenced by `activeDrains`, so an overlapping
     // sweep could never double-deliver a row even without this. What it fences
@@ -1202,9 +1218,9 @@ export class SessionInbox {
     if (this.sweepingQueuedInputs) return
     this.sweepingQueuedInputs = true
     try {
-      const pending = this.deps.queue.sessionsWithPending?.()
+      const pending = await this.deps.queue.sessionsWithPending?.()
       if (!pending) return
-      for (const sessionId of pending) this.drain(sessionId)
+      for (const sessionId of pending) await this.drain(sessionId)
     } finally {
       this.sweepingQueuedInputs = false
     }
@@ -1227,7 +1243,7 @@ export class SessionInbox {
    * surface a recoverable failure; never settle it or arm later sends from a
    * harness state report.
    */
-  drain(sessionId: SessionId, opts?: { justBound?: boolean }): void {
+  async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
     if (this.deps.nativeViewActive?.(sessionId) === true) return
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
@@ -1243,7 +1259,7 @@ export class SessionInbox {
     // and it is the only case whose readiness the quiet heuristic gets wrong.
     // The status alone cannot see it: the bind that wakes this pass has already
     // flipped the session to 'live' by the time we are called.
-    const firstQueuedRow = this.deps.queue.list(sessionId)[0]
+    const firstQueuedRow = (await this.deps.queue.list(sessionId))[0]
     const woken =
       session.status !== 'live' ||
       opts?.justBound === true ||
@@ -1259,12 +1275,13 @@ export class SessionInbox {
     // only fence against a second copy. Resetting it on a bind hands that fence
     // back to whichever event re-armed the drain.
     const attemptsAreTheFence = this.needsInputReadiness(session) && !session.transcriptAvailable
-    if (woken && this.deps.queue.resetAttempts && !attemptsAreTheFence) {
-      for (const row of this.deps.queue.list(sessionId)) {
+    const resetAttempts = this.deps.queue.resetAttempts?.bind(this.deps.queue)
+    if (woken && resetAttempts && !attemptsAreTheFence) {
+      for (const row of await this.deps.queue.list(sessionId)) {
         // A creation prompt may already have been typed by the old process. Its
         // durable attempt count is the duplicate-prevention fence; resetting it
         // on bind would put the concatenation bug back after a restart.
-        if (!isInitialPromptRow(sessionId, row)) this.deps.queue.resetAttempts(row.id)
+        if (!isInitialPromptRow(sessionId, row)) await resetAttempts(row.id)
       }
     }
     const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
@@ -1275,9 +1292,9 @@ export class SessionInbox {
         this.activeDrains.delete(sessionId)
       }
     }
-    const removeHead = (current: Session, id: string): void => {
+    const removeHead = async (current: Session, id: string): Promise<void> => {
       if (!isCurrent()) return
-      this.deps.queue.delete(asSessionId(id))
+      await this.deps.queue.delete(asSessionId(id))
       this.deps.write(current, (draft) => {
         draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
         if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
@@ -1292,11 +1309,11 @@ export class SessionInbox {
         this.deps.setSessionDraft({ sessionId, text: '' })
       }
     }
-    const settleHead = (
+    const settleHead = async (
       current: Session,
       head: QueuedInboxMessage,
       transcriptConfirmed = false,
-    ): void => {
+    ): Promise<void> => {
       if (!isCurrent()) return
       if (transcriptConfirmed && this.needsInputReadiness(current)) {
         this.inputReadySessions.add(current)
@@ -1306,7 +1323,7 @@ export class SessionInbox {
       if (head.sourceMessageId) {
         this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
       }
-      removeHead(current, head.id)
+      await removeHead(current, head.id)
       afterHead(current)
     }
     const afterHead = (current: Session): void => {
@@ -1315,11 +1332,11 @@ export class SessionInbox {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
     }
-    const reportPromptFailure = (
+    const reportPromptFailure = async (
       current: Session | undefined,
       head: QueuedInboxMessage,
       reason: string,
-    ): void => {
+    ): Promise<void> => {
       if (!isCurrent()) return
       if (!this.reportedPromptFailures.has(head.id)) {
         this.reportedPromptFailures.add(head.id)
@@ -1333,7 +1350,7 @@ export class SessionInbox {
           }
         }
         const ownerUserId = this.deps.ownerOf(sessionId)
-        this.deps.attention.promptFailed({
+        await this.deps.attention.promptFailed({
           ...(ownerUserId ? { ownerUserId } : {}),
           sessionId,
           text: head.text,
@@ -1372,7 +1389,7 @@ export class SessionInbox {
       let until =
         this.deps.now() + (initialPrompt ? INITIAL_PROMPT_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS)
       const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
-      const poll = (): void => {
+      const poll = async (): Promise<void> => {
         if (!isCurrent()) return
         // A disposed registry has no store to read (see `dispose`): stand down.
         if (this.disposed) return
@@ -1383,7 +1400,7 @@ export class SessionInbox {
 
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             initialPrompt
@@ -1395,11 +1412,11 @@ export class SessionInbox {
         }
         const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
         if (blockedReason) {
-          reportPromptFailure(current, head, blockedReason)
+          await reportPromptFailure(current, head, blockedReason)
           stop()
           return
         }
-        if (!this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
+        if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
           afterHead(current)
           return
         }
@@ -1410,7 +1427,7 @@ export class SessionInbox {
         if (!current.transcriptAvailable && this.needsInputReadiness(current)) {
           const now = this.deps.now()
           if (now >= deadline) {
-            reportPromptFailure(
+            await reportPromptFailure(
               current,
               head,
               `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
@@ -1421,7 +1438,7 @@ export class SessionInbox {
           return
         }
         if (tailUserTurnMatches(current, needle, isInitialPromptRow(sessionId, head))) {
-          settleHead(current, head, true)
+          await settleHead(current, head, true)
           return
         }
         const now = this.deps.now()
@@ -1429,7 +1446,7 @@ export class SessionInbox {
           // Held, not lost. Give up only at the ceiling, and leave the row
           // exactly where a later re-arm finds it — with its attempts intact.
           if (now >= heldUntil) {
-            reportPromptFailure(
+            await reportPromptFailure(
               current,
               head,
               initialPrompt
@@ -1451,7 +1468,7 @@ export class SessionInbox {
         // prompt is never retyped after an unconfirmed attempt: the original
         // bytes may still be sitting in the native composer.
         if (initialPrompt) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             'the agent transcript did not confirm the creation prompt before the deadline',
@@ -1459,18 +1476,19 @@ export class SessionInbox {
           return
         }
         if (attempt >= MAX_DELIVERY_ATTEMPTS) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             'the agent transcript did not confirm this input after the retry budget was exhausted',
           )
           return
         }
-        setTimeout(() => attemptDelivery(head, attempt + 1), RETRY_BACKOFF_MS * attempt).unref?.()
+        // NOT awaited: a drain re-arm is the timer's, not this pass's (rule 57).
+        setTimeout(() => void attemptDelivery(head, attempt + 1), RETRY_BACKOFF_MS * attempt).unref?.()
       }
       setTimeout(poll, CONFIRM_POLL_MS).unref?.()
     }
-    const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
+    const attemptDelivery = async (head: QueuedInboxMessage, attempt: number): Promise<void> => {
       if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
@@ -1482,7 +1500,7 @@ export class SessionInbox {
       const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           firstPromptNeedsProof
@@ -1494,7 +1512,7 @@ export class SessionInbox {
       }
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        reportPromptFailure(current, head, blockedReason)
+        await reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
@@ -1545,7 +1563,7 @@ export class SessionInbox {
       */
       const exactNeedle = firstPromptNeedsProof || needsReadinessProof
       const needle = confirmationNeedle(head.text, exactNeedle)
-      if (!this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
+      if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
         afterHead(current)
         return
       }
@@ -1558,7 +1576,7 @@ export class SessionInbox {
         sourceMessageId: head.sourceMessageId,
       })
       if (!authorized.ok) {
-        removeHead(current, head.id)
+        await removeHead(current, head.id)
         this.deps.authorization.rejected({
           queueId: head.id,
           sourceMessageId: head.sourceMessageId,
@@ -1576,7 +1594,7 @@ export class SessionInbox {
         tailUserTurnMatches(current, needle, exactNeedle) &&
         (attempt > 1 || transcriptCreatingWrite)
       ) {
-        settleHead(current, head, true)
+        await settleHead(current, head, true)
         return
       }
       // A transcript-creating write is at-most-once across process restarts. Its
@@ -1584,7 +1602,7 @@ export class SessionInbox {
       // the bytes even when the server never saw a transcript turn — retyping
       // would turn one uncertain prompt into two in the composer.
       if (transcriptCreatingWrite && head.attempts > 0) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           firstPromptNeedsProof
@@ -1608,14 +1626,14 @@ export class SessionInbox {
       // gives it the WHOLE normalized text and `tailUserTurnMatches` compares
       // it exactly, so "ok" is still witnessable without a prefix.
       if (needsReadinessProof && needle === null) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           `this ${this.deps.harnessName(current.agentKind)} input is too short to witness in the transcript`,
         )
         return
       }
-      this.deps.queue.bumpAttempts(head.id)
+      await this.deps.queue.bumpAttempts(head.id)
       // Baseline: if OUR text is already the last user turn we cannot tell a
       // fresh arrival from the one that is there, so there is nothing to witness.
       const witnessable =
@@ -1635,7 +1653,7 @@ export class SessionInbox {
         // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
         // would answer the wrong question. Keep the row and report the blocked
         // delivery so the operator has a visible recovery handle.
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           current.agentState?.phase === 'needs_user'
@@ -1655,12 +1673,12 @@ export class SessionInbox {
       if (needle !== null && (witnessable || transcriptCreatingWrite || needsReadinessProof)) {
         confirm(head, needle, attempt)
       } else if (needsReadinessProof) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           `the agent transcript did not confirm this ${this.deps.harnessName(current.agentKind)} input`,
         )
-      } else settleHead(current, head)
+      } else await settleHead(current, head)
     }
     const deliverNext = async (): Promise<void> => {
       if (!isCurrent()) return
@@ -1672,10 +1690,10 @@ export class SessionInbox {
       }
 
       const current = this.deps.getSession(sessionId)
-      const head = this.deps.queue.list(sessionId)[0]
+      const head = (await this.deps.queue.list(sessionId))[0]
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -1688,7 +1706,7 @@ export class SessionInbox {
       }
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        if (head) reportPromptFailure(current, head, blockedReason)
+        if (head) await reportPromptFailure(current, head, blockedReason)
         stop()
         return
       }
@@ -1704,7 +1722,7 @@ export class SessionInbox {
         sourceMessageId: head.sourceMessageId,
       })
       if (!authorized.ok) {
-        removeHead(current, head.id)
+        await removeHead(current, head.id)
         this.deps.authorization.rejected({
           queueId: head.id,
           sourceMessageId: head.sourceMessageId,
@@ -1742,7 +1760,7 @@ export class SessionInbox {
           origin: head.inputOrigin,
           principal: head.principal,
         }).then(
-          (receipt) => {
+          async (receipt) => {
             if (!isCurrent()) return
             const after = this.deps.getSession(sessionId)
             if (!after) {
@@ -1807,8 +1825,8 @@ export class SessionInbox {
             // The delivery was ASYNC, so the row may have been retracted while
             // it was in flight — removeHead on an already-deleted row would
             // decrement `queuedMessageCount` a second time.
-            if (this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
-              removeHead(after, head.id)
+            if ((await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) {
+              await removeHead(after, head.id)
             }
             if (after.queuedMessageCount > 0) {
               setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
@@ -1828,7 +1846,7 @@ export class SessionInbox {
       // Contract delivery above has its own typed receipts; this budget applies
       // only to the terminal path.
       if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
-        reportPromptFailure(
+        await reportPromptFailure(
           current,
           head,
           isInitialPromptRow(sessionId, head)
@@ -1837,7 +1855,7 @@ export class SessionInbox {
         )
         return
       }
-      attemptDelivery(head, head.attempts + 1)
+      await attemptDelivery(head, head.attempts + 1)
     }
     /**
      * Ready to be typed into. A harness state report is deliberately absent from
@@ -1865,10 +1883,10 @@ export class SessionInbox {
       }
 
       const current = this.deps.getSession(sessionId)
-      const head = this.deps.queue.list(sessionId)[0]
+      const head = (await this.deps.queue.list(sessionId))[0]
       if (!current || current.status === 'exited' || current.status === 'hibernated') {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -1882,7 +1900,7 @@ export class SessionInbox {
       const now = this.deps.now()
       const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
       if (blockedReason) {
-        if (head) reportPromptFailure(current, head, blockedReason)
+        if (head) await reportPromptFailure(current, head, blockedReason)
         else stop()
         return
       }
@@ -1941,7 +1959,7 @@ export class SessionInbox {
         }
       } else if (now >= deadline) {
         if (head) {
-          reportPromptFailure(
+          await reportPromptFailure(
             current,
             head,
             isInitialPromptRow(sessionId, head)
@@ -2010,12 +2028,12 @@ export class SessionInbox {
    * not answer stay on their first row, and the closing CR would commit those
    * rows as if the operator had picked them. The caller surfaces the reason.
    */
-  answerAskUserQuestion(input: {
+  async answerAskUserQuestion(input: {
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
     principal: InboxPrincipalReference
-  }): { ok: boolean; reason?: string } {
+  }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     // Attention is per-owner. An unresolved owner is not an invitation to send
@@ -2067,7 +2085,7 @@ export class SessionInbox {
     }
     // Answering the agent's question is always a person acting.
     this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
-    this.deps.attention.answered({
+    await this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
       attribution,
@@ -2112,7 +2130,10 @@ export class SessionInbox {
     // the exact edge that unblocks it, and it costs nothing on a session with an
     // empty queue (`drain` returns on queuedMessageCount === 0).
     if (input.prev?.phase === 'needs_user' && input.next.phase !== 'needs_user') {
-      this.drain(input.sessionId)
+      // NOT awaited: this is a re-arm on a state edge, and a drain pass that
+      // fails loses nothing — the row is durable and the next bind, reconnect,
+      // enqueue or sweep re-arms a fresh one (rule 57; see `dispose`).
+      void this.drain(input.sessionId)
     }
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     if (!ownerUserId) return
@@ -2155,7 +2176,11 @@ export class SessionInbox {
     // this path no longer carries the base64 the check was first written for.
     const abort = this.abortKeyFor(session)
     if (session.terminal.controllerId === client.id && abort && Buffer.from(abort).equals(bytes)) {
-      this.cancelInterruptedDelivery(sessionId, true)
+      // DECISION POD-3528: the callee went async and this frame handler cannot
+      // yield. Left non-blocking, which is exactly today's behaviour — the
+      // submitVerificationGeneration delete that must beat the 90ms delayed
+      // Enter (POD-1733) runs before the callee's first await.
+      void this.cancelInterruptedDelivery(sessionId, true)
     }
     session.terminal.handleInputBytes(
       client.id,

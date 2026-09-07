@@ -67,7 +67,7 @@ export interface SessionDaemonLifecyclePorts {
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
     draft?: SessionDurableState,
-  ): TerminalCandidateFacts | null
+  ): Promise<TerminalCandidateFacts | null>
   broadcastToClients(message: LiveServerMessage): void
   clearOffer(sessionId: SessionId): void
   /** A parked row whose durable host turned out to be alive [POD-1953]. */
@@ -211,7 +211,7 @@ export class SessionDaemonLifecycle {
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
     draft?: SessionDurableState,
-  ): TerminalCandidateFacts | null =>
+  ): Promise<TerminalCandidateFacts | null> =>
     this.ports.terminalCandidateFacts(session, lease, checkpoint, draft)
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
@@ -287,7 +287,7 @@ export class SessionDaemonLifecycle {
       // the row still said `live`, so queueText did not request resurrection.
       // Once the real exit is published, hand that accepted row back to the
       // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
-      this.inbox.recoverQueuedAfterExit(msg.sessionId)
+      await this.inbox.recoverQueuedAfterExit(msg.sessionId)
     }
   }
 
@@ -436,7 +436,7 @@ export class SessionDaemonLifecycle {
           // land together; the drain below still sees `live`, because the draft
           // is installed the moment the commit returns.
           await this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
-          this.autoContinue.onSessionLive(s.sessionId)
+          await this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
@@ -445,7 +445,7 @@ export class SessionDaemonLifecycle {
         // the drain cannot see for itself: markLive above has already flipped the
         // session to 'live', so by the time it looks, an unproven CLI and a
         // long-settled one are the same word (POD-1100).
-        this.inbox.drain(msg.sessionId, { justBound: true })
+        await this.inbox.drain(msg.sessionId, { justBound: true })
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
@@ -533,7 +533,7 @@ export class SessionDaemonLifecycle {
         // A queued send may have committed just before the server died, losing
         // only its in-memory wake event. Once the durable host confirms this
         // process is gone, reconstruct that wake from the durable queue.
-        this.inbox.reconcileQueuedWake(msg.sessionId)
+        await this.inbox.reconcileQueuedWake(msg.sessionId)
         this.broadcastSessions()
         break
       }
@@ -705,7 +705,7 @@ export class SessionDaemonLifecycle {
           if (lease && isExactFencedCheckpointReplay(observation, lease)) {
             const checkpoint = lease.checkpoint
             if (checkpoint) {
-              const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+              const facts = await this.terminalCandidateFacts(session, lease, checkpoint)
               if (facts) {
                 await this.store.observationCheckpoints.renewTerminalCandidate(
                   facts,
@@ -752,7 +752,7 @@ export class SessionDaemonLifecycle {
           checkpoint: outcome.checkpoint,
           updatedAt: outcome.checkpoint.acceptedAt,
         }
-        const candidateFacts = this.terminalCandidateFacts(
+        const candidateFacts = await this.terminalCandidateFacts(
           session,
           acceptedLease,
           outcome.checkpoint,
@@ -796,7 +796,7 @@ export class SessionDaemonLifecycle {
         // Snapshot and same-phase refresh update display/checkpoint only. Every
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
-        this.autoContinue.onStateChange(session.sessionId, next)
+        await this.autoContinue.onStateChange(session.sessionId, next)
         // The assistant digest is not part of the board/recency slice; keep its
         // legacy activity trigger until a later consumer migration owns replay.
         await this.ports.onSessionActivity(session.sessionId)
@@ -859,7 +859,7 @@ export class SessionDaemonLifecycle {
           JSON.stringify(msg.providerCursor) !== JSON.stringify(checkpoint.providerCursor)
         )
           break
-        const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+        const facts = await this.terminalCandidateFacts(session, lease, checkpoint)
         if (!facts) break
         await this.store.observationCheckpoints.confirmTerminalCandidate(
           facts,
@@ -890,7 +890,7 @@ export class SessionDaemonLifecycle {
         session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId), draft)
         const next = draft.agentState ?? msg.state
         await this.persistDraft(session, draft)
-        this.autoContinue.onStateChange(msg.sessionId, next)
+        await this.autoContinue.onStateChange(msg.sessionId, next)
         // A dedicated per-session message — not broadcastSessions(). Hook events
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);
         // re-serializing and fanning out the whole session list each time is

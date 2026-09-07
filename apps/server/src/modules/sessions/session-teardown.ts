@@ -540,7 +540,7 @@ export class SessionTeardown {
     const lease = requireTerminalProof
       ? await this.ports.store.observationCheckpoints.get(sessionId)
       : null
-    const facts = lease ? this.ports.terminalProof.facts(session, lease) : null
+    const facts = lease ? await this.ports.terminalProof.facts(session, lease) : null
     if (requireTerminalProof) {
       if (!facts || !this.ports.terminalProof.consumable(facts)) {
         return { ok: false, reason: 'terminal state is not safely reapable' }
@@ -573,7 +573,7 @@ export class SessionTeardown {
           ? async () => {
               const currentLease = await this.ports.store.observationCheckpoints.get(sessionId)
               const currentFacts = currentLease
-                ? this.ports.terminalProof.facts(session, currentLease)
+                ? await this.ports.terminalProof.facts(session, currentLease)
                 : null
               if (
                 !currentFacts ||

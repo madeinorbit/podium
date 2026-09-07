@@ -275,7 +275,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const issues = await IssueService.create(issueDeps)
 
   const record =
-    (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
+    (fn: Push['fn']) =>
+    async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
       pushes.push({ fn, ...i })
       const fails =
         transport.ok === false &&
@@ -334,7 +335,11 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       listSessions: () => sessions,
       sendText: record('sendText'),
       queueText: record('queueText'),
-      interruptText: record('interruptText'),
+      // Sync by contract, so it keeps a sync double (POD-3515).
+      interruptText: (i) => {
+        pushes.push({ fn: 'interruptText', ...i })
+        return { ok: true }
+      },
       ...(receiptOpts ? { receiptSend } : {}),
     },
     // Production wires both legacy-mirror seams; the #463 regression class and

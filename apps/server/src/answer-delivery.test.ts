@@ -46,7 +46,7 @@ const menuItem = (multiSelect = false): TranscriptItem =>
   }) as unknown as TranscriptItem
 
 function harness(opts: { phase?: string; needKind?: string; items?: TranscriptItem[] } = {}) {
-  const answerAskUserQuestion = vi.fn(() => ({ ok: true }))
+  const answerAskUserQuestion = vi.fn(async () => ({ ok: true }))
   const resumeAndSend = vi.fn(() => ({ ok: true }))
   const deps: AnswerDeliveryDeps = {
     getSession: (id) =>

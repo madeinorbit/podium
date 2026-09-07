@@ -23,20 +23,20 @@ import { SessionInbox } from './inbox'
 describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
   function harness() {
     let sessionsWithPendingCalls = 0
-    let onEnumerate: () => void = () => {}
+    let onEnumerate: () => Promise<void> = async () => {}
     const inbox = new SessionInbox({
       // No live sessions: `drain` returns at its own door, so this test is about
       // the enumeration and nothing downstream of it.
       getSession: () => undefined,
       queue: {
-        enqueue: () => true,
-        list: () => [],
-        bumpAttempts: () => {},
-        resetAttempts: () => {},
-        delete: () => {},
-        sessionsWithPending: () => {
+        enqueue: async () => true,
+        list: async () => [],
+        bumpAttempts: async () => {},
+        resetAttempts: async () => {},
+        delete: async () => {},
+        sessionsWithPending: async () => {
           sessionsWithPendingCalls += 1
-          onEnumerate()
+          await onEnumerate()
           return [asSessionId('session-a'), asSessionId('session-b')]
         },
       },
@@ -75,31 +75,31 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
     return {
       inbox,
       calls: () => sessionsWithPendingCalls,
-      setOnEnumerate: (fn: () => void) => {
+      setOnEnumerate: (fn: () => Promise<void>) => {
         onEnumerate = fn
       },
     }
   }
 
-  it('skips a sweep that lands on a sweep already running', () => {
+  it('skips a sweep that lands on a sweep already running', async () => {
     const h = harness()
     let reentered = false
-    h.setOnEnumerate(() => {
+    h.setOnEnumerate(async () => {
       if (reentered) return
       reentered = true
-      h.inbox.sweepQueuedInputs()
+      await h.inbox.sweepQueuedInputs()
     })
 
-    h.inbox.sweepQueuedInputs()
+    await h.inbox.sweepQueuedInputs()
 
     expect(reentered).toBe(true)
     expect(h.calls()).toBe(1)
   })
 
-  it('a later, non-overlapping sweep runs normally', () => {
+  it('a later, non-overlapping sweep runs normally', async () => {
     const h = harness()
-    h.inbox.sweepQueuedInputs()
-    h.inbox.sweepQueuedInputs()
+    await h.inbox.sweepQueuedInputs()
+    await h.inbox.sweepQueuedInputs()
     expect(h.calls()).toBe(2)
   })
 })
