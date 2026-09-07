@@ -449,6 +449,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     ) {
       throw new SchedulerClosedError(`scheduler is ${state}`)
     }
+    // Capture the caller once per lease, before queueing, without paying for a
+    // stack capture on every statement in the transaction.
     const stack = watchdog ? (new Error('Transaction lease requested').stack ?? '') : ''
     const queued = admit(lane)
     if (queued) await queued
