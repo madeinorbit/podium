@@ -223,3 +223,28 @@ Blocking before checkpoint R4:
 Non-blocking: F4 (stale `executor.legacy` comments), the POD-3494 rollback
 coverage gap, and the note that both check-span-effects and
 check-statement-intent are offline until POD-3506 lands.
+
+
+## Statement-intent recovery — 2026-09-07 (POD-3530)
+
+The historical F3 validation note above no longer describes the blocker. After
+POD-3506, the corpus ran but five files failed. POD-3530 repairs the remaining
+async conversion gaps: daemon ingress now awaits runtime-event recording before
+acknowledgement; maintenance pruning retains its victim SELECT as a SQL subquery;
+and the store tests await gateway completion, subscriber commits, prefix lookups,
+and preference rejections.
+
+The statement-intent gate is restored to the next landing's exit-gate list:
+`bun run lint:statement-intent` (under `test:heavy`). Its existing CI registration
+remains in place. The gate implementation and incomplete-corpus refusal are unchanged.
+
+Measured on the POD-3530 candidate based on `752f34f38`, with one worker:
+50 files and 667 tests passed in 101.91 seconds, with no unhandled errors.
+The probe passed; the audit examined 19,352 statements, including 11,862 gradable
+read declarations (6,954 outside the executor), and found zero writes declared as
+reads. Exit status: 0. This is the gate's store corpus, not the exhaustive package sweep.
+
+The workspace lean gate stopped during mobile typechecking on four unrelated errors
+tracked in POD-3615; its runtime probes did not run. Source comparison with
+`aa7f620bc` confirms pruning originally kept the query unexecuted and the subscriber
+and prefix tests originally used synchronous APIs. No control-arm test run is claimed.

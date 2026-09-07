@@ -96,10 +96,11 @@ describe('repo reads under a projection pass', () => {
     expect(tableReads('repos')).toBeGreaterThan(0)
   })
 
-  it('resolves prefixes for many paths without re-scanning repo_prefixes per path', () => {
-    const prefixes = Array.from({ length: 50 }, async (_, i) =>
-      await repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`),
-    )
+  it('resolves prefixes for many paths without re-scanning repo_prefixes per path', async () => {
+    const prefixes: Array<string | null> = []
+    for (let i = 0; i < 50; i++) {
+      prefixes.push(await repos.prefixForPath(`/home/u/beta/.worktrees/w${i}`))
+    }
 
     expect(new Set(prefixes)).toEqual(new Set(['BE']))
     expect(tableReads('repo_prefixes')).toBeLessThanOrEqual(2)

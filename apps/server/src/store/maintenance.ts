@@ -100,7 +100,7 @@ export class MaintenanceRepository {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    const oldest = await this.db
+    const oldest = this.db
       .select({ rowid: sql<number>`rowid` })
       .from(maintenanceCommands)
       .where(lt(maintenanceCommands.appliedAt, cutoffAppliedAt))

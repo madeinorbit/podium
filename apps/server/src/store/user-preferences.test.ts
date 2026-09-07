@@ -152,20 +152,19 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
     expect((await settings.getSettings()).gitWorkflow.mergeStyle).toBe('ask')
   })
 
-  it('the repository REFUSES a per-user row for a key that is not personal', () => {
+  it('the repository REFUSES a per-user row for a key that is not personal', async () => {
     // The refusal that keeps the two homes from both holding one key. A silent
     // ignore would make a mis-tiered write look identical to a successful one.
-    expect(() => settings.userPreferences.set(ALICE, 'gitWorkflow.mergeStyle', 'pr', AT)).toThrow(
+    await expect(settings.userPreferences.set(ALICE, 'gitWorkflow.mergeStyle', 'pr', AT)).rejects.toThrow(
       /not a personal preference/,
     )
-    expect(() => settings.userPreferences.set(ALICE, 'apiKeys.openai', 'sk-x', AT)).toThrow(
+    await expect(settings.userPreferences.set(ALICE, 'apiKeys.openai', 'sk-x', AT)).rejects.toThrow(
       /not a personal preference/,
     )
     // …and it ACCEPTS a personal one, or the refusal above would be satisfied by
     // a method that refuses everything.
-    expect(() =>
-      settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT),
-    ).not.toThrow()
+    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('custom')
   })
 })
 
