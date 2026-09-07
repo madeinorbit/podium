@@ -1806,7 +1806,9 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
     // here prevents auto-ticks on attach from racing that step's snapshot.
     if ((step.places ?? []).some((place) => place.id === hostId)) {
       context.updates.handleCoordinatorUpdate(hostId, {
-        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, step.id) !== false &&
+        active: async () =>
+          !canceledCoordinatorUpdates.has(operation.id) &&
+          (await context.stepActive?.(operation.id, step.id)) !== false &&
           context.legacyTransferActive?.() !== true,
         dispatch: (grant) => {
           void ensureCoordinatorReplacement(operation, context, step.id, grant).then(
@@ -2193,7 +2195,9 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       const hostId = context.hostMachineId
       let replacement: Promise<StepOutcome> | undefined
       context.updates.handleCoordinatorUpdate(hostId, {
-        active: () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, UPDATE_STEP_SERVER) !== false &&
+        active: async () =>
+          !canceledCoordinatorUpdates.has(operation.id) &&
+          (await context.stepActive?.(operation.id, UPDATE_STEP_SERVER)) !== false &&
           context.legacyTransferActive?.() !== true,
         dispatch: (grant) => {
           replacement = ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER, grant)
@@ -2237,11 +2241,14 @@ async function runCoordinatorReplacement(
 ): Promise<StepOutcome> {
   const originalDetails = updateOperationDetails(operation)
   const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
-  const active = () => !canceledCoordinatorUpdates.has(operation.id) && context.stepActive?.(operation.id, stepId) !== false &&
+  const active = async () =>
+    !canceledCoordinatorUpdates.has(operation.id) &&
+    (await context.stepActive?.(operation.id, stepId)) !== false &&
     context.legacyTransferActive?.() !== true &&
-    (!grant || (context.hostMachineId !== undefined &&
-      context.updates.coordinatorGrantActive(context.hostMachineId, grant)))
-  if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    (!grant ||
+      (context.hostMachineId !== undefined &&
+        context.updates.coordinatorGrantActive(context.hostMachineId, grant)))
+  if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
   if (grant && grant.target.version !== originalDetails?.target.version)
     return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
@@ -2289,7 +2296,7 @@ async function runCoordinatorReplacement(
   }
   let activated = false
   try {
-    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
     if (prepared?.committed &&
         (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
       return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
@@ -2339,7 +2346,7 @@ async function runCoordinatorReplacement(
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     }
-    if (!active()) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
     try {
       if (prepared) await prepared.activate()
       else await context.requestCoordinatorRestart()

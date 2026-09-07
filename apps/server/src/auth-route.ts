@@ -372,10 +372,10 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     const next =
       requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/'
     const tokenHash = hashToken(token)
-    const session = store.getClientSession(tokenHash)
+    const session = await store.getClientSession(tokenHash)
     if (
       token.length < 32 ||
-      (await session)?.label !== 'server-transfer-claim' ||
+      session?.label !== 'server-transfer-claim' ||
       !store.isClientSessionValid(tokenHash, new Date(now()).toISOString())
     ) {
       return c.redirect('/?serverTransferClaim=invalid', 303)
@@ -387,7 +387,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     store.deleteClientSession(tokenHash)
     store.createClientSession(
       hashToken(replacement),
-      (await session).userId,
+      session.userId,
       new Date(now() + SESSION_TTL_MS).toISOString(),
       'login',
     )

@@ -50,7 +50,7 @@ export interface TargetRefreshDeps {
    */
   refresh(channel: UpdateChannel): Promise<boolean | void>
   /** True while a wave is in flight on this channel; the tick skips it. */
-  operationActive(channel: UpdateChannel): boolean
+  operationActive(channel: UpdateChannel): Promise<boolean>
   /**
    * Schedule ONE callback and return its canceller. Injected rather than calling
    * `setTimeout` directly so tests drive the schedule instead of the clock —
@@ -132,7 +132,9 @@ export function startTargetRefresh(deps: TargetRefreshDeps): TargetRefreshHandle
       if (stopped) return
       // Skipping is the whole coordination: never yank a target out from under a
       // machine that is mid-grant on it.
-      if (deps.operationActive(channel)) {
+      // AWAITED: a bare call here is a truthy promise, so every channel would
+      // look mid-grant and no target would ever refresh.
+      if (await deps.operationActive(channel)) {
         retrySoon = true
         continue
       }

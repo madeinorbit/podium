@@ -406,7 +406,7 @@ export class MachinesService {
     send: Send<MachineSupervisorControlMessage>,
     build: PeerBuild,
     caps: string[],
-  ): void {
+  ): Promise<void> {
     // Fenced replacement: the old socket may still close, but cannot detach this one.
     this.supervisors.set(machineId, { send, build, caps: [...caps] })
     this.clearPresenceGrace(machineId)
