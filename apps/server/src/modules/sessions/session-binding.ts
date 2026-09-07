@@ -109,11 +109,14 @@ export class SessionBindingReceipts {
         // the row keeps its `'bound'` claim and stays out of the fresh-relaunch
         // path. `Session`'s setter enforces the direction; this is the case it
         // exists for.
-        this.projectedConfidence.delete(conflict)
+        // Drop the projection only AFTER the durable write lands: deleting it
+        // first leaves in-memory claiming no projected confidence while the row
+        // still claims 'bound' if the write rejects [POD-3641].
         await this.deps.write(conflict, (draft) => {
           conflict.setResume(undefined, draft)
           draft.conversationPodiumId = undefined
         })
+        this.projectedConfidence.delete(conflict)
       }
       this.deps.broadcastSessions()
     }
