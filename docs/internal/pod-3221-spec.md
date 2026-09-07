@@ -3222,3 +3222,48 @@ this is the same hatch deciding which defects are *possible to notice*.
 the newly-async symbol's call sites for the four silent spellings above and judge each by hand.
 POD-3507 found eight more of the same three shapes in `session-state/service.ts` that way —
 "by reading, not by the compiler".
+
+### Rule 56b — make a widening ENFORCED, not merely permitted: consume the promise structurally
+
+Rule 56a records that a widening is unenforced — reverting a port from `Promise<void>` to `void`
+with every `await` left in place produces **zero** typecheck errors, because `await` on a
+non-promise is legal. POD-3500 measured exactly that. POD-3523 found the construction that fixes
+it, and I verified the difference by mutation on both.
+
+**The construction.** Route the deferred call through a helper whose parameter type *requires* a
+promise:
+
+```ts
+private defer(peerId: string, start: () => Promise<void>): void
+…
+this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'attach', resumeFrom))
+```
+
+Now reverting `admit()` to `): void {` — one line, verified applied as a 1/1 diff — produces
+**three TS2322 errors**, two of them at the `defer` call sites:
+
+```
+feed-serving.ts(309,31): Type 'void' is not assignable to type 'Promise<void>'.
+feed-serving.ts(440,5):  Type 'Promise<void>' is not assignable to type 'void'.
+feed-serving.ts(769,33): Type 'void' is not assignable to type 'Promise<void>'.
+```
+
+Same mutation shape, zero errors under POD-3500's plain `await`, three under POD-3523's thunk.
+The difference is that `defer` **consumes** the promise as a value of a declared type, so the
+compiler has something to object to. An `await` merely tolerates one.
+
+**WHY THIS MATTERS BEYOND TIDINESS.** Every rule from 52b onward has been a promise some
+declaration made invisible, and the standing remedy has been "widen the port". But a widening
+that the compiler does not enforce is a comment with a type annotation's syntax: the next
+mechanical pass can narrow it back and nothing complains. This is the first construction in the
+epic that makes the fix survive its own maintenance.
+
+**WHEN TO REACH FOR IT.** Wherever a rule 51 case 2 site forces a deliberate deferral — the
+caller cannot yield, so the promise must be started and not awaited. Instead of `void
+somethingAsync()` with a rule 57 comment, give the deferral **one named home** that takes a
+`() => Promise<T>` thunk. POD-3523's `defer` also retains the promise, logs a rejection rather
+than leaking it, refuses a second admission, and drops a peer that detached before publication —
+so the single home is where the deferral's *policy* lives, not only its type.
+
+Rule 57's `void` spelling remains correct for a one-off fire-and-forget that genuinely has no
+policy. The moment there is a second such site, or any policy at all, prefer the thunk.
