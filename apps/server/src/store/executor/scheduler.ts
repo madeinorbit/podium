@@ -73,7 +73,24 @@ export interface Lease {
   idleMs(): number
 }
 
+/**
+ * POD-3243 records query counts and frames, not idle-gap percentiles. Those
+ * database-only bursts reset the clock on every statement; allow one second of
+ * silence as diagnostic headroom, below the measured 9 s Turso idle limit.
+ * This is a policy default, not a duration inferred from the query counts.
+ */
+export const DEFAULT_WATCHDOG_BUDGET_MS = 1_000
+
+export interface WatchdogOptions {
+  budgetMs?: number
+  report: (report: WatchdogReport) => void
+  /** Reporting failures must not escape the timer or affect the holder. */
+  onReportFailure?: (error: unknown) => void
+}
+
 export interface WatchdogReport {
+  /** Lease request stack, captured before queueing; identifies the body's caller. */
+  readonly stack: string
   readonly leaseId: number
   readonly lane: Lane
   /**
@@ -108,7 +125,7 @@ export interface SchedulerOptions {
    * rule 7), which the constructor below checks against rather than any number
    * written here.
    */
-  watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
+  watchdog?: WatchdogOptions
   now?: () => number
   /** Injectable so the busy-retry backoff is a test's choice, not a duration to wait out. */
   sleep?: (ms: number) => Promise<void>
@@ -289,6 +306,11 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const now = options.now ?? (() => Date.now())
   const sleep = options.sleep ?? defaultSleep
   const limits = driver.limits
+  const watchdog = options.watchdog
+  const budgetMs = watchdog?.budgetMs ?? DEFAULT_WATCHDOG_BUDGET_MS
+  if (watchdog && (!Number.isFinite(budgetMs) || budgetMs <= 0 || budgetMs > 2_147_483_647)) {
+    throw new Error('watchdog budget must be a positive finite timer duration at most 2147483647ms')
+  }
   /**
    * BOTH NUMBERS BOUND THE SAME QUANTITY — the gap between statements — which
    * is what makes comparing them meaningful (POD-3345; before that the guard
@@ -298,9 +320,9 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
    * dead. That is a misconfiguration, and the constructor is where it is cheap
    * to find.
    */
-  if (options.watchdog && options.watchdog.budgetMs >= limits.writeBudgetMs) {
+  if (watchdog && budgetMs >= limits.writeBudgetMs) {
     throw new Error(
-      `watchdog budget ${options.watchdog.budgetMs}ms is not below driver ${driver.kind}'s ` +
+      `watchdog budget ${budgetMs}ms is not below driver ${driver.kind}'s ` +
         `write budget of ${limits.writeBudgetMs}ms: both bound the gap between statements, so ` +
         'the engine would reap the stream before the watchdog could report it',
     )
@@ -427,6 +449,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     ) {
       throw new SchedulerClosedError(`scheduler is ${state}`)
     }
+    const stack = watchdog ? (new Error('Transaction lease requested').stack ?? '') : ''
     const queued = admit(lane)
     if (queued) await queued
     /**
@@ -461,16 +484,24 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
           heldMs: () => now() - startedAt,
           idleMs: () => activity.idleMs(),
         }
-        const watchdog = options.watchdog
         const stopWatch = watchdog
-          ? activity.watch(watchdog.budgetMs, () => {
-              watchdog.report({
-                leaseId: lease.id,
-                lane,
-                idleMs: lease.idleMs(),
-                heldMs: lease.heldMs(),
-                budgetMs: watchdog.budgetMs,
-              })
+          ? activity.watch(budgetMs, () => {
+              try {
+                watchdog.report({
+                  stack,
+                  leaseId: lease.id,
+                  lane,
+                  idleMs: lease.idleMs(),
+                  heldMs: lease.heldMs(),
+                  budgetMs,
+                })
+              } catch (error) {
+                try {
+                  watchdog.onReportFailure?.(error)
+                } catch {
+                  /* Reporting is diagnostic; a broken sink cannot revoke a lease. */
+                }
+              }
             })
           : undefined
         let drainTimer: ReturnType<typeof setTimeout> | undefined

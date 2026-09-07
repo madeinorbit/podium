@@ -104,6 +104,8 @@ export {
 } from './read-scope'
 export {
   createScheduler,
+  DEFAULT_WATCHDOG_BUDGET_MS,
+  type WatchdogOptions,
   type Lease,
   type Scheduler,
   type SchedulerOptions,

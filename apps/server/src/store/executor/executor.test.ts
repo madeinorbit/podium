@@ -13,7 +13,7 @@
  * not a property and a green suite of happy paths would say exactly that.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createBunSqliteDriver } from './bun-driver'
 import type { DriverSession, QueryClient, Statement, StoreDriver } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
@@ -39,7 +39,7 @@ import {
   openHarness,
   settle,
 } from './harness'
-import { createScheduler, type WatchdogReport } from './scheduler'
+import { createScheduler, DEFAULT_WATCHDOG_BUDGET_MS, type WatchdogReport } from './scheduler'
 
 let harness: Harness | undefined
 
@@ -2040,6 +2040,95 @@ describe('the watchdog', () => {
     })
 
     expect(reports).toEqual([{ lane: 'write', budgetMs: 1 }])
+  })
+
+  it('reports the parked caller stack at the default budget and clears normal-body timers', async () => {
+    vi.useFakeTimers()
+    const reports: WatchdogReport[] = []
+    const parked = barrier()
+    const entered = barrier()
+    const h = open({ watchdog: { report: (report) => reports.push(report) } })
+    try {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'normal')
+      })
+      await vi.advanceTimersByTimeAsync(DEFAULT_WATCHDOG_BUDGET_MS * 2)
+      expect(reports).toEqual([])
+      function parkedTransaction() {
+        return h.executor.transact(async (tx) => {
+          await tx.drizzle.run(insert, 'parked')
+          entered.release()
+          await parked.wait()
+        })
+      }
+      const running = parkedTransaction()
+      await entered.wait()
+      await vi.advanceTimersByTimeAsync(DEFAULT_WATCHDOG_BUDGET_MS - 1)
+      expect(reports).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(reports).toHaveLength(1)
+      expect(reports[0]?.stack).toMatch(/executor\.test\.ts:\d+:\d+/)
+      expect(reports[0]?.budgetMs).toBe(DEFAULT_WATCHDOG_BUDGET_MS)
+      expect(reports[0]?.lane).toBe('write')
+      parked.release()
+      await running
+      expect(await noteBodies(h.executor.drizzle)).toEqual(['normal', 'parked'])
+      await vi.advanceTimersByTimeAsync(DEFAULT_WATCHDOG_BUDGET_MS * 2)
+      expect(reports).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      parked.release()
+      await h.close()
+      harness = undefined
+      vi.useRealTimers()
+    }
+  })
+
+  it('isolates a failing watchdog sink without rolling back its holder', async () => {
+    vi.useFakeTimers()
+    const failure = new Error('report transport failed')
+    const failures: unknown[] = []
+    const entered = barrier()
+    const parked = barrier()
+    const h = open({
+      watchdog: {
+        budgetMs: 10,
+        report: () => {
+          throw failure
+        },
+        onReportFailure: (error) => {
+          failures.push(error)
+          throw new Error('fallback failed too')
+        },
+      },
+    })
+    try {
+      const running = h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed despite sink failure')
+        entered.release()
+        await parked.wait()
+      })
+      await entered.wait()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(failures).toEqual([failure])
+      parked.release()
+      await running
+      expect(await noteBodies(h.executor.drizzle)).toEqual(['committed despite sink failure'])
+    } finally {
+      parked.release()
+      await h.close()
+      harness = undefined
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([0, -1, NaN, Infinity, 2_147_483_648])('refuses invalid timer budget %s', (budgetMs) => {
+    expect(() =>
+      createScheduler({
+        driver: asyncFakeDriver(),
+        watchdog: { budgetMs, report: () => undefined },
+      }),
+    ).toThrow('watchdog budget must be a positive finite timer duration')
   })
 
   it('says nothing about a chatty body that holds the lease far past the budget', async () => {
