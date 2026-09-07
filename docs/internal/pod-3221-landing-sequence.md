@@ -134,3 +134,40 @@ never could, so an absolute green is not the bar and never was.
 
 Push the integration branch to origin and confirm the remote SHA matches local. Everything after
 step 4 rewrites history somewhere; the backup is what makes that safe.
+
+## Two hazards found while actually running step 7 (2026-09-08)
+
+**`PODIUM_TEST_WORKERS` may already be exported in your shell.** It was set to `1` in the
+session that ran the first verification pass, which pins vitest to one worker and changes what
+goes red. It came from the environment, not from any command in this document, and `env | grep
+-i podium | head` did not show it because `head` cut it off. Check it with `declare -p
+PODIUM_TEST_WORKERS`, not with a piped grep, and `unset` it inside the runner so both arms are
+identical. A delta gate only means anything when the two arms differ in the code and in nothing
+else. The first pass was discarded for this reason.
+
+**Do not run analysis on the box while a gate arm is running.** Timeouts are load-sensitive, so
+CPU you add during one arm and not the other manufactures newly-red names that are really just
+contention. Sequence the arms, and hold any type-checking sweep until both have finished.
+
+## The sweep that found what the lanes could not
+
+`bun run typecheck` was green across all 26 packages and the tree still contained a guard that
+refused every coordinator update. So a clean typecheck is not evidence here, and the lanes only
+see assertions that FAIL — an assertion whose subject is a promise passes vacuously against
+`toBeUndefined`, `toBeDefined` and `not.toBe`, because a promise is never undefined, always
+defined, and never equal to a scalar.
+
+The check that does work is a type-checker sweep: walk every `expect(...)` and ask the checker
+whether the ARGUMENT is promise-typed. Over `apps/server` that found 869 sites, of which 817 are
+correct (`.rejects` and `.resolves` are supposed to receive a promise), five are deliberate
+(single-flight identity assertions, and one `toBeInstanceOf(Promise)`), and 47 were defects.
+Twenty-six of the 47 were green and testing nothing.
+
+Two things about running it. **Pass an ABSOLUTE path** — with a relative one
+`ts.findConfigFile` resolves nothing, the program has no source files, and it reports a
+confident zero. **Canary it** before believing a zero: run it against a checkout that still
+contains a defect you have already confirmed, and check it names it. The first run of this sweep
+reported zero because of the relative path, and only the canary caught it.
+
+A name-based scan is not a substitute. One over the same tree produced 602 candidates, nearly
+all false, because a name cannot tell a sync method from an async one that shares it.
