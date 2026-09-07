@@ -594,11 +594,12 @@ export class SyncRepository {
     }))
   }
 
-  /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
-  async queuedMessageCounts(): Promise<Map<SessionId, number>> {
+  /** Read current queue sizes, optionally restricted to one session. */
+  async queuedMessageCounts(sessionId?: SessionId): Promise<Map<SessionId, number>> {
     const rows = await this.db
       .select({ sessionId: this.queuedMessages.sessionId, n: count() })
       .from(this.queuedMessages)
+      .where(sessionId === undefined ? undefined : eq(this.queuedMessages.sessionId, sessionId))
       .groupBy(this.queuedMessages.sessionId)
       .all()
     return new Map(rows.map((r) => [r.sessionId, r.n]))

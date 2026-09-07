@@ -11,6 +11,7 @@
  */
 import { asIssueId, asMachineId, asSessionId, type IssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
 import { sessionsForIssue } from '../../issue-util'
 import { SessionLifecycle } from './lifecycle'
 import { Session } from './session'
@@ -45,6 +46,7 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
   const ports: SessionViewPorts = {
     sessions: new Map(sessions.map((s) => [s.sessionId, s])),
     store: {
+      sync: { queuedMessageCounts: async () => new Map() },
       users: { roleOf: () => 'admin' },
       issues: { getIssue: () => undefined },
       repos: { prefixForPath: () => null, resolveRepoIdForPath: () => undefined },
@@ -58,7 +60,7 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
       overlay: () => ({}),
     } as unknown as SessionViewPorts['state'],
   }
-  return { view: new SessionView(ports), canReadCalls }
+  return { view: new SessionView(ports), canReadCalls, ports }
 }
 
 const WORKTREE = '/w/issue-7'
@@ -279,6 +281,7 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
     const ports: SessionViewPorts = {
       sessions: new Map(sessions.map((s) => [s.sessionId, s])),
       store: {
+        sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
         issues: { getIssue: async () => undefined, getIssues: async () => new Map() },
         repos: { prefixForPath: async () => null, resolveRepoIdForPath: async () => undefined },
@@ -360,5 +363,38 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
     // REJECTS proves the caller is joined to it. Floating, the rejection is lost
     // and the pass answers as though the memo had been filled.
     await expect(view.list(READER)).rejects.toThrow('prime failed')
+  })
+})
+
+
+describe('SessionView durable queue display', () => {
+  it('reads stored rows despite drift in both live and draft session counts', async () => {
+    const store = await openTestStore(':memory:')
+    const current = session('queue-display', '/w')
+    const other = session('other-queue', '/w')
+    const { view, ports } = viewOver([current, other])
+    ports.store = store
+    const countReads = vi.spyOn(store.sync, 'queuedMessageCounts')
+    try {
+      for (const [id, owner] of [['first', current], ['second', current], ['other', other]] as const) {
+        await store.sync.enqueueMessage({ id, sessionId: owner.sessionId, text: id, queuedAt: 1 })
+      }
+      current.queuedMessageCount = 0
+      other.queuedMessageCount = 99
+      expect((await view.list(PRINCIPAL)).map((meta) => meta.queuedMessageCount)).toEqual([2, 1])
+      expect(countReads).toHaveBeenCalledTimes(1)
+      expect((await view.byId(current.sessionId, PRINCIPAL))?.queuedMessageCount).toBe(2)
+      const draft = current.captureDurableState()
+      draft.queuedMessageCount = 45
+      expect((await view.wire(current, PRINCIPAL, undefined, draft)).queuedMessageCount).toBe(2)
+      await store.sync.deleteQueuedMessage('first')
+      expect((await view.wire(current, PRINCIPAL, undefined, draft)).queuedMessageCount).toBe(1)
+      await store.sync.deleteQueuedMessage('second')
+      current.queuedMessageCount = 99
+      expect(await view.wire(current, PRINCIPAL, undefined, draft)).not.toHaveProperty('queuedMessageCount')
+      expect((await view.list(PRINCIPAL))[0]).not.toHaveProperty('queuedMessageCount')
+    } finally {
+      await store.close()
+    }
   })
 })

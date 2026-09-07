@@ -132,6 +132,8 @@ describe('SessionStore queued_messages', () => {
         ['s-b', 1],
       ]),
     )
+    expect(await store.sync.queuedMessageCounts(asSessionId('s-a'))).toEqual(new Map([['s-a', 2]]))
+    expect(await store.sync.queuedMessageCounts(asSessionId('empty'))).toEqual(new Map())
   })
 
   it('deleteQueuedMessage removes exactly that row', async () => {

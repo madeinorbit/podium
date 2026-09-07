@@ -36,6 +36,8 @@ import type { SessionStatePrincipal, SessionStateService } from './session-state
  * field on them is unchanged — the same answers, asked fewer times.
  */
 export interface SessionListMemo {
+  /** Queue sizes read once for this projection pass. */
+  queuedMessageCounts?: Map<SessionId, number>
   /** Issue rows by id (null = looked up and absent). */
   issues: Map<string, IssueRow | null>
   /** Grantee lists by `${resourceKind}:${resourceId}`. */
@@ -244,10 +246,14 @@ export class SessionView {
           await this.ports.state.canReadSession(principal, session.sessionId, memo),
       ),
     )
+    const readable = candidates.filter((_session, index) => visible[index] === true)
+    if (readable.length === 0) return []
+    // One fresh store read per projection pass, never an incremented session mirror.
+    memo.queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(
+      readable.length === 1 ? readable[0]!.sessionId : undefined,
+    )
     return await Promise.all(
-      candidates
-        .filter((_session, index) => visible[index] === true)
-        .map(async (session) => await this.wire(session, principal, memo)),
+      readable.map(async (session) => await this.wire(session, principal, memo)),
     )
   }
 
@@ -271,9 +277,14 @@ export class SessionView {
       viewer ? await this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
       d,
     )
+    // Commit publications call wire after their queue writes, inside the transaction.
+    const counts = memo?.queuedMessageCounts ??
+      await this.ports.store.sync.queuedMessageCounts(session.sessionId)
+    const queuedMessageCount = counts.get(session.sessionId) ?? 0
     const occupancy = this.ports.sessionOccupancyCount?.(session.sessionId)
     return await this.stampRef(d, memo, {
       ...meta,
+      ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
       // Presence-room occupancy is the product "who is watching" count when the
       // stream plane is wired; attach-set size remains the fallback for fixtures.
       ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
