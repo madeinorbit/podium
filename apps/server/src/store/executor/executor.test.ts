@@ -2914,3 +2914,79 @@ describe('transaction rollback failure reporting', () => {
     }
   })
 })
+
+describe('structural transaction rollback failure reporting', () => {
+  it('preserves the abandoned nested scope diagnosis when rollback rejects', async () => {
+    const parked = barrier()
+    const rollbackError = new Error('socket dropped during abandoned rollback')
+    const driver = asyncFakeDriver({
+      hooks: {
+        enterSavepoint: async () => await parked.wait(),
+        rollback: async () => {
+          throw rollbackError
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let dropped: Promise<unknown> | undefined
+    try {
+      const thrown = await executor
+        .transact(async (tx) => {
+          dropped = tx.transact(async () => undefined).catch((error: unknown) => error)
+        })
+        .catch((error: unknown) => error)
+
+      expect(String(thrown)).toContain('it returned while nested scope')
+      expect(thrown).toBeInstanceOf(AggregateError)
+      const failure = thrown as AggregateError
+      expect(failure.cause).toBeInstanceOf(AbandonedNestedTransactionError)
+      expect(failure.errors).toEqual([failure.cause, rollbackError])
+      expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual([
+        's1:rollback',
+      ])
+      expect(driver.closes).toBe(1)
+      parked.release()
+      expect(await dropped).toBeInstanceOf(StaleTransactionError)
+    } finally {
+      parked.release()
+      await dropped
+      await executor.close()
+    }
+  })
+
+  it('preserves the poisoned transaction diagnosis when rollback rejects', async () => {
+    const boundaryError = new Error('RELEASE failed on transport')
+    const rollbackError = new Error('socket dropped during poisoned rollback')
+    const driver = asyncFakeDriver({
+      hooks: {
+        releaseSavepoint: async () => {
+          throw boundaryError
+        },
+        rollback: async () => {
+          throw rollbackError
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    try {
+      const thrown = await executor
+        .transact(async (tx) => {
+          await expect(tx.transact(async () => undefined)).rejects.toBe(boundaryError)
+        })
+        .catch((error: unknown) => error)
+
+      expect(String(thrown)).toContain('a savepoint boundary failed')
+      expect(thrown).toBeInstanceOf(AggregateError)
+      const failure = thrown as AggregateError
+      expect(failure.cause).toBeInstanceOf(TransactionPoisonedError)
+      expect((failure.cause as TransactionPoisonedError).cause).toBe(boundaryError)
+      expect(failure.errors).toEqual([failure.cause, rollbackError])
+      expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual([
+        's1:rollback',
+      ])
+      expect(driver.closes).toBe(1)
+    } finally {
+      await executor.close()
+    }
+  })
+})
