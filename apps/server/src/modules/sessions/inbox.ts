@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type {
   ActorRef,
   AgentKind,
@@ -65,6 +66,8 @@ export type InterruptOutcome =
    *  delivery that did not happen. */
   | { ok: true; requested: 'keystroke' | 'protocol' | 'retraction'; reason?: undefined }
   | { ok: false; reason: string; requested?: undefined }
+
+const log = createLogger('server:session-inbox')
 
 const SUBMIT_CR_DELAY_MS = 90
 /** Gap between two keystrokes typed into a native menu — see
@@ -255,7 +258,7 @@ export interface InboxAuthorizationPort {
   interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
   /** The operator interrupted while a chat message was still held in the
    *  higher-level message ledger and had no physical inbox row yet. */
-  interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): void
+  interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): Promise<void>
 }
 
 export interface InboxAttentionPort {
@@ -1038,10 +1041,11 @@ export class SessionInbox {
       : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
     if (!head) {
       if (includeUnattempted) {
-        this.deps.authorization.interruptedPending?.({
+        const retraction: Promise<void> | undefined = this.deps.authorization.interruptedPending?.({
           sessionId,
           ...(sourceMessageId ? { sourceMessageId } : {}),
         })
+        await retraction
       }
       return verification
     }
@@ -2180,7 +2184,10 @@ export class SessionInbox {
       // yield. Left non-blocking, which is exactly today's behaviour — the
       // submitVerificationGeneration delete that must beat the 90ms delayed
       // Enter (POD-1733) runs before the callee's first await.
-      void this.cancelInterruptedDelivery(sessionId, true)
+      // Report a failed retraction without delaying the terminal input frame.
+      void this.cancelInterruptedDelivery(sessionId, true).catch((error) => {
+        log.warn('native interrupt retraction failed', { err: error, sessionId })
+      })
     }
     session.terminal.handleInputBytes(
       client.id,

@@ -403,8 +403,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       interrupted: ({ sourceMessageId }) => {
         if (sourceMessageId) bag.deps.interruptQueuedMessage?.(sourceMessageId)
       },
-      interruptedPending: ({ sessionId, sourceMessageId }) =>
-        bag.deps.interruptPendingMessage?.(sessionId, sourceMessageId),
+      interruptedPending: async ({ sessionId, sourceMessageId }) => {
+        const retraction: Promise<void> | undefined =
+          deps.interruptPendingMessage?.(sessionId, sourceMessageId)
+        await retraction
+      },
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
       },
