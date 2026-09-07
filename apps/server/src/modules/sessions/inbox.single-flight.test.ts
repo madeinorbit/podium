@@ -69,7 +69,7 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       harnessInterrupt,
       harnessName: harnessDisplayName,
       prepareSend: vi.fn(),
-      ownerOf: () => null,
+      ownerOf: async () => null,
       resurrect: vi.fn(),
     })
     return {

@@ -73,11 +73,13 @@ type Dispatcher = {
     mux: ClientMux,
     conn: ClientConn,
     msg: Extract<ClientMessage, { type: K }>,
-  ) => void
+  ) => void | Promise<void>
 }
 
-const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame): void =>
-  mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg)
+const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame): Promise<void> =>
+  mux.enqueueSessionWork(conn, () =>
+    mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg),
+  )
 
 const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): void => {
   const joined = mux.presence.route(conn, msg)
@@ -282,7 +284,31 @@ export class ClientMux {
       ageMs: attachedAt === undefined ? null : performance.now() - attachedAt,
     })
     this.deps.feed.detach(id)
-    this.deps.ports.sessions.onClientDetached(conn.principal, conn)
+    this.enqueueSessionWork(
+      conn,
+      () => this.deps.ports.sessions.onClientDetached(conn.principal, conn),
+      true,
+    )
+  }
+
+  private readonly sessionWork = new WeakMap<ClientConn, Promise<void>>()
+
+  /** Socket callbacks cannot await. Preserve wire order across authorization reads. */
+  enqueueSessionWork(conn: ClientConn, work: () => Promise<void>, detached = false): Promise<void> {
+    const run = (): Promise<void> => {
+      if (!detached && this.deps.registry.get(conn.id) !== conn) return Promise.resolve()
+      return work()
+    }
+    const prior = this.sessionWork.get(conn)
+    // Start the first frame synchronously: hello capability negotiation is immediate.
+    const pending = (prior ? prior.then(run) : Promise.resolve(run())).catch((error: unknown) => {
+      log.error('session client operation failed', { clientId: conn.id, error: String(error) })
+    })
+    this.sessionWork.set(conn, pending)
+    void pending.then(() => {
+      if (this.sessionWork.get(conn) === pending) this.sessionWork.delete(conn)
+    })
+    return pending
   }
 
   acceptsClientInputBinary(id: string): boolean {
@@ -290,10 +316,13 @@ export class ClientMux {
   }
 
   /** Route canonical PTY bytes under the socket-derived client principal. */
-  routeClientInputBytes(id: string, sessionId: SessionId, bytes: Uint8Array): void {
+  routeClientInputBytes(id: string, sessionId: SessionId, bytes: Uint8Array): Promise<void> {
     const conn = this.deps.registry.get(id)
-    if (!conn?.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) || bytes.byteLength === 0) return
-    this.deps.ports.sessions.onSessionClientInput(conn.principal, conn, sessionId, bytes)
+    if (!conn?.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) || bytes.byteLength === 0)
+      return Promise.resolve()
+    return this.enqueueSessionWork(conn, () =>
+      this.deps.ports.sessions.onSessionClientInput(conn.principal, conn, sessionId, bytes),
+    )
   }
 
   /**
@@ -306,19 +335,19 @@ export class ClientMux {
    * default. A frame for an unknown connection is likewise dropped: there is no
    * principal to route it under.
    */
-  routeClientFrame(id: string, msg: ClientMessage): void {
+  routeClientFrame(id: string, msg: ClientMessage): Promise<void> {
     const conn = this.deps.registry.get(id)
-    if (!conn) return
+    if (!conn) return Promise.resolve()
     if (clientPlaneClassFor(msg.type) === null || clientPortsFor(msg.type) === null) {
       log.warn('refused an unclassified client frame', { frameType: msg.type })
-      return
+      return Promise.resolve()
     }
     const dispatch = DISPATCH[msg.type] as (
       mux: ClientMux,
       conn: ClientConn,
       msg: ClientMessage,
-    ) => void
-    dispatch(this, conn, msg)
+    ) => void | Promise<void>
+    const completion = dispatch(this, conn, msg)
     if (msg.type === 'hello') {
       const attachedAt = this.attachedAtByPeer.get(id)
       traceFeedPeer({
@@ -346,6 +375,7 @@ export class ClientMux {
       })
       this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
     }
+    return Promise.resolve(completion)
   }
 
   /**
