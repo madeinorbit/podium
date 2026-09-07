@@ -22,7 +22,7 @@ export interface SessionBindingReceiptsDeps {
   session(sessionId: SessionId): Session | undefined
   sessionOwner(sessionId: SessionId): Promise<SessionOwnership | undefined>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  write(session: Session, mutate: (draft: SessionDurableState) => void): Promise<void>
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
 }
@@ -110,7 +110,7 @@ export class SessionBindingReceipts {
         // path. `Session`'s setter enforces the direction; this is the case it
         // exists for.
         this.projectedConfidence.delete(conflict)
-        this.deps.write(conflict, (draft) => {
+        await this.deps.write(conflict, (draft) => {
           conflict.setResume(undefined, draft)
           draft.conversationPodiumId = undefined
         })
@@ -139,7 +139,7 @@ export class SessionBindingReceipts {
             nativeId: message.resume.value,
             providerId: session.agentKind,
           })
-      this.deps.write(session, (draft) => {
+      await this.deps.write(session, (draft) => {
         // Through `setResume`, because a draft is a bag: assigning `resume` on
         // one would skip the `conversationBinding` promotion the class's setter
         // performs and leave a bound session claiming it never bound.
