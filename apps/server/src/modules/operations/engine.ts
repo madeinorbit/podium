@@ -176,12 +176,10 @@ export class OperationEngine {
    * group (P6). The caller gets an id either way, so a second tab renders the
    * same operation instead of being told "no".
    *
-   * SINGLE-FLIGHT'S ONLY WINDOW is `plan()`, which is async. So the group is
-   * checked again in the same synchronous block as the insert, and that block
-   * contains no `await` — which is the whole of the guarantee, on a server that
-   * is the single writer of this table. The alternative, a partial unique index
-   * over the live states, would bake the state list into the schema of the OLD
-   * binary and make a predecessor refuse a successor's writes.
+   * claimGroup() enforces single-flight with a conditional insert. The read
+   * below only saves planning for an already-busy group. A post-plan re-check
+   * followed by an awaited insert is unsafe: both starts can pass the check
+   * before either inserts (POD-3524, spec rule 54).
    */
   async start(
     kind: string,
@@ -194,6 +192,8 @@ export class OperationEngine {
       return { started: false, refused: 'unknown-kind' }
     }
 
+    // THE FAST PATH, not the guarantee — see above. A group that is already busy
+    // when the click arrives is answered without planning at all.
     const held = await this.deps.store.activeByGroup(def.exclusionGroup)
     if (held) {
       // SINGLE-FLIGHT ANSWERED, not a failure. A second surface pressing the
@@ -209,16 +209,6 @@ export class OperationEngine {
     }
 
     const plan = await (def.plan as (c: unknown) => OperationPlan | Promise<OperationPlan>)(context)
-
-    const contended = await this.deps.store.activeByGroup(def.exclusionGroup)
-    if (contended) {
-      log.info('another operation took this group while the plan was being made', {
-        kind,
-        group: def.exclusionGroup,
-        operationId: contended.id,
-      })
-      return { started: false, alreadyRunning: contended.id }
-    }
 
     const at = this.now()
     const operation: PersistedOperation = {
@@ -237,7 +227,18 @@ export class OperationEngine {
       deferred: plan.deferred ?? [],
       error: null,
     }
-    await this.deps.store.insert(operation)
+    const claim = await this.deps.store.claimGroup(operation)
+    if (!claim.claimed) {
+      // Another start took the group while this one was planning. It is the
+      // WRITE that found out, which is the point: this branch is reached
+      // because the row was refused, not because a read said so.
+      log.info('another operation took this group while the plan was being made', {
+        kind,
+        group: def.exclusionGroup,
+        operationId: claim.heldBy.id,
+      })
+      return { started: false, alreadyRunning: claim.heldBy.id }
+    }
     this.contexts.set(operation.id, context)
     /**
      * THE PLAN, IN FULL, AT THE MOMENT IT WAS MADE.
