@@ -135,7 +135,9 @@ describe('the @podium/server test aggregate, run directly', () => {
     // code is 0 — a roster printed, nothing run, success reported.
     expect(result.invoked).toEqual(SHARDS.map((shard) => shard.id))
     expect(result.output).toContain(`${announcedTotal} unit files across 5 shards`)
-    expect(result.output).toContain(`${announcedTotal} unit files announced, ${announcedTotal} executed`)
+    expect(result.output).toContain(
+      `${announcedTotal} unit files announced, ${announcedTotal} executed`,
+    )
     expect(result.exitCode).toBe(0)
   }, 120_000)
 
@@ -208,9 +210,7 @@ describe('reconciliation', () => {
     const [first, ...rest] = full
     if (!first) throw new Error('empty manifest')
     const failures = reconcile(manifest, [{ ...first, exitCode: 1 }, ...rest])
-    expect(failures).toEqual([
-      { kind: 'shard-failed', detail: `shard "${first.id}" exited 1` },
-    ])
+    expect(failures).toEqual([{ kind: 'shard-failed', detail: `shard "${first.id}" exited 1` }])
   })
 })
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type ViteUserConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
 import { shardReportPath } from './test-shard-report'
 import { shardMayReuse, splitForReuse } from './src/test-support/reuse-plan'
@@ -69,9 +69,11 @@ export const isolatedProjectName = (shardId: string) => `server:${shardId}:isola
  * projects is still one Vitest run and must produce one report covering both, or the
  * reconciliation would read a half-run shard as a short one.
  */
-const shardReporters = (shardId: string) => [
-  ['default', {}] as const,
-  ['json', { outputFile: shardReportPath(repositoryRoot, shardId) }] as const,
+type Reporters = NonNullable<NonNullable<ViteUserConfig['test']>['reporters']>
+
+const shardReporters = (shardId: string): Reporters => [
+  ['default', {}],
+  ['json', { outputFile: shardReportPath(repositoryRoot, shardId) }],
 ]
 
 export const createServerShardConfig = (shardId: string) => {
