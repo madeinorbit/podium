@@ -3394,3 +3394,51 @@ and 200s to 20s — the same ten failures, but nine can now reach the assertion 
 have failed. Reading a rising assertion count as a regression would have been exactly backwards.
 Worse, the control arm's store lane **silently ran 3 of its 6 files**: 22 tests never executed
 at all under the bug, so the control's own totals understate it.
+
+### Rule 56c — CORRECTS the SCOPE of 56: census by the BINDING, not by the declared return type
+
+Rule 56 told the census to enumerate ports declared `: void`, and every instrument built on it
+inherited that scope — POD-3520 confirmed its probe is scoped to `void`-returning ports only.
+That scope is wrong, and POD-3552 is what it missed.
+
+**The `void` return was never the hiding mechanism.** The `as any` binding is
+(`session-wiring.ts:88`, `const bag = life as any`), and an `any` satisfies a *value*-returning
+port exactly as well as a `void` one. `ClientControlPorts.sessionOwner` is declared
+`(id) => { owner; grants } | undefined`, is wired to an implementation returning
+`Promise<…| undefined>`, and typechecks at zero errors.
+
+**The two halves fail in OPPOSITE directions, which is why only one of them kept being found:**
+
+| | declared `void` | declared *value* |
+|---|---|---|
+| what the promise does | is dropped | is compared |
+| failure direction | **open** — work is silently lost | **closed** — the read is never equal to anything |
+| how it presents | the product mostly still runs | **outage** |
+
+`authorizeAttach` is both at once, four lines apart:
+
+```ts
+const owner = this.ports.sessionOwner(sessionId)
+if (!owner) return false                                 // FAILS OPEN: a Promise is truthy
+const ctx = contextFromOwnership(owner, this.ports.machineUseFor(principal, sessionId))
+return mayWatch(controlSubjectFromClient(principal), ctx) === true   // FAILS CLOSED: false for everyone
+```
+
+The open half is unreachable, so the closed half is what ships: **every terminal attach and every
+`requestControl` denied, for admins and the system principal too.** And because
+`terminal.handleInputBytes` returns early when `clientId !== controllerId`, a client that cannot
+attach also cannot type — keystrokes are dropped with no error anywhere.
+
+**THE CENSUS RULE, RESTATED.** Enumerate every port member reached through an `any` bag or a cast,
+*whatever its declared return type*. The declaration is not evidence — it is the thing the `any`
+made unenforceable. A port whose binding is typed needs no census entry; a port whose binding is
+`any` needs one even if it looks perfectly ordinary at the call site.
+
+**AND WHY A PASSING TEST IS NOT THE PIN HERE.** Widening the declaration produces no error at an
+`any` binding, so you can widen to a clean typecheck with the bug still live. The fix is to stop
+routing the member through the bag — a typed local, the way POD-3507 did with
+`const store: SessionStore = deps.store` — and the check is rule 56b's: revert the await and state
+the compiler's error codes and count. Zero means you have a test, not a pin.
+
+*Found by POD-3511 while testing something else, off the wire rather than from the type system;
+verified against tip `889e579a0`; fixed under POD-3552.*
