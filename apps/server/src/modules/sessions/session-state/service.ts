@@ -153,7 +153,7 @@ export interface SessionStatePorts {
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
   /** Re-arm durable inbox delivery after native terminal control is released. */
-  readonly onNativeViewReleased?: (sessionId: SessionId) => void
+  readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
   /** Lifecycle owns process parking and issue cleanup after archive. */
   readonly onArchived: (sessionId: SessionId) => void
@@ -487,7 +487,10 @@ export class SessionStateService {
         nativeView,
       })
       if (!nativeView && previous?.endsWith(':1')) {
-        this.ports.onNativeViewReleased?.(sessionId)
+        // NOT awaited: pushPriorities is a synchronous fan-out over clients,
+        // and the release only re-arms a drain (rule 57 — same durable-row
+        // contract as machine-reconciler's).
+        void this.ports.onNativeViewReleased?.(sessionId)
       }
     }
   }

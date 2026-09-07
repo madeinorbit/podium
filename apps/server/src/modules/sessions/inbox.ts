@@ -2130,7 +2130,10 @@ export class SessionInbox {
     // the exact edge that unblocks it, and it costs nothing on a session with an
     // empty queue (`drain` returns on queuedMessageCount === 0).
     if (input.prev?.phase === 'needs_user' && input.next.phase !== 'needs_user') {
-      this.drain(input.sessionId)
+      // NOT awaited: this is a re-arm on a state edge, and a drain pass that
+      // fails loses nothing — the row is durable and the next bind, reconnect,
+      // enqueue or sweep re-arms a fresh one (rule 57; see `dispose`).
+      void this.drain(input.sessionId)
     }
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     if (!ownerUserId) return

@@ -47,7 +47,7 @@ export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
   /** Re-arm a parked queued-send drain. */
-  drainInbox(sessionId: Session['sessionId']): void
+  drainInbox(sessionId: Session['sessionId']): Promise<void>
   /** Transcript-lake catch-up sweep for this machine. */
   triggerLakeSweep(machineId: MachineId): void
   /** Clear the relay-priority delta cache, then re-push the full map. */
@@ -89,7 +89,11 @@ export class SessionMachineReconciler {
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
     for (const s of this.ports.sessions()) {
       if (s.machineId === machineId && s.queuedMessageCount > 0) {
-        this.ports.drainInbox(s.sessionId)
+        // NOT awaited: onAttached is the transport's synchronous attach half.
+        // A drain pass loses nothing if it fails — the row is durable and the
+        // next bind, reconnect or enqueue re-arms a fresh pass (rule 57, and
+        // SessionInbox.dispose's own note).
+        void this.ports.drainInbox(s.sessionId)
       }
     }
 
