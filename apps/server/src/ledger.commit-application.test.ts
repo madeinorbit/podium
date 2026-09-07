@@ -2,7 +2,7 @@ import { type MatrixRow, OWNERSHIP_MATRIX } from '@podium/model'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { applyAfterCommit, spanOpen } from './store/executor/synchronous-span'
+import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
 
 /**

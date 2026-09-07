@@ -19,7 +19,7 @@ import {
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
-import { afterCommit } from './executor/synchronous-span'
+import { afterCommit } from './executor/executor'
 import type { Subscription } from './types'
 
 export interface PodiumEventRecord {

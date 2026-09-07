@@ -6,7 +6,7 @@ import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
 import type { SessionLifecycle } from './sessions/lifecycle'
 import { systemPrincipal } from '../command-principal'
-import { afterCommit } from '../store/executor/synchronous-span'
+import { afterCommit } from '../store/executor/executor'
 
 const log = createLogger('server:closed-issue-reaper')
 

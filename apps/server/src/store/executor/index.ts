@@ -61,7 +61,10 @@ export {
   WriteInsideReadLeaseError,
 } from './errors'
 export {
+  afterCommit,
+  applyAfterCommit,
   createStoreExecutor,
+  followUpAfterCommit,
   postCommit,
   type RootStoreExecutor,
   type StoreContext,
@@ -69,6 +72,7 @@ export {
   type StoreExecutor,
   type StoreExecutorOptions,
   type StoreHealth,
+  spanOpen,
 } from './executor'
 export { createFrameFlusher, type FrameFlusher, type FrameFlusherOptions } from './frame-flusher'
 export {
@@ -125,7 +129,3 @@ export {
   StatementProbeHub,
   statementProbeHubFor,
 } from './statement-probe'
-export {
-  afterCommit,
-  followUpAfterCommit,
-} from './synchronous-span'

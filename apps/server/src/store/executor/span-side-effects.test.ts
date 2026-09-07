@@ -5,7 +5,7 @@
  * follow-up-rejection contracts against the executor's own fakes. This file
  * proves them where B0.5 has to hold them: over a real `SessionStore`, a real
  * `Ledger` and its real `Authority`, wired exactly as `relay.ts` wires them —
- * `transact` to the store and `postCommit` to the bridge. A contract that held
+ * `transact` to the store and `postCommit` to the executor. A contract that held
  * only for the fakes would be a contract this epic had not actually adopted.
  *
  * THE DEFECT EVERY TEST HERE IS ABOUT, stated once. A commit that is NESTED
@@ -22,8 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { PostCommitError } from './errors'
-import { postCommit } from './executor'
-import { afterCommit } from './synchronous-span'
+import { afterCommit, postCommit } from './executor'
 
 const stores: SessionStore[] = []
 

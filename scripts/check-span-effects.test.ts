@@ -42,7 +42,7 @@ const WORLD: Record<string, string> = {
       insert(row: string): void { void row }
     }
   `,
-  'apps/server/src/store/executor/synchronous-span.ts': `
+  'apps/server/src/store/executor/executor.ts': `
     export function afterCommit(step: () => void, label: string): void { void step; void label }
   `,
   'packages/logger/src/logger.ts': `
@@ -132,7 +132,7 @@ describe('rule 19: observability, not kind', () => {
   it('does not flag the same effect once it is registered post-commit', () => {
     const result = run(`
       import { SessionStore } from './store'
-      import { afterCommit } from './store/executor/synchronous-span'
+      import { afterCommit } from './store/executor/executor'
       import type { FeedPort } from './ports'
       export function publish(store: SessionStore, feed: FeedPort): void {
         store.transact(() => {

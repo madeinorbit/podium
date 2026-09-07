@@ -169,7 +169,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
-import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/synchronous-span'
+import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC

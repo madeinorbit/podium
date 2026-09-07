@@ -630,13 +630,9 @@ export class SessionStore {
    *  atomic writes — the write-seam Ledger binds an entity write and its change
    *  append into one span ([spec:SP-3fe2] #255) — without exposing the db handle.
    *
-   *  The span also carries a POST-COMMIT SCOPE [POD-3260, spec section 6 rule 17],
-   *  so a body can register work through postCommit() and have it run after the
-   *  OUTERMOST commit rather than inside the transaction. The scope is opened
-   *  OUTSIDE transaction(), which is what makes the drain run after COMMIT rather
-   *  than after the callback returns. runSynchronousSpan is an instrument: at the
-   *  flip the executor's own runner takes the drain over and this wrapper goes,
-   *  filed as POD-3327. */
+   *  The executor owns the transaction scope and drains registered post-commit
+   *  work after the outermost commit. Nested registrations are discarded on
+   *  rollback or merged into the parent on savepoint release. */
   async transact<T>(fn: () => T | Promise<T>): Promise<T> {
     return await this.executor.transact(async () => fn())
   }

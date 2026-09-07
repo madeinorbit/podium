@@ -1,6 +1,6 @@
 import { asShipAttemptId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
+import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type Lease, LeaseProjection } from './lease-projection'
 

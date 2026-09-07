@@ -25,7 +25,7 @@ import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
-import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
+import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 

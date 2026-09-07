@@ -26,7 +26,7 @@ import {
   type VisibilityAnchorPort,
 } from '@podium/sync'
 import type { SessionStore } from '../store'
-import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/synchronous-span'
+import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
