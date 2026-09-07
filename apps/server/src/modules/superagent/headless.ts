@@ -30,8 +30,8 @@ export interface HeadlessDeps {
   getSession(sessionId: SessionId): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): MachineId
-  defaultMachine(): MachineId
+  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): Promise<MachineId>
+  defaultMachine(): Promise<MachineId>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
    *  ids must never collide across the registry's pending maps). */
@@ -101,7 +101,7 @@ export class HeadlessService {
    * superagent drives turn-by-turn (headlessTurn). Status is 'live' for as long
    * as the thread exists.
    */
-  createHeadlessSession(input: {
+  async createHeadlessSession(input: {
     sessionId?: SessionId
     agentKind: AgentKind
     cwd: string
@@ -115,7 +115,7 @@ export class HeadlessService {
     model?: string
     effort?: string
     requireNoTools?: boolean
-  }): { sessionId: SessionId } {
+  }): Promise<{ sessionId: SessionId }> {
     if (input.requireNoTools && !harnessSupportsNoTools(input.agentKind)) {
       throw new Error(`harness ${input.agentKind} cannot enforce a no-tools headless session`)
     }
@@ -125,7 +125,7 @@ export class HeadlessService {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
+    const machineId = await this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
     const existing = this.deps.getSession(sessionId)
     if (existing) {
       const same =
@@ -242,7 +242,7 @@ export class HeadlessService {
    * progress (`headlessTurnEvent` frames) streams to `onEvent` before the
    * result resolves; the transcript tail delivers the canonical items.
    */
-  headlessTurn(
+  async headlessTurn(
     input: {
       turnId: string
       sessionId: SessionId
@@ -277,7 +277,7 @@ export class HeadlessService {
       throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
     }
     const session = this.deps.getSession(input.sessionId)
-    const machineId = session?.machineId ?? this.deps.defaultMachine()
+    const machineId = session?.machineId ?? await this.deps.defaultMachine()
     const accountId = session?.accountId ?? asAccountId('')
     if (input.toolPolicy === 'none') {
       if (!accountId.startsWith(`native:${input.agent}:`)) {
@@ -355,13 +355,13 @@ export class HeadlessService {
 
   /** The server has durably committed the terminal result and no longer needs
    * the daemon's per-turn journal for restart replay. */
-  headlessTurnAck(
+  async headlessTurnAck(
     sessionId: SessionId,
     turnId: string,
     requestDigest: string,
     accountId: AccountId,
-  ): void {
-    const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
+  ): Promise<void> {
+    const machineId = this.deps.getSession(sessionId)?.machineId ?? await this.deps.defaultMachine()
     this.deps.toMachine(machineId, {
       type: 'headlessTurnAck',
       sessionId,
@@ -373,8 +373,8 @@ export class HeadlessService {
 
   /** Interrupt a headless session's running turn (fire-and-forget; the turn's
    *  own headlessTurnResult reports the outcome). */
-  headlessInterrupt(sessionId: SessionId): void {
-    const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
+  async headlessInterrupt(sessionId: SessionId): Promise<void> {
+    const machineId = this.deps.getSession(sessionId)?.machineId ?? await this.deps.defaultMachine()
     this.deps.toMachine(machineId, {
       type: 'headlessInterrupt',
       requestId: this.deps.nextRequestId('hi'),
@@ -384,13 +384,13 @@ export class HeadlessService {
 
   /** (Re)establish the daemon-side transcript observers/tails for a headless
    *  session — the reattach equivalent for sessions with no PTY. */
-  headlessBind(input: {
+  async headlessBind(input: {
     sessionId: SessionId
     agentKind: AgentKind
     cwd: string
     resumeValue: string
   }): Promise<{ ok: boolean; error?: string }> {
-    const machineId = this.deps.getSession(input.sessionId)?.machineId ?? this.deps.defaultMachine()
+    const machineId = this.deps.getSession(input.sessionId)?.machineId ?? await this.deps.defaultMachine()
     const requestId = this.deps.nextRequestId('hb')
     return new Promise((resolve) => {
       const timer = setTimeout(() => {

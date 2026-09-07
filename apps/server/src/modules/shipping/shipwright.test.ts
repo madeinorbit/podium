@@ -246,7 +246,7 @@ describe('durable shipwright model results', () => {
     const service = new ShipwrightService({
       headless: {
         headlessSession: (sessionId) => sessions.get(sessionId) as never,
-        createHeadlessSession: (input) => {
+        createHeadlessSession: async (input) => {
           creates.push(input)
           if (!sessions.has(input.sessionId as string)) {
             sessions.set(input.sessionId as string, {
@@ -269,7 +269,7 @@ describe('durable shipwright model results', () => {
             accountId: asAccountId('native:claude-code:fingerprint-1'),
           }
         },
-        headlessTurnAck: (sessionId, turnId, requestDigest, accountId) => {
+        headlessTurnAck: async (sessionId, turnId, requestDigest, accountId) => {
           acknowledgements.push({ sessionId, turnId, requestDigest, accountId })
         },
       },
