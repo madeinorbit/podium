@@ -3267,3 +3267,44 @@ so the single home is where the deferral's *policy* lives, not only its type.
 
 Rule 57's `void` spelling remains correct for a one-off fire-and-forget that genuinely has no
 policy. The moment there is a second such site, or any policy at all, prefer the thunk.
+
+### Rule 52c, amended — widening does NOT make the EQUALITY half loud
+
+POD-3511 widened `SessionMetaOpsPorts.store` from `any` to `SessionStore` exactly as rule 56
+prescribes, and `apps/server` stayed at **0 errors**. Not one of its three sites surfaced.
+
+It did not take that as a result. Its canary assigned the same read into a `string` slot:
+
+```
+session-meta-ops.ts(109,11): error TS2322:
+  Type 'Promise<string | undefined>' is not assignable to type 'string'.
+```
+
+So the port *is* typed and tsgo *does* know the method returns a promise. It simply has no
+opinion on the two spellings actually in use — which belong on 52c's silent list:
+
+| spelling | why silent |
+|---|---|
+| `p === undefined` | legal at any type; TS2367 does not fire against `undefined` |
+| `(string \| Promise<string>) !== s` | the types overlap, so the comparison is well-formed |
+
+**THE STRONGER CLAIM, and it corrects how I have been briefing this.** Rule 56's "widen the
+port first, then let the compiler name the sites" is still right about the widening being the
+load-bearing half — it is what let the canary speak, and it is what will refuse a future sync
+spelling. But it is **not a search procedure** for the equality half. Those sites have to be
+read for. A worker who widens, sees zero errors, and reports the class clear has proved
+nothing; the canary is what distinguishes "no defects" from "no opinion".
+
+**AND ONE `any` IS RARELY THE ONLY ONE.** The same interface also declared `repository: any`,
+which was hiding the offer *writes*. Widening that one named a site nobody had listed:
+`session-meta-ops.ts:456`, `sessionFromStoredRow(row, 'restore') as Session | null`, where the
+method is async — a **second** promise-absorbing cast in the same method, one line below the
+cast POD-3507 fixed. A promise is never `null`, so the `.filter` on the next line kept every
+row and every "restored session" downstream was a promise.
+
+> **Fixing one cast in a method is not fixing the method.** When a cast is found absorbing a
+> promise, re-read the whole enclosing function for siblings before closing.
+
+Twelve of that interface's fourteen members are still `any`; a probe widening three of them
+named six further sites in the same file. Filed separately rather than smuggled into an
+unrelated fix — which is the right instinct and the reason the finding is legible at all.
