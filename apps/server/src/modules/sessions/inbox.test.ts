@@ -97,6 +97,7 @@ function harness(
   const rejected: unknown[] = []
   const answered: unknown[] = []
   const promptFailed = vi.fn()
+  const attentionStateChanged = vi.fn()
   let draft: string | undefined
   const setSessionDraft = vi.fn(({ text }: { sessionId: SessionId; text: string }) => {
     draft = text || undefined
@@ -205,7 +206,7 @@ function harness(
       rejected: (input) => rejected.push(input),
     },
     attention: {
-      stateChanged: vi.fn(),
+      stateChanged: attentionStateChanged,
       answered: async (input) => {
         answered.push(input)
       },
@@ -301,6 +302,7 @@ function harness(
     rejected,
     answered,
     promptFailed,
+    attentionStateChanged,
     setSessionDraft,
     getDraft: () => draft,
     applied,
@@ -2867,5 +2869,26 @@ describe('offer retirement before inbox admission', () => {
     expect(h.rows).toEqual([])
     expect(h.sent).toEqual([])
     expect(h.answered).toEqual([])
+  })
+})
+
+
+describe('async ownership at attention delivery', () => {
+  it.each([ALICE, null, undefined])('delivers only a resolved owner (%s)', async (owner) => {
+    const h = harness({ ownerOf: async () => owner })
+    const input = {
+      sessionId: SID,
+      prev: undefined,
+      next: { phase: 'idle' as const, since: '2026-09-07T12:00:00.000Z', nativeSubagentCount: 0 },
+    }
+    await h.inbox.stateChanged(input)
+    if (owner) {
+      expect(h.attentionStateChanged).toHaveBeenCalledExactlyOnceWith({
+        ...input,
+        ownerUserId: ALICE,
+      })
+    } else {
+      expect(h.attentionStateChanged).not.toHaveBeenCalled()
+    }
   })
 })

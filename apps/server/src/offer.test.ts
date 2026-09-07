@@ -6,6 +6,7 @@ import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { inProcessMachinePrincipal } from './gateway/daemon-mux'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -752,5 +753,84 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       })
       expect(derived).toContain('turnEnd')
     })
+  })
+})
+
+
+describe('offer retirement across awaited owner notification', () => {
+  it.each([false, true])('clears only the original offer (replacement: %s)', async (replace) => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    let resume!: () => void
+    let entered!: () => void
+    const paused = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const released = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    let transition: Promise<void> | undefined
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'))
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/p',
+      })
+      await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      await vi.waitFor(async () =>
+        expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message),
+      )
+      const client = attachTestClient(reg.clientGateway, () => {})
+      await reg.clientGateway.routeClientFrame(client, { type: 'attach', sessionId })
+      vi.setSystemTime(new Date('2026-09-07T12:01:00.000Z'))
+      await reg.clientGateway.routeClientFrame(client, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from('x').toString('base64'),
+      })
+      expect(reg.modules.sessions.sessions.get(sessionId)?.terminal.lastUserInputAtMs).toBe(
+        Date.parse('2026-09-07T12:01:00.000Z'),
+      )
+      vi.spyOn(reg.modules.sessions.inbox, 'stateChanged').mockImplementationOnce(async () => {
+        entered()
+        await released
+      })
+      transition = reg.modules.sessions.onSessionDaemonFrame(
+        inProcessMachinePrincipal(reg.sessionStore.hostMachineId),
+        {
+          type: 'agentState',
+          sessionId,
+          state: { phase: 'working', since: '2026-09-07T12:02:00.000Z', nativeSubagentCount: 0 },
+        },
+      )
+      await paused
+      if (replace) {
+        vi.setSystemTime(new Date('2026-09-07T12:00:30.000Z'))
+        // Both offers precede the event and input timestamps. Only identity,
+        // not the existing event-time guard, can distinguish the replacement.
+        await reg.modules.sessions.setOffer({
+          sessionId,
+          message: 'Replacement must survive',
+          actions: [],
+        })
+        await vi.waitFor(async () =>
+          expect((await metaOffer(reg, sessionId))?.message).toBe('Replacement must survive'),
+        )
+      }
+      resume()
+      await transition
+      await vi.waitFor(async () =>
+        expect((await metaOffer(reg, sessionId))?.message).toBe(
+          replace ? 'Replacement must survive' : undefined,
+        ),
+      )
+    } finally {
+      resume()
+      await transition
+      vi.restoreAllMocks()
+      vi.useRealTimers()
+      reg.dispose()
+    }
   })
 })
