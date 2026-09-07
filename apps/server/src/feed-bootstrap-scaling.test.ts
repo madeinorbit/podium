@@ -362,11 +362,11 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
   )).length
 }
 
-/** Point reads and batched reads of the `grants` table during `run`. */
-function grantReadsDuring(reg: SessionRegistry, run: () => void): {
+/** Count the entire async pass, keeping the probes installed until delivery finishes. */
+async function grantReadsDuring(reg: SessionRegistry, run: () => Promise<unknown>): Promise<{
   points: number
   batches: number
-} {
+}> {
   const { store } = internals(reg)
   const one = store.grants.listForResource.bind(store.grants)
   const many = store.grants.listForResources.bind(store.grants)
@@ -381,7 +381,7 @@ function grantReadsDuring(reg: SessionRegistry, run: () => void): {
     return await many(kind, ids)
   }
   try {
-    run()
+    await run()
   } finally {
     store.grants.listForResource = one
     store.grants.listForResources = many
@@ -400,12 +400,12 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
     expect(await seedGrantedIssues(small, 4)).toBe(4)
     expect(await seedGrantedIssues(large, 32)).toBe(32)
 
-    const a = grantReadsDuring(small, () => {
-      internals(small).ledger.authority.bootstrap(feedPrincipal)
-    })
-    const b = grantReadsDuring(large, () => {
-      internals(large).ledger.authority.bootstrap(feedPrincipal)
-    })
+    const a = await grantReadsDuring(small, () =>
+      internals(small).ledger.authority.bootstrap(feedPrincipal),
+    )
+    const b = await grantReadsDuring(large, () =>
+      internals(large).ledger.authority.bootstrap(feedPrincipal),
+    )
 
     // THE CONSERVED QUANTITY. Before the prefetch these read 4 and 32.
     expect(a.points).toBe(0)
@@ -432,20 +432,42 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
       capability: asCapabilityRef('cap:probe-2'),
     }
     const delivered: number[] = []
-    const off1 = ledger.authority.subscribe(feedPrincipal, () => delivered.push(1))
-    const off2 = ledger.authority.subscribe(second, () => delivered.push(2))
+    const payloads: unknown[] = []
+    let finishDelivery!: () => void
+    const delivery = new Promise<void>((resolve) => { finishDelivery = resolve })
+    const onDelivery = (subscriber: number, batch: unknown) => {
+      payloads.push(batch)
+      delivered.push(subscriber)
+      if (delivered.length === 2) finishDelivery()
+    }
+    const off1 = ledger.authority.subscribe(feedPrincipal, (batch) => onDelivery(1, batch))
+    const off2 = ledger.authority.subscribe(second, (batch) => onDelivery(2, batch))
     try {
-      const reads = grantReadsDuring(reg, () => {
-        ledger.capture([
+      const reads = await grantReadsDuring(reg, async () => {
+        await ledger.capture([
           { entity: 'issue', id: 'iss_shared_0', op: 'upsert', value: { id: 'iss_shared_0', v: 2 } },
         ] as EntityChangeSpec[])
+        // capture appends durably; post-commit delivery completes separately.
+        // Keep the read probes installed through both subscriber callbacks.
+        await delivery
       })
       // CONTROL: both subscribers really were evaluated, so a count of 1 below
       // is one read shared by two passes and not one pass that happened.
       expect(delivered).toEqual([1, 2])
+      for (const batch of payloads) {
+        expect(batch).toEqual(expect.objectContaining({
+          kind: 'batch',
+          changes: expect.arrayContaining([expect.objectContaining({
+            entity: 'issue',
+            entityId: 'iss_shared_0',
+            op: 'upsert',
+            value: { id: 'iss_shared_0', v: 2 },
+          })]),
+        }))
+      }
       expect(reads.points).toBe(0)
-      // ONE, NOT TWO. Preparing inside the per-principal call reads 2 here, and
-      // N for N connected clients — on every commit.
+      // Preparing inside the per-principal call multiplies reads by the
+      // connected client count on every commit.
       expect(reads.batches).toBe(1)
     } finally {
       off1()
