@@ -18,6 +18,7 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
+import { captureLogs } from '../../test-support/capture-logs'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session, SessionDurableState } from './session'
@@ -106,7 +107,7 @@ function harness(
     resurrections.push({ sessionId, principal })
   })
   const interrupted = vi.fn()
-  const interruptedPending = vi.fn()
+  const interruptedPending = vi.fn(async () => {})
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -950,6 +951,50 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
     expect(h.interrupted).not.toHaveBeenCalled()
+  })
+
+  it('waits for pending retraction before resolving an interrupt', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    h.interruptedPending.mockImplementationOnce(() => pending)
+    let settled = false
+    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+      .then((value) => { settled = true; return value })
+    await vi.waitFor(() => expect(h.interruptedPending).toHaveBeenCalled())
+    try {
+      expect(settled).toBe(false)
+    } finally {
+      release()
+      await result
+    }
+  })
+
+  it('propagates the pending retraction failure before confirming an interrupt', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    h.interruptedPending.mockRejectedValueOnce(new Error('pending retraction write failed'))
+    await expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() }))
+      .rejects.toThrow('pending retraction write failed')
+  })
+
+  it('logs a failed native pending retraction while forwarding Escape immediately', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const logs = captureLogs()
+    h.interruptedPending.mockRejectedValueOnce(new Error('native retraction write failed'))
+    try {
+      h.inbox.handleControllerInput(
+        testClientPrincipal('browser-1'),
+        { id: 'client-1' } as ClientConn,
+        SID,
+        Buffer.from('\x1b').toString('base64'),
+      )
+      expect(h.handleInput).toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(logs.text()).toContain('native retraction write failed')
+    } finally {
+      logs.restore()
+    }
   })
 
   it('does not cancel a chat send for Escape from a non-controlling terminal client', async () => {

@@ -46,7 +46,7 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
         applied: vi.fn(),
         injected: vi.fn(),
         interrupted: vi.fn(),
-        interruptedPending: vi.fn(),
+        interruptedPending: vi.fn(async () => {}),
         rejected: vi.fn(),
       },
       attention: {

@@ -7135,3 +7135,28 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     })
   })
 })
+
+
+describe('pending interrupt retraction wiring', () => {
+  it('propagates the wired pending cancellation write failure', async () => {
+    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    try {
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+      const { sessionId } = await registry.modules.sessions.createSession({
+        agentKind: 'codex', cwd: '/repo',
+      })
+      const cancel = vi.spyOn(registry.modules.messages, 'cancelPendingOperatorMessage')
+        .mockRejectedValueOnce(new Error('wired pending cancellation write failed'))
+      await expect(registry.modules.sessions.interruptTurn({
+        sessionId,
+        principal: {
+          kind: 'agent', principalRef: sessionId, delegation: asDelegationRef(sessionId),
+          attribution: { actor: actorAgent(asAgentIdentityId(sessionId)), onBehalfOf: FIRST_ADMIN_USER_ID },
+        },
+      })).rejects.toThrow('wired pending cancellation write failed')
+      expect(cancel).toHaveBeenCalledWith(sessionId, undefined)
+    } finally {
+      registry.dispose()
+    }
+  })
+})
