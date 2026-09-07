@@ -71,7 +71,7 @@ import type { MachineGrant, MachineVerb, ResolvedMachine } from '@podium/protoco
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { onBehalfOfUser } from './command-principal'
-import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
+import { currentReadScope, inExplicitReadScope, readScopeSlot } from './store/executor/read-scope'
 
 /**
  * One machine's ownership facts — DERIVED from the handshake's
@@ -227,13 +227,12 @@ const ownershipByPassSlot = readScopeSlot(
  * acquisition.
  */
 export function ownershipFromMachinesPerPass(machines: MachineRowSource): MachineOwnershipIndex {
-  const scope = currentReadScope()
-  if (!scope.explicit) {
+  if (!inExplicitReadScope()) {
     throw new Error(
       'ownershipFromMachinesPerPass requires an explicit read scope for each authorization pass',
     )
   }
-  const snapshots = scope.slot(ownershipByPassSlot)
+  const snapshots = currentReadScope().slot(ownershipByPassSlot)
   let rows = snapshots.get(machines)
   if (!rows) {
     rows = new Map()

@@ -86,9 +86,8 @@ export class IssuesRepository {
    * cannot run inside a synchronous turn, which is to say sound only while the
    * store is synchronous. The first `await` anywhere in the fan-out drops it,
    * and this epic's whole business is putting awaits in that fan-out. The
-   * lifetime is now a {@link ReadScope}, which a pass opens around itself and
-   * which becomes a real read lease at the flip; the microtask turn survives
-   * only as the scope's fallback owner, in `read-scope.ts`, and dies with it.
+   * lifetime is now a {@link ReadScope}, which a pass opens around itself.
+   * Unscoped reads get a fresh cache per read; no microtask owns its lifetime.
    *
    * `disabled` is the frame-that-writes rule, unchanged: a scope that WRITES
    * issues does not cache at all, because populating a cache from inside an

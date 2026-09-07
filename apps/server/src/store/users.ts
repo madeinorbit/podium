@@ -83,8 +83,7 @@ export class UsersRepository {
    * say sound only while the store is synchronous, and dropped by the first
    * `await` anywhere in the fan-out this exists for. It is a {@link ReadScope}
    * slot now: a pass opens a scope around itself and the cache lives for the
-   * scope, which becomes a real read lease at the flip. The microtask turn
-   * survives only as the scope's fallback owner, in `read-scope.ts`.
+   * scope across awaits. Unscoped reads get a fresh cache per read.
    *
    * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, and reading it through a slot
    * is the PER-PASS form of spec rule 18's open question. It is legitimate here

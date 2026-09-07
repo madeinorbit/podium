@@ -2,6 +2,7 @@ import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { type StatementProbeHolder, probeStatements } from './store/executor'
+import { withReadScope } from './store/executor/read-scope'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -23,8 +24,7 @@ import { openTestStore } from './test-support/open-test-store'
  * repository that count is 1 forever however many times the read runs — the
  * probe would report a cache that works whether or not it does. The seam counts
  * EXECUTIONS on whichever feed issued them, so the number survives the
- * conversion. Today the store is unconverted and the two counts coincide, which
- * is exactly why this moves now rather than in a conversion commit.
+ * conversion. The probe continues to count reads through the async store.
  */
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
@@ -40,65 +40,73 @@ const readProbe = (store: SessionStore): (() => number) => {
 }
 
 const freshStore = async (): Promise<SessionStore> => {
-  const store = await openTestStore(':memory:')
-  await Promise.resolve()
-  return store
+  return await openTestStore(':memory:')
 }
 
-describe('account frame read cache', () => {
-  it('reads the account once per frame and re-reads on the next turn', async () => {
+describe('account scope read cache', () => {
+  it('reads the account once per scope and re-reads in the next scope', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
 
-    const first = await store.users.get(FIRST_ADMIN_USER_ID)
-    const afterFirst = reads()
-    expect(afterFirst).toBeGreaterThan(0)
+    const afterFirst = await withReadScope(async () => {
+      const first = await store.users.get(FIRST_ADMIN_USER_ID)
+      const afterFirst = reads()
+      expect(afterFirst).toBeGreaterThan(0)
 
-    await store.users.get(FIRST_ADMIN_USER_ID)
-    await store.users.roleOf(FIRST_ADMIN_USER_ID)
-    expect(reads()).toBe(afterFirst)
-    expect((await store.users.get(FIRST_ADMIN_USER_ID))?.role).toBe(first?.role)
+      await store.users.get(FIRST_ADMIN_USER_ID)
+      await store.users.roleOf(FIRST_ADMIN_USER_ID)
+      expect(reads()).toBe(afterFirst)
+      expect((await store.users.get(FIRST_ADMIN_USER_ID))?.role).toBe(first?.role)
+      return afterFirst
+    })
 
-    await Promise.resolve()
-    await store.users.get(FIRST_ADMIN_USER_ID)
-    expect(reads()).toBeGreaterThan(afterFirst)
+    await withReadScope(async () => {
+      await store.users.get(FIRST_ADMIN_USER_ID)
+      expect(reads()).toBeGreaterThan(afterFirst)
+    })
   })
 
   it('caches "no account" as an answer, because that is the verdict callers act on', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
-    expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
-    const afterFirst = reads()
-    // PAIRED WITH THE BOUND BELOW [POD-3407]. See the sibling test in
-    // store-issues-frame-cache.test.ts: 0 === 0 passes, so without this the
-    // assertion below certifies a cache it never observed.
-    expect(afterFirst).toBeGreaterThan(0)
-    expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
-    expect(await store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
-    expect(reads()).toBe(afterFirst)
+    await withReadScope(async () => {
+      expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
+      const afterFirst = reads()
+      // PAIRED WITH THE BOUND BELOW [POD-3407]. See the sibling test in
+      // store-issues-frame-cache.test.ts: 0 === 0 passes, so without this the
+      // assertion below certifies a cache it never observed.
+      expect(afterFirst).toBeGreaterThan(0)
+      expect(await store.users.get(asUserId('user-nobody'))).toBeUndefined()
+      expect(await store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
+      expect(reads()).toBe(afterFirst)
+    })
   })
 
   it('hands every caller its own object', async () => {
     const store = await freshStore()
-    const first = await store.users.get(FIRST_ADMIN_USER_ID)
-    expect(first).toBeDefined()
-    if (first) first.displayName = 'Mutated by its reader'
-    expect((await store.users.get(FIRST_ADMIN_USER_ID))?.displayName).not.toBe('Mutated by its reader')
+    await withReadScope(async () => {
+      const first = await store.users.get(FIRST_ADMIN_USER_ID)
+      expect(first).toBeDefined()
+      if (first) first.displayName = 'Mutated by its reader'
+      expect((await store.users.get(FIRST_ADMIN_USER_ID))?.displayName).not.toBe('Mutated by its reader')
+    })
   })
 
-  it('a mint inside the frame is visible to the read that follows it', async () => {
+  it('a mint inside the scope is visible to the read that follows it', async () => {
     const store = await freshStore()
-    expect(await store.users.get(asUserId('user-minted'))).toBeUndefined()
-    await store.users.create(
-      {
-        id: 'user-minted',
-        displayName: 'Minted',
-        role: 'member',
-        createdAt: 't0',
-        disabledAt: null,
-      },
-      'hash',
-    )
-    expect((await store.users.get(asUserId('user-minted')))?.displayName).toBe('Minted')
+    await withReadScope(async () => {
+      expect(await store.users.get(asUserId('user-minted'))).toBeUndefined()
+      await store.users.create(
+        {
+          id: 'user-minted',
+          displayName: 'Minted',
+          role: 'member',
+          createdAt: 't0',
+          disabledAt: null,
+        },
+        'hash',
+      )
+      expect((await store.users.get(asUserId('user-minted')))?.displayName).toBe('Minted')
+    })
   })
 })

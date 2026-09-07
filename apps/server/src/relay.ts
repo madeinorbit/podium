@@ -1380,18 +1380,17 @@ export class SessionRegistry {
           // sweep asks for this on every host sample, and the whole point of the
           // narrow query is that a five-second path never materializes issue rows.
           //
-          // ONE statement per FRAME, not one per projection [POD-1931]. A single
+          // ONE statement per SCOPE, not one per projection [POD-1931]. A single
           // `sample()` asks for this projection four to six times PER MACHINE —
           // idle-live counting, shell-idle, backstop, the unobserved report, and
           // once more per hibernate attempt — and each ask was scanning the whole
           // `issues` table. Measured live: 280 full scans / 4 minutes, 2.6s of
           // blocked event loop.
           //
-          // Only the CLOSED SET is memoized, and only for the current
-          // synchronous turn. The session list itself stays live on every call,
-          // which is what the re-read after a hibernate attempt depends on;
-          // whether an ISSUE is closed cannot change inside a frame that never
-          // yields, so the memo returns the same answer the query would.
+          // Only the CLOSED SET is memoized for the host sample's explicit
+          // read scope, including across awaits. The session list itself stays
+          // live on every call, which is what the re-read after a hibernate
+          // attempt depends on.
           const closed = await closedIssueIdsInScope()
           return [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
