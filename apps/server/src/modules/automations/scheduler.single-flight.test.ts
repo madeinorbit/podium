@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AUTOMATIONS_BOOT_DELAY_MS,
   AUTOMATIONS_INTERVAL_MS,
@@ -6,87 +7,82 @@ import {
 } from './scheduler'
 
 /**
- * THE OVERLAP IS REAL, NOT SIMULATED (POD-3258). The probe re-enters the timer
- * from inside the callback — `vi.advanceTimersByTime` fires the interval
- * synchronously, so the second tick begins while the first is still on the
- * stack. That is precisely the shape an awaited store call will create once the
- * pass yields, and it is the only way to produce it while the body is still
- * synchronous.
+ * Timer advancement must let the awaited pass settle before expecting the boot
+ * callback to install its interval or the single-flight fence to clear. Passes
+ * deliberately cross a real event-loop turn, as asynchronous store work can;
+ * synchronous fake-clock advancement (or a microtask count) cannot drain that.
  */
 describe('AutomationScheduler single-flight (POD-3258)', () => {
-  it('skips a tick that lands on a pass already running', () => {
-    vi.useFakeTimers()
+  let scheduler: AutomationScheduler
+
+  beforeEach(() => {
+    // Keep setImmediate real: it models work outside the scheduler's clock.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  })
+
+  afterEach(() => {
+    scheduler?.dispose()
+    vi.useRealTimers()
+  })
+
+  it('skips a tick that lands on a pass already running', async () => {
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const tick = vi.fn(async () => {
+      await setImmediate()
+      if (tick.mock.calls.length === 2) await pending
+    })
+    scheduler = new AutomationScheduler({ tick })
+    scheduler.start()
+
     try {
-      let passes = 0
-      let reentered = false
-      let armed = false
-      const scheduler = new AutomationScheduler({
-        tick: async () => {
-          passes += 1
-          // Re-enter exactly once, from inside a pass the interval drives.
-          if (armed && !reentered) {
-            reentered = true
-            vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
-          }
-        },
-      })
-      scheduler.start()
-      // Past the boot one-shot FIRST. `start` assigns the interval only after
-      // the boot pass returns, so re-entering from inside that pass would have
-      // nothing to fire and the test would pass vacuously.
-      vi.advanceTimersByTime(AUTOMATIONS_BOOT_DELAY_MS)
-      expect(passes).toBe(1)
-      armed = true
+      await vi.advanceTimersByTimeAsync(AUTOMATIONS_BOOT_DELAY_MS)
+      expect(tick).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount(), 'boot completed and installed the interval').toBe(1)
 
-      vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
-      scheduler.dispose()
+      await vi.advanceTimersByTimeAsync(AUTOMATIONS_INTERVAL_MS)
+      expect(tick).toHaveBeenCalledTimes(2)
 
-      expect(reentered).toBe(true)
-      expect(passes).toBe(2)
+      // The interval exists and the second pass is held across actual timer
+      // firings. These must be skipped, not queued for replay after release.
+      await vi.advanceTimersByTimeAsync(2 * AUTOMATIONS_INTERVAL_MS)
+      expect(tick).toHaveBeenCalledTimes(2)
+      release()
+      await setImmediate()
+      expect(tick).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(AUTOMATIONS_INTERVAL_MS)
+      expect(tick).toHaveBeenCalledTimes(3)
     } finally {
-      vi.useRealTimers()
+      release()
+      await setImmediate()
     }
   })
 
-  it('runs the next tick normally once the previous pass has finished', () => {
-    vi.useFakeTimers()
-    try {
-      let passes = 0
-      const scheduler = new AutomationScheduler({
-        tick: async () => {
-          passes += 1
-        },
-      })
-      scheduler.start()
-      vi.advanceTimersByTime(AUTOMATIONS_BOOT_DELAY_MS)
-      vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
-      vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
-      scheduler.dispose()
+  it('runs the next tick normally once the previous pass has finished', async () => {
+    const tick = vi.fn(async () => { await setImmediate() })
+    scheduler = new AutomationScheduler({ tick })
+    scheduler.start()
 
-      expect(passes).toBe(3)
-    } finally {
-      vi.useRealTimers()
-    }
+    await vi.advanceTimersByTimeAsync(AUTOMATIONS_BOOT_DELAY_MS)
+    expect(tick).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(AUTOMATIONS_INTERVAL_MS)
+    expect(tick).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(AUTOMATIONS_INTERVAL_MS)
+    expect(tick).toHaveBeenCalledTimes(3)
   })
 
-  it('releases the fence when a pass throws, so the timer is not wedged', () => {
-    vi.useFakeTimers()
-    try {
-      let passes = 0
-      const scheduler = new AutomationScheduler({
-        tick: async () => {
-          passes += 1
-          throw new Error('boom')
-        },
-      })
-      scheduler.start()
-      vi.advanceTimersByTime(AUTOMATIONS_BOOT_DELAY_MS)
-      vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
-      scheduler.dispose()
+  it('releases the fence when a pass throws, so the timer is not wedged', async () => {
+    const tick = vi.fn(async () => {
+      await setImmediate()
+      throw new Error('boom')
+    })
+    scheduler = new AutomationScheduler({ tick })
+    scheduler.start()
 
-      expect(passes).toBe(2)
-    } finally {
-      vi.useRealTimers()
-    }
+    await vi.advanceTimersByTimeAsync(AUTOMATIONS_BOOT_DELAY_MS)
+    expect(tick).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(AUTOMATIONS_INTERVAL_MS)
+    expect(tick).toHaveBeenCalledTimes(2)
   })
 })
