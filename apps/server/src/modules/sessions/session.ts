@@ -175,7 +175,13 @@ export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handof
  */
 export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
 
+/** Mutable metadata covered by draft installation and rollback.
+ * Row launch identity (model, effort, accountId, loginHarness, workflowRunId,
+ * workflowStepId, executionProfileId) is readonly and constructor-only.
+ * Transient driver handles and capabilities are not row columns. */
 export interface SessionDurableState {
+  selectedDriverId: string | undefined
+  requestedDriverId: string | undefined
   cwd: string
   issueId: IssueId | undefined
   refIssueId: IssueId | null
@@ -645,7 +651,7 @@ export class Session {
     // A spawn error means no driver ever bound. Drop both the pre-launch
     // decision and any transient handle fact so persistence cannot describe an
     // exited row as a driver family that never ran.
-    this.selectedDriverId = undefined
+    d.selectedDriverId = undefined
     this.driverId = undefined
     // …and the capability that came with the handle. Same reason: an exited row
     // must not describe what a driver that never ran could have changed.
@@ -876,6 +882,8 @@ export class Session {
    * ledger capture. Used to roll live truth back when a durable append fails. */
   captureDurableState(): SessionDurableState {
     return {
+      selectedDriverId: this.selectedDriverId,
+      requestedDriverId: this.requestedDriverId,
       cwd: this.cwd,
       issueId: this.issueId,
       refIssueId: this.refIssueId,
@@ -952,6 +960,8 @@ export class Session {
     state: SessionDurableState,
     preserve: ReadonlySet<SessionVolatileField>,
   ): void {
+    this.selectedDriverId = state.selectedDriverId
+    this.requestedDriverId = state.requestedDriverId
     this.cwd = state.cwd
     this.issueId = state.issueId
     this.refIssueId = state.refIssueId
@@ -1025,8 +1035,8 @@ export class Session {
       // 2). `driverId` deliberately does not appear here and must not: it names
       // a live handle, and a row that claimed one across a restart would send
       // W4's migrated callers down the receipt path for a driver that is gone.
-      selectedDriverId: this.selectedDriverId ?? null,
-      requestedDriverId: this.requestedDriverId ?? null,
+      selectedDriverId: d.selectedDriverId ?? null,
+      requestedDriverId: d.requestedDriverId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,
       exitCode: d.exitCode ?? null,
@@ -1093,7 +1103,7 @@ export class Session {
     // what it ended up with. They agree on every path that works, and where
     // they can differ — a launch that failed and fell back — the one that
     // describes a running session has to win.
-    const driverFamily = driverFamilyForId(this.driverId ?? this.selectedDriverId ?? '')
+    const driverFamily = driverFamilyForId(this.driverId ?? d.selectedDriverId ?? '')
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
@@ -1166,7 +1176,7 @@ export class Session {
       ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
       ...(d.handoffTarget ? { handoffTarget: d.handoffTarget } : {}),
       ...(this.driverId ? { driverId: this.driverId } : {}),
-      ...(this.requestedDriverId ? { requestedDriverId: this.requestedDriverId } : {}),
+      ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
       // The bound driver's FAMILY, so a client can pick a surface without
       // learning driver ids (POD-2290). Resolved through the manifests — the
       // same lookup the reap guard uses — and omitted when the id is absent or

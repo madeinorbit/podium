@@ -371,13 +371,14 @@ export class SessionDaemonLifecycle {
       case 'driverSelected': {
         const s = this.sessions.get(msg.sessionId)
         if (s) {
-          s.selectedDriverId = msg.driverId
           // PERSISTED, not merely held (POD-2290 round 2). Holding it in memory
           // was the whole defect the reviewer drove: a server restart rehydrates
           // live rows as `reconnecting`, and an in-memory-only selection is gone
           // by then, so a headless session came back looking like it had a
           // terminal. This write is what survives the restart.
-          await this.persist(s)
+          await this.write(s, (draft) => {
+            draft.selectedDriverId = msg.driverId
+          })
           this.broadcastSessions()
         }
         break
@@ -437,20 +438,15 @@ export class SessionDaemonLifecycle {
            * become. Guarded so an older daemon's bind, which carries no driver,
            * cannot erase a selection this session already reported.
            */
-          if (msg.driverId) s.selectedDriverId = msg.driverId
-          // Present only for a permitted manifest/machine default degradation.
-          // Reattach echoes it so daemon reconnects preserve the fact.
-          if (msg.requestedDriverId && !s.requestedDriverId)
-            s.requestedDriverId = msg.requestedDriverId
-          // `markLive` is the DURABLE half of a bind — cmd, and the status flip
-          // out of starting/reconnecting/exited — so it writes the draft this
-          // commit persists [POD-3330]. The fields above it are the live handle
-          // facts (transient, or row columns with no durable-state field), which
-          // stay assignments on the session itself. Applied here rather than at
-          // the top of the case so the flip to `live` and the row that says so
-          // land together; the drain below still sees `live`, because the draft
-          // is installed the moment the commit returns.
-          await this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
+          // Commit the driver decision and live status together. Handle facts
+          // above remain transient; durable fields are installed from the draft.
+          await this.write(s, (draft) => {
+            if (msg.driverId) draft.selectedDriverId = msg.driverId
+            // Preserve the first requested driver across reconnects.
+            if (msg.requestedDriverId && !draft.requestedDriverId)
+              draft.requestedDriverId = msg.requestedDriverId
+            s.markLive(msg.cmd, msg.geometry, draft)
+          })
           await this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()

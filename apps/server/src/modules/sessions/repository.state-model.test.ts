@@ -25,6 +25,8 @@
 
 import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 
@@ -279,4 +281,78 @@ describe('the live terminal half may change while persistence is awaiting', () =
       'the live half kept what happened during the write',
     ).toBe(true)
   })
+})
+
+
+describe('driver columns participate in draft commits', () => {
+  it.each(['selection', 'bind', 'spawn error'] as const)(
+    '%s stays invisible until commit and survives a failed commit unchanged',
+    async (operation) => {
+      const session = makeSession()
+      session.selectedDriverId = 'opencode-server'
+      const sessions = new Map([[session.sessionId, session]])
+      let fail = false
+      let inspect = () => {}
+      let row = session.toRow()
+      const repo = new SessionRepository({
+        sessions,
+        store: { sessions: { upsertSession: (next: typeof row) => { row = next } } },
+        ledger: {
+          commit: async ({ write }: { write: () => Promise<void> }) => {
+            const previous = row
+            await write()
+            inspect()
+            if (fail) {
+              row = previous
+              throw new Error('commit failed')
+            }
+            return { changes: [] }
+          },
+        },
+        view: { wire: () => ({}) },
+      } as never)
+      await repo.persist(session)
+      const lifecycle = new SessionDaemonLifecycle({
+        sessions,
+        persist: repo.persist.bind(repo),
+        write: repo.write.bind(repo),
+        broadcastSessions: vi.fn(),
+        emitSessionExited: vi.fn(),
+        autoContinue: { onSessionLive: vi.fn() },
+        inbox: { markSessionBound: vi.fn(), drain: vi.fn() },
+      } as never)
+      const principal = {
+        kind: 'machine' as const,
+        machine: MACHINE,
+        device: asDeviceId('driver-test'),
+        capability: asCapabilityRef('driver-test'),
+      }
+      const send = () => lifecycle.handle(principal, operation === 'spawn error'
+        ? { type: 'spawnError', sessionId: session.sessionId, message: 'refused' }
+        : operation === 'selection'
+          ? { type: 'driverSelected', sessionId: session.sessionId, driverId: 'generic-pty' }
+          : {
+              type: 'bind', sessionId: session.sessionId, driverId: 'generic-pty',
+              requestedDriverId: 'opencode-server', cmd: 'agent', cwd: '/work',
+              agentKind: 'claude-code', geometry: { cols: 80, rows: 24 },
+            })
+      const expected = operation === 'spawn error' ? undefined : 'generic-pty'
+      inspect = () => {
+        expect(session.selectedDriverId).toBe('opencode-server')
+        expect(session.requestedDriverId).toBeUndefined()
+        expect(row.selectedDriverId).toBe(expected ?? null)
+        expect(row.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : null)
+      }
+      fail = true
+      await expect(send()).rejects.toThrow('commit failed')
+      expect(session.selectedDriverId).toBe('opencode-server')
+      expect(session.requestedDriverId).toBeUndefined()
+      expect(row.selectedDriverId).toBe('opencode-server')
+      expect(row.requestedDriverId).toBeNull()
+      fail = false
+      await send()
+      expect(session.selectedDriverId).toBe(expected)
+      expect(session.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : undefined)
+    },
+  )
 })
