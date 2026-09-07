@@ -51,6 +51,8 @@ export interface ClientConn {
    * facts and NEVER from a frame body.
    */
   principal: ClientPrincipal
+  /** Socket termination on admission failure; absent for in-process sinks. */
+  terminate?: () => void
   send: Send<ServerMessage>
   /** Lossy stream sink. False means the frame was dropped under pressure. */
   sendStream?: (message: ServerMessage) => boolean

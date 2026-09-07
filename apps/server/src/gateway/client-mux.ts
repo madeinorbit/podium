@@ -114,6 +114,8 @@ const DISPATCH: Dispatcher = {
 
 /** What a socket hands the mux when it attaches. Transport facts only. */
 export interface ClientTransport {
+  /** End a failed admission; omitted only by in-process peers. */
+  terminate?: () => void
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
   userRole?: UserRole
@@ -195,6 +197,7 @@ export class ClientMux {
       // only input; nothing a client can send participates.
       principal,
       send: transport.send,
+      ...(transport.terminate ? { terminate: transport.terminate } : {}),
       ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
       ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
       sendStream:
@@ -426,6 +429,7 @@ export class ClientMux {
   private peerOf(conn: ClientConn) {
     return {
       id: conn.id,
+      ...(conn.terminate ? { terminate: conn.terminate } : {}),
       wireVersion: conn.wireVersion,
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
       send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>

@@ -28,6 +28,7 @@ import type { EdgePeer } from './wire-feed-edge'
 
 class Peer implements EdgePeer {
   readonly received: ServerMessage[] = []
+  readonly terminate = vi.fn()
   constructor(
     readonly id: string,
     readonly wireVersion: number,
@@ -554,20 +555,58 @@ describe('an admission is deferred, and the deferral is a contract', () => {
     expect(p.serving.connectionCount()).toBe(0)
   })
 
-  it('reports a failed world read instead of leaking an unhandled rejection', async () => {
+  it.each(['attach', 'renegotiate'] as const)('terminates a failed world read from %s', async (entry) => {
     const p = await feedTestPlumbing()
     await commit(p, 'session', 's1', { sessionId: 's1' })
     vi.spyOn(p.authority, 'bootstrap').mockRejectedValue(new Error('PROBE: the world read failed'))
     const peer = new Peer('doomed', WIRE_VERSION, true)
 
-    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    expect(p.serving[entry](peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
+    expect(peer.terminate).not.toHaveBeenCalled()
     // RESOLVES, does not reject: the rejection is caught and logged at the one
     // place the deferral is spelled. Before the fix it reached no `catch` at all,
     // because nothing held the promise — the client waited forever for a bootstrap
     // and the only trace was an unhandled rejection on a later tick.
     await expect(p.serving.admissionSettled()).resolves.toBeUndefined()
 
+    expect(peer.terminate).toHaveBeenCalledOnce()
     expect(peer.received).toEqual([])
     expect(p.serving.connectionCount()).toBe(0)
+  })
+})
+
+
+describe('failed admission ownership', () => {
+  it('does not terminate a replacement peer when an abandoned read rejects', async () => {
+    const p = await feedTestPlumbing()
+    let rejectRead!: (error: Error) => void
+    vi.spyOn(p.authority, 'bootstrap').mockImplementationOnce(() =>
+      new Promise((_, reject) => { rejectRead = reject }),
+    )
+    const old = new Peer('reused', WIRE_VERSION, true)
+    p.serving.attach(old, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(old.id))
+    await vi.waitFor(() => expect(rejectRead).toBeTypeOf('function'))
+    p.serving.detach(old.id)
+    const replacement = new Peer(old.id, WIRE_VERSION, true)
+    p.serving.attach(replacement, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(replacement.id))
+    rejectRead(new Error('abandoned read failed'))
+    await p.serving.admissionSettled()
+    expect(old.terminate).not.toHaveBeenCalled()
+    expect(replacement.terminate).not.toHaveBeenCalled()
+    expect(replacement.types()).toContain('feedBootstrap')
+    expect(p.serving.connectionCount()).toBe(1)
+  })
+
+  it('owns a termination exception and releases the admission slot', async () => {
+    const p = await feedTestPlumbing()
+    vi.spyOn(p.authority, 'bootstrap').mockRejectedValueOnce(new Error('read failed'))
+    const peer = new Peer('throwing', WIRE_VERSION, true)
+    peer.terminate.mockImplementation(() => { throw new Error('transport failed') })
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await expect(p.serving.admissionSettled()).resolves.toBeUndefined()
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    await p.serving.admissionSettled()
+    expect(peer.types()).toContain('feedBootstrap')
+    expect(p.serving.connectionCount()).toBe(1)
   })
 })
