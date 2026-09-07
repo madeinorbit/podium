@@ -3308,3 +3308,40 @@ row and every "restored session" downstream was a promise.
 Twelve of that interface's fourteen members are still `any`; a probe widening three of them
 named six further sites in the same file. Filed separately rather than smuggled into an
 unrelated fix — which is the right instinct and the reason the finding is legible at all.
+
+### Rule 60 — a RED LANE HIDES ITS OWN CAUSES: triage by error string, not by count
+
+POD-3515 set out to explain why a crashing site had no test, and found the opposite. In its
+words:
+
+> "This did not ship for want of a test. It shipped PAST a test that was already red."
+
+The site *is* exercised, through the production wiring, by two suites — and both were failing
+on the base with the defect's own `TypeError`. Nobody looked at *which* failures, only at how
+many, and a lane that is already red absorbs a new defect without changing colour.
+
+**COUNT THE ERROR STRING.** POD-3515's strongest evidence is not a pass/fail delta, it is:
+
+```
+relay.test.ts + answer-delivery   base 137 occurrences -> 0
+services shard                    base   2 occurrences -> 0
+    "TypeError: bag.store.sync.queuedMessageCounts().keys is not a function"
+```
+
+137 crashes removed while the lane stayed red, because those same tests also hit a *second*
+defect on the same path (`session-authz.ts:355`, a promise read as a Map). Two defects on one
+path: removing one cannot turn the lane green, so the pass count is the wrong instrument and
+the error-string count is the right one.
+
+**THE CONSEQUENCE FOR THIS EPIC.** We have carried "inherited reds on the base, not ours" as a
+standing exclusion all the way through. That is correct as a rule about *ownership* and
+dangerous as a habit of *attention*: a red file is not a closed question, it is an unread one.
+Before excluding a red as pre-existing, grep it for the error string of whatever you are
+working on. POD-3515 found 137 instances of its own defect inside a lane everyone had agreed
+to ignore.
+
+**AND CLASSIFY BEFORE YOU BUCKET.** POD-3515's own first pass mis-attributed two tests as
+timeouts using a `grep -B 40 "Test timed out"` window, which swept in neighbours. It caught
+that itself and reported it. A crude proximity window is not a classifier; match the failure to
+its own test name, and state the timeout count per arm so the reader can see whether any
+conclusion rests on one.
