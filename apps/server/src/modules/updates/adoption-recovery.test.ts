@@ -83,10 +83,10 @@ async function fixture() {
         },
       })
     },
-    reboot(recoveryOnly = false) {
+    async reboot(recoveryOnly = false) {
       registry.dispose()
-      store.close()
-      return open(recoveryOnly)
+      await store.close()
+      return await open(recoveryOnly)
     },
     close() {
       registry.dispose()
@@ -120,10 +120,10 @@ describe('production adoption restores supervised execution proof', () => {
       // This is the production pre-health supervisor hello: its build is now
       // persisted while the grant has no healthy execution report.
       h.hello('a')
-      expect(h.store.machines.listMachines().find((m) => m.id === 'a')?.appVersion).toBe(
+      expect((await h.store.machines.listMachines()).find((m) => m.id === 'a')?.appVersion).toBe(
         target.version,
       )
-      const boot = h.reboot()
+      const boot = await h.reboot()
       expect(boot.modules.updates.fleet().find((m) => m.id === 'a')).toMatchObject({
         online: false,
         state: 'granted',
@@ -200,7 +200,7 @@ describe('production adoption restores supervised execution proof', () => {
         expect(updates.operationActive('dev')).toBe(false)
         expect(h.store.updateRecovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
         if (reboot) {
-          const boot = h.reboot()
+          const boot = await h.reboot()
           await boot.modules.operations.engine.adoptOnBoot(
             () => ({ appVersion: target.version, servedWebDigest: undefined,
               machineDirectory: boot.modules.updates.fleet(), now: Date.now() }),
@@ -227,7 +227,7 @@ describe('production adoption restores supervised execution proof', () => {
           expect(h.store.operations.get(id)?.state).toBe('canceled')
           expect(h.sent.map((s) => s.id)).toEqual(['a'])
         }
-        const boot = h.reboot()
+        const boot = await h.reboot()
         h.hello('a')
         h.hello('b', '0.4.1')
         expect(boot.modules.updates.fleet().find((m) => m.id === 'a')?.state).toBe('current')
@@ -253,7 +253,7 @@ describe('production adoption restores supervised execution proof', () => {
       updates.releaseInFlightGrants('Canceled')
       h.hello('a')
       const saved = h.store.updateRecovery.read()
-      const boot = h.reboot(true)
+      const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
       boot.modules.updates.onStatus(asMachineId('a'), {
         type: 'updateStatus', state: 'current', version: target.version,
@@ -297,7 +297,7 @@ describe('production adoption restores supervised execution proof', () => {
         h.store.updateRecovery.write(saved)
       }
       const before = h.store.updateRecovery.read()
-      const boot = h.reboot(true)
+      const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
       // Projection would set canaryHealthy and (for a legacy grant) retire rows.
       // Those are precisely the writes that a constructor-only fix missed.
