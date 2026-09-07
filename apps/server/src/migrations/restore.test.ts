@@ -24,11 +24,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { applyBaselineSchema, runDrizzleMigrations } from './index'
+import { appliedDrizzleNames, applyBaselineSchema, runDrizzleMigrations } from './index'
 import { restoreCliMain, restoreDatabase } from './restore'
 import { syncServerTables } from './sync-server-tables'
 
 const PLENTY = () => Number.MAX_SAFE_INTEGER
+const FEED_IDENTITY_MIGRATION = '20260730181721_add-feed-identity-table'
 const FEED_IDENTITY_SINGLETON_MIGRATION = 'feed-identity-singleton'
 
 const dirs: string[] = []
@@ -38,12 +39,12 @@ afterEach(() => {
 })
 
 /** A file-backed database on the real drizzle schema. */
-function database(): { db: SqlDatabase; dbPath: string; dir: string } {
+function database(migrations = DRIZZLE_MIGRATIONS): { db: SqlDatabase; dbPath: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'podium-restore-'))
   dirs.push(dir)
   const dbPath = join(dir, 'podium.sqlite')
   const db = openDatabase(dbPath)
-  applyBaselineSchema(db)
+  runDrizzleMigrations(db, migrations)
   return { db, dbPath, dir }
 }
 
@@ -463,31 +464,28 @@ describe('restoreCliMain (the command-shaped entry)', () => {
   })
 })
 
-/**
- * A backup that predates the feed-identity migration. This is NOT an exotic case:
- * the [spec:SP-4428] pre-migration backup for 20260717092407 is taken BEFORE it
- * runs, so the canonical artifact for rolling THIS change back has no sync_feed
- * table and still has the migration pending.
- */
+/** A pre-migration backup for the migration that creates `feed_identity`. */
 describe('restoring a backup from before feed identity existed', () => {
-  /**
-   * A database exactly as it looked before 20260730181721 — the `feed_identity`
-   * table dropped and that migration's ledger row removed, so it is genuinely
-   * PENDING.
-   *
-   * POD-1246: this used to undo 20260717092407 (`sync_feed` + `issues.revision`)
-   * instead. After the merge with main, `sync_feed` is no longer the table the
-   * product reads — `SyncRepository` reads `feed_identity`, created by main's
-   * later migration — so dropping `sync_feed` left the restore path looking at a
-   * table that was still there, and "predates feed identity" could never fire.
-   * The fixture has to undo the migration that creates the table the code under
-   * test actually reads, not the one that shares its name.
-   */
+  function feedIdentityCut(): number {
+    const cut = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name === FEED_IDENTITY_MIGRATION)
+    expect(cut).toBeGreaterThan(0)
+    return cut
+  }
+
+  /** Build only the historical prefix; never subtract schema from the present. */
   function preFeedIdentityAuthority(): { db: SqlDatabase; dbPath: string; dir: string } {
-    const { db, dbPath, dir } = database()
-    db.exec('DROP TABLE feed_identity')
-    db.prepare("DELETE FROM __drizzle_migrations WHERE name LIKE '%add-feed-identity-table%'").run()
-    return { db, dbPath, dir }
+    return database(DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut()))
+  }
+
+  /** Exercise SQLite enforcement, so a present but unconstrained table fails. */
+  function expectSingletonConstraints(db: SqlDatabase): void {
+    const before = db.prepare('SELECT * FROM feed_identity').all()
+    for (const singleton of [0, 2]) {
+      expect(() => db.prepare(
+        'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
+      ).run(singleton, 'invalid_feed', 'invalid_epoch', 1)).toThrow(/feed_identity_singleton/)
+    }
+    expect(db.prepare('SELECT * FROM feed_identity').all()).toEqual(before)
   }
 
   it('the fixture is faithful: the migration really is pending and re-appliable', () => {
@@ -496,10 +494,16 @@ describe('restoring a backup from before feed identity existed', () => {
     // it is theatre.
     const { db, dbPath } = preFeedIdentityAuthority()
     expect(hasTable(db, 'feed_identity')).toBe(false)
+    expect([...appliedDrizzleNames(db)].sort()).toEqual(
+      DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut()).map((migration) => migration.name).sort(),
+    )
     db.close()
     const reopened = openDatabase(dbPath)
-    expect(applyBaselineSchema(reopened)).toContain('20260730181721_add-feed-identity-table')
+    expect(applyBaselineSchema(reopened)).toEqual(
+      DRIZZLE_MIGRATIONS.slice(feedIdentityCut()).map((migration) => migration.name).sort(),
+    )
     expect(hasTable(reopened, 'feed_identity')).toBe(true)
+    expectSingletonConstraints(reopened)
     reopened.close()
   })
 
@@ -515,12 +519,12 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(r).toMatchObject({ feedId: null, previousEpoch: null, epoch: null })
   })
 
-  it('the restored file still BOOTS, and the boot mints a fresh identity', async () => {
+  it('the restored file still BOOTS with singleton enforcement and a fresh identity', async () => {
     // The regression that matters. The obvious fix for the test above — have
-    // restore CREATE TABLE IF NOT EXISTS sync_feed — passes it and breaks THIS:
-    // the restored database has not applied 20260717092407, so drizzle runs it at
+    // restore CREATE TABLE IF NOT EXISTS feed_identity — passes it and breaks THIS:
+    // the restored database has not applied 20260730181721, so drizzle runs it at
     // boot and its CREATE TABLE collides with the pre-created one ("table
-    // sync_feed already exists"). That turns a loud restore-time failure into a
+    // feed_identity already exists"). That turns a loud restore-time failure into a
     // server that cannot start, during the incident, after the operator has been
     // told the restore worked. Schema creation is the migrator's job.
     const { db, dbPath } = preFeedIdentityAuthority()
@@ -537,6 +541,11 @@ describe('restoring a backup from before feed identity existed', () => {
     const identity = (await ledgerOver(booted)).feedIdentity()
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
+    expectSingletonConstraints(booted)
+    expect(() => booted.prepare(
+      'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
+    ).run('duplicate_feed', 'duplicate_epoch', 1)).toThrow(/UNIQUE constraint failed/)
+    expect(await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity()).toEqual(identity)
     booted.close()
   })
 
