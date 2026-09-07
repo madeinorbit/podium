@@ -540,43 +540,44 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
     ...(overrideScope === undefined ? {} : { overrideScope }),
   })
 
-  const outcome = (fn: () => void): string => {
+  // Await the decision: an unobserved rejection otherwise masquerades as ALLOW.
+  const outcome = async (fn: () => Promise<void>): Promise<string> => {
     try {
-      fn()
+      await fn()
       return 'allow'
     } catch (err) {
       return err instanceof TRPCError ? err.code : 'threw'
     }
   }
 
-  it('ALLOW — inside the subtree', () => {
-    expect(outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:child'))).toBe(
+  it('ALLOW — inside the subtree', async () => {
+    expect(await outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:child'))).toBe(
       'allow',
     )
   })
 
-  it('CONFIRM — outside the subtree, and --outside-scope lifts it (the shape D19.1 preserves)', () => {
+  it('CONFIRM — outside the subtree, and --outside-scope lifts it (the shape D19.1 preserves)', async () => {
     expect(
-      outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:elsewhere')),
+      await outcome(() => checkIssueAccess(caller(), issues, 'close', 'write', 'iss:elsewhere')),
     ).toBe('PRECONDITION_FAILED')
     expect(
-      outcome(() => checkIssueAccess(caller(true), issues, 'close', 'write', 'iss:elsewhere')),
+      await outcome(() => checkIssueAccess(caller(true), issues, 'close', 'write', 'iss:elsewhere')),
     ).toBe('allow')
   })
 
-  it('DENY — a role that cannot perform the action at all, and override does not lift it', () => {
+  it('DENY — a role that cannot perform the action at all, and override does not lift it', async () => {
     const viewer = { capability: { role: 'viewer', scope: { kind: 'all' } } as Capability }
-    expect(outcome(() => checkIssueAccess(viewer, issues, 'close', 'write', 'iss:child'))).toBe(
+    expect(await outcome(() => checkIssueAccess(viewer, issues, 'close', 'write', 'iss:child'))).toBe(
       'FORBIDDEN',
     )
     expect(
-      outcome(() =>
+      await outcome(() =>
         checkIssueAccess({ ...viewer, overrideScope: true }, issues, 'close', 'write', 'iss:child'),
       ),
     ).toBe('FORBIDDEN')
   })
 
-  it('APPLY-TIME-REVOKED — the same call, after the target moved out of the subtree', () => {
+  it('APPLY-TIME-REVOKED — the same call, after the target moved out of the subtree', async () => {
     // "the issue may have moved" is D8 step 2's own example, and a subtree is a
     // moving set (D19.4). Nothing is re-minted; the ancestry is simply re-read.
     const ancestry = new Map([['iss:child', ['iss:root']]])
@@ -584,11 +585,11 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
       has: (id) => ['iss:root', 'iss:child'].includes(id),
       ancestorIds: (id) => ancestry.get(id) ?? [],
     }
-    expect(outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
+    expect(await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
       'allow',
     )
     ancestry.set('iss:child', ['iss:somewhere-else'])
-    expect(outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
+    expect(await outcome(() => checkIssueAccess(caller(), moving, 'close', 'write', 'iss:child'))).toBe(
       'PRECONDITION_FAILED',
     )
   })
