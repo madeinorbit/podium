@@ -174,8 +174,12 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
     expect(await compacted.p.authority.cursor()).toBe(6)
 
-    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).not.toContain('feedResume')
-    expect((await reconnect(compacted, { ...compacted.held, seq: 4 })).types()).toEqual(['feedResume'])
+    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).not.toContain(
+      'feedResume',
+    )
+    expect((await reconnect(compacted, { ...compacted.held, seq: 4 })).types()).toEqual([
+      'feedResume',
+    ])
   })
 
   it('refuses a cursor from a wire that cannot be told it was accepted', async () => {
