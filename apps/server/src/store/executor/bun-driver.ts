@@ -277,7 +277,7 @@ function session(
 }
 
 export interface BunStoreExecutorOptions extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
-  /** The shared connection. Becomes both the driver's and the legacy handle. */
+  /** The driver's shared connection. */
   database: SqlDatabase
   /** See {@link BunDriverOptions.openReader}. */
   openReader?: () => SqlDatabase
@@ -286,16 +286,9 @@ export interface BunStoreExecutorOptions extends Omit<StoreExecutorOptions<Query
 }
 
 /**
- * The bun:sqlite composition root: driver, executor, and the legacy handle the
- * unconverted repositories still run on [POD-3254].
- *
- * ONE factory rather than a production one and a test one. `SessionStore` builds
- * its repository set through this, and so does every test that constructs a
- * repository directly — which matters because those tests are the only place a
- * repository is exercised OUTSIDE the store, and a second composition there
- * would be a second opinion about what a repository is bound to. The `legacy`
- * field is filled from the same connection the driver holds, so a converted and
- * an unconverted repository in the same set are talking to one database.
+ * The bun:sqlite composition root: one driver and executor factory for
+ * SessionStore and direct repository tests [POD-3254]. Both paths bind their
+ * repositories to the same scheduler and transaction routing.
  */
 export function createBunStoreExecutor(
   options: BunStoreExecutorOptions,

@@ -304,7 +304,7 @@ export interface Harness {
 }
 
 export interface HarnessOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'legacy'> {
+  extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
   /** Extra DDL run before the executor is built. */
   schema?: string
   /** Leave the reader connection out, to test what a driver without one does. */
