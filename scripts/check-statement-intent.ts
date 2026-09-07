@@ -4,6 +4,7 @@
  * Run:
  *   bun run lint:statement-intent           # the gate — exit 1 on any FATAL finding
  *   bun run lint:statement-intent --probe   # prove the check can say YES, both ways
+ *   bun run lint:statement-intent apps/server/src/store/accounts.test.ts # scoped measurement
  *
  * ---------------------------------------------------------------------------
  * WHAT IT CHECKS, AND WHY IT IS NOT AN INFERENCE
@@ -44,8 +45,8 @@
  * A RUN THAT CHECKED NOTHING MUST NOT READ AS A PASS
  * ---------------------------------------------------------------------------
  *
- * Today no repository is converted, so the corpus is the executor's own tests —
- * few hundred statements, and honestly reported as such. Every run prints how
+ * Repository tests feed the audit through `stageASeam`; executor tests feed it
+ * through `openHarness`. Every run prints how
  * many statements it EXAMINED, how many the text was evidence of a write for,
  * and how many it refused to grade. An examined count of zero FAILS: an absence
  * proved by an instrument that ran over nothing is the failure mode a gate like
@@ -125,7 +126,10 @@ export interface LaneReport {
 }
 
 /** Run the corpus with the audit reporting, and sum every worker's line. */
-function runCorpus(repoRoot: string): { report: LaneReport; workers: number } {
+function runCorpus(
+  repoRoot: string,
+  corpus: readonly string[],
+): { report: LaneReport; workers: number } {
   const dir = mkdtempSync(path.join(tmpdir(), 'pod-3391-gate-'))
   const reportPath = path.join(dir, 'intent-audit.jsonl')
   writeFileSync(reportPath, '')
@@ -136,12 +140,11 @@ function runCorpus(repoRoot: string): { report: LaneReport; workers: number } {
         '--bun',
         'node_modules/vitest/vitest.mjs',
         'run',
-        '--passWithNoTests',
         '--config',
         'vitest.unit.config.ts',
         '--project',
         'node',
-        CORPUS,
+        ...corpus,
       ],
       {
         cwd: repoRoot,
@@ -332,20 +335,9 @@ export function gateVerdict(report: LaneReport): { code: 0 | 1 | 2; refusal?: st
         ' store/executor/, so `write-declared-read` was arithmetically impossible before the' +
         ' run started. The FATAL 0 above is a fact about the corpus, not about the code, and' +
         ' this run proves nothing either way.\n\n' +
-        '  TWO THINGS PUT IT IN THIS STATE, both measured under POD-3426, and either one alone' +
-        ' is enough:\n' +
-        '  1. A converted repository declares `write` for everything, its reads included.' +
-        ' `storeQueriesOver`\u2019s proxy callback maps drizzle\u2019s `run`, `get` and `all`' +
-        ' terminals alike onto the write-declaring client verbs (`run`/`writeGet`/`writeAll`),' +
-        ' so the terminal a call site chose no longer reaches the declaration at all.\n' +
-        '  2. A converted repository\u2019s statements are not in the corpus. The lane audit is' +
-        ' attached in `store/executor/harness.ts`, and repository tests build their store' +
-        ' through `test-support/stage-a-seam.ts` -> `createBunStoreExecutor`, which attaches' +
-        ' the attribution probe and not this one.\n\n' +
-        '  Neither is fixed by relaxing this refusal. For (1), drizzle hands its own builder' +
-        ' type (`select`/`insert`/`update`/`delete`) to `SQLiteRemoteSession.prepareQuery` and' +
-        ' drops it before calling our `RemoteCallback` \u2014 that is a declaration, not an' +
-        ' inference from SQL text, so rule 16 permits carrying it through.',
+        '  Check both audit attachment and caller declarations. Repository tests feed the' +
+        ' lane audit through stageASeam; those statements must also carry builder-declared' +
+        ' read intent to establish reach. Neither requirement is fixed by relaxing this refusal.',
     }
   }
   return { code: fatal.length === 0 ? 0 : 1 }
@@ -368,13 +360,17 @@ async function main(): Promise<void> {
   }
 
   const repoRoot = process.cwd()
-  const { report, workers } = runCorpus(repoRoot)
+  const filters = process.argv.slice(2)
+  const corpus = filters.length > 0 ? filters : [CORPUS]
+  const { report, workers } = runCorpus(repoRoot, corpus)
   const { examined, derivedWrite, derivedRead, inconclusive } = report.totals
   const fatal = report.findings.filter((f) => f.fatal)
   const over = report.findings.filter((f) => !f.fatal)
 
   console.log('\n# Declared write intent vs the statement text (spec §6 rule 16)')
-  console.log(`\nCorpus: ${CORPUS} under the unit lane, ${workers} worker process(es) reporting.`)
+  console.log(
+    `\nCorpus: ${corpus.join(', ')} under the unit lane, ${workers} worker process(es) reporting.`,
+  )
   console.log(`Statements examined: ${examined}`)
   console.log(`  text is evidence of a write: ${derivedWrite}`)
   console.log(`  text is evidence of a read:  ${derivedRead}`)

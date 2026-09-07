@@ -307,7 +307,7 @@ export interface Harness {
  * ONE audit for the whole process, not one per harness, because the gate's
  * question is about a LANE — "did any statement this lane executed declare a
  * write as a read" — and a per-harness object would have to be collected from
- * every test that forgot to close one. Every harness feeds it; nothing reads it
+ * every test that forgot to close one. Harnesses and repository test seams feed it; nothing reads it
  * except the gate below and a test that asks.
  *
  * It is attached unconditionally rather than behind the report env var, so the
@@ -317,9 +317,18 @@ export interface Harness {
  */
 const laneAudit = new IntentAudit()
 
-/** What every harness in this process saw. */
+/** What every harness and repository test seam in this process saw. */
 export function laneIntentAudit(): IntentAudit {
   return laneAudit
+}
+
+/** Attach once per connection hub, even when several repositories share it. */
+const laneAuditHubs = new WeakSet<StatementProbeHub>()
+
+export function attachLaneIntentAudit(hub: StatementProbeHub): void {
+  if (laneAuditHubs.has(hub)) return
+  hub.attach(laneAudit.probe, { wantsIssueSite: true })
+  laneAuditHubs.add(hub)
 }
 
 /**
@@ -401,7 +410,11 @@ export function openHarness(options: HarnessOptions = {}): Harness {
   raw.exec(options.schema ?? DEFAULT_SCHEMA)
   const entries: string[] = []
   const auditHub = new StatementProbeHub()
-  auditHub.attach((options.intentAudit ?? laneAudit).probe, { wantsIssueSite: true })
+  if (options.intentAudit) {
+    auditHub.attach(options.intentAudit.probe, { wantsIssueSite: true })
+  } else {
+    attachLaneIntentAudit(auditHub)
+  }
   const driver = recordingDriver(
     instrumentDriver(
       createBunSqliteDriver({
