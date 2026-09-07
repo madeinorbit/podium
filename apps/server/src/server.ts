@@ -1036,6 +1036,7 @@ export async function startServer(
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
+  let janitorHostStarting: Promise<void> | undefined
   // RESOLVED ONCE, AT BOOT. This is a trust decision — which other origins may
   // make credentialed calls and open sockets — and re-reading it per request
   // would let it change under a socket that is already open. Empty on every
@@ -1433,9 +1434,13 @@ export async function startServer(
     ['fleetLogs.close', async () => await registry.modules.fleetLogs.close()],
     [
       'janitorHost.close',
-      () => {
+      async () => {
         janitorHostClosing = true
-        janitorHost?.close()
+        await janitorHostStarting
+        if (janitorHost) {
+          const closing: Promise<void> = janitorHost.close()
+          await closing
+        }
       },
     ],
     ['registry.dispose', () => registry.dispose()],
@@ -1533,18 +1538,22 @@ export async function startServer(
     // environment that turns it off. Construction stays off the listen path,
     // and the client turns faults/stalls into observable degraded state plus
     // automatic replacement rather than request-loop failure.
-    void (async () => {
+    janitorHostStarting = (async () => {
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: bootstrapToken,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
-      if (janitorHostClosing) startedJanitorHost.close()
-      else janitorHost = startedJanitorHost
+      if (janitorHostClosing) {
+        const closing: Promise<void> = startedJanitorHost.close()
+        await closing
+      } else janitorHost = startedJanitorHost
     })().catch((error) => {
       log.warn('janitor worker host failed to start', { err: error })
     })
+    // Startup stays off the listen path; ordered shutdown awaits this retained work.
+    void janitorHostStarting
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is

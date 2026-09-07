@@ -24,13 +24,13 @@ export interface JanitorWorkerHandle {
   progressVersion(): number
   state(): JanitorWorkerState
   reason(): string | undefined
-  close(): void
+  close(): Promise<void>
 }
 
 export interface WorkerLike {
   postMessage(message: unknown): void
   on(event: 'message' | 'error' | 'exit', callback: (value: any) => void): void
-  terminate(): void
+  terminate(): Promise<number>
 }
 
 type WorkerMessage =
@@ -54,7 +54,7 @@ function defaultSpawn(options: JanitorWorkerStartOptions): WorkerLike {
   return new Worker(workerTarget(), {
     type: 'module',
     workerData: options,
-  } as unknown as ConstructorParameters<typeof Worker>[1]) as unknown as WorkerLike
+  } as unknown as ConstructorParameters<typeof Worker>[1])
 }
 
 function asError(value: unknown): Error {
@@ -70,6 +70,8 @@ function asError(value: unknown): Error {
  */
 export class JanitorWorkerClient implements JanitorWorkerHandle {
   private worker: WorkerLike | undefined
+  private closing: Promise<void> | undefined
+  private readonly terminations = new Set<Promise<void>>()
   private restartTimer: ReturnType<typeof setTimeout> | undefined
   private readonly monitorTimer: ReturnType<typeof setInterval>
   private componentState: JanitorWorkerState = 'degraded'
@@ -175,9 +177,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
       this.writeLog(`janitor worker refused compatibility: ${message.reason}`)
       this.rejectProbes(new Error(message.reason))
       this.worker = undefined
-      try {
-        worker.terminate()
-      } catch {}
+      this.terminateWorker(worker)
       return
     }
     const probe = this.probes.get(message.id)
@@ -201,9 +201,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
   private onFailure(worker: WorkerLike, error: Error): void {
     if (worker !== this.worker || this.closed || this.compatibilityRefused) return
     this.worker = undefined
-    try {
-      worker.terminate()
-    } catch {}
+    this.terminateWorker(worker)
     this.rejectProbes(error)
     this.scheduleRestart(error)
   }
@@ -279,8 +277,32 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
     this.worker.postMessage({ type: 'testCrash' })
   }
 
-  close(): void {
-    if (this.closed) return
+  /** Recovery does not await a dying generation; shutdown retains every termination. */
+  private terminateWorker(worker: WorkerLike): void {
+    try {
+      const termination: Promise<number> = worker.terminate()
+      const settled = termination.then(
+        () => undefined,
+        (error) => {
+          log.warn('janitor worker termination failed', { err: error })
+        },
+      )
+      this.terminations.add(settled)
+      void settled.then(
+        () => {
+          this.terminations.delete(settled)
+        },
+        () => {
+          this.terminations.delete(settled)
+        },
+      )
+    } catch (error) {
+      log.warn('janitor worker termination threw', { err: error })
+    }
+  }
+
+  close(): Promise<void> {
+    if (this.closing) return this.closing
     this.closed = true
     clearInterval(this.monitorTimer)
     if (this.restartTimer) clearTimeout(this.restartTimer)
@@ -290,10 +312,13 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
     this.worker = undefined
     try {
       worker?.postMessage({ type: 'stop' })
-      worker?.terminate()
     } catch {}
-    this.componentState = 'stopped'
-    this.componentReason = undefined
+    if (worker) this.terminateWorker(worker)
+    this.closing = Promise.all([...this.terminations]).then(() => {
+      this.componentState = 'stopped'
+      this.componentReason = undefined
+    })
+    return this.closing
   }
 }
 

@@ -19,8 +19,9 @@ function fakeWorker(): WorkerLike & {
     on(event, callback) {
       handlers[event].push(callback)
     },
-    terminate() {
+    async terminate() {
       this.terminated = true
+      return 0
     },
     emit(event, value) {
       for (const handler of handlers[event]) handler(value)
@@ -62,7 +63,7 @@ describe('JanitorWorkerClient', () => {
     expect(client.state()).toBe('running')
     expect(client.restartCount()).toBe(1)
     expect(client.progressVersion()).toBe(6)
-    client.close()
+    await client.close()
   })
 
   it('parks compatibility refusal visibly without respawning', async () => {
@@ -89,6 +90,44 @@ describe('JanitorWorkerClient', () => {
     expect(workers[0]!.terminated).toBe(true)
     await drainTimers()
     expect(workers).toHaveLength(1)
-    client.close()
+    await client.close()
+  })
+
+  it.each([
+    'active',
+    'retiring',
+  ] as const)('close awaits the %s worker termination', async (phase) => {
+    const worker = fakeWorker()
+    let release = (_code: number): void => {}
+    const termination = new Promise<number>((resolve) => {
+      release = resolve
+    })
+    worker.terminate = () => {
+      worker.terminated = true
+      return termination
+    }
+    const client = new JanitorWorkerClient(
+      { serverUrl: 'http://server', token: 'token' },
+      { spawn: () => worker, log: () => {} },
+    )
+    worker.emit('message', { type: 'ready', progressVersion: 1 })
+    if (phase === 'retiring') worker.emit('error', new Error('retire this generation'))
+    const closing = client.close()
+    let settled = false
+    void closing.then(() => {
+      settled = true
+    })
+    try {
+      expect(client.close()).toBe(closing)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(worker.terminated).toBe(true)
+      release(0)
+      await closing
+      expect(client.state()).toBe('stopped')
+    } finally {
+      release(0)
+      await closing
+    }
   })
 })

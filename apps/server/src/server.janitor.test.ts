@@ -26,7 +26,7 @@ function fakeWorker(overrides: Partial<JanitorHost> = {}): JanitorHost {
     progressVersion: () => 7,
     state: () => 'running',
     reason: () => undefined,
-    close: () => {},
+    close: async () => {},
     ...overrides,
   }
 }
@@ -130,7 +130,11 @@ describe('startServer hosts the janitor itself', () => {
       port: 0,
       janitorWorkerForTests: async () => {
         hosted = true
-        return fakeWorker({ close: () => (closed += 1) })
+        return fakeWorker({
+          close: async () => {
+            closed += 1
+          },
+        })
       },
     })
     await until(() => hosted, 'the janitor worker to start')
