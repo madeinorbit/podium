@@ -172,15 +172,17 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-function client(registry: SessionRegistry, caps: string[] | undefined): string {
-  const id = attachTestClient(registry.clientGateway, () => {})
-  registry.clientGateway.routeClientFrame(id, {
+async function client(registry: SessionRegistry, caps: string[] | undefined): Promise<string> {
+  const inbox: ServerMessage[] = []
+  const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
+  await registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
     wireVersion: WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     ...(caps ? { caps } : {}),
   })
+  await expect.poll(() => inbox.some((message) => message.type === 'feedBootstrap')).toBe(true)
   return id
 }
 
@@ -232,17 +234,17 @@ function client(registry: SessionRegistry, caps: string[] | undefined): string {
  * legacy — so creating a client inside the window measured the bootstrap AND
  * suppressed the very bypass under test.
  */
-function issueWorkForOneFieldSessionChange(
+async function issueWorkForOneFieldSessionChange(
   registry: SessionRegistry,
   sessionId: string,
-): { builds: number; scans: number } {
-  registry.modules.sessions.flushBroadcasts()
+): Promise<{ builds: number; scans: number }> {
+  await registry.modules.sessions.flushBroadcasts()
   resetIssueWireBuildCount()
-  registry.modules.sessions.setWorkState({
+  await registry.modules.sessions.setWorkState({
     sessionId: asSessionId(sessionId),
     workState: 'testing',
   })
-  registry.modules.sessions.flushBroadcasts()
+  await registry.modules.sessions.flushBroadcasts()
   return { builds: issueWireBuildCount(), scans: issueMembershipScanCount() }
 }
 
@@ -260,7 +262,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
   it('issueProjection rows and session-free legacy issue rows are both appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
     await registry.modules.issues.update('iss_1', { title: 'edited' })
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
 
     const projections = await changesOf(registry, 'issueProjection')
     const legacy = await changesOf(registry, 'issue')
@@ -301,7 +303,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
 
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
 
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
@@ -361,8 +363,8 @@ describe('D7.2: every session change performs zero issue membership scans [POD-7
     timeout: SCALE_GUARD_TIMEOUT_MS,
   }, async () => {
     const { registry, sessionIds } = await world()
-    client(registry, undefined)
-    const { scans } = issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
+    await client(registry, undefined)
+    const { scans } = await issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
     expect(scans).toBe(0)
   })
 })
@@ -372,13 +374,15 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     const { registry } = await world({ issues: 3, sessions: 2 })
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
-    registry.clientGateway.routeClientFrame(id, {
+    await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
+    // Feed admission is independent of the hello handler; observe its delivered outcome.
+    await expect.poll(() => inbox.some((message) => message.type === 'feedBootstrap')).toBe(true)
     const painted = inbox.find((message) => message.type === 'feedBootstrap')
     expect(painted).toBeDefined()
     if (!painted || painted.type !== 'feedBootstrap') return
@@ -397,7 +401,7 @@ describe('normalized dep emission [POD-797]', () => {
     timeout: SCALE_GUARD_TIMEOUT_MS,
   }, async () => {
     const { registry } = await world()
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
     const before = await registry.modules.sessions.syncChangesSince(0)
     const beforeCount =
       before.kind === 'delta'
@@ -405,7 +409,7 @@ describe('normalized dep emission [POD-797]', () => {
         : 0
     resetIssueWireBuildCount()
     await registry.modules.issues.addDep('iss_1', 'iss_2')
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
     expect(issueMembershipScanCount()).toBe(0)
     const after = await registry.modules.sessions.syncChangesSince(0)
     const edges =
