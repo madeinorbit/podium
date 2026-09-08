@@ -69,8 +69,8 @@ export const advanceToComposerReady = async (typedCount: () => number): Promise<
  * synchronous shape as much as on this one. One millisecond tells them apart: a
  * zero-delay CR has already landed, a deferred one has not.
  */
-export const expectSubmitStillDeferred = (read: () => string[], paste: string): void => {
+export const expectSubmitStillDeferred = async (read: () => string[], paste: string): Promise<void> => {
   expect(read()).toEqual([paste])
-  vi.advanceTimersByTime(1)
+  await vi.advanceTimersByTimeAsync(1)
   expect(read()).toEqual([paste])
 }

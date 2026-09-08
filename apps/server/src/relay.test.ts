@@ -28,7 +28,7 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/messages/service'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
 import type {SessionRow} from './store'
@@ -55,14 +55,19 @@ function sink() {
   return { send: (m: ServerMessage) => sent.push(m), sent }
 }
 
-function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage) => void): string {
-  const id = attachTestClient(reg.clientGateway, send)
-  reg.clientGateway.routeClientFrame(id, {
+async function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage) => void): Promise<string> {
+  let bootstrapped = false
+  const id = attachTestClient(reg.clientGateway, (message) => {
+    send(message)
+    if (message.type === 'feedBootstrap' && message.last) bootstrapped = true
+  })
+  await reg.clientGateway.routeClientFrame(id, {
     type: 'hello',
     clientId: id,
     viewport: { cols: 80, rows: 24, dpr: 1 },
     wireVersion: WIRE_VERSION,
   })
+  await vi.waitFor(() => expect(bootstrapped).toBe(true))
   return id
 }
 
@@ -177,7 +182,7 @@ describe('SessionRegistry', () => {
         cwd: '/proj',
         issueId: issue.id,
       })).sessionId
-      expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
+      await expect.poll(async () => (await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
 
       // Explicit clear survives a later teammate joining: with two eligible
       // agents there is no unambiguous default to invent.
@@ -195,7 +200,7 @@ describe('SessionRegistry', () => {
       expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(second)
       await reg.modules.issues.setCoordinator(issue.id, first)
       await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
-      expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
+      await expect.poll(async () => (await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
     } finally {
       await reg.dispose()
     }
@@ -331,6 +336,7 @@ describe('SessionRegistry', () => {
     expect((await metaOf(sessionId))?.spawnedBy).toBe('issue:iss_1')
     // No default at the registry layer: an untagged programmatic create stays unknown.
     expect((await metaOf(anon))?.spawnedBy).toBeUndefined()
+    await reg.dispose()
     await store.close()
     // Survives a restart (round-trips through the sessions table).
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
@@ -379,13 +385,13 @@ describe('SessionRegistry', () => {
       cwd: '/proj',
       sessionId: asSessionId(clientId),
     })
-    expect(() =>
+    await expect(
       reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/other',
         sessionId: asSessionId(clientId),
       }),
-    ).toThrow()
+    ).rejects.toThrow()
     // The original session is intact — not overwritten by the second cwd.
     const mine = (await reg.modules.sessions.listSessions()).filter((s) => s.sessionId === clientId)
     expect(mine).toHaveLength(1)
@@ -399,7 +405,7 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
       sessionId,
       cwd: '/repo/.worktrees/feat',
@@ -418,13 +424,13 @@ describe('SessionRegistry', () => {
     })
     const cwdOf = async () =>
       (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.cwd
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
       sessionId,
       cwd: '',
     })
     expect(await cwdOf()).toBe('/repo')
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
       sessionId,
       cwd: '/repo',
@@ -464,8 +470,8 @@ describe('SessionRegistry', () => {
 
   it('adopts a worktree the harness made for itself, stamping branch and path together', async () => {
     const { reg, cwdMsg, read } = await adopting()
-    cwdMsg({})
-    expect(await read()).toMatchObject({
+    await cwdMsg({})
+    await expect.poll(read).toMatchObject({
       worktreePath: '/repo/.claude/worktrees/x',
       branch: 'claude/x',
       machineId: reg.sessionStore.hostMachineId,
@@ -475,14 +481,14 @@ describe('SessionRegistry', () => {
   it('never adopts the repo MAIN checkout as an issue workspace', async () => {
     // An issue owning main would swallow every unattached session [spec:SP-595b].
     const { cwdMsg, read } = await adopting()
-    cwdMsg({ cwd: '/repo', kind: 'main', branch: 'main' })
-    expect(await read()).toMatchObject({ worktreePath: null, branch: null })
+    await cwdMsg({ cwd: '/repo', kind: 'main', branch: 'main' })
+    await expect.poll(read).toMatchObject({ worktreePath: null, branch: null })
   })
 
   it('never adopts a directory outside git', async () => {
     const { cwdMsg, read } = await adopting()
-    cwdMsg({ cwd: '/tmp/scratch', kind: 'none', branch: undefined, repoRoot: undefined })
-    expect(await read()).toMatchObject({ worktreePath: null })
+    await cwdMsg({ cwd: '/tmp/scratch', kind: 'none', branch: undefined, repoRoot: undefined })
+    await expect.poll(read).toMatchObject({ worktreePath: null })
   })
 
   it('never steals a worktree another issue already owns', async () => {
@@ -494,38 +500,38 @@ describe('SessionRegistry', () => {
       startNow: false,
     })
     await reg.modules.issues.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
-    cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
-    expect(await read()).toMatchObject({ worktreePath: null })
+    await cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
+    await expect.poll(read).toMatchObject({ worktreePath: null })
   })
 
   it('never adopts a worktree belonging to a different repo', async () => {
     const { cwdMsg, read } = await adopting()
-    cwdMsg({ cwd: '/other/.worktrees/x', repoRoot: '/other' })
-    expect(await read()).toMatchObject({ worktreePath: null })
+    await cwdMsg({ cwd: '/other/.worktrees/x', repoRoot: '/other' })
+    await expect.poll(read).toMatchObject({ worktreePath: null })
   })
 
   it('leaves an issue that already has a worktree alone', async () => {
     const { reg, issue, cwdMsg, read } = await adopting()
     await reg.modules.issues.update(issue.id, { worktreePath: '/repo/.worktrees/mine', branch: 'mine' })
-    cwdMsg({})
-    expect(await read()).toMatchObject({ worktreePath: '/repo/.worktrees/mine', branch: 'mine' })
+    await cwdMsg({})
+    await expect.poll(read).toMatchObject({ worktreePath: '/repo/.worktrees/mine', branch: 'mine' })
   })
 
   it('takes the worktree but leaves the branch claim alone when HEAD is detached', async () => {
     const { cwdMsg, read } = await adopting()
-    cwdMsg({ branch: undefined })
-    expect(await read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: null })
+    await cwdMsg({ branch: undefined })
+    await expect.poll(read).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: null })
   })
 
   it('a daemon too old to classify never adopts, declared or not', async () => {
     // Only git can tell a worktree from main, so a daemon that cannot say `kind` is
     // not trusted to stamp anything. It self-heals when its binary updates.
     const drifted = await adopting()
-    drifted.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined })
+    await drifted.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined })
     expect(await drifted.read()).toMatchObject({ worktreePath: null })
 
     const declared = await adopting()
-    declared.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined, explicit: true })
+    await declared.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined, explicit: true })
     expect(await declared.read()).toMatchObject({ worktreePath: null })
   })
 
@@ -547,7 +553,7 @@ describe('SessionRegistry', () => {
       cwd: '/link/repo',
       issueId: issue.id,
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
       sessionId,
       cwd: '/real/repo', // …but git resolves it to here, so a path compare says "not main"
@@ -558,14 +564,14 @@ describe('SessionRegistry', () => {
 
   it('an explicit declaration is not a licence to stamp main', async () => {
     const { cwdMsg, read } = await adopting()
-    cwdMsg({
+    await cwdMsg({
       cwd: '/real/repo',
       kind: 'main',
       branch: 'main',
       repoRoot: '/real/repo',
       explicit: true,
     })
-    expect(await read()).toMatchObject({ worktreePath: null })
+    await expect.poll(read).toMatchObject({ worktreePath: null })
   })
 
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', async () => {
@@ -762,6 +768,7 @@ describe('SessionRegistry', () => {
       },
     )
 
+    await expect.poll(async () => (await store.messages.listMessagesFor({ kind: 'session', id: coordinator })).length).toBe(1)
     const notices = await store.messages.listMessagesFor({ kind: 'session', id: coordinator })
     expect(notices).toHaveLength(1)
     expect(notices[0]).toMatchObject({
@@ -845,7 +852,7 @@ describe('SessionRegistry', () => {
       throw new Error('boom')
     }
     const sent: ServerMessage[] = []
-    expect(() => attachCurrent(reg, (m) => sent.push(m))).not.toThrow()
+    await expect(attachCurrent(reg, (m) => sent.push(m))).resolves.toBeTypeOf('string')
     reg.modules.funnel.flushDeltas()
     expect(sent.some((m) => m.type === 'welcome')).toBe(true)
     expect(sent.some((m) => m.type === 'feedBootstrap')).toBe(true)
@@ -909,7 +916,7 @@ describe('SessionRegistry', () => {
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(first.sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(first.sessionId))
     const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
     const second = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
@@ -933,7 +940,7 @@ describe('SessionRegistry', () => {
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(first.sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(first.sessionId))
     await reg.modules.sessions.hibernateSession({ sessionId: first.sessionId })
     const second = await reg.modules.issueSessionLifecycle.resumeSession({
       agentKind: 'codex',
@@ -956,8 +963,8 @@ describe('SessionRegistry', () => {
       cwd: '/w',
       spawnedBy: 'issue:iss_1',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'r1' },
@@ -1008,7 +1015,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'ping' })
+    await reg.clientGateway.routeClientFrame(id, { type: 'ping' })
     expect(c.sent).toContainEqual({ type: 'pong' })
   })
 
@@ -1017,18 +1024,18 @@ describe('SessionRegistry', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 0,
       data: 'QQ==',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s2,
       seq: 0,
@@ -1043,15 +1050,15 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 0,
       data: 'QQ==',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 1,
@@ -1059,7 +1066,7 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
   })
@@ -1068,15 +1075,15 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 0,
       data: Buffer.from('stale', 'latin1').toString('base64'),
     })
     const clearFrame = Buffer.from('\x1b[2Jfresh', 'latin1').toString('base64')
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: s1,
       seq: 1,
@@ -1084,7 +1091,7 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
   })
@@ -1094,11 +1101,11 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(id, { type: 'input', sessionId: s1, data: 'eA==' })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -1116,12 +1123,12 @@ describe('SessionRegistry', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
     expect((await reg.modules.sessions.listSessions()).find((m) => m.sessionId === s2)?.epoch).toBe(0)
   })
 
@@ -1130,19 +1137,19 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(id, { type: 'presence', visible: true })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'presence', visible: true })
     // Real client order on a live foreground: the panel's effect fires before the
     // store's, so requestControl + the fitted resize arrive BEFORE viewState.
-    reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // The viewVisible gate dropped it (the session isn't in viewState yet).
     expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // viewState lands → the dropped size self-heals instead of sticking at 80x24.
-    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
     expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
   })
 
@@ -1152,17 +1159,17 @@ describe('SessionRegistry', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
     const s2 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s2))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s2 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s2 })
 
     // A resize for hidden s2 is remembered for s2 only. When viewState later says
     // s1 is visible, reconciliation must not apply s2's small grid to s1.
-    reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s2, cols: 40, rows: 12 })
-    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s2, cols: 40, rows: 12 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
 
     expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 40, rows: 12 })
   })
@@ -1187,7 +1194,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: s1,
       code: 0,
@@ -1299,7 +1306,7 @@ describe('SessionRegistry', () => {
     )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(id)))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(id)))
     const healed = (await reg.modules.sessions.listSessions()).find((m) => m.sessionId === id)
     expect(healed).toMatchObject({ status: 'live' })
     expect(healed?.exitCode).toBeUndefined()
@@ -1313,7 +1320,7 @@ describe('SessionRegistry', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
     // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId: asSessionId(id),
       reason: 'session not found',
@@ -1360,7 +1367,7 @@ describe('SessionRegistry', () => {
     // A client renders 'visible' + 'focused' and focuses 'focused' — viewState is
     // server-authoritative, same tiers the output scheduler uses.
     const clientId = attachTestClient(reg.clientGateway, () => {})
-    reg.clientGateway.routeClientFrame(clientId, {
+    await reg.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
       visible: [asSessionId('visible'), asSessionId('focused')],
       focused: asSessionId('focused'),
@@ -1378,7 +1385,7 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // → live
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // → live
     expect((await reg.modules.sessions.listSessions()).at(0)?.status).toBe('live')
     // Daemon-only restart: its WS closes while the server keeps running.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
@@ -1396,21 +1403,21 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'conv-1' },
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
       diagnostics: [],
     })
     const c = sink()
-    const id = attachCurrent(reg, c.send)
+    const id = await attachCurrent(reg, c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
-    expect(feedValues(c.sent, 'session')).toContainEqual(expect.objectContaining({ sessionId }))
-    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(expect.objectContaining({ sessionId }))
+    await expect.poll(() => feedValues(c.sent, 'conversation')).toContainEqual(
       expect.objectContaining({
         id: 'conv-1',
         agentKind: 'codex',
@@ -1452,9 +1459,13 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const owner = sink()
     const other = sink()
-    attachTestClient(reg.clientGateway, owner.send)
+    attachTestClient(reg.clientGateway, {
+      send: owner.send,
+      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')),
+    })
     attachTestClient(reg.clientGateway, {
       send: other.send,
+      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(colleague, 'member')),
       userId: colleague,
       userRole: 'member',
     })
@@ -1467,6 +1478,8 @@ describe('SessionRegistry', () => {
         )
         .at(-1)?.machines ?? []
 
+    await expect.poll(() => lastMachines(owner.sent).length).toBe(2)
+    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
     const ownerInitial = lastMachines(owner.sent)
     const otherInitial = lastMachines(other.sent)
     const rawIds = (await reg.modules.machines
@@ -1508,6 +1521,8 @@ describe('SessionRegistry', () => {
     other.sent.length = 0
     reg.modules.machines.broadcastMachines()
 
+    await expect.poll(() => lastMachines(owner.sent).length).toBe(2)
+    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
     const ownerBroadcast = lastMachines(owner.sent)
     const otherBroadcast = lastMachines(other.sent)
     expect(ownerBroadcast).toEqual(ownerInitial)
@@ -1522,17 +1537,17 @@ describe('SessionRegistry', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const c = sink()
-    attachCurrent(reg, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
     })
-    reg.modules.sessions.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
+    await reg.modules.sessions.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
 
-    expect(feedValues(c.sent, 'session')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, resumable: true }),
     )
   })
@@ -1545,13 +1560,13 @@ describe('SessionRegistry', () => {
     const meta = async (sessionId: string) =>
       (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: first.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-collision' },
       confidence: 'heuristic',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: second.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-collision' },
@@ -1560,7 +1575,7 @@ describe('SessionRegistry', () => {
     expect((await meta(first.sessionId))?.resume?.value).toBe('thread-collision')
     expect((await meta(second.sessionId))?.resume).toBeUndefined()
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: second.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-collision' },
@@ -1577,16 +1592,16 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'conv-2' },
     })
     const c = sink()
-    attachCurrent(reg, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
       diagnostics: [],
@@ -1597,7 +1612,7 @@ describe('SessionRegistry', () => {
     // already used; what changed is that the legacy list rides it too.
     reg.modules.funnel.flushDeltas()
 
-    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'conversation')).toContainEqual(
       expect.objectContaining({
         id: 'conv-2',
         agentKind: 'claude-code',
@@ -1612,20 +1627,21 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'conv-3' },
     })
     const c = sink()
-    attachCurrent(reg, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
     const p = reg.modules.rpc.scan()
+    await expect.poll(() => daemon.some((m) => m.type === 'scanRequest')).toBe(true)
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [{ id: 'conv-3', agentKind: 'codex', providerId: 'codex-jsonl' }],
@@ -1633,7 +1649,7 @@ describe('SessionRegistry', () => {
     })
 
     await expect(p).resolves.toMatchObject({ conversations: [{ id: 'conv-3' }] })
-    expect(feedValues(c.sent, 'conversation')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'conversation')).toContainEqual(
       expect.objectContaining({
         id: 'conv-3',
         agentKind: 'codex',
@@ -1648,10 +1664,11 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const p = reg.modules.rpc.scan()
+    await expect.poll(() => daemon.some((m) => m.type === 'scanRequest')).toBe(true)
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [{ id: 'x', agentKind: 'claude-code', providerId: 'p' }],
@@ -1665,13 +1682,14 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const p = reg.modules.rpc.scanRepos(['/home/u/src'])
+    await expect.poll(() => daemon.some((m) => m.type === 'scanReposRequest')).toBe(true)
     const req = daemon.find((m) => m.type === 'scanReposRequest') as
       | { requestId: string; roots: string[] }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanReposRequest not sent')
     expect(req.roots).toEqual(['/home/u/src'])
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [{ path: '/r', kind: 'repository', worktrees: [] }],
@@ -1691,7 +1709,7 @@ describe('SessionRegistry', () => {
     attachTestClient(reg.clientGateway, c.send)
     c.sent.length = 0 // drop the welcome + initial sessionsChanged
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
       sessionId,
       title: '✳ rename functionality',
@@ -1728,7 +1746,7 @@ describe('SessionRegistry', () => {
     c.sent.length = 0
 
     for (const frame of ['✳', '✶', '✷', '✸']) {
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'title',
         sessionId,
         title: `${frame} rename functionality`,
@@ -1754,11 +1772,12 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
       sessionId,
       title: '✳ rename functionality',
     })
+    await reg.dispose()
     await store.close()
 
     // THE RESTART. The row comes back titled; `titleLocked` does not come back
@@ -1771,13 +1790,13 @@ describe('SessionRegistry', () => {
     attachTestClient(reg2.clientGateway, c.send)
 
     // The reattached harness re-reports the title it already had.
-    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+    await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'title',
       sessionId,
       title: '✶ rename functionality',
     })
     // Now a first prompt arrives. It must NOT rename the session.
-    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+    await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
@@ -1796,9 +1815,9 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c = sink()
-    attachTestClient(reg.clientGateway, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
       sessionId: asSessionId('nope'),
       title: 'x',
@@ -1818,9 +1837,9 @@ describe('SessionRegistry', () => {
     expect(await store.sessions.loadSessions()).toMatchObject([
       { id: sessionId, status: 'starting', title: 't' },
     ])
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     expect((await store.sessions.loadSessions()).at(0)).toMatchObject({ status: 'live' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
       sessionId,
       title: '✳ working',
@@ -1828,7 +1847,7 @@ describe('SessionRegistry', () => {
     // Persisted without the harness's spinner frame (POD-1607): the row must not
     // keep whichever frame the spinner happened to stop on.
     expect((await store.sessions.loadSessions()).at(0)).toMatchObject({ title: 'working' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -1846,9 +1865,9 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const future = '2999-01-01T00:00:00.000Z'
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: future, nativeSubagentCount: 0 },
@@ -1861,11 +1880,11 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const cid = attachTestClient(reg.clientGateway, sink().send) // first client → controller
-    reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
     const spy = vi.spyOn(store.sessions, 'upsertSession')
-    reg.clientGateway.routeClientFrame(cid, {
+    await reg.clientGateway.routeClientFrame(cid, {
       type: 'input',
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
@@ -1881,7 +1900,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const cid = attachTestClient(reg.clientGateway, sink().send)
     await reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
     // biome-ignore lint/suspicious/noExplicitAny: assert the coalesced terminal dirty bit
@@ -1893,15 +1912,15 @@ describe('SessionRegistry', () => {
     // AWAITED. Both are async, so a sync not.toThrow() observes the callback
     // returning a promise and nothing else -- the input was never routed and the
     // flush never ran, so the dirty bit asserted below was still the one cleared
-    // above. resolves.not.toThrow is the form that actually watches the work.
+    // above. Await the resolution before checking the dirty bit.
     await expect(
       reg.clientGateway.routeClientFrame(cid, {
         type: 'input',
         sessionId,
         data: Buffer.from('ls\r').toString('base64'),
       }),
-    ).resolves.not.toThrow()
-    await expect(reg.modules.sessions.flushActivity()).resolves.not.toThrow()
+    ).resolves.toBeUndefined()
+    await expect(reg.modules.sessions.flushActivity()).resolves.toBeUndefined()
     expect(spy).not.toHaveBeenCalled()
     expect(session.terminal.activityDirty).toBe(true)
 
@@ -1938,15 +1957,15 @@ describe('SessionRegistry', () => {
       conversationId: 'c9',
       title: 'old',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     const clientId = attachTestClient(reg1.clientGateway, sink().send)
-    reg1.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
-    reg1.clientGateway.routeClientFrame(clientId, {
+    await reg1.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
+    await reg1.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
-    reg1.clientGateway.routeClientFrame(clientId, {
+    await reg1.clientGateway.routeClientFrame(clientId, {
       type: 'resize',
       sessionId,
       cols: 173,
@@ -1987,6 +2006,7 @@ describe('SessionRegistry', () => {
         },
       }),
     )
+    await reg2.dispose()
     await store2.close()
   })
 
@@ -1999,14 +2019,15 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.dispose()
     await store1.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting')
-    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
+    await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('live')
   })
 
@@ -2036,12 +2057,13 @@ describe('SessionRegistry', () => {
     })
     // The daemon announces its decision before it launches anything; it never
     // gets as far as a bind here, which is also the case that used to lose it.
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'driverSelected',
       sessionId,
       driverId: 'opencode-server',
     })
     expect((await reg1.modules.sessions.listSessions()).at(0)?.driverFamily).toBe('server')
+    await reg1.dispose()
     await store1.close()
 
     // Restart, and DO NOT attach a daemon — that is the window.
@@ -2069,18 +2091,19 @@ describe('SessionRegistry', () => {
       agentKind: 'opencode',
       cwd: '/a',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'driverSelected',
       sessionId,
       driverId: 'opencode-server',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       ...bind(sessionId),
       agentKind: 'opencode',
       driverId: 'generic-pty',
       attachKinds: ['engine'],
     })
     expect((await reg1.modules.sessions.listSessions()).at(0)?.attachKinds).toEqual(['engine'])
+    await reg1.dispose()
     await store1.close()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
@@ -2102,17 +2125,18 @@ describe('SessionRegistry', () => {
     // Defend the durable boundary even against an older daemon that announced
     // its fallback before discovering that the explicit server request must be
     // refused. No driver bound, so no driver may survive the spawn error.
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'driverSelected',
       sessionId,
       driverId: 'generic-pty',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId,
       message: 'explicit codex-app-server request cannot be honoured',
     })
     expect((await store1.sessions.loadSessions()).at(0)?.selectedDriverId).toBeNull()
+    await reg1.dispose()
     await store1.close()
 
     const store2 = await openTestStore(file, TEST_MACHINE)
@@ -2121,6 +2145,7 @@ describe('SessionRegistry', () => {
     expect(restored?.status).toBe('exited')
     expect(restored?.driverFamily).toBeUndefined()
     expect((await store2.sessions.loadSessions()).at(0)?.selectedDriverId).toBeNull()
+    await reg2.dispose()
     await store2.close()
   })
 
@@ -2133,14 +2158,15 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
     })
-    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.dispose()
     await store1.close()
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting') // handler must drive the transition
-    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+    await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
       reason: 'no abduco session',
@@ -2230,8 +2256,8 @@ describe('host metrics relay', () => {
     const b = sink()
     attachTestClient(reg.clientGateway, a.send)
     attachTestClient(reg.clientGateway, b.send)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host', 8)) // newer sample replaces, not appends
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host', 8)) // newer sample replaces, not appends
     const last = metricsMsgs(a.sent).at(-1)
     expect(last?.hosts).toEqual([expect.objectContaining({ hostname: 'podium-host' })])
     expect(last?.hosts[0]?.memory.availableBytes).toBe(8)
@@ -2262,8 +2288,8 @@ describe('host metrics relay', () => {
     await reg.gateway.attachDaemon('m-beta', () => {})
     const a = sink()
     attachTestClient(reg.clientGateway, a.send)
-    reg.gateway.routeDaemonFrame('m-alpha', sample('alpha'))
-    reg.gateway.routeDaemonFrame('m-beta', sample('beta'))
+    await reg.gateway.routeDaemonFrame('m-alpha', sample('alpha'))
+    await reg.gateway.routeDaemonFrame('m-beta', sample('beta'))
     const hosts = metricsMsgs(a.sent)
       .at(-1)
       ?.hosts.map((h) => h.hostname)
@@ -2272,10 +2298,10 @@ describe('host metrics relay', () => {
 
   it('snapshots current metrics to a late-joining client', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
     const late = sink()
     attachTestClient(reg.clientGateway, late.send)
-    expect(metricsMsgs(late.sent).at(-1)?.hosts).toEqual([
+    await expect.poll(() => metricsMsgs(late.sent).at(-1)?.hosts).toEqual([
       expect.objectContaining({ hostname: 'podium-host' }),
     ])
   })
@@ -2285,7 +2311,7 @@ describe('host metrics relay', () => {
     const a = sink()
     attachTestClient(reg.clientGateway, a.send)
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, sample('podium-host'))
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(metricsMsgs(a.sent).at(-1)?.hosts).toEqual([])
   })
@@ -2299,12 +2325,13 @@ describe('memory breakdown relay', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const pending = reg.modules.hosts.memoryBreakdown(['/src/app'])
+    await expect.poll(() => daemon.some((m) => m.type === 'memoryBreakdownRequest')).toBe(true)
     const req = daemon.find(
       (m): m is Extract<ControlMessage, { type: 'memoryBreakdownRequest' }> =>
         m.type === 'memoryBreakdownRequest',
     )
     expect(req?.roots).toEqual(['/src/app'])
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'memoryBreakdownResult',
       requestId: req?.requestId ?? '',
       hostname: 'podium-host',
@@ -2354,7 +2381,7 @@ describe('agent state', () => {
     const client = sink()
     attachTestClient(reg.clientGateway, client.send)
     client.sent.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: STATE,
@@ -2379,8 +2406,8 @@ describe('agent state', () => {
     attachTestClient(reg.clientGateway, client.send)
     client.sent.length = 0
 
-    const send = (phase: 'working' | 'idle', workingMsTotal: number, since: string): void => {
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    const send = async (phase: 'working' | 'idle', workingMsTotal: number, since: string): Promise<void> => {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: {
@@ -2393,10 +2420,10 @@ describe('agent state', () => {
       })
     }
 
-    send('working', 0, '2026-06-12T10:00:00.000Z')
-    send('idle', 5_000, '2026-06-12T10:00:05.000Z')
-    send('working', 0, '2026-06-12T10:01:00.000Z')
-    send('idle', 2_000, '2026-06-12T10:01:02.000Z')
+    await send('working', 0, '2026-06-12T10:00:00.000Z')
+    await send('idle', 5_000, '2026-06-12T10:00:05.000Z')
+    await send('working', 0, '2026-06-12T10:01:00.000Z')
+    await send('idle', 2_000, '2026-06-12T10:01:02.000Z')
 
     const updates = client.sent.filter((m) => m.type === 'sessionAgentStateChanged')
     expect(updates.at(-1)).toMatchObject({ state: { workingMsTotal: 7_000 } })
@@ -2408,13 +2435,13 @@ describe('agent state', () => {
   it('agentState for an unknown session is ignored', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    expect(() =>
+    await expect(
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId: asSessionId('ghost'),
         state: STATE,
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
   it('continueSession writes "continue\\r" to the PTY only while errored', async () => {
@@ -2426,13 +2453,13 @@ describe('agent state', () => {
       cwd: '/proj',
     })
     // not errored yet → refused
-    expect(reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: STATE,
     })
-    expect(reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
     const input = daemon.find((m) => m.type === 'input' && m.sessionId === sessionId)
     expect(input).toBeDefined()
     expect(
@@ -2440,7 +2467,7 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
+    expect(await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
       ok: false,
     })
   })
@@ -2463,8 +2490,8 @@ describe('agent state', () => {
         telegramChatId: '-100123',
       },
     })
-    const ntfy = vi.fn()
-    const telegram = vi.fn()
+    const ntfy = vi.fn(async () => {})
+    const telegram = vi.fn(async () => {})
 
     try {
       const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
@@ -2487,10 +2514,10 @@ describe('agent state', () => {
       })
       const hidden = sink()
       const hiddenId = attachTestClient(reg.clientGateway, hidden.send)
-      reg.clientGateway.routeClientFrame(hiddenId, { type: 'presence', visible: false })
+      await reg.clientGateway.routeClientFrame(hiddenId, { type: 'presence', visible: false })
       hidden.sent.length = 0
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: {
@@ -2501,7 +2528,7 @@ describe('agent state', () => {
         },
       })
 
-      expect(hidden.sent).toContainEqual({
+      await expect.poll(() => hidden.sent).toContainEqual({
         type: 'attentionEvent',
         sessionId,
         title: 'keyboard needs you',
@@ -2522,8 +2549,8 @@ describe('agent state', () => {
       telegramRequest.mockClear()
       const visible = sink()
       const visibleId = attachTestClient(reg.clientGateway, visible.send)
-      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: {
@@ -2561,16 +2588,16 @@ describe('agent state', () => {
         telegramChatId: '-100123',
       },
     })
-    const ntfy = vi.fn()
-    const telegram = vi.fn()
+    const ntfy = vi.fn(async () => {})
+    const telegram = vi.fn(async () => {})
     try {
       const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
       const visible = sink()
       const visibleId = attachTestClient(reg.clientGateway, visible.send)
-      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
+      await reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
 
       const notice = { title: 'Podium: issue.closed', body: 'issue.closed fired for iss_x' }
-      reg.modules.notify.notifyExternal(notice)
+      await reg.modules.notify.notifyExternal(notice)
 
       expect(ntfy).toHaveBeenCalledWith('podium-topic', notice)
       expect(telegram).toHaveBeenCalledWith(
@@ -2598,11 +2625,11 @@ describe('agent state', () => {
         telegramChatId: '-100123',
       },
     })
-    const ntfy = vi.fn()
-    const telegram = vi.fn()
+    const ntfy = vi.fn(async () => {})
+    const telegram = vi.fn(async () => {})
     try {
       const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
-      reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
+      await reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
       expect(ntfy).not.toHaveBeenCalled()
       expect(telegram).not.toHaveBeenCalled()
     } finally {
@@ -2692,8 +2719,8 @@ describe('agent state', () => {
 
   it('sends a catch-up Telegram push when Telegram is enabled for an existing attention session', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    const ntfy = vi.fn()
-    const telegram = vi.fn()
+    const ntfy = vi.fn(async () => {})
+    const telegram = vi.fn(async () => {})
 
     try {
       const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
@@ -2716,9 +2743,9 @@ describe('agent state', () => {
       })
       const visible = sink()
       const visibleId = attachTestClient(reg.clientGateway, visible.send)
-      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
+      await reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: {
@@ -2782,11 +2809,11 @@ describe('structured transcript channel', () => {
     const clientId = attachTestClient(reg.clientGateway, client.send)
     // Empty cache → subscribe sends no replay delta (NOT a snapshot/reset — the
     // client loads its history off disk via transcriptRead, not the stream).
-    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
+    await reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
     expect(client.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
     const item = { id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [item],
@@ -2801,7 +2828,7 @@ describe('structured transcript channel', () => {
 
     // A reset delta (tailer switched files) clears the cache and fans out reset:true.
     const item2 = { id: 'u2', role: 'user' as const, text: 'again', cursor: 'c2' }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [item2],
@@ -2826,7 +2853,7 @@ describe('structured transcript channel', () => {
     const a = { id: 'a', role: 'user' as const, text: 'a', cursor: 'c1' }
     const b = { id: 'b', role: 'assistant' as const, text: 'b', cursor: 'c2' }
     const c = { id: 'c', role: 'user' as const, text: 'c', cursor: 'c3' }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [a, b, c],
@@ -2836,7 +2863,7 @@ describe('structured transcript channel', () => {
     // since=c1 → replay strictly after it (b, c).
     const known = sink()
     const knownId = attachTestClient(reg.clientGateway, known.send)
-    reg.clientGateway.routeClientFrame(knownId, {
+    await reg.clientGateway.routeClientFrame(knownId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c1',
@@ -2848,7 +2875,7 @@ describe('structured transcript channel', () => {
     // since unknown to the cache → replay the whole cache (client cursor-dedups).
     const stale = sink()
     const staleId = attachTestClient(reg.clientGateway, stale.send)
-    reg.clientGateway.routeClientFrame(staleId, {
+    await reg.clientGateway.routeClientFrame(staleId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c0-older',
@@ -2860,7 +2887,7 @@ describe('structured transcript channel', () => {
     // since = the newest cached cursor → nothing after it, send nothing.
     const caught = sink()
     const caughtId = attachTestClient(reg.clientGateway, caught.send)
-    reg.clientGateway.routeClientFrame(caughtId, {
+    await reg.clientGateway.routeClientFrame(caughtId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c3',
@@ -2877,14 +2904,14 @@ describe('structured transcript channel', () => {
     })
     const client = sink()
     const clientId = attachTestClient(reg.clientGateway, client.send)
-    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
-    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptUnsubscribe', sessionId })
+    await reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
+    await reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptUnsubscribe', sessionId })
     // Count transcript-stream frames only: the first delta flips the session's
     // transcriptAvailable flag, which broadcasts a sessionsChanged to every
     // client (subscribed or not) — that capability flip is not a stream frame.
     const frames = () => client.sent.filter((m) => m.type === 'transcriptDelta').length
     const before = frames()
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'x', role: 'user', text: 'unseen', cursor: 'cx' }],
@@ -2901,7 +2928,7 @@ describe('structured transcript channel', () => {
     })
     const client = sink()
     attachTestClient(reg.clientGateway, client.send)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
@@ -2929,7 +2956,7 @@ describe('structured transcript channel', () => {
     // The user opened the session by typing `/model`. Claude records that turn as a
     // pseudo-XML wrapper, NOT as a prompt — titling from it used to produce the
     // literal "<command-name>/model</command-name>" and lock it in forever.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [
@@ -2945,7 +2972,7 @@ describe('structured transcript channel', () => {
     expect(client.sent.filter((m) => m.type === 'sessionTitleChanged')).toEqual([])
 
     // …then they say what they actually want. THAT titles the session.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'u2', role: 'user', text: 'Refactor the transcript reader', cursor: 'c2' }],
@@ -2967,7 +2994,7 @@ describe('structured transcript channel', () => {
     })
     const client = sink()
     attachTestClient(reg.clientGateway, client.send)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
       sessionId,
       title: '<command-name>/effort</command-name>',
@@ -2988,12 +3015,13 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
     const p = reg.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
+    await expect.poll(() => daemon.some((m) => m.type === 'transcriptRead')).toBe(true)
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | { requestId: string; direction: string; limit: number; sessionId: string }
       | undefined
@@ -3004,7 +3032,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     expect(req.sessionId).toBe(sessionId)
 
     const items = [{ id: 'd1', role: 'user' as const, text: 'from disk', cursor: 'c1' }]
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -3036,6 +3064,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
       },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
+    await expect.poll(() => daemon.some((m) => m.type === 'transcriptRead')).toBe(true)
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | {
           requestId: string
@@ -3056,7 +3085,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     expect(req.direction).toBe('after')
     expect(req.limit).toBe(200)
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -3142,12 +3171,12 @@ describe('sendText (chat send path)', () => {
         agentKind: 'grok',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       expect((await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' }))).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['start this chat'])
-      vi.advanceTimersByTime(100)
+      await vi.advanceTimersByTimeAsync(100)
       expect(readInputs(daemon)).toEqual(['start this chat', '\r'])
     } finally {
       vi.useRealTimers()
@@ -3164,7 +3193,7 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
       // held, not typed. `queued: true` is the caller's warning that the bytes
       // are not on the wire yet.
@@ -3175,14 +3204,14 @@ describe('sendText (chat send path)', () => {
       // And nothing is typed into a composer that has not proven it is mounted.
       // This is the whole point of the queue: the pty would ACCEPT these bytes
       // and the app would drop them, with nothing to say so.
-      vi.advanceTimersByTime(100)
+      await vi.advanceTimersByTimeAsync(100)
       expect(readInputs(daemon)).toEqual([])
       // The paste block goes out as one write; the submitting CR is DEFERRED so it
       // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
       // by the new Claude renderer, so the message types in but the turn never starts.
-      advanceToComposerReady(() => readInputs(daemon).length)
-      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~run the tests\x1b[201~')
-      vi.advanceTimersByTime(100)
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~run the tests\x1b[201~')
+      await vi.advanceTimersByTimeAsync(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()
@@ -3199,16 +3228,16 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       expect((await reg.modules.sessions.sendText({ sessionId, text: 'a\nb' }))).toEqual({
         ok: true,
         queued: true,
       })
-      advanceToComposerReady(() => readInputs(daemon).length)
+      await advanceToComposerReady(() => readInputs(daemon).length)
       // The embedded newline stays INSIDE the paste envelope — it must never be
       // the thing that submits a half-written message.
-      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~a\nb\x1b[201~')
-      vi.advanceTimersByTime(100)
+      await expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~a\nb\x1b[201~')
+      await vi.advanceTimersByTimeAsync(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()
@@ -3225,24 +3254,24 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // An image send: the composer converts the pasted path to an attachment,
       // which outlasts the CR delay — the CR is swallowed, nothing submits.
       await reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
-      advanceToComposerReady(() => readInputs(daemon).length)
-      expectSubmitStillDeferred(
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await expectSubmitStillDeferred(
         () => readInputs(daemon),
         '\x1b[200~/up/img.png\nlook at this\x1b[201~',
       )
-      vi.advanceTimersByTime(100)
+      await vi.advanceTimersByTimeAsync(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
       // No user-turn echo and the phase never left idle → verify resends the CR.
-      vi.advanceTimersByTime(1600)
+      await vi.advanceTimersByTimeAsync(1600)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
-      vi.advanceTimersByTime(1600)
+      await vi.advanceTimersByTimeAsync(1600)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
       // Bounded: SUBMIT_MAX_RETRIES exhausted, no CR drip-feed forever.
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
     } finally {
       vi.useRealTimers()
@@ -3259,18 +3288,18 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
       // Reach the typing FIRST. Setting the phase before the paste is on the
       // wire would make this pass for the wrong reason — the retry it forbids
       // is the one that fires after a submit, so the submit has to happen.
-      advanceToComposerReady(() => readInputs(daemon).length)
-      vi.advanceTimersByTime(100)
-      reg.gateway.routeDaemonFrame(
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await vi.advanceTimersByTimeAsync(100)
+      await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
         agentStateMsg(sessionId, 'working'),
       )
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
@@ -3287,19 +3316,19 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       await reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
-      advanceToComposerReady(() => readInputs(daemon).length)
-      vi.advanceTimersByTime(100)
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await vi.advanceTimersByTimeAsync(100)
       // The turn ran so fast the phase is already back to idle — but the user turn
       // reached the transcript cache, which is submit evidence on its own.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'transcriptDelta',
         sessionId,
         items: [{ id: 'u1', role: 'user' as const, text: 'quick one', cursor: 'c1' }],
         tail: 'c1',
       })
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
@@ -3316,19 +3345,19 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       await reg.modules.sessions.sendText({ sessionId, text: 'hello' })
-      advanceToComposerReady(() => readInputs(daemon).length)
-      vi.advanceTimersByTime(100)
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await vi.advanceTimersByTimeAsync(100)
       // A trailing assistant item from the PREVIOUS turn arrives late; it must not
       // be mistaken for the echo of the just-sent user turn.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'transcriptDelta',
         sessionId,
         items: [{ id: 'a9', role: 'assistant' as const, text: 'earlier reply', cursor: 'c9' }],
         tail: 'c9',
       })
-      vi.advanceTimersByTime(1600)
+      await vi.advanceTimersByTimeAsync(1600)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
     } finally {
       vi.useRealTimers()
@@ -3345,17 +3374,17 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       await reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
-      advanceToComposerReady(() => readInputs(daemon).length)
-      vi.advanceTimersByTime(100)
+      await advanceToComposerReady(() => readInputs(daemon).length)
+      await vi.advanceTimersByTimeAsync(100)
       // The turn started and hit an AskUserQuestion before the verify fired. A
       // retry CR would answer the menu's highlighted default (#473) — forbidden.
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
@@ -3372,15 +3401,15 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // An AskUserQuestion menu is on screen.
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       const before = daemon.length
       const r = (await reg.modules.sessions.sendText({ sessionId, text: 'this must NOT submit the menu' }))
-      vi.advanceTimersByTime(100)
+      await vi.advanceTimersByTimeAsync(100)
       // The submitting CR would answer the highlighted default — so nothing at all
       // reaches the PTY. The primitive is the airtight backstop.
       expect(r.ok).toBe(false)
@@ -3415,19 +3444,19 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       // Idle at accept time, so the send is legitimately taken and held.
       expect((await reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' }))).toEqual({
         ok: true,
         queued: true,
       })
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       // Well past the readiness window: the drain reached the typing and was
       // refused there. No paste, and above all no CR.
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(readInputs(daemon)).toEqual([])
     } finally {
       vi.useRealTimers()
@@ -3444,14 +3473,14 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
       expect((await reg.modules.sessions.sendText({ sessionId, text: 'held' })).ok).toBe(false)
       // Human answers the menu → phase → idle.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
       const before = daemon.length
       const inputsSince = (): string[] =>
         daemon
@@ -3466,9 +3495,9 @@ describe('sendText (chat send path)', () => {
         ok: true,
         queued: true,
       })
-      advanceToComposerReady(() => inputsSince().length)
-      expectSubmitStillDeferred(inputsSince, '\x1b[200~now ok\x1b[201~')
-      vi.advanceTimersByTime(100)
+      await advanceToComposerReady(() => inputsSince().length)
+      await expectSubmitStillDeferred(inputsSince, '\x1b[200~now ok\x1b[201~')
+      await vi.advanceTimersByTimeAsync(100)
       expect(inputsSince()).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()
@@ -3485,8 +3514,8 @@ describe('sendText (chat send path)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(
         'local',
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
@@ -3494,7 +3523,7 @@ describe('sendText (chat send path)', () => {
       expect((await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })).ok).toBe(
         true,
       )
-      vi.advanceTimersByTime(200)
+      await vi.advanceTimersByTimeAsync(200)
       const inputs = daemon
         .slice(before)
         .filter((m) => m.type === 'input')
@@ -3515,7 +3544,7 @@ describe('sendText (chat send path)', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -3538,19 +3567,19 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // -> live
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // -> live
       await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
 
       // The TUI is still drawing: an output frame every poll for ~2s.
       let seq = 0
       for (let i = 0; i < 10; i += 1) {
-        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'agentFrame',
           sessionId,
           seq: seq++,
           data: 'eA==',
         })
-        vi.advanceTimersByTime(200)
+        await vi.advanceTimersByTimeAsync(200)
       }
       // Output is still recent → NOT delivered (this is what the fix prevents:
       // sending on 'live' alone would have fired immediately into the booting TUI).
@@ -3558,7 +3587,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
 
       // Output goes quiet → after the quiet+floor window it delivers (the bracketed
       // paste block contains the text).
-      vi.advanceTimersByTime(1200)
+      await vi.advanceTimersByTimeAsync(1200)
       expect(inputsOf(daemon)).toContain('deferred-msg')
     } finally {
       vi.useRealTimers()
@@ -3573,7 +3602,7 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
       await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
-      vi.advanceTimersByTime(5000)
+      await vi.advanceTimersByTimeAsync(5000)
       expect(inputsOf(daemon)).not.toContain('too-early')
     } finally {
       vi.useRealTimers()
@@ -3587,11 +3616,11 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // live, but never emits output
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // live, but never emits output
       await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
-      vi.advanceTimersByTime(5000)
+      await vi.advanceTimersByTimeAsync(5000)
       expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
-      vi.advanceTimersByTime(2000)
+      await vi.advanceTimersByTimeAsync(2000)
       expect(inputsOf(daemon)).toContain('silent-msg') // delivered after the fallback
     } finally {
       vi.useRealTimers()
@@ -3605,8 +3634,8 @@ describe('hibernation', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'abc-123' },
@@ -3639,7 +3668,7 @@ describe('hibernation', () => {
         cwd: '/w',
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      vi.advanceTimersByTime(2 * 60_000)
+      await vi.advanceTimersByTimeAsync(2 * 60_000)
       const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
 
       await store.beginTransferFence()
@@ -3655,7 +3684,7 @@ describe('hibernation', () => {
             tools: [],
           },
         }),
-      ).resolves.not.toThrow()
+      ).resolves.toBeUndefined()
       await expect(
         reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'hostMetrics',
@@ -3668,7 +3697,7 @@ describe('hibernation', () => {
             swapFreeBytes: 0,
           },
         }),
-      ).resolves.not.toThrow()
+      ).resolves.toBeUndefined()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
       expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
@@ -3696,7 +3725,7 @@ describe('hibernation', () => {
     const sessionId = await liveSession(reg, daemon)
     const spy = vi.spyOn(store.sessions, 'upsertSession')
     for (let i = 0; i < 50; i++) {
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq: i,
@@ -3704,7 +3733,7 @@ describe('hibernation', () => {
       })
     }
     const duringFrames = spy.mock.calls.length
-    reg.modules.sessions.flushActivity()
+    await reg.modules.sessions.flushActivity()
     expect(spy.mock.calls.length - duringFrames).toBeLessThanOrEqual(1) // one write at flush
     expect(duringFrames).toBe(0) // zero writes during the 50 frames
   })
@@ -3718,7 +3747,7 @@ describe('hibernation', () => {
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const sessionId = await liveSession(reg, daemon)
       // Mark the session dirty so a timer tick WOULD persist it if the timer still ran.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq: 0,
@@ -3729,7 +3758,7 @@ describe('hibernation', () => {
       await reg.dispose()
       const spy = vi.spyOn(store.sessions, 'upsertSession')
       // Advance well past the 12s flush interval — the timer is cleared, so nothing fires.
-      vi.advanceTimersByTime(60_000)
+      await vi.advanceTimersByTimeAsync(60_000)
       expect(spy).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
@@ -3742,7 +3771,7 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId,
       seq: 0,
@@ -3769,7 +3798,7 @@ describe('hibernation', () => {
       status: 'hibernated',
     })
     // The daemon's kill produces an exit — it must not flip hibernated → exited.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -3791,7 +3820,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionKillResult',
       sessionId,
       durableLabel: `podium-${sessionId}`,
@@ -3818,14 +3847,14 @@ describe('hibernation', () => {
       agentKind: 'codex',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
       runtimeContract: true,
       driverId: 'codex-app-server',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805180' },
@@ -3833,7 +3862,7 @@ describe('hibernation', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionKillResult',
       sessionId,
       durableLabel: `podium-cx-${sessionId}`,
@@ -3859,14 +3888,14 @@ describe('hibernation', () => {
       agentKind: 'codex',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
       runtimeContract: true,
       driverId: 'codex-app-server',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805181' },
@@ -3881,7 +3910,7 @@ describe('hibernation', () => {
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
 
     daemon2.length = 0
-    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+    await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'sessionKillResult',
       sessionId,
       durableLabel: `podium-cx-${sessionId}`,
@@ -3907,12 +3936,12 @@ describe('hibernation', () => {
     })
     // A plain PTY bind: no driverId, no runtimeContract — but the same
     // per-harness resume kind the server driver reports.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'codex',
       agentKind: 'codex',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805182' },
@@ -3924,7 +3953,7 @@ describe('hibernation', () => {
     ;(reg as any).modules.sessions.sessions.get(sessionId).driverId = undefined
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'durableSessionCensus',
       labels: [`podium-${sessionId}`],
     })
@@ -3954,13 +3983,13 @@ describe('hibernation', () => {
     resumeValue: string,
   ) => {
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'codex',
       agentKind: 'codex',
       ...bindFields,
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: resumeValue },
@@ -3990,15 +4019,15 @@ describe('hibernation', () => {
     )
 
     daemon.length = 0
-    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
 
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
 
     // …and once per receipt, unbounded, is the shape that made this a spawn
     // loop rather than a single stray child. Repeat it.
-    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
-    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
@@ -4011,14 +4040,14 @@ describe('hibernation', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       runtimeContract: true,
       driverId: 'claude-sdk', // declared, but as claude-code's EMBEDDED driver
     })
     // claude-code declares NO server driver, so the durable fallback would let
     // this row through. The hold has to come from the driver id alone.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'abc-456' },
@@ -4026,7 +4055,7 @@ describe('hibernation', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
     daemon.length = 0
-    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+    await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
@@ -4051,7 +4080,7 @@ describe('hibernation', () => {
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
 
     daemon2.length = 0
-    unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
+    await unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
 
     expect((await reg2.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
     expect(daemon2.map((m) => m.type)).not.toContain('reattach')
@@ -4073,7 +4102,7 @@ describe('hibernation', () => {
     )
 
     daemon.length = 0
-    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+    await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('reconnecting')
     expect(daemon.map((m) => m.type)).toContain('reattach')
@@ -4087,7 +4116,7 @@ describe('hibernation', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionKillResult',
       sessionId,
       durableLabel: `podium-${sessionId}`,
@@ -4111,7 +4140,7 @@ describe('hibernation', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId: reallyParked })).toEqual({ ok: true })
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'durableSessionCensus',
       labels: [`podium-${ghost}`],
     })
@@ -4132,7 +4161,7 @@ describe('hibernation', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg.modules.sessions.hibernateSession({ sessionId })).ok).toBe(false)
   })
 
@@ -4164,7 +4193,7 @@ describe('hibernation', () => {
     })
 
     expect(daemon.some((m) => m.type === 'spawn')).toBe(false)
-    expect(logs.text()).toContain('wake refused')
+    await expect.poll(() => logs.text()).toContain('wake refused')
     logs.restore()
   })
 
@@ -4222,7 +4251,7 @@ describe('hibernation', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     // The process dies out from under us (crash / external kill).
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -4258,7 +4287,7 @@ describe('hibernation', () => {
     const generation = spawn?.observationGeneration
     expect(generation).toEqual(expect.any(Number))
     if (generation === undefined) throw new Error('initial spawn was not fenced')
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
@@ -4280,7 +4309,7 @@ describe('hibernation', () => {
     expect(await reg.sessionStore.observationCheckpoints.get(sessionId)).toBeNull()
     daemon.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -4331,13 +4360,13 @@ describe('hibernation', () => {
         runtimeContract: true,
         driverId: 'grok-acp',
       } as const
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'grok-session', value: 'grok-ledger-exit-resume' },
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeEvent',
         deliveryId: 'grok-ledger-bootstrap',
         sessionId,
@@ -4394,7 +4423,7 @@ describe('hibernation', () => {
         deliveredTo: null,
       })
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeEvent',
         deliveryId: 'grok-ledger-process-exit',
         sessionId,
@@ -4409,6 +4438,7 @@ describe('hibernation', () => {
         },
       })
 
+      await vi.waitFor(() => expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1))
       expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
       expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
@@ -4418,7 +4448,7 @@ describe('hibernation', () => {
         deliveredTo: sessionId,
       })
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentExit',
         sessionId,
         code: 137,
@@ -4427,7 +4457,7 @@ describe('hibernation', () => {
       expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
       const runtimeSendRequests = (): Array<
         Extract<ControlMessage, { type: 'runtimeSendRequest' }>
       > =>
@@ -4440,7 +4470,7 @@ describe('hibernation', () => {
       await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(1))
       const firstRequest = runtimeSendRequests()[0]
       expect(firstRequest).toBeDefined()
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: firstRequest!.requestId,
         sessionId,
@@ -4450,7 +4480,7 @@ describe('hibernation', () => {
         },
       })
       await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(2))
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeEvent',
         deliveryId: 'grok-ledger-rebind-ready',
         sessionId,
@@ -4466,7 +4496,7 @@ describe('hibernation', () => {
       })
       const request = runtimeSendRequests()[1]
       expect(request).toBeDefined()
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
         sessionId,
@@ -4514,21 +4544,21 @@ describe('hibernation', () => {
     reg.bus.on('session.exited', (event) => {
       if (event.sessionId === sessionId) lifecycle.push('exit')
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'grok-session', value: 'grok-dead-child-resume' },
     })
     daemon.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'grok-order-bootstrap',
       sessionId,
@@ -4546,13 +4576,14 @@ describe('hibernation', () => {
     expect(
       (await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' })),
     ).toEqual({ ok: true, queued: true })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
       observerGeneration: initialGeneration,
     })
 
+    await vi.waitFor(() => expect(lifecycle).toEqual(['exit', 'spawn']))
     const recoverySpawn = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
         message.type === 'spawn' && message.sessionId === sessionId,
@@ -4572,7 +4603,7 @@ describe('hibernation', () => {
 
     // A duplicate from the dead generation cannot poison or double-spawn the
     // starting replacement.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -4584,7 +4615,7 @@ describe('hibernation', () => {
     // The durable process event may arrive after the ordinary exit frame. The
     // recovery above has already advanced the lease, so this same-generation
     // replay must not apply a second exit or spawn another replacement.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'grok-order-process-after-agent-exit',
       sessionId,
@@ -4605,7 +4636,7 @@ describe('hibernation', () => {
     // The automatic replacement can fail before bind. Its spawnError closes
     // that attempt, while the accepted row remains durable for an authorized
     // retry instead of being consumed or stranded behind lifecycle bookkeeping.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId,
       message: 'grok session/load timed out',
@@ -4629,24 +4660,25 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
 
     for (const staleGeneration of [initialGeneration, recoveryGeneration]) {
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentExit',
         sessionId,
         code: 137,
         observerGeneration: staleGeneration,
       })
     }
+    await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1))
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -4657,13 +4689,14 @@ describe('hibernation', () => {
 
     // A matching current-generation exit after bind is the replacement's real
     // death. It applies once and hands the still-durable row to the next wake.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 139,
       observerGeneration: retryGeneration,
     })
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2))
     const postBindSpawns = daemon.filter(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
         message.type === 'spawn' && message.sessionId === sessionId,
@@ -4673,7 +4706,7 @@ describe('hibernation', () => {
 
     // Recovery advanced the lease, so replaying that same exit generation is
     // now stale. It cannot poison the new starting process or spawn a third one.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 139,
@@ -4709,21 +4742,21 @@ describe('hibernation', () => {
     reg.bus.on('session.exited', (event) => {
       if (event.sessionId === sessionId) lifecycle.push('exit')
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
     })
     daemon.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'grok-process-bootstrap',
       sessionId,
@@ -4742,7 +4775,7 @@ describe('hibernation', () => {
     ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'grok-process-exit-1',
       sessionId,
@@ -4758,8 +4791,9 @@ describe('hibernation', () => {
     })
     // The legacy frame is the lossy copy, but it can race after the durable
     // process event. The lease minted by recovery rejects this stale frame.
+    await vi.waitFor(() => expect(lifecycle).toEqual(['exit', 'spawn']))
     const spawnCountAfterDurableExit = daemon.filter((message) => message.type === 'spawn').length
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -4771,6 +4805,7 @@ describe('hibernation', () => {
     )
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
 
+    await vi.waitFor(() => expect(lifecycle).toEqual(['exit', 'spawn']))
     const recoverySpawn = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
         message.type === 'spawn' && message.sessionId === sessionId,
@@ -4800,14 +4835,14 @@ describe('hibernation', () => {
       agentKind: 'grok',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'grok-session', value: 'grok-legacy-exit-resume' },
@@ -4817,20 +4852,21 @@ describe('hibernation', () => {
       (await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' })),
     ).toEqual({ ok: true, queued: true })
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
     })
+    await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1))
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId,
       message: 'legacy replacement failed before bind',
@@ -4843,7 +4879,7 @@ describe('hibernation', () => {
     ).resolves.toEqual({
       ok: true,
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 138,
@@ -4866,14 +4902,14 @@ describe('hibernation', () => {
       agentKind: 'grok',
       cwd: '/target',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
       runtimeContract: true,
       driverId: 'grok-acp',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'grok-session', value: 'grok-revoked-resume' },
@@ -4900,7 +4936,7 @@ describe('hibernation', () => {
     // and retain the durable row for an explicit authorized recovery.
     await reg.modules.sessions.killSession({ sessionId: actorSessionId })
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -4919,8 +4955,8 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 137,
@@ -4951,12 +4987,15 @@ describe('hibernation', () => {
 
   async function exitedCodex(reg: SessionRegistry, daemon: ControlMessage[]): Promise<SessionId> {
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
+    let exited = false
+    reg.bus.on('session.exited', (event) => { if (event.sessionId === sessionId) exited = true })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
     })
+    await vi.waitFor(() => expect(exited).toBe(true))
     daemon.length = 0
     return sessionId
   }
@@ -4985,9 +5024,9 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId))
     // A heuristic binding — a real thread, identified by inference.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -4995,8 +5034,8 @@ describe('hibernation', () => {
     // A second session proves it owns that thread exactly, so the first one's
     // ref is taken away — its transcript did not stop existing.
     const other = (await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(other))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(other))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: other,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -5005,7 +5044,7 @@ describe('hibernation', () => {
     const stripped = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(stripped?.resumable).toBeUndefined()
     expect(stripped?.neverBound).toBeUndefined() // NOT proof — it was bound once
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -5048,6 +5087,8 @@ describe('hibernation', () => {
     if (!stored) throw new Error('the forged row went missing')
     await store.sessions.upsertSession({ ...stored, conversationBinding: null })
 
+    await reg.dispose()
+    await reg.sessionStore.close()
     const { reg: rebooted, frames } = await reboot(file)
     expect((await rebooted.modules.sessions.listSessions())[0]?.neverBound).toBeUndefined()
     expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
@@ -5064,6 +5105,8 @@ describe('hibernation', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await exitedCodex(reg, daemon)
 
+    await reg.dispose()
+    await reg.sessionStore.close()
     const { reg: rebooted, frames } = await reboot(file)
     expect((await rebooted.modules.sessions.listSessions())[0]?.neverBound).toBe(true)
     expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
@@ -5104,7 +5147,7 @@ describe('hibernation', () => {
     })
     const sessionId = await liveSession(reg, daemon)
     // Mark the agent idle, with activity old enough to pass the idle cutoff.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: {
@@ -5122,7 +5165,7 @@ describe('hibernation', () => {
     const internal = (reg as any).modules.sessions.sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
@@ -5154,7 +5197,7 @@ describe('hibernation', () => {
       },
     })
     const sessionId = await liveSession(reg, daemon)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: {
@@ -5169,8 +5212,8 @@ describe('hibernation', () => {
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     await reg.modules.sessions.hibernateSession({ sessionId })
     await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // respawn binds → live
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // respawn binds → live
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
@@ -5197,7 +5240,7 @@ describe('hibernation', () => {
       },
     })
     const sessionId = await liveSession(reg, daemon)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: {
@@ -5213,9 +5256,9 @@ describe('hibernation', () => {
     // Controller types just now — recent input must veto hibernation.
     const c = sink()
     const idC = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(idC, { type: 'attach', sessionId })
-    reg.clientGateway.routeClientFrame(idC, { type: 'input', sessionId, data: 'eA==' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.clientGateway.routeClientFrame(idC, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(idC, { type: 'input', sessionId, data: 'eA==' })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
@@ -5233,13 +5276,13 @@ describe('reconnect identity (hello reclaim)', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
 
     // First socket: attaches and becomes controller; its input flows.
     const a = sink()
     const idA = attachTestClient(reg.clientGateway, a.send)
-    reg.clientGateway.routeClientFrame(idA, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eA==' })
+    await reg.clientGateway.routeClientFrame(idA, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -5255,12 +5298,12 @@ describe('reconnect identity (hello reclaim)', () => {
     // then re-attaches the way the client does on reconnect.
     const b = sink()
     const idB = attachTestClient(reg.clientGateway, b.send)
-    reg.clientGateway.routeClientFrame(idB, { type: 'hello', clientId: idA, viewport: VP })
-    reg.clientGateway.routeClientFrame(idB, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(idB, { type: 'hello', clientId: idA, viewport: VP })
+    await reg.clientGateway.routeClientFrame(idB, { type: 'attach', sessionId: s1 })
 
     daemon.length = 0
     // B now drives input (it inherited control)...
-    reg.clientGateway.routeClientFrame(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
+    await reg.clientGateway.routeClientFrame(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -5272,7 +5315,7 @@ describe('reconnect identity (hello reclaim)', () => {
       },
     })
     // ...and the stale A is gone: its messages are dropped, not honored.
-    reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eg==' })
+    await reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eg==' })
     expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })
   })
 
@@ -5281,13 +5324,13 @@ describe('reconnect identity (hello reclaim)', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    expect(() =>
+    await expect(
       reg.clientGateway.routeClientFrame(id, {
         type: 'hello',
         clientId: 'c-stale-gone',
         viewport: VP,
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
   describe('session draft sync', () => {
@@ -5319,7 +5362,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const b: ServerMessage[] = []
       const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
       attachTestClient(reg.clientGateway, (m) => b.push(m))
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId: asSessionId(sessionId),
         text: 'half typed',
@@ -5329,8 +5372,8 @@ describe('reconnect identity (hello reclaim)', () => {
         sessionId,
         text: 'half typed',
       })
-      expect(a).toContainEqual(shape)
-      expect(b).toContainEqual(shape)
+      await expect.poll(() => a).toContainEqual(shape)
+      await expect.poll(() => b).toContainEqual(shape)
     })
 
     it('REFUSES a draft for a session that does not exist, silently, like the rest of the class', async () => {
@@ -5343,13 +5386,13 @@ describe('reconnect identity (hello reclaim)', () => {
       const idA = attachTestClient(reg.clientGateway, () => {})
       attachTestClient(reg.clientGateway, (m) => seen.push(m))
 
-      expect(() =>
+      await expect(
         reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId: asSessionId('no-such-session'),
           text: 'into the void',
         }),
-      ).not.toThrow()
+      ).resolves.toBeUndefined()
 
       expect(seen.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
       expect((await reg.sessionStore.sessions.loadDrafts())[asSessionId('no-such-session')]).toBeUndefined()
@@ -5359,14 +5402,14 @@ describe('reconnect identity (hello reclaim)', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const sessionId = await seedSession(reg)
       const idA = attachTestClient(reg.clientGateway, () => {})
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId: asSessionId(sessionId),
         text: 'wip',
       })
       const c: ServerMessage[] = []
       attachTestClient(reg.clientGateway, (m) => c.push(m))
-      expect(c).toContainEqual(
+      await expect.poll(() => c).toContainEqual(
         expect.objectContaining({ type: 'sessionDraftChanged', sessionId, text: 'wip' }),
       )
     })
@@ -5375,7 +5418,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const sessionId = await seedSession(reg)
       const idA = attachTestClient(reg.clientGateway, () => {})
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId: asSessionId(sessionId),
         text: 'wip',
@@ -5387,12 +5430,12 @@ describe('reconnect identity (hello reclaim)', () => {
       // be there yet even on the happy path.
       const watcher: ServerMessage[] = []
       attachTestClient(reg.clientGateway, (m) => watcher.push(m))
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId: asSessionId(sessionId),
         text: 'wip again',
       })
-      expect(watcher).toContainEqual(
+      await expect.poll(() => watcher).toContainEqual(
         expect.objectContaining({
           type: 'sessionDraftChanged',
           sessionId,
@@ -5400,7 +5443,7 @@ describe('reconnect identity (hello reclaim)', () => {
         }),
       )
 
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId: asSessionId(sessionId),
         text: '',
@@ -5420,15 +5463,16 @@ describe('reconnect identity (hello reclaim)', () => {
         const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
         const sessionId = await seedSession(reg)
         const idA = attachTestClient(reg.clientGateway, () => {})
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId: asSessionId(sessionId),
           text: 'real work',
         })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
         expect((await store.sessions.loadDrafts())[sessionId]).toBeUndefined()
-        vi.advanceTimersByTime(1000)
+        await vi.advanceTimersByTimeAsync(1000)
         expect((await store.sessions.loadDrafts())[sessionId]).toBe('real work')
+        await reg.dispose()
         await store.close()
 
         // "Restart": a fresh registry on the same DB replays the persisted draft
@@ -5437,13 +5481,14 @@ describe('reconnect identity (hello reclaim)', () => {
         const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
         const c: ServerMessage[] = []
         attachTestClient(reg2.clientGateway, (m) => c.push(m))
-        expect(c).toContainEqual(
+        await expect.poll(() => c).toContainEqual(
           expect.objectContaining({
             type: 'sessionDraftChanged',
             sessionId,
             text: 'real work',
           }),
         )
+        await reg2.dispose()
         await store2.close()
       } finally {
         vi.useRealTimers()
@@ -5457,17 +5502,17 @@ describe('reconnect identity (hello reclaim)', () => {
         const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
         const sessionId = await seedSession(reg)
         const idA = attachTestClient(reg.clientGateway, () => {})
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId: asSessionId(sessionId),
           text: 'about to send',
         })
-        vi.advanceTimersByTime(1000)
+        await vi.advanceTimersByTimeAsync(1000)
         // The debounced write LANDED — the absence below is only meaningful against
         // a presence (this test asserted an absence that a refused write also gives).
         expect((await store.sessions.loadDrafts())[sessionId]).toBe('about to send')
 
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId: asSessionId(sessionId),
           text: '',
@@ -5475,6 +5520,7 @@ describe('reconnect identity (hello reclaim)', () => {
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
         expect((await store.sessions.loadDrafts())[sessionId]).toBeUndefined()
+        await reg.dispose()
         await store.close()
       } finally {
         vi.useRealTimers()
@@ -5502,7 +5548,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
     attachTestClient(reg.clientGateway, (m) => b.push(m))
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: asSessionId('sess'),
       baseRev: 0,
@@ -5511,8 +5557,8 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const shape = { type: 'sessionDraftChanged', text: 'hi', rev: 1, origin: idA }
     // The sender is included (POD-2045): it needs the rev its edit became, and
     // the broadcast is the only place that number exists.
-    expect(a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
-    expect(b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
+    await expect.poll(() => a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
+    await expect.poll(() => b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
   })
 
   it('assigns monotonically increasing revs', async () => {
@@ -5520,13 +5566,13 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, () => {})
     attachTestClient(reg.clientGateway, (m) => b.push(m))
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'a',
     })
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: asSessionId('s'),
       baseRev: 1,
@@ -5544,7 +5590,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
     const idB = attachTestClient(reg.clientGateway, (m) => b.push(m))
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: asSessionId('s'),
       baseRev: 0,
@@ -5552,13 +5598,13 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     })
     a.length = 0
     b.length = 0
-    reg.clientGateway.routeClientFrame(idB, {
+    await reg.clientGateway.routeClientFrame(idB, {
       type: 'draftEdit',
       sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'from B',
     })
-    expect(b).toContainEqual(
+    await expect.poll(() => b).toContainEqual(
       expect.objectContaining({ type: 'sessionDraftChanged', text: 'from A', rev: 1 }),
     )
     expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
@@ -5569,12 +5615,12 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const c: ServerMessage[] = []
     attachTestClient(reg.clientGateway, (m) => c.push(m))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'nativeDraft',
       sessionId: asSessionId('sess'),
       text: 'typed in native',
     })
-    expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+    await expect.poll(() => c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       text: 'typed in native',
       origin: 'native',
       rev: 1,
@@ -5593,14 +5639,14 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       })
       const idA = attachTestClient(reg.clientGateway, () => {})
       daemonMsgs.length = 0
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'draftEdit',
         sessionId,
         baseRev: 0,
         text: 'from chat',
       })
       expect(daemonMsgs.filter((m) => m.type === 'draftTarget')).toEqual([])
-      vi.advanceTimersByTime(2000)
+      await vi.advanceTimersByTimeAsync(2000)
       expect(daemonMsgs).toContainEqual({ type: 'draftTarget', sessionId, text: 'from chat' })
     } finally {
       vi.useRealTimers()
@@ -5620,14 +5666,14 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       })
       vi.setSystemTime(new Date('2026-07-17T12:05:00.000Z'))
       const idA = attachTestClient(reg.clientGateway, () => {})
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'draftEdit',
         sessionId,
         baseRev: 0,
         text: 'typed while down',
       })
       daemonMsgs.length = 0
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         ...bind(sessionId),
         draftSyncEngine: true,
       })
@@ -5672,9 +5718,9 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const idA = attachTestClient(reg.clientGateway, () => {})
     attachTestClient(reg.clientGateway, (m) => b.push(m))
 
-    reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'legacy' })
+    await reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'legacy' })
 
-    expect(b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+    await expect.poll(() => b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       type: 'sessionDraftChanged',
       sessionId,
       text: 'legacy',
@@ -5693,14 +5739,14 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const a: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
 
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId,
       baseRev: 0,
       text: 'mine',
     })
 
-    expect(a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+    await expect.poll(() => a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       text: 'mine',
       rev: 1,
       origin: idA,
@@ -5713,7 +5759,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, () => {})
     const idB = attachTestClient(reg.clientGateway, (m) => b.push(m))
-    reg.clientGateway.routeClientFrame(idA, {
+    await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId,
       baseRev: 0,
@@ -5723,14 +5769,14 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
 
     // B typed against rev 0, which A has already superseded, and B holds no
     // lease. Under the legacy path this simply overwrote A.
-    reg.clientGateway.routeClientFrame(idB, {
+    await reg.clientGateway.routeClientFrame(idB, {
       type: 'draftEdit',
       sessionId,
       baseRev: 0,
       text: 'from B',
     })
 
-    expect(b).toContainEqual(
+    await expect.poll(() => b).toContainEqual(
       expect.objectContaining({ type: 'sessionDraftChanged', text: 'from A', rev: 1 }),
     )
   })
@@ -5739,12 +5785,12 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const { reg } = await plainReg()
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const idA = attachTestClient(reg.clientGateway, () => {})
-    reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'wip' })
+    await reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'wip' })
 
     const c: ServerMessage[] = []
     attachTestClient(reg.clientGateway, (m) => c.push(m))
 
-    expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+    await expect.poll(() => c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       sessionId,
       text: 'wip',
       rev: 1,
@@ -5766,13 +5812,13 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
       const idA = attachTestClient(reg.clientGateway, () => {})
       daemonMsgs.length = 0
 
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'draftEdit',
         sessionId,
         baseRev: 0,
         text: 'from chat',
       })
-      vi.advanceTimersByTime(5000)
+      await vi.advanceTimersByTimeAsync(5000)
 
       expect(daemonMsgs.filter((m) => m.type === 'draftTarget')).toEqual([])
     } finally {
@@ -5791,14 +5837,15 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
       const idA = attachTestClient(reg.clientGateway, () => {})
 
-      reg.clientGateway.routeClientFrame(idA, {
+      await reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: 'readable either way',
       })
-      vi.advanceTimersByTime(1000)
+      await vi.advanceTimersByTimeAsync(1000)
 
       expect((await store.sessions.loadDrafts())[sessionId]).toBe('readable either way')
+      await reg.dispose()
       await store.close()
     } finally {
       vi.useRealTimers()
@@ -5823,9 +5870,9 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const store2 = await openTestStore(dbPath)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     const c: ServerMessage[] = []
-    attachTestClient(reg2.clientGateway, (m) => c.push(m))
+    await attachCurrent(reg2, (m) => c.push(m))
 
-    expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+    await expect.poll(() => c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       sessionId,
       text: 'written before the upgrade',
     })
@@ -5856,13 +5903,13 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         // Continuous typing: every gap is SHORTER than the write window, which is
         // exactly the shape that used to starve it.
         for (let i = 1; i <= 5; i += 1) {
-          reg.clientGateway.routeClientFrame(idA, {
+          await reg.clientGateway.routeClientFrame(idA, {
             type: 'draftEdit',
             sessionId,
             baseRev: i - 1,
             text: 'x'.repeat(i),
           })
-          vi.advanceTimersByTime(700)
+          await vi.advanceTimersByTimeAsync(700)
         }
 
         const broadcastRev = seen
@@ -5878,6 +5925,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         expect(persisted!.rev).toBeGreaterThan(0)
         expect(persisted!.rev).toBeLessThanOrEqual(broadcastRev!)
         expect(persisted!.text).toBe('x'.repeat(persisted!.rev))
+        await reg.dispose()
         await store.close()
       } finally {
         vi.useRealTimers()
@@ -5891,16 +5939,16 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
         const idA = attachTestClient(reg.clientGateway, () => {})
 
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'draftEdit',
           sessionId,
           baseRev: 0,
           text: 'about to send this',
         })
-        vi.advanceTimersByTime(1000) // the window closes: the row is on disk
+        await vi.advanceTimersByTimeAsync(1000) // the window closes: the row is on disk
         expect((await store.sessions.loadDraftDocs())[sessionId]).toBeDefined()
 
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'draftEdit',
           sessionId,
           baseRev: 1,
@@ -5908,7 +5956,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         })
         // A window is open again. The submit's clear must not sit behind it: a
         // stale non-empty row is what holds a session's message delivery.
-        reg.clientGateway.routeClientFrame(idA, {
+        await reg.clientGateway.routeClientFrame(idA, {
           type: 'draftEdit',
           sessionId,
           baseRev: 2,
@@ -5917,8 +5965,9 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
 
         expect((await store.sessions.loadDraftDocs())[sessionId]).toBeUndefined()
         // …and the open window does not resurrect it when it elapses.
-        vi.advanceTimersByTime(2000)
+        await vi.advanceTimersByTimeAsync(2000)
         expect((await store.sessions.loadDraftDocs())[sessionId]).toBeUndefined()
+        await reg.dispose()
         await store.close()
       } finally {
         vi.useRealTimers()
@@ -5936,7 +5985,7 @@ describe('SessionRegistry read state (#124)', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
     const before = (await reg.modules.sessions.listSessions())[0]
     expect(before?.readAt).toBeNull()
@@ -5961,15 +6010,15 @@ describe('SessionRegistry read state (#124)', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const c = sink()
-    attachCurrent(reg, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
 
     await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
-    reg.modules.sessions.flushBroadcasts()
+    await reg.modules.sessions.flushBroadcasts()
 
-    expect(feedValues(c.sent, 'session')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, unread: false }),
     )
     await reg.dispose()
@@ -5983,15 +6032,15 @@ describe('SessionRegistry read state (#124)', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
     expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
 
     const c = sink()
-    attachCurrent(reg, c.send)
+    await attachCurrent(reg, c.send)
     c.sent.length = 0
     await reg.modules.sessions.markSessionUnread(asUserId(SOLE_USER_ID), sessionId)
-    reg.modules.sessions.flushBroadcasts()
+    await reg.modules.sessions.flushBroadcasts()
 
     const after = (await reg.modules.sessions.listSessions())[0]
     expect(after?.readAt).toBeNull()
@@ -6000,7 +6049,7 @@ describe('SessionRegistry read state (#124)', () => {
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect((await reg2.modules.sessions.listSessions())[0]?.readAt).toBeNull()
     // And the scoped-feed change was broadcast to clients.
-    expect(feedValues(c.sent, 'session')).toContainEqual(
+    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, unread: true }),
     )
     await reg.dispose()
@@ -6027,7 +6076,7 @@ describe('SessionRegistry snooze', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
     await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
@@ -6047,7 +6096,7 @@ describe('SessionRegistry snooze', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
 
     await reg.modules.sessions.sendText({ sessionId, text: 'hi' })
@@ -6061,15 +6110,15 @@ describe('SessionRegistry snooze', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
     await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
-    reg.gateway.routeDaemonFrame(
+    await reg.gateway.routeDaemonFrame(
       'local',
       agentState(sessionId, 'idle', { idle: { kind: 'question' } }),
     )
@@ -6078,7 +6127,7 @@ describe('SessionRegistry snooze', () => {
     })
 
     // -> working leaves attention: snooze clears.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentState(sessionId, 'working'))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentState(sessionId, 'working'))
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
@@ -6150,7 +6199,7 @@ describe('SessionRegistry — auto-continue', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: erroredState,
@@ -6168,12 +6217,12 @@ describe('SessionRegistry — auto-continue', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await enableAutoContinue(reg)
     const sessionId = await liveSession(reg)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: erroredState,
     })
-    expect(daemon).toContainEqual(continueInput)
+    await expect.poll(() => daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
     await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...await reg.modules.settings.getSettings(),
@@ -6186,14 +6235,14 @@ describe('SessionRegistry — auto-continue', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg)
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     await enableAutoContinue(reg)
-    expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
+    await expect.poll(() => daemon).toContainEqual(continueInput) // flipping on arms the errored session
     await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...await reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
@@ -6220,7 +6269,7 @@ describe('output-relay priority + frame batch', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
     daemon.length = 0 // drop the spawn + daemon-connect priority push
 
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -6245,14 +6294,14 @@ describe('output-relay priority + frame batch', () => {
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
 
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
       modes: { [sessionId]: 'native' },
     })
     daemon.length = 0
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -6279,13 +6328,13 @@ describe('output-relay priority + frame batch', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
 
     // First set a mode, then send a modes-less viewState — it must reset, not retain.
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
       modes: { [sessionId]: 'native' },
     })
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -6315,7 +6364,7 @@ describe('output-relay priority + frame batch', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
     daemon.length = 0
 
-    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
+    await reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
     const sent = priorities(daemon)
     expect(sent).toContainEqual({
       type: 'sessionPriority',
@@ -6342,14 +6391,14 @@ describe('output-relay priority + frame batch', () => {
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
 
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
     daemon.length = 0
     // An identical viewState changes nothing → no re-send.
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -6366,7 +6415,7 @@ describe('output-relay priority + frame batch', () => {
     })
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -6394,10 +6443,10 @@ describe('output-relay priority + frame batch', () => {
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId })
     c.sent.length = 0
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrameBatch',
       sessionId,
       frames: ['ZDE=', 'ZDI='],
@@ -6422,13 +6471,14 @@ describe('listDir routing', () => {
       root: '/w',
       path: '/w',
     })
+    await expect.poll(() => daemon.some((m) => m.type === 'dirListRequest')).toBe(true)
     const req = daemon.find((m) => m.type === 'dirListRequest') as
       | { requestId: string; path: string }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('dirListRequest not sent')
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'dirListResult',
       requestId: req.requestId,
       ok: true,
@@ -6454,7 +6504,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         agentKind: 'claude-code',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         ...bind(sessionId),
         runtimeContract: true,
       })
@@ -6483,7 +6533,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         }),
       )
 
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeQueueDrainAbandoned',
         reportId: 'report-after-restart',
         sessionId,
@@ -6559,7 +6609,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
 
       // bind lands with the server-family facts; the drain must now route the
       // queued row through the contract.
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
       // Real timers on purpose: the drain's ready poll is 200ms, and swapping in
       // a fake clock around a full SessionRegistry orphans its background
       // intervals into whichever test runs next.
@@ -6580,7 +6630,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
 
       // The driver acks the turn → the ledger row is honestly delivered.
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
         sessionId,
@@ -6614,7 +6664,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
         cwd: '/repo',
       })
       const sent = await sendFirstPrompt(registry, sessionId)
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
       await vi.waitFor(() =>
         expect(
           daemon.some(
@@ -6626,7 +6676,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
         (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
       ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
       expect(request).toBeDefined()
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
         sessionId,
@@ -6700,14 +6750,15 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         agentKind: 'codex',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
-      registry.gateway.routeDaemonFrame(
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
         workingState(sessionId),
       )
 
       const answer = registry.modules.sessions.interruptTurn({ sessionId })
 
+      await expect.poll(() => daemon.some((message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId)).toBe(true)
       const request = daemon.find(
         (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
       ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
@@ -6717,7 +6768,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       // a success.
       expect(daemon.filter((message) => message.type === 'input')).toEqual([])
 
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeLifecycleResult',
         requestId: request!.requestId,
         sessionId,
@@ -6742,18 +6793,19 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         agentKind: 'codex',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
-      registry.gateway.routeDaemonFrame(
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
         workingState(sessionId),
       )
 
       const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      await expect.poll(() => daemon.some((message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId)).toBe(true)
       const request = daemon.find(
         (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
       ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
       expect(request).toBeDefined()
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeLifecycleResult',
         requestId: request!.requestId,
         sessionId,
@@ -6780,7 +6832,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         agentKind: 'codex',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
 
       const answer = await registry.modules.sessions.interruptTurn({ sessionId })
 
@@ -6854,7 +6906,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const sent = await sendPrompt(registry, sessionId)
       expect(sent.message.status).toBe('queued')
 
-      registry.gateway.routeDaemonFrame(
+      await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
         contractBind(sessionId, FUTURE_DRIVER),
       )
@@ -6899,7 +6951,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         cwd: '/repo',
       })
       const sent = await sendPrompt(registry, sessionId)
-      registry.gateway.routeDaemonFrame(
+      await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
         contractBind(sessionId, FUTURE_DRIVER),
       )
@@ -6913,7 +6965,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const request = daemon.find(
         (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
       ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
         sessionId,
@@ -6957,7 +7009,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const sent = await sendPrompt(registry, sessionId)
       expect(sent.message.status).toBe('queued')
 
-      registry.gateway.routeDaemonFrame(
+      await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
         contractBind(sessionId),
       )
@@ -6996,14 +7048,14 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
         contractBind(sessionId, 'generic-pty'),
       )
       await reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
       // Past the silent-spawn fallback window: a PTY session with no output
       // still gets served.
-      vi.advanceTimersByTime(7000)
+      await vi.advanceTimersByTimeAsync(7000)
 
       expect(inputFramesWith(daemon, 'typed-not-contracted')).not.toEqual([])
       expect(daemon.filter((m) => m.type === 'runtimeSendRequest')).toEqual([])
@@ -7026,7 +7078,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
         contractBind(sessionId, 'codex-app-server'),
       )
@@ -7046,7 +7098,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.gateway.routeDaemonFrame(
+      await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
         contractBind(sessionId, FUTURE_DRIVER),
       )
@@ -7115,7 +7167,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         ),
       ).toBe(false)
 
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
       await registry.modules.messages.flushDeliveryTriggers()
 
       const deliveredInputs = (): ControlMessage[] =>
@@ -7165,7 +7217,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         agentKind: 'codex',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
 
       const ghost = 'sess_no_such_session'
       await registry.modules.sessions.queueText({
@@ -7249,7 +7301,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         issueId: child.id,
         spawnedBy: `session:${coordinator}`,
       })).sessionId
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(coordinator))
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(coordinator))
 
       await registry.modules.sessions.queueText({
         sessionId: coordinator,
@@ -7280,14 +7332,14 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     it('keeps registry boot alive when the recovery job throws', async () => {
       const reconcile = vi
         .spyOn(MessageDeliveryService.prototype, 'reconcileQueued')
-        .mockImplementationOnce(() => {
+        .mockImplementationOnce(async () => {
           throw new Error('corrupt recovery row')
         })
       const logs = captureLogs()
       let registry: SessionRegistry | undefined
       try {
         const creating = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-        await expect(creating).resolves.not.toThrow()
+        await expect(creating).resolves.toBeInstanceOf(SessionRegistry)
         registry = await creating
         expect(logs.at('warn')).toContainEqual(
           expect.objectContaining({
