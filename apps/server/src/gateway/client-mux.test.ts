@@ -246,6 +246,7 @@ describe('the connection lifecycle', () => {
       Promise<void>
     >()
     expectTypeOf<ClientMux['attachClient']>().returns.toEqualTypeOf<string>()
+    expectTypeOf<ClientMux['admissionSettled']>().returns.toEqualTypeOf<Promise<void>>()
   })
 
   it.each([
@@ -283,7 +284,7 @@ describe('the connection lifecycle', () => {
       h.registry.get(id),
       A_ROUTABLE_FRAME,
     )
-    await h.feed.admissionSettled()
+    await h.mux.admissionSettled()
     expect(sent.some((msg) => msg.type === 'sessionsChanged')).toBe(true)
     expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
     expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)

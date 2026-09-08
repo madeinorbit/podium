@@ -179,6 +179,18 @@ export class ClientMux {
   }
 
   /**
+   * Wait for every deferred feed admission this mux started.
+   *
+   * Observer-only — production never awaits this (POD-3523). `attachClient` and
+   * `hello` return before the world is read, so a measurement that counted on
+   * the same turn as those calls recorded zero statements while still seeing
+   * the bootstrap frame (the control is taken after the deferred work lands).
+   */
+  admissionSettled(): Promise<void> {
+    return this.deps.feed.admissionSettled()
+  }
+
+  /**
    * A client socket connected. Mint its id and principal, register it, tell it
    * its id, then hand it to the feature ports for their non-entity bootstrap.
    *

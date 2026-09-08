@@ -289,8 +289,18 @@ async function buildFixture(): Promise<Fixture> {
 }
 
 /** Attach one client and speak `hello`, which is what makes the server serve a
- *  world. Returns its peer id. */
-function attachClient(fixture: Fixture, sink: (message: ServerMessage) => void): string {
+ *  world. Returns its peer id after that world has actually been served.
+ *
+ *  THE WAIT IS THE WINDOW [POD-3523]. `attachClient` / `hello` return before
+ *  the deferred admission reads the world, so a count taken on the same turn
+ *  is always 0 even though the bootstrap frame later lands — a dead probe that
+ *  still reports a healthy control. `admissionSettled` is the observer seam
+ *  that wait is. The probe itself did not move: issue-frame reads on the same
+ *  run still hit the executor statement seam. */
+async function attachClient(
+  fixture: Fixture,
+  sink: (message: ServerMessage) => void,
+): Promise<string> {
   const clientId = fixture.registry.clientGateway.attachClient({
     send: sink,
     // The fixture's issues and sessions are the admin's. A connection for any
@@ -306,6 +316,7 @@ function attachClient(fixture: Fixture, sink: (message: ServerMessage) => void):
     viewport: { cols: 80, rows: 24, dpr: 1 },
     caps: ['metadataDelta'],
   })
+  await fixture.registry.clientGateway.admissionSettled()
   return clientId
 }
 
@@ -338,13 +349,15 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
     const probe = await probeFactory(fixture.store)
     try {
       // (1) FEED BOOTSTRAP. The window is the whole request a fresh connection
-      // makes — attach plus `hello` — because that is what one client costs the
-      // database, and `serveWorld` is only its tail. The FIRST connection for a
-      // principal is the one that pays: `worldFor` caches the installed world,
-      // so a second attach at the same head is a reuse and would report ~0.
+      // makes — attach plus `hello`, including the deferred admission that
+      // actually reads the world (POD-3523) — because that is what one client
+      // costs the database, and `serveWorld` is only its tail. The FIRST
+      // connection for a principal is the one that pays: `worldFor` caches the
+      // installed world, so a second attach at the same head is a reuse and
+      // would report ~0.
       const bootstrapInbox: ServerMessage[] = []
       probe.reset()
-      attachClient(fixture, (message) => bootstrapInbox.push(message))
+      await attachClient(fixture, (message) => bootstrapInbox.push(message))
       const bootstrapQueries = probe.count()
       breakdown['feedBootstrap.queriesPerRequest'] = probe.byStatement()
       // Right here, before anything else runs: the question the statement cache
@@ -366,7 +379,7 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       // the hoisted list read, then the per-session owning-issue resolution.
       fixture.drain()
       const stormInbox: ServerMessage[] = []
-      attachClient(fixture, (message) => stormInbox.push(message))
+      await attachClient(fixture, (message) => stormInbox.push(message))
       await settle(fixture)
       stormInbox.length = 0
       let resolvedRows = 0
@@ -421,7 +434,7 @@ async function measureFrames(): Promise<Report> {
   const fixture = await buildFixture()
   try {
     const inbox: ServerMessage[] = []
-    attachClient(fixture, (message) => inbox.push(message))
+    await attachClient(fixture, (message) => inbox.push(message))
     await settle(fixture)
 
     // (3) BOOT RECONCILE. `IssueService.boot` is the real thing, not an
