@@ -11,7 +11,7 @@ import {
   FIRST_ADMIN_USER_ID,
   type SessionId,
 } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -185,8 +185,7 @@ describe('agent spawn (gate)', () => {
       prompt: 'start after probing',
       harness: 'claude-code',
     })
-    await Promise.resolve()
-    expect(waited).toEqual(['machine-home'])
+    await vi.waitFor(() => expect(waited).toEqual(['machine-home']))
     expect(spawns).toEqual([])
 
     release()
@@ -753,7 +752,12 @@ describe('agent await (bounded, never hangs)', () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({})] // live + working: the await actually waits
-    const { gate, svc } = await harness({ sessions, now })
+    let waiting!: () => void
+    const started = new Promise<void>((resolve) => { waiting = resolve })
+    const { gate, svc } = await harness({ sessions, now, sleep: async () => {
+      waiting()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    } })
     // Parent messages the child; the child acks back to the parent session.
     const sent = await svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
@@ -763,10 +767,11 @@ describe('agent await (bounded, never hangs)', () => {
       child({ sessionId: asSessionId('sParent'), status: 'live', spawnedBy: undefined }),
     )
     t = 2_000
-    const p = await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+    const p = gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 5,
     }) as Promise<{ done: boolean; result: string; ack?: { body: string } }>
+    await started
     // The ack postdates the await start (the freshness contract).
     t = 3_000
     await svc.sendReply(
@@ -1039,13 +1044,16 @@ describe('session ask — the seance (#237 tier 4)', () => {
     }) as SessionMeta
 
   it('round-trips: question → delivery with the answer-then-resume envelope → ack carries the answer back', async () => {
-    const { gate, svc, sent } = await harness({ sessions: [child({})] })
-    const p = await gate.dispatch(PARENT, true, 'ask', {
+    const { gate, svc, sent } = await harness({ sessions: [child({})],
+      sleep: async () => { await new Promise((resolve) => setTimeout(resolve, 0)) },
+    })
+    const p = gate.dispatch(PARENT, true, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
       timeoutSeconds: 5,
     }) as Promise<{ answered: boolean; answer?: string; questionId: string }>
-    // The question is delivered inline (idle target) as a kind:'question'
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
+    // The question is delivered to the idle target as a kind:'question'
     // envelope that CONSTRAINS the receiver: answer, then resume — server-
     // rendered, so a body can never fake or omit it.
     expect(sent).toHaveLength(1)
@@ -1065,12 +1073,15 @@ describe('session ask — the seance (#237 tier 4)', () => {
   })
 
   it('an OPERATOR ask against a live idle target round-trips: the question frame carries the reply pointer', async () => {
-    const { gate, svc, sent } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
-    const p = await gate.dispatch(OPERATOR, undefined, 'ask', {
+    const { gate, svc, sent } = await harness({ sessions: [child({ spawnedBy: 'user' })],
+      sleep: async () => { await new Promise((resolve) => setTimeout(resolve, 0)) },
+    })
+    const p = gate.dispatch(OPERATOR, undefined, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
       timeoutSeconds: 5,
     }) as Promise<{ answered: boolean; answer?: string; questionId: string }>
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
     // Operator bodies normally land unwrapped, but a QUESTION must carry the
     // reply frame or the target can never ack (the ask would always time out).
     expect(sent).toHaveLength(1)
