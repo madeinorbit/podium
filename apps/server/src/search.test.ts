@@ -439,7 +439,8 @@ describe('search.query tRPC', () => {
         agentKind: 'claude-code',
         cwd,
       })
-      registry.gateway.routeDaemonFrame('m1', {
+      // The visibility snapshot needs the persisted native-session binding.
+      await registry.gateway.routeDaemonFrame('m1', {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
@@ -460,6 +461,7 @@ describe('search.query tRPC', () => {
     const before = (await registry.modules.memory
       .search(READER, { text: 'rankneedle' }))
       .find((hit) => hit.kind === 'transcript')
+    expect(before?.id).toBe('visible-rank-message')
     await bind(bob, 'hidden-rank', '/hidden')
     await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
