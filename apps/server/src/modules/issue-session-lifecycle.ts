@@ -30,6 +30,8 @@ export class IssueSessionLifecycle {
   private closedIssueSweepTimer: ReturnType<typeof setInterval> | undefined
   /** True while a closed-issue sweep is running — see {@link sweepClosedIssues}. */
   private sweepingClosedIssues = false
+  /** Set by dispose so a startup pass still in flight cannot arm the interval afterwards. */
+  private disposed = false
 
   constructor(
     private readonly deps: {
@@ -152,27 +154,39 @@ export class IssueSessionLifecycle {
   }
 
   /** Start the boot pass and the bounded periodic backstop exactly once. */
-  async startClosedIssueSweep(): Promise<void> {
+  startClosedIssueSweep(): void {
     if (this.closedIssueSweepTimer) return
-    // AWAIT THE STARTUP PASS before arming the periodic one. It used to be
-    // fire-and-forget, which was fine while this was called from a constructor
-    // that ran long before anything else touched the store. It is called from
-    // async boot now, and a startup pass still in flight when the first periodic
-    // tick fires is precisely the overlap the single-flight guard was built for
-    // (POD-3258): the guard skips the tick, correctly, and the sweep silently
-    // does not happen. Boot is the right place to wait for boot work.
-    await this.sweepClosedIssues('startup').catch((error) => {
-      log.warn('closed issue startup sweep failed', { err: error })
-    })
-    this.closedIssueSweepTimer = setInterval(() => {
-      void this.sweepClosedIssues('periodic').catch((error) => {
-        log.warn('closed issue periodic sweep failed', { err: error })
+    // OFF THE LISTEN PATH, and the periodic tick armed only once the startup
+    // pass is done.
+    //
+    // Both halves matter. The interval must not be armed while the startup pass
+    // is still running: the single-flight guard (POD-3258) would correctly skip
+    // that first tick and the sweep would silently not happen. But awaiting the
+    // startup pass from boot is worse — it walks every closed issue, and each one
+    // that cannot reach a daemon costs a git-request timeout. On a real database
+    // that is thousands of issues before the server would ever listen, so the
+    // server appears to hang on start with no error (POD-3684 fixed the ordering
+    // and introduced this; the ordering fix stays, the blocking does not).
+    //
+    // Chaining gives both: boot returns immediately, and the interval is armed
+    // from the startup pass's own completion rather than racing it.
+    void this.sweepClosedIssues('startup')
+      .catch((error) => {
+        log.warn('closed issue startup sweep failed', { err: error })
       })
-    }, CLOSED_ISSUE_SWEEP_INTERVAL_MS)
-    this.closedIssueSweepTimer.unref?.()
+      .finally(() => {
+        if (this.closedIssueSweepTimer || this.disposed) return
+        this.closedIssueSweepTimer = setInterval(() => {
+          void this.sweepClosedIssues('periodic').catch((error) => {
+            log.warn('closed issue periodic sweep failed', { err: error })
+          })
+        }, CLOSED_ISSUE_SWEEP_INTERVAL_MS)
+        this.closedIssueSweepTimer.unref?.()
+      })
   }
 
   dispose(): void {
+    this.disposed = true
     if (this.closedIssueSweepTimer) clearInterval(this.closedIssueSweepTimer)
     this.closedIssueSweepTimer = undefined
   }
