@@ -6,6 +6,8 @@ import {
   type UpdateChannel,
 } from '@podium/model'
 import { resolveUpdateChannel } from '@podium/runtime/config'
+import { updateFingerprint } from '@podium/runtime/machine-update'
+import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
@@ -2552,5 +2554,97 @@ describe('deferred target-change notification', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
+  })
+})
+
+/** POD-3672: exercise the guard itself, independently of grant issuance. */
+describe('coordinator approval guards', () => {
+  const target: UpdateTarget = { version: '0.4.2', critical: false, artifacts: {} }
+  const changed: UpdateTarget = { ...target, critical: true }
+  const grant: UpdateGrantMessage = {
+    type: 'updateGrant', grantId: 'coordinator-grant', issuedAt: 1_000, target,
+  }
+  function restored(overrides: Partial<UpdatesDeps> = {}, patch: Partial<UpdateRecoverySnapshot> = {}) {
+    const snapshot: UpdateRecoverySnapshot = {
+      format: 1, lastGrantAuthority: 1_000, machines: [], rollouts: [],
+      targets: [['dev', target]],
+      grants: [['host', {
+        channel: 'dev', grantId: grant.grantId, issuedAt: 1_000,
+        targetFingerprint: updateFingerprint(target), coordinatorGrant: grant,
+      }]],
+      ...patch,
+    }
+    return make([], {
+      approvedTarget: async () => ({ ...target }),
+      recovery: { read: () => snapshot, write: vi.fn() },
+      ...overrides,
+    }).svc
+  }
+
+  it('approves the exact target after asynchronous approval resolves', async () => {
+    let resolve!: (value: UpdateTarget | undefined) => void
+    const approval = new Promise<UpdateTarget | undefined>((done) => { resolve = done })
+    const read = vi.fn(() => approval)
+    const svc = restored({ approvedTarget: read })
+    const result = svc.coordinatorUpdateApproved('dev', target)
+    expect(read).toHaveBeenCalledWith('dev')
+    resolve({ ...target })
+    // The old unawaited spelling resolves false here: it fingerprints a Promise.
+    expect(await result).toBe(true)
+  })
+
+  it('refuses missing, different, wrong-channel and recovery-only approval', async () => {
+    expect(await restored({ approvedTarget: async () => undefined })
+      .coordinatorUpdateApproved('dev', target)).toBe(false)
+    expect(await restored().coordinatorUpdateApproved('dev', changed)).toBe(false)
+    const svc = restored({ approvedTarget: async (channel) => channel === 'dev' ? target : undefined })
+    expect(await svc.coordinatorUpdateApproved('stable', target)).toBe(false)
+    expect(await restored({ recoveryOnly: true }).coordinatorUpdateApproved('dev', target)).toBe(false)
+  })
+
+  it('recognizes an approved pending grant as active', async () => {
+    expect(await restored().coordinatorGrantActive('host', { ...grant, target: { ...target } })).toBe(true)
+  })
+
+  it('requires a pending grant, its exact id, its fingerprint, and the current feed target', async () => {
+    expect(await restored().coordinatorGrantActive('other-host', grant)).toBe(false)
+    expect(await restored().coordinatorGrantActive('host', { ...grant, grantId: 'stale' })).toBe(false)
+    // Approval matches the supplied target; the pending fingerprint still does not.
+    expect(await restored({ approvedTarget: async () => changed })
+      .coordinatorGrantActive('host', { ...grant, target: changed })).toBe(false)
+    expect(await restored({}, { targets: [] }).coordinatorGrantActive('host', grant)).toBe(false)
+    expect(await restored({}, { targets: [['dev', changed]] })
+      .coordinatorGrantActive('host', grant)).toBe(false)
+  })
+
+  it('rechecks approval for a live grant and refuses recovery-only execution', async () => {
+    let approved: UpdateTarget | undefined = target
+    const svc = restored({ approvedTarget: async () => approved })
+    expect(await svc.coordinatorGrantActive('host', grant)).toBe(true)
+    approved = undefined
+    expect(await svc.coordinatorGrantActive('host', grant)).toBe(false)
+    approved = changed
+    expect(await svc.coordinatorGrantActive('host', grant)).toBe(false)
+    expect(await restored({ recoveryOnly: true }).coordinatorGrantActive('host', grant)).toBe(false)
+  })
+
+  it('dispatches the approved pending grant when the coordinator handler registers', async () => {
+    const dispatch = vi.fn()
+    await restored().handleCoordinatorUpdate('host', { active: async () => true, dispatch })
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(grant)
+    dispatch.mockClear()
+    await restored({ approvedTarget: async () => undefined })
+      .handleCoordinatorUpdate('host', { active: async () => true, dispatch })
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('issues an approved coordinator grant and rejects an unapproved target', async () => {
+    const svc = restored({}, { grants: [] })
+    const dispatch = vi.fn()
+    await svc.handleCoordinatorUpdate('host', { active: async () => true, dispatch })
+    expect(await svc.grantCoordinatorUpdate('host', 'dev', target, TEST_APPLY)).toBe(true)
+    expect(dispatch).toHaveBeenCalledOnce()
+    await expect(svc.grantCoordinatorUpdate('host', 'dev', changed, TEST_APPLY))
+      .rejects.toThrow('Coordinator update requires approval of the exact target.')
   })
 })
