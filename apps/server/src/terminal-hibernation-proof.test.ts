@@ -61,7 +61,7 @@ async function harness({
     agentKind: 'codex',
     cwd: '/proj',
   })
-  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: 'codex',
@@ -70,7 +70,7 @@ async function harness({
     geometry: { cols: 80, rows: 24 },
   })
   if (resumable) {
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -98,12 +98,12 @@ async function harness({
     transitionId: 'bootstrap-working',
     state: runtime('working', 10),
   }
-  const observe = (observation: AgentObservation) =>
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  const observe = async (observation: AgentObservation) =>
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation,
     })
-  observe(base)
+  await observe(base)
   const terminal: AgentObservation = {
     ...base,
     providerCursor: { segmentId: 'rollout-1', components: { file: 20 } },
@@ -137,9 +137,9 @@ async function harness({
               : {},
           ),
   }
-  observe(terminal)
-  const confirm = (generation: number) =>
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await observe(terminal)
+  const confirm = async (generation: number) =>
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentObserverLiveConfirmation',
       sessionId,
       provider: 'codex',
@@ -161,7 +161,7 @@ describe('durable terminal hibernation proof', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -169,12 +169,12 @@ describe('durable terminal hibernation proof', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'legacy-session' },
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: runtime('idle', 1, { idle: { kind: 'done' } }),
@@ -211,7 +211,7 @@ describe('durable terminal hibernation proof', () => {
   it('qualifies one unchanged live terminal exactly once', async () => {
     const { registry, store, daemon, sessionId, confirm } = await harness()
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
-    confirm(1)
+    await confirm(1)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
 
     expect(
@@ -234,12 +234,12 @@ describe('durable terminal hibernation proof', () => {
     'queue',
   ] as const)('cancels a confirmed proof after newer %s', async (kind) => {
     const { registry, sessionId, confirm } = await harness()
-    confirm(1)
+    await confirm(1)
     expect(await registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(true)
     if (kind === 'input') await registry.modules.sessions.sendText({ sessionId, text: 'new turn' })
     if (kind === 'queue') await registry.modules.sessions.queueText({ sessionId, text: 'queued turn' })
     if (kind === 'output')
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq: 1,
@@ -256,7 +256,7 @@ describe('durable terminal hibernation proof', () => {
     'server',
   ] as const)('renews an exact terminal proof after %s reattachment and replay output', async (restartKind) => {
     const h = await harness()
-    h.confirm(1)
+    await h.confirm(1)
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
 
     let registry = h.registry
@@ -277,7 +277,7 @@ describe('durable terminal hibernation proof', () => {
     )
     expect(reattach?.observationGeneration).toBe(2)
 
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: h.sessionId,
       cmd: 'codex',
@@ -285,7 +285,7 @@ describe('durable terminal hibernation proof', () => {
       agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentFrameBatch',
       sessionId: h.sessionId,
       frames: [
@@ -296,14 +296,14 @@ describe('durable terminal hibernation proof', () => {
     expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
 
     // A legacy frame remains effect-free and cannot renew the fenced proof.
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: h.sessionId,
       state: runtime('working', 50),
     })
     expect(await registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
 
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: {
         ...h.terminal,
@@ -320,7 +320,7 @@ describe('durable terminal hibernation proof', () => {
 
     // Renewal is one generation transition, not an output amnesty. Any later
     // terminal activity invalidates the translated proof again.
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: h.sessionId,
       seq: 3,
@@ -331,8 +331,8 @@ describe('durable terminal hibernation proof', () => {
 
   it('cannot use a stale proof after a real new prompt', async () => {
     const { registry, sessionId, base, observe, confirm } = await harness()
-    confirm(1)
-    observe({
+    await confirm(1)
+    await observe({
       ...base,
       providerCursor: { segmentId: 'rollout-1', components: { file: 30 } },
       providerAt: at(30),
@@ -366,8 +366,8 @@ describe('durable terminal hibernation proof', () => {
     // A legacy/bootstrap-reconciled terminal has no live edge to arm pass one.
     const lease = await store.observationCheckpoints.get(sessionId)
     expect(lease?.checkpoint?.terminalFence?.transitionId).toBe(terminal.transitionId)
-    const message = (generation: number) =>
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    const message = async (generation: number) =>
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'agentObserverLiveConfirmation',
         sessionId,
         provider: 'codex',
@@ -388,7 +388,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('leaves lifecycle and kill side effects untouched when atomic consume loses a race', async () => {
     const { registry, store, daemon, sessionId, confirm } = await harness()
-    confirm(1)
+    await confirm(1)
     const proofBefore = await store.observationCheckpoints.getTerminalCandidate(sessionId)
     const autoContinue = (
       registry.modules.sessions as unknown as {
@@ -413,15 +413,15 @@ describe('durable terminal hibernation proof', () => {
 
   it('rolls back proof consumption and in-memory hibernation when the row transaction fails', async () => {
     const { registry, store, daemon, sessionId, confirm } = await harness()
-    confirm(1)
+    await confirm(1)
     const proofBefore = await store.observationCheckpoints.getTerminalCandidate(sessionId)
-    const upsert = vi.spyOn(store.sessions, 'upsertSession').mockImplementationOnce(() => {
+    const upsert = vi.spyOn(store.sessions, 'upsertSession').mockImplementationOnce(async () => {
       throw new Error('session row write failed')
     })
 
-    expect(() =>
+    await expect(
       registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }),
-    ).toThrow('session row write failed')
+    ).rejects.toThrow('session row write failed')
     upsert.mockRestore()
     expect(
       (await registry.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
@@ -465,8 +465,8 @@ describe('durable terminal hibernation proof', () => {
       agentKind: 'codex' as const,
       geometry: { cols: 80, rows: 24 },
     }
-    restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
-    restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
+    await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
+    await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
     expect(continues()).toHaveLength(1)
   })
 
@@ -488,7 +488,7 @@ describe('durable terminal hibernation proof', () => {
     await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
       controls.push(message),
     )
-    restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
+    await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: h.sessionId,
       cmd: 'codex',
@@ -509,12 +509,13 @@ describe('durable terminal hibernation proof', () => {
 
   it('invalidates terminal-fence exit suppression after newer causal input', async () => {
     const fenced = await harness()
-    fenced.registry.gateway.routeDaemonFrame(fenced.registry.sessionStore.hostMachineId, {
+    await fenced.registry.gateway.routeDaemonFrame(fenced.registry.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: fenced.sessionId,
       code: 1,
     })
-    expect(
+    // Exit notification persists independently of the daemon frame handler.
+    await expect.poll(async () =>
       (await fenced.store.events.listEventsSince(0, { kinds: ['session.exited'] })).at(-1)?.payload,
     ).toMatchObject({ terminalFenceReported: true })
 
@@ -525,11 +526,14 @@ describe('durable terminal hibernation proof', () => {
         text: 'again',
       })).ok,
     ).toBe(true)
-    stale.registry.gateway.routeDaemonFrame(stale.registry.sessionStore.hostMachineId, {
+    await stale.registry.gateway.routeDaemonFrame(stale.registry.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId: stale.sessionId,
       code: 1,
     })
+    await expect.poll(async () =>
+      (await stale.store.events.listEventsSince(0, { kinds: ['session.exited'] })).at(-1)?.payload,
+    ).toMatchObject({ code: 1 })
     expect(
       (await stale.store.events.listEventsSince(0, { kinds: ['session.exited'] })).at(-1)?.payload,
     ).not.toHaveProperty('terminalFenceReported')
@@ -537,7 +541,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('manual stop cancels the proof and auto-reap cannot double-act', async () => {
     const { registry, daemon, sessionId, confirm } = await harness()
-    confirm(1)
+    await confirm(1)
     expect((await registry.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
     const kills = daemon.filter((message) => message.type === 'kill').length
     expect(
@@ -548,7 +552,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('cancels pass one on exact rebind and requires two polls after a new generation', async () => {
     const rebound = await harness()
-    rebound.registry.gateway.routeDaemonFrame(rebound.registry.sessionStore.hostMachineId, {
+    await rebound.registry.gateway.routeDaemonFrame(rebound.registry.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId: rebound.sessionId,
       provider: 'codex',
@@ -569,8 +573,8 @@ describe('durable terminal hibernation proof', () => {
       'codex',
       'thread-1',
     )
-    const confirm = (livePollSequence: number) =>
-      restarted.registry.gateway.routeDaemonFrame(restarted.registry.sessionStore.hostMachineId, {
+    const confirm = async (livePollSequence: number) =>
+      await restarted.registry.gateway.routeDaemonFrame(restarted.registry.sessionStore.hostMachineId, {
         type: 'agentObserverLiveConfirmation',
         sessionId: restarted.sessionId,
         provider: 'codex',
@@ -581,11 +585,11 @@ describe('durable terminal hibernation proof', () => {
         livePollSequence,
         confirmedAt: at(50 + livePollSequence),
       })
-    confirm(1)
+    await confirm(1)
     expect(await restarted.registry.modules.sessions.hasValidTerminalProof(restarted.sessionId)).toBe(
       false,
     )
-    confirm(2)
+    await confirm(2)
     expect(await restarted.registry.modules.sessions.hasValidTerminalProof(restarted.sessionId)).toBe(
       true,
     )
@@ -593,7 +597,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('fails closed for non-resumable terminals and accepts session-terminal edges', async () => {
     const nonresumable = await harness({ resumable: false })
-    nonresumable.confirm(1)
+    await nonresumable.confirm(1)
     expect(
       await nonresumable.registry.modules.sessions.hasValidTerminalProof(nonresumable.sessionId),
     ).toBe(false)
@@ -609,7 +613,7 @@ describe('durable terminal hibernation proof', () => {
   it('arms pass one when last-subagent bookkeeping stabilizes a terminal fence', async () => {
     const h = await harness({ closing: true })
     expect(await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)).toBeNull()
-    h.observe({
+    await h.observe({
       ...h.terminal,
       providerCursor: { segmentId: 'rollout-1', components: { file: 25 } },
       receivedAt: at(25),
@@ -651,8 +655,8 @@ describe('durable terminal hibernation proof', () => {
         remindedAt: null,
       })
     }
-    h.confirm(1)
-    h.confirm(2)
+    await h.confirm(1)
+    await h.confirm(2)
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
   })
 
@@ -711,7 +715,7 @@ describe('durable terminal hibernation proof', () => {
       message: 'Ready to merge',
       actions: [{ label: 'Merge', prompt: 'merge it' }],
     })
-    h.confirm(1)
+    await h.confirm(1)
 
     // Neither a draft nor an offer is work that hibernation would lose, so
     // neither invalidates the proof nor blocks the reap (POD-1879).
@@ -736,15 +740,15 @@ describe('durable terminal hibernation proof', () => {
     ).toEqual({ reason: 'proof_unconfirmed' })
 
     const stale = await harness()
-    stale.confirm(1)
+    await stale.confirm(1)
     await stale.store.observationCheckpoints.advanceGeneration(stale.sessionId, 'codex', 'thread-1')
     expect(await stale.registry.modules.sessions.terminalProofStatus(stale.sessionId)).toEqual({
       reason: 'proof_stale_generation',
     })
 
     const changed = await harness()
-    changed.confirm(1)
-    changed.registry.gateway.routeDaemonFrame(changed.registry.sessionStore.hostMachineId, {
+    await changed.confirm(1)
+    await changed.registry.gateway.routeDaemonFrame(changed.registry.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: changed.sessionId,
       seq: 1,
@@ -760,7 +764,7 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const unresumable = await harness({ resumable: false })
-    unresumable.confirm(1)
+    await unresumable.confirm(1)
     expect(
       await unresumable.registry.modules.sessions.terminalProofStatus(unresumable.sessionId),
     ).toEqual({ reason: 'active_work', blocker: 'not_resumable' })
@@ -768,7 +772,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('rehabilitates a consumed proof after revival without a new user turn', async () => {
     const h = await harness()
-    h.confirm(1)
+    await h.confirm(1)
     expect(
       await h.registry.modules.sessions.hibernateSession({
         sessionId: h.sessionId,
@@ -788,7 +792,7 @@ describe('durable terminal hibernation proof', () => {
 
     // The relaunched process binds; from here nothing but observer receipts
     // touch the session — no user turn is available to re-arm the proof.
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: h.sessionId,
       cmd: 'codex',
@@ -799,8 +803,8 @@ describe('durable terminal hibernation proof', () => {
     const generation =
       (await h.store.observationCheckpoints.get(h.sessionId))?.observationGeneration ?? 0
     expect(generation).toBe(2)
-    const confirmAt = (livePollSequence: number) =>
-      h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    const confirmAt = async (livePollSequence: number) =>
+      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
         type: 'agentObserverLiveConfirmation',
         sessionId: h.sessionId,
         provider: 'codex',
@@ -811,33 +815,33 @@ describe('durable terminal hibernation proof', () => {
         livePollSequence,
         confirmedAt: at(40 + livePollSequence),
       })
-    confirmAt(1)
+    await confirmAt(1)
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
-    confirmAt(2)
+    await confirmAt(2)
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
   })
 
   it('re-arms pass one when the observer poll counter restarts', async () => {
     const h = await harness({ terminalProvenance: 'bootstrap' })
-    h.confirm(3)
+    await h.confirm(3)
     expect(
       (await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId))
         ?.lastLivePollSequence,
     ).toBe(3)
     // A restarted observer counts from one again; the stored high-water mark
     // would otherwise make every one of its receipts inert forever.
-    h.confirm(1)
+    await h.confirm(1)
     const rearmed = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
     expect(rearmed).toMatchObject({ firstLivePollSequence: 1, lastLivePollSequence: 1 })
     expect(rearmed?.confirmedAt).toBeNull()
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
-    h.confirm(2)
+    await h.confirm(2)
     expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
   })
 
   it('refuses to rehabilitate a proof consumed under the current generation', async () => {
     const h = await harness()
-    h.confirm(1)
+    await h.confirm(1)
     await h.registry.modules.sessions.hibernateSession({
       sessionId: h.sessionId,
       requireTerminalProof: true,
@@ -864,7 +868,7 @@ describe('durable terminal hibernation proof', () => {
   it('rehabilitates each runtime against its own state root', async () => {
     const blue = await harness({ instanceId: 'blue' })
     const green = await harness({ instanceId: 'green' })
-    blue.confirm(1)
+    await blue.confirm(1)
     await blue.registry.modules.sessions.hibernateSession({
       sessionId: blue.sessionId,
       requireTerminalProof: true,
@@ -876,7 +880,7 @@ describe('durable terminal hibernation proof', () => {
     expect(await green.registry.modules.sessions.terminalProofStatus(green.sessionId)).toEqual({
       reason: 'proof_unconfirmed',
     })
-    green.confirm(1)
+    await green.confirm(1)
     expect(await green.registry.modules.sessions.hasValidTerminalProof(green.sessionId)).toBe(true)
     expect(await blue.registry.modules.sessions.terminalProofStatus(blue.sessionId)).toEqual({
       reason: 'not_running',
@@ -885,7 +889,7 @@ describe('durable terminal hibernation proof', () => {
 
   it('keeps consumed proof inert under late causal, confirmation, and legacy frames', async () => {
     const h = await harness()
-    h.confirm(1)
+    await h.confirm(1)
     expect(
       await h.registry.modules.sessions.hibernateSession({
         sessionId: h.sessionId,
@@ -896,7 +900,7 @@ describe('durable terminal hibernation proof', () => {
     const proof = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
     const effects: unknown[] = []
     h.registry.bus.on('session.stateChanged', (event) => effects.push(event))
-    h.observe({
+    await h.observe({
       ...h.base,
       providerCursor: { segmentId: 'rollout-1', components: { file: 30 } },
       provenance: 'live',
@@ -907,8 +911,8 @@ describe('durable terminal hibernation proof', () => {
       transitionId: 'late-working',
       state: runtime('working', 30),
     })
-    h.confirm(2)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    await h.confirm(2)
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId: h.sessionId,
       state: runtime('working', 31),
