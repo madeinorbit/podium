@@ -515,6 +515,37 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
 })
 
 describe('advisories that are not feed content', () => {
+  it('an advisory waits for an entity flush already framing asynchronously', async () => {
+    const p = await feedTestPlumbing()
+    const legacy = new Peer('ordered-v1', 1, true)
+    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
+    await p.serving.admissionSettled()
+    legacy.received.length = 0
+    let release!: () => void
+    const parked = new Promise<void>((resolve) => { release = resolve })
+    const publish = p.serving.publish.bind(p.serving)
+    let started = false
+    vi.spyOn(p.serving, 'publish').mockImplementation(async (principal, delivery) => {
+      started = true
+      await parked
+      await publish(principal, delivery)
+    })
+    await commit(p, 'conversation', 'ordered-conversation', { id: 'ordered-conversation' })
+    const flushing = p.serving.flushPending()
+    await vi.waitFor(() => expect(started).toBe(true))
+    p.serving.publishAdvisory('conversation-diagnostics')
+    // Let the advisory's scheduled turn run while the real entity frame is held.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(legacy.received).toEqual([])
+    release()
+    await flushing
+    await vi.waitFor(() => {
+      expect(legacy.types()).toEqual(['metadataDelta', 'conversationsChanged'])
+    })
+    const lists = legacy.received.filter((message) => message.type === 'conversationsChanged')
+    expect(lists.every((message) => message.conversations.some((row) => row.id === 'ordered-conversation'))).toBe(true)
+  })
+
   it('a diagnostics change re-serves the conversation list to a v1 peer, and nothing to a v2 one', async () => {
     let diagnostics = [{ kind: 'scan-error', detail: 'x' }] as never[]
     const p = await feedTestPlumbing({ diagnostics: () => diagnostics })
@@ -530,7 +561,7 @@ describe('advisories that are not feed content', () => {
 
     diagnostics = [{ kind: 'scan-error', detail: 'y' }] as never[]
     p.serving.publishAdvisory('conversation-diagnostics')
-    await Promise.resolve()
+    await vi.waitFor(() => expect(legacy.received.length).toBeGreaterThan(legacyBefore))
 
     const served = legacy.received.slice(legacyBefore) as {
       type: string

@@ -147,6 +147,7 @@ import type {
 } from '@podium/sync'
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
+import { runAtRoot } from '../store/executor/context'
 import { withReadScope } from '../store/executor/read-scope'
 import { perf } from '../modules/perf/registry'
 import { traceFeedPeer } from './feed-peer-trace'
@@ -206,7 +207,60 @@ export interface FeedPeer extends EdgePeer {
   terminate?(): void
 }
 
+/** One-shot subscription to the owning store scheduler's idle transition. */
+export type OnPublicationIdle = (listener: () => void) => () => void
+
+/**
+ * Hold an async burst until scheduler idle, then allow the caller's next
+ * continuation to finish before framing. A microtask runs between commits;
+ * an immediate idle flush also splits sequential boot reconciles. The deadline
+ * bounds publication latency when work keeps the scheduler busy indefinitely.
+ * Without a store scheduler (kernel-only fixtures), use the next event-loop turn.
+ * The returned cancellation also removes the idle listener after an explicit flush.
+ */
+export function scheduleFeedFlush(
+  flush: () => void | Promise<void>,
+  onIdle?: OnPublicationIdle,
+): () => void {
+  let cancelled = false
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  let unsubscribe: (() => void) | undefined
+  const cancel = () => {
+    if (cancelled) return
+    cancelled = true
+    if (idleTimer !== undefined) clearTimeout(idleTimer)
+    if (deadline !== undefined) clearTimeout(deadline)
+    unsubscribe?.()
+  }
+  const run = () => {
+    if (cancelled) return
+    cancel()
+    try {
+      void Promise.resolve(runAtRoot(flush)).catch((err) => {
+        log.warn('coalesced feed publication failed', { err })
+      })
+    } catch (err) {
+      log.warn('coalesced feed publication failed', { err })
+    }
+  }
+  const idle = () => {
+    if (cancelled || idleTimer !== undefined) return
+    idleTimer = setTimeout(run, 0)
+    idleTimer.unref?.()
+  }
+  if (onIdle) {
+    unsubscribe = onIdle(idle)
+    deadline = setTimeout(run, 50)
+    deadline.unref?.()
+  } else {
+    idle()
+  }
+  return cancel
+}
+
 export interface FeedServingDeps {
+  readonly onPublicationIdle?: OnPublicationIdle
   /** The kernel role. Both reads come from it, which is the whole point. */
   readonly authority: AuthorityPort
   /** Optional composition-root hooks for attributing the synchronous bootstrap read. */
@@ -271,7 +325,8 @@ export class FeedServing {
     { principal: Principal; deliveries: ScopedDelivery[] }
   >()
   private readonly latestWorldByPrincipal = new Map<string, CachedWorld>()
-  private flushScheduled = false
+  private cancelScheduledFlush: (() => void) | undefined
+  private pendingFlush: Promise<void> = Promise.resolve()
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -852,9 +907,11 @@ export class FeedServing {
     const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
     pending.deliveries.push(delivery)
     this.pendingByPrincipal.set(key, pending)
-    if (this.flushScheduled) return
-    this.flushScheduled = true
-    queueMicrotask(() => this.flushPending())
+    if (this.cancelScheduledFlush) return
+    this.cancelScheduledFlush = scheduleFeedFlush(
+      () => this.flushPending(),
+      this.deps.onPublicationIdle,
+    )
   }
 
   /**
@@ -869,17 +926,24 @@ export class FeedServing {
    * those caches now live in: today it is one synchronous turn either way, and
    * after the flip it is the only thing that keeps them alive at all.
    */
-  flushPending(): void {
-    this.flushScheduled = false
+  flushPending(): Promise<void> {
+    this.cancelScheduledFlush?.()
+    this.cancelScheduledFlush = undefined
     const pending = [...this.pendingByPrincipal.values()]
     this.pendingByPrincipal.clear()
-    withReadScope(async () => {
+    // An earlier flush may still be framing asynchronously. Preserve batch order
+    // and give advisories a barrier that includes work already taken off the queue.
+    const flush = this.pendingFlush.then(() => withReadScope(async () => {
       for (const { principal, deliveries } of pending) {
         for (const delivery of coalesceScopedDeliveries(deliveries)) {
           await this.publish(principal, delivery)
         }
       }
+    }))
+    this.pendingFlush = flush.catch((err) => {
+      log.warn('coalesced feed publication failed', { err })
     })
+    return flush
   }
 
   /**
@@ -933,14 +997,12 @@ export class FeedServing {
    * for expiring debt is supposed to have.
    */
   publishAdvisory(kind: LegacyAdvisoryKind): void {
-    // AFTER the pending feed flush, never before it. An advisory is not feed
-    // content and must not overtake it: the write that moved the diagnostics has
-    // usually just committed rows too, those rows are still in the funnel's
-    // microtask-coalesced batch, and a v1 peer served the advisory first would
-    // see a list built from the projection as it was BEFORE them — a momentary
-    // empty or stale render, corrected a tick later. Deferring by one microtask
-    // puts it behind a flush that is already scheduled.
-    queueMicrotask(() => this.edge.publishAdvisory(kind))
+    // Advisory snapshots must follow the entity deliveries buffered before them.
+    // A microtask would now overtake the scheduler-idle publication boundary.
+    scheduleFeedFlush(async () => {
+      await this.flushPending()
+      await this.edge.publishAdvisory(kind)
+    }, this.deps.onPublicationIdle)
   }
 
   /** Connected-peer version telemetry — the rollout's "may I raise the floor". */

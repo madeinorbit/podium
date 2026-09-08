@@ -12,7 +12,7 @@ import {
   type ScopedChange,
   type ScopedDelivery,
 } from '@podium/sync'
-import { toFeedChange } from '../gateway/feed-serving'
+import { type OnPublicationIdle, scheduleFeedFlush, toFeedChange } from '../gateway/feed-serving'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
@@ -20,6 +20,7 @@ import { perf } from './perf/registry'
 const log = createLogger('server:funnel')
 
 export interface WriteFunnelDeps {
+  onPublicationIdle?: OnPublicationIdle
   bus: EventBus
   /**
    * THE SERVING EDGE (POD-1203) — the one tail entity truth leaves through.
@@ -88,8 +89,8 @@ export interface FeedServingPort {
  * COALESCING HAPPENS HERE, BEFORE FRAMING, AND THAT ORDER IS THE DECISION
  * ---------------------------------------------------------------------------
  *
- * A synchronous burst — boot reconcile, a bind-storm's per-session commits —
- * arrives as many appends. Coalescing them at microtask level BEFORE they reach
+ * An async burst — boot reconcile, a bind-storm's per-session commits —
+ * arrives as many appends. Coalescing them after scheduler idle BEFORE they reach
  * `FeedPublisher` means the burst becomes ONE certified frame per connection,
  * exactly as it used to become one `metadataDelta`. Coalescing after framing is
  * not available: a certified range may only be merged by range extension and
@@ -300,33 +301,29 @@ export class WriteFunnel {
   }
 
   // ---- THE ordered, coalesced delivery pipe (#256) ----
-  // Appends arrive synchronously and in seq order (single-threaded process, one
-  // writer over one synchronous connection); `pending` preserves arrival order,
+  // Appends arrive in seq order from the single writer;
+  // `pending` preserves arrival order,
   // so the flushed delivery is seq-ordered by construction.
   private pending: ScopedDelivery[] = []
-  private flushScheduled = false
+  private cancelScheduledFlush: (() => void) | undefined
 
   private queue(delivery: ScopedDelivery): void {
     this.pending.push(delivery)
-    if (this.flushScheduled) return
-    this.flushScheduled = true
-    queueMicrotask(() => {
-      // A send throw in a microtask would be an uncaught exception; the changes
-      // are already durable, so degrade to a logged error (reconnecting clients
-      // heal via their next bootstrap).
-      try {
-        this.flushDeltas()
-      } catch (err) {
-        log.warn('coalesced feed publication failed', { err })
-      }
-    })
+    if (this.cancelScheduledFlush) return
+    this.cancelScheduledFlush = scheduleFeedFlush(
+      () => this.flushDeltas(),
+      this.deps.onPublicationIdle,
+    )
   }
 
   /** Emit any coalesced (pending) delivery NOW. Deterministic seam for tests
-   *  and dispose; the scheduled microtask then finds nothing and no-ops. */
+   *  and dispose; cancel the scheduled flush and its idle subscription. */
   flushDeltas(): void {
-    this.deps.serving.flushPending()
-    this.flushScheduled = false
+    void Promise.resolve(this.deps.serving.flushPending()).catch((err) => {
+      log.warn('coalesced feed publication failed', { err })
+    })
+    this.cancelScheduledFlush?.()
+    this.cancelScheduledFlush = undefined
     if (this.pending.length === 0) return
     // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
     // equivalence is structural rather than asserted [POD-736]: the deleted
@@ -346,7 +343,9 @@ export class WriteFunnel {
     perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
     for (const delivery of deliveries) {
       this.deps.onPublished(delivery.throughSeq)
-      this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+      void Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch((err) => {
+        log.warn('coalesced feed publication failed', { err })
+      })
     }
     perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
   }
