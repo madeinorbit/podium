@@ -140,6 +140,25 @@ describe('operations.active', () => {
     expect(served.aFieldAddedNextYear).toBe('keep me')
     expect(parseOperation(served)).not.toBeNull()
   })
+  it('serves successor fields after a second engine transition (P8)', async () => {
+    const { caller, registry, operations } = await harness()
+    operations.kinds.register(testKind())
+    const started = await operations.engine.start('test')
+    if (!started.started) throw new Error('expected start')
+    const id = started.operation.id
+    await operations.engine.whenSettled(id)
+    const store = registry.sessionStore.operations
+    const row = (await store.get(id))!
+    await store.update({ ...JSON.parse(row.payload), aFieldAddedNextYear: { text: 'keep me' } })
+    for (const done of [1, 2]) {
+      await operations.engine.recordProgress(id, 'first', { progress: { done, total: 3 } })
+      const served = await caller.operations.active()
+      expect(served).toMatchObject({ aFieldAddedNextYear: { text: 'keep me' },
+        steps: [expect.objectContaining({ id: 'first', progress: { done, total: 3 } }), expect.anything()],
+      })
+    }
+  })
+
 })
 
 describe('operations.history', () => {

@@ -61,6 +61,70 @@ describe('OperationStore round-trip', () => {
     )
   })
 
+  it('preserves unknown fields across two writes from snapshots without them', async () => {
+    const s = store()
+    await s.insert({ ...op(), future: { value: ['keep', null] }, steps: [
+      { id: 'first', state: 'running', futureStep: 42, detail: 'clear me',
+        progress: { done: 0, total: 3, futureProgress: true } },
+    ] })
+    for (const done of [1, 2]) {
+      await s.update(op({ updatedAt: 1000 + done, steps: [
+        { id: 'first', state: 'running', progress: { done, total: 3 } },
+      ] }))
+      const payload = JSON.parse((await s.get('op_1'))!.payload)
+      expect(payload.future).toEqual({ value: ['keep', null] })
+      expect(payload.steps[0]).toEqual({ id: 'first', state: 'running', futureStep: 42,
+        progress: { done, total: 3, futureProgress: true } })
+    }
+  })
+
+  it('matches nested unknown fields by id while removing known array members', async () => {
+    const s = store()
+    await s.insert(op({ steps: [
+      { id: 'first', state: 'running', future: 'first' },
+      { id: 'second', state: 'pending', future: 'second' },
+    ] }))
+    await s.update(op({ steps: [{ id: 'second', state: 'running' }] }))
+    expect(JSON.parse((await s.get('op_1'))!.payload).steps).toEqual([
+      { id: 'second', state: 'running', future: 'second' },
+    ])
+  })
+
+  it.each(['not JSON', '{ "id":"op_1", "kind":"test", "state":"future" }'])(
+    'updates columns without touching an unreadable payload: %s', async (payload) => {
+      const [s, db] = storeWithHandle()
+      await s.insert(op())
+      db.prepare('UPDATE operations SET payload = ? WHERE id = ?').run(payload, 'op_1')
+      await s.update(op({ state: 'done', finishedAt: 2000, updatedAt: 2000 }))
+      expect(await s.get('op_1')).toMatchObject({ payload, state: 'done', finishedAt: 2000 })
+    },
+  )
+
+  it('serializes competing payload additions without losing either', async () => {
+    const s = store()
+    await s.insert(op())
+    await Promise.all([
+      s.update({ ...op(), futureA: 'a' }),
+      s.update({ ...op(), futureB: 'b' }),
+    ])
+    expect(JSON.parse((await s.get('op_1'))!.payload)).toMatchObject({ futureA: 'a', futureB: 'b' })
+  })
+
+  it('joins an enclosing transaction and rolls back its payload and columns', async () => {
+    const [, db] = storeWithHandle()
+    const queries = syncQueriesOver(db)
+    const s = new OperationStore(queries)
+    await s.insert({ ...op(), future: 'keep' })
+    const before = await s.get('op_1')
+    await expect(queries.createOrJoinTransaction(async () => {
+      await s.update(op({ updatedAt: 2000 }))
+      expect(JSON.parse((await s.get('op_1'))!.payload).future).toBe('keep')
+      await s.update(op({ state: 'done', finishedAt: 3000 }))
+      throw new Error('rollback')
+    })).rejects.toThrow('rollback')
+    expect(await s.get('op_1')).toEqual(before)
+  })
+
   it('serves the stored bytes verbatim alongside the parse', async () => {
     const s = store()
     await s.insert(op())

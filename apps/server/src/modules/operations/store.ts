@@ -2,10 +2,11 @@ import { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import {
   isTerminalOperationState,
-  type Operation,
+  Operation,
   parseOperation,
   TERMINAL_OPERATION_STATES,
 } from '@podium/protocol'
+import { z } from 'zod'
 import { and, asc, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
 import { operations } from '../../migrations/schema'
 import type {
@@ -211,17 +212,23 @@ export class OperationStore {
     })
   }
 
-  /**
-   * Writes the operation back WHOLE. There is no field-wise update and there
-   * cannot be one: a partial write would have to enumerate the fields, and the
-   * frozen contract's whole point is that no writer knows them all — a
-   * successor's field would be dropped on the first progress event.
+  /** Preserve successor fields while replacing this binary's known fields.
+   * The read and write share the executor's write lease (or enclosing span),
+   * so another writer cannot add payload data between them. Unreadable payloads
+   * follow markTerminal's policy: update columns, leave the bytes alone.
    */
   async update(operation: PersistedOperation): Promise<void> {
-    // `id` is the key and is deliberately not in the SET list, exactly as the
-    // statement this replaces had it: seven columns set, matched on the eighth.
-    const { id, ...rest } = rowFor(operation)
-    await this.db.update(operations).set(rest).where(eq(operations.id, id)).run()
+    await this.createOrJoinTransaction(async () => {
+      const current = await this.get(operation.id)
+      if (!current) return
+      const { id, payload, ...columns } = rowFor(operation)
+      await this.db.update(operations).set({
+        ...columns,
+        ...(current.operation ? {
+          payload: JSON.stringify(mergePayload(JSON.parse(current.payload), JSON.parse(payload), Operation)),
+        } : {}),
+      }).where(eq(operations.id, id)).run()
+    })
   }
 
   /**
@@ -407,4 +414,36 @@ function rowFor(operation: PersistedOperation): typeof operations.$inferInsert {
     finishedAt: operation.finishedAt ?? null,
     payload: JSON.stringify(operation),
   }
+}
+
+/** Schema-owned keys may be cleared; keys outside the schema survive. Arrays
+ * retain the incoming membership/order and match named children by stable id,
+ * never by index (a removed step must not donate fields to its successor).
+ * Open kind-specific details remain owned by their caller and are replaced.
+ */
+function mergePayload(stored: unknown, incoming: unknown, schema: z.ZodTypeAny): unknown {
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+    return mergePayload(stored, incoming, schema.unwrap())
+  }
+  if (schema instanceof z.ZodArray && Array.isArray(stored) && Array.isArray(incoming)) {
+    return incoming.map((value) => {
+      const old = isObject(value) && typeof value.id === 'string'
+        ? stored.find((entry) => isObject(entry) && entry.id === value.id)
+        : undefined
+      return mergePayload(old, value, schema.element)
+    })
+  }
+  if (!(schema instanceof z.ZodObject) || !isObject(stored) || !isObject(incoming)) return incoming
+  const shape: Record<string, z.ZodTypeAny> = schema.shape
+  if (Object.keys(shape).length === 0) return incoming
+  const result = { ...stored, ...incoming }
+  for (const [key, child] of Object.entries(shape)) {
+    if (Object.hasOwn(incoming, key)) result[key] = mergePayload(stored[key], incoming[key], child)
+    else delete result[key]
+  }
+  return result
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
