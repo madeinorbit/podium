@@ -99,6 +99,39 @@ describe('durable session write ordering', () => {
     expect(f.events).toEqual(['commit', 'commit'])
   })
 
+  it.each(['source', 'rollback'] as const)('handoff %s commit precedes process control', async (phase) => {
+    const f = fixture()
+    if (phase === 'rollback') f.session.status = 'hibernated'
+    const transfer = new HandoffTransfer({
+      write: f.repository.write,
+      onSessionGone() {},
+      broadcastSessions() {},
+      toMachine: () => { f.events.push('kill') },
+      sleep: async () => {},
+      rpc: {
+        handoffExport: async () => ({ ok: false, error: 'export refused' }),
+        handoffBindingFinalize: async () => ({ ok: true }),
+      },
+      resurrectSession: async () => {
+        f.events.push(`resume:${f.session.status}`)
+        return { ok: true }
+      },
+    } as unknown as HandoffTransferPorts)
+    const pending = transfer.apply(
+      { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
+      {} as HandoffPreflightResult,
+      { sessionId: f.session.sessionId, machineId: asMachineId('target') },
+      {} as Parameters<HandoffTransfer['apply']>[3],
+      () => {},
+    ).then(() => 'unexpected success', error => error.message)
+    await f.entered.promise
+    f.commit.resolve()
+    expect(await pending).toBe('export refused')
+    expect(f.events).toEqual(phase === 'source'
+      ? ['commit', 'kill', 'commit', 'resume:hibernated']
+      : ['commit', 'resume:hibernated'])
+  })
+
   function revival(f: ReturnType<typeof fixture>) {
     return new SessionRevival({
       repository: f.repository,
@@ -223,6 +256,30 @@ describe('async session port boundaries', () => {
     f.commit.resolve()
     await pending
     expect(f.events).toEqual(['commit', 'kill:hibernated'])
+  })
+
+  it('a draft revision is published only after its DRAFT-tag commit', async () => {
+    const f = fixture()
+    const state = new SessionStateService({
+      store: { sessions: { setDraftDoc: async () => {} } },
+      getSession: () => f.session,
+      writeSession: async (_id: Parameters<SessionStatePorts['writeSession']>[0], mutate: Parameters<SessionStatePorts['writeSession']>[1]) => {
+        await f.repository.write(f.session, mutate)
+      },
+      broadcastToClients: () => { f.events.push('published') },
+      broadcastSessions() {},
+    } as unknown as SessionStatePorts)
+    const pending = state.setDraft({ sessionId: f.session.sessionId, text: 'draft' })
+    try {
+      await f.entered.promise
+      f.commit.resolve()
+      await pending
+      expect(f.events).toEqual(['commit', 'published'])
+    } finally {
+      f.commit.resolve()
+      await pending
+      state.removeSession(f.session.sessionId)
+    }
   })
 
   it('a draft clear cannot overtake an older pending DRAFT-tag commit', async () => {

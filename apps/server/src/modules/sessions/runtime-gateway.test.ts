@@ -274,6 +274,33 @@ describe('the acting principal', () => {
 })
 
 describe('the event sink', () => {
+  it('waits for an accepted event projection before reporting completion', async () => {
+    const { gateway } = makeGateway()
+    let release!: () => void
+    let entered!: () => void
+    const commit = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const order: string[] = []
+    gateway.onEvent(async () => {
+      entered()
+      await commit
+      order.push('projected')
+    })
+    const pending = gateway.record(MACHINE, { sessionId: SESSION, event: {
+      t: 'state',
+      change: { kind: 'activity' },
+      at: '2026-08-14T00:00:00.000Z',
+      provenance: 'live',
+      cursor: { segmentId: 'seg', components: { seq: 1 } },
+      observerGeneration: 1,
+      turnEpoch: 1,
+    } }).then(() => { order.push('returned') })
+    await started
+    release()
+    await pending
+    expect(order).toEqual(['projected', 'returned'])
+  })
+
   it('fans out to subscribers and lets them leave', async () => {
     const { gateway } = makeGateway()
     const seen: string[] = []

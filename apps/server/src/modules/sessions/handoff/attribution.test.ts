@@ -92,6 +92,23 @@ describe('recordHandoff: the durable receipt', () => {
     }
   }
 
+  it('completes only after the handoff receipt is durable', async () => {
+    let release!: () => void
+    let entered!: () => void
+    const commit = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const order: string[] = []
+    const pending = recordHandoff({ recordEvent: async () => {
+      entered()
+      await commit
+      order.push('committed')
+    } }, makeSession(), SOURCE, TARGET, userCaller()).then(() => { order.push('returned') })
+    await started
+    release()
+    await pending
+    expect(order).toEqual(['committed', 'returned'])
+  })
+
   it('names the machine pair, the actor and the human it acted for', async () => {
     const { events, ports } = capture()
     await recordHandoff(ports, makeSession(), SOURCE, TARGET, agentCaller())
