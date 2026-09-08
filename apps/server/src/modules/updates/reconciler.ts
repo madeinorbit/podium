@@ -335,6 +335,14 @@ export class UpdateReconciler {
     for (const machine of await this.deps.updates.fleet()) {
       if (machine.online) this.enqueue(machine.id)
     }
+    // AND PUMP, which is the whole point of a boot sweep. dev/mw wrote this
+    // method against an `enqueue` that pumped for you; this epic deliberately
+    // separated the two so a fleet-wide sweep is ONE pump rather than one per
+    // machine. The merge kept our enqueue and their onBoot, so after boot the
+    // queue was populated and nothing ever drained it -- an approved straggler
+    // sat there forever. One pump here, after the whole fleet is queued, is
+    // exactly the shape the separation was made for.
+    await this.pump()
   }
 
   /**

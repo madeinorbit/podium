@@ -358,7 +358,22 @@ export class OperationStore {
       .orderBy(desc(operations.createdAt))
       .all())
       .filter((r) => isTerminalOperationState(r.state))
-    const doomed = finished.slice(keep)
+    // KEEP THE NEWEST SETTLED APPROVAL PER CHANNEL. It is the cancel fallback for
+    // any active update, so these few durable rows are exempt from history
+    // retention. dev/mw added this protection; the merge took this method from
+    // our side, which predates it, and dropped it -- so the fallback an active
+    // update depends on was being swept away by ordinary retention.
+    const protectedIds = new Set<string>()
+    if (kind === 'update') {
+      const channels = new Set<unknown>()
+      for (const row of await this.approvalRows()) {
+        const channel = row.operation?.details?.channel
+        if (!isTerminalOperationState(row.state) || channels.has(channel)) continue
+        channels.add(channel)
+        protectedIds.add(row.id)
+      }
+    }
+    const doomed = finished.slice(keep).filter((row) => !protectedIds.has(row.id))
     for (const row of doomed) {
       await this.db.delete(operations).where(eq(operations.id, row.id)).run()
     }

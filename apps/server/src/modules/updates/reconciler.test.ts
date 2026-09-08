@@ -113,7 +113,15 @@ function fakeClock() {
         timer.fn()
         // Let the pump that callback scheduled run to completion, so anything it
         // arms is visible to the next iteration.
-        for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+        //
+        // A MACROTASK YIELD, not a fixed count of microtask turns. Each
+        // `await Promise.resolve()` advances the chain by exactly ONE link, so
+        // twenty of them is really an assertion that the pump contains fewer than
+        // twenty awaits -- and the pump now performs a durable read, which is
+        // several more than it used to. Draining the whole microtask queue each
+        // round makes the number of links irrelevant, which is what this loop
+        // always meant.
+        await new Promise((resolve) => setImmediate(resolve))
         ran += 1
         // A runaway re-arm is a bug in the code under test, not a reason to hang
         // the lane; fail loudly instead.
