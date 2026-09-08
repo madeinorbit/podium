@@ -12,7 +12,7 @@ import { openTestStore } from './test-support/open-test-store'
  *  single-store behavior these tests assert. */
 async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return new RepoRegistry(registry, store)
 }
 
