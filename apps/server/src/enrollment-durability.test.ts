@@ -134,7 +134,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
 
   it('enrolls the original host without treating an arbitrary machine row as proof', async () => {
     const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: asMachineId('forged-row'),
       name: 'Forged',
       hostname: 'forged.local',
@@ -143,7 +143,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
     })
     const host = hostWorld(dir, store, ORIGINAL_HOST)
 
-    host.machines.ensureHostMachine('original.local', 'original-secret')
+    await host.machines.ensureHostMachine('original.local', 'original-secret')
 
     expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
     expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(OWNER)
@@ -160,7 +160,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
     const serialBeforePromotion = (await source).enrollment.nextSerial(PROMOTED_HOST)
     const promoted = hostWorld(dir, (await source).store, PROMOTED_HOST)
 
-    promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
+    await promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
 
     expect(promoted.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
     expect(promoted.enrollment.nextSerial(PROMOTED_HOST)).toBe(serialBeforePromotion)
@@ -173,7 +173,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
   it('keeps the former host eligible when the server moves away and then returns', async () => {
     const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
     const original = hostWorld(dir, store, ORIGINAL_HOST)
-    original.machines.ensureHostMachine('original.local', 'original-secret')
+    await original.machines.ensureHostMachine('original.local', 'original-secret')
     const sourceSerial = original.enrollment.nextSerial(ORIGINAL_HOST)
     const pairing = new PairingManager({ randomCode: () => 'PROMOTE1' })
     const source = new MachinesService({
@@ -187,12 +187,12 @@ describe('server host enrollment provenance (POD-2467)', () => {
       clients: () => [],
       machinesForPrincipal: async () => [],
     })
-    pairRemote(source, { machineId: PROMOTED_HOST })
+    await pairRemote(source, { machineId: PROMOTED_HOST })
     const promoted = hostWorld(dir, store, PROMOTED_HOST)
-    promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
+    await promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
 
     const returned = hostWorld(dir, store, ORIGINAL_HOST)
-    returned.machines.ensureHostMachine('original.local', 'return-secret')
+    await returned.machines.ensureHostMachine('original.local', 'return-secret')
 
     expect(returned.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
     expect(returned.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
@@ -210,7 +210,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
       by: OWNER,
       at: new Date().toISOString(),
     })
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: ORIGINAL_HOST,
       name: 'Forged host',
       hostname: 'forged.local',
@@ -229,11 +229,11 @@ describe('server host enrollment provenance (POD-2467)', () => {
 
   it('reboots idempotently without appending another enrollment', async () => {
     const store = await SessionStore.open(':memory:', ORIGINAL_HOST)
-    hostWorld(dir, store, ORIGINAL_HOST).machines.ensureHostMachine('original.local', 'secret')
+    await hostWorld(dir, store, ORIGINAL_HOST).machines.ensureHostMachine('original.local', 'secret')
     const before = readFileSync(join(dir, 'enrollment.ledger'), 'utf8')
 
     const rebooted = hostWorld(dir, store, ORIGINAL_HOST)
-    rebooted.machines.ensureHostMachine('original.local', 'secret')
+    await rebooted.machines.ensureHostMachine('original.local', 'secret')
     const after = readFileSync(join(dir, 'enrollment.ledger'), 'utf8')
 
     expect(after).toBe(before)

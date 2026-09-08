@@ -135,7 +135,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     })
   }
   if (options.row !== false) {
-    seeded.machines.upsertMachine({
+    await seeded.machines.upsertMachine({
       id: machineId,
       name: 'Durable machine',
       hostname: 'stored.local',
@@ -143,7 +143,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       ownerUserId: asUserId('user:sole'),
     })
   }
-  seeded.close()
+  await seeded.close()
 
   const store = await SessionStore.open(dbPath, hostMachineId, {
     queryOnly: options.queryOnly ?? true,
@@ -576,7 +576,7 @@ describe('recovery-only daemon handshake verification', () => {
       expect(invalidate).not.toHaveBeenCalled()
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('stored.local')
     } finally {
-      world.store.close()
+      await world.store.close()
     }
   })
 
@@ -609,7 +609,7 @@ describe('recovery-only daemon handshake verification', () => {
       expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe('rejected')
       expect(touch).not.toHaveBeenCalled()
     } finally {
-      world.store.close()
+      await world.store.close()
     }
   })
 
@@ -637,7 +637,7 @@ describe('recovery-only daemon handshake verification', () => {
         }),
       ).toMatchObject({ ok: true, machineId })
     } finally {
-      world.store.close()
+      await world.store.close()
     }
   })
 
@@ -653,7 +653,7 @@ describe('recovery-only daemon handshake verification', () => {
       expect(invalidate).toHaveBeenCalledOnce()
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('observed.local')
     } finally {
-      world.store.close()
+      await world.store.close()
     }
   })
 })

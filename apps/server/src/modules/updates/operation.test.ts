@@ -4721,7 +4721,7 @@ describe('coordinator snapshot activation boundary', () => {
     } finally { await f.close() }
   })
 
-  it('holds boot and reconnect auto-grants before any plan or handler exists', () => {
+  it('holds boot and reconnect auto-grants before any plan or handler exists', async () => {
     const target = releaseFor(['linux-x64'])
     const fleet: WaveMachine[] = []
     const send = vi.fn()
@@ -4729,11 +4729,11 @@ describe('coordinator snapshot activation boundary', () => {
       nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: async () => target })
     service.setTarget('dev', target)
     service.markAuthorized('dev')
-    service.tick('dev')
+    await service.tick('dev')
     fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
       deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))
-    service.tick('dev')
-    service.fleet()
+    await service.tick('dev')
+    await service.fleet()
     expect(send).not.toHaveBeenCalled()
   })
 })

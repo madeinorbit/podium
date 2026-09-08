@@ -47,7 +47,7 @@ async function storedService(
   recoveryOnly = false,
 ): Promise<{ svc: MachinesService; store: SessionStore }> {
   const store = await SessionStore.open(':memory:')
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: MACHINE,
     name: 'vmi',
     hostname: 'vmi.local',
@@ -206,9 +206,9 @@ describe('MachinesService supervisor presence', () => {
     const participant: ControlMessage[] = []
     const supervisor: MachineSupervisorControlMessage[] = []
     const observedAt = '2026-08-26T12:00:00.000Z'
-    svc.attach(MACHINE, daemon.send)
+    await svc.attach(MACHINE, daemon.send)
     svc.attachUpdateParticipant(MACHINE, (message) => participant.push(message))
-    svc.attachSupervisor(MACHINE, (message) => supervisor.push(message), build, [
+    await svc.attachSupervisor(MACHINE, (message) => supervisor.push(message), build, [
       'update.delivery.feed',
     ])
     svc.recordSupervisorReport(
@@ -252,21 +252,21 @@ describe('MachinesService supervisor presence', () => {
     const daemon = recorder()
     const old = (_message: MachineSupervisorControlMessage) => {}
     const fresh = (_message: MachineSupervisorControlMessage) => {}
-    store.beginTransferFence()
+    await store.beginTransferFence()
     // Explicit recovery mode also protects callers that do not expose a live fence.
     const bootFence = recoveryOnly
       ? vi.spyOn(store, 'transferFenceActive', 'get').mockReturnValue(false)
       : undefined
     const before = store.machines.getMachine(MACHINE)
     try {
-      svc.attach(MACHINE, daemon.send, ['recovery-cap'])
-      svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
-      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      await svc.attach(MACHINE, daemon.send, ['recovery-cap'])
+      await svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
+      await svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
       expect(svc.detachSupervisor(MACHINE, old)).toBe(false)
       expect(svc.detachSupervisor(MACHINE, fresh)).toBe(true)
-      svc.recordComponent(MACHINE, 'daemon')
+      await svc.recordComponent(MACHINE, 'daemon')
       svc.recordLegacyBuild(MACHINE, build, [], new Date().toISOString())
-      svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
+      await svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
       const status = {
         policy: 'enabled' as const,
         state: 'available' as const,
@@ -283,13 +283,13 @@ describe('MachinesService supervisor presence', () => {
       svc.toMachine(MACHINE, keystroke)
       expect(daemon.got).toEqual([keystroke])
       if (!recoveryOnly) {
-        store.endTransferFence()
+        await store.endTransferFence()
         await svc.resumeAfterTransferFence()
         expect((await store.machines.getMachine(MACHINE))?.components).toContain('daemon')
       }
     } finally {
       bootFence?.mockRestore()
-      store.close()
+      await store.close()
     }
   })
 
@@ -300,8 +300,8 @@ describe('MachinesService supervisor presence', () => {
     const oldSend = (message: MachineSupervisorControlMessage) => old.push(message)
     const successorSend = (message: MachineSupervisorControlMessage) => successor.push(message)
 
-    svc.attachSupervisor(MACHINE, oldSend, build, ['update.delivery.feed'])
-    svc.attachSupervisor(MACHINE, successorSend, build, ['update.delivery.feed'])
+    await svc.attachSupervisor(MACHINE, oldSend, build, ['update.delivery.feed'])
+    await svc.attachSupervisor(MACHINE, successorSend, build, ['update.delivery.feed'])
     expect(svc.detachSupervisor(MACHINE, oldSend)).toBe(false)
     svc.toMachine(MACHINE, grant)
 
@@ -314,7 +314,7 @@ describe('MachinesService supervisor presence', () => {
     try {
       const { svc } = await storedService()
       const send = (_message: MachineSupervisorControlMessage) => {}
-      svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
+      await svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
       expect(svc.detachSupervisor(MACHINE, send)).toBe(true)
       expect((await svc.listMachines())[0]?.online).toBe(true)
 
@@ -332,7 +332,7 @@ describe('promoted server host identity', () => {
     const target = asMachineId('promoted-host')
     const store = await SessionStore.open(':memory:', target)
     for (const id of [source, target]) {
-      store.machines.upsertMachine({
+      await store.machines.upsertMachine({
         id,
         name: id,
         hostname: id,
@@ -357,7 +357,7 @@ describe('promoted server host identity', () => {
       id: target,
       hostname: 'promoted-hostname',
     })
-    store.close()
+    await store.close()
   })
 })
 
@@ -610,7 +610,7 @@ describe('MachinesService inventory persistence (#222)', () => {
 
   test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
     const { svc, store } = await makeStoreService()
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -622,7 +622,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       podiumVersion: '10.0.1',
     }
 
-    store.beginTransferFence()
+    await store.beginTransferFence()
     expect(() => svc.recordInventory(MACHINE, INV)).not.toThrow()
     expect(() => svc.recordInventory(MACHINE, latest)).not.toThrow()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
@@ -630,7 +630,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     await svc.resumeAfterTransferFence()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toBeUndefined()
 
-    store.endTransferFence()
+    await store.endTransferFence()
     await svc.resumeAfterTransferFence()
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })

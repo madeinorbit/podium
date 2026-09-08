@@ -134,7 +134,7 @@ describe('target server deferred move adoption', () => {
 
     const db = openDatabase(join(root, 'podium.db'))
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    new OperationStore(syncQueriesOver(db)).insert(operation)
+    await new OperationStore(syncQueriesOver(db)).insert(operation)
     db.close()
 
     const stage = join(root, '.server-transfer', finalTransferId)
@@ -230,7 +230,7 @@ describe('source server deferred move adoption', () => {
       }
       const db = openDatabase(join(root, 'podium.db'))
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-      new OperationStore(syncQueriesOver(db)).insert(sourceOperation)
+      await new OperationStore(syncQueriesOver(db)).insert(sourceOperation)
       db.close()
 
       const packageDir = join(root, '.server-transfer', 'snapshots', operation.id, 'initial')
@@ -279,7 +279,7 @@ describe('source server deferred move adoption', () => {
       const response = await fetch('http://127.0.0.1:' + handle.port + '/version')
       expect(response.status).toBe(200)
 
-      handle.registry.modules.machines.attach(asMachineId('target-1'), () => {})
+      await handle.registry.modules.machines.attach(asMachineId('target-1'), () => {})
       const resumed = await eventually(
         async () => (await engine.get(operation.id))?.operation,
         (current) =>

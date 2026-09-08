@@ -722,7 +722,7 @@ describe('adoption after a restart (P3, §3.4)', () => {
 
   it('defers adoption without a row write or runner, then persists one final retry', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     const before = store.get('op_1')
     const ensure = vi.fn(done)
     let final = false
@@ -1574,7 +1574,7 @@ describe('observers', () => {
       createdAt: 1,
       updatedAt: 1,
     })
-    engine.recordDetails('running', { note: 'same state' })
+    await engine.recordDetails('running', { note: 'same state' })
     expect(seen.at(-1)).toEqual(['running', 'running'])
     db.prepare('UPDATE operations SET payload = ? WHERE id = ?').run('unparseable', 'running')
     await engine.adoptOnBoot(() => ({}))

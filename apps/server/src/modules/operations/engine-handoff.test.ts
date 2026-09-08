@@ -77,7 +77,7 @@ describe('coordinator handoff', () => {
         deadlines: { first: { silenceMs: 100 } },
         runners: {
           first: runner(async ({ operation, step: current }) => {
-            engine.sealForHandoff(operation.id, current.id, {
+            await engine.sealForHandoff(operation.id, current.id, {
               step: { detail: 'detaching' },
               detailsPatch: { handoff: { target: 'other-machine' } },
             })
@@ -138,7 +138,7 @@ describe('coordinator handoff', () => {
       kind({
         runners: {
           first: runner(async ({ operation, step: current }) => {
-            engine.sealForHandoff(operation.id, current.id)
+            await engine.sealForHandoff(operation.id, current.id)
             engine.reclaimHandoff(operation.id)
             expect(() => engine.reclaimHandoff(operation.id)).toThrow(/reclaimable/)
             return { state: 'failed', error: { code: 'pre-promote-failure' } }
@@ -171,7 +171,7 @@ describe('coordinator handoff', () => {
       kind({
         runners: {
           first: runner(async ({ operation, step: current }) => {
-            engine.sealForHandoff(operation.id, current.id)
+            await engine.sealForHandoff(operation.id, current.id)
             await blocked
             return { state: 'handed-off' }
           }),

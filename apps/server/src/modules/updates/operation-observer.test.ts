@@ -5,7 +5,7 @@ import type { UpdateReconciler } from './reconciler'
 import type { UpdatesService } from './service'
 
 describe('update operation transition effects', () => {
-  it('ignores terminal restatement and running metadata, and settles only update transitions', () => {
+  it('ignores terminal restatement and running metadata, and settles only update transitions', async () => {
     const updates = {
       withdrawAuthorization: vi.fn(),
       publishNextTargets: vi.fn(),
@@ -24,16 +24,16 @@ describe('update operation transition effects', () => {
       state: 'done',
       operation: { details: { channel: 'dev', target } },
     } as unknown as OperationRow
-    observe(row, 'done')
-    observe({ ...row, state: 'running' }, 'running')
-    observe({ ...row, kind: 'other' }, 'running')
+    await observe(row, 'done')
+    await observe({ ...row, state: 'running' }, 'running')
+    await observe({ ...row, kind: 'other' }, 'running')
     expect(updates.withdrawAuthorization).not.toHaveBeenCalled()
     expect(updates.publishNextTargets).not.toHaveBeenCalled()
     expect(reconciler.onOperationStarted).not.toHaveBeenCalled()
     expect(reconciler.onOperationSettled).not.toHaveBeenCalled()
-    observe({ ...row, state: 'running' }, undefined)
+    await observe({ ...row, state: 'running' }, undefined)
     expect(reconciler.onOperationStarted).toHaveBeenCalledOnce()
-    observe(row, 'running')
+    await observe(row, 'running')
     expect(updates.withdrawAuthorization).toHaveBeenCalledOnce()
     expect(updates.publishNextTargets).toHaveBeenCalledOnce()
     expect(reconciler.onOperationSettled).toHaveBeenCalledExactlyOnceWith('dev', target, 'done')

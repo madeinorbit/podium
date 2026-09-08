@@ -59,10 +59,10 @@ async function fixture() {
         ownerUserId: FIRST_ADMIN_USER_ID,
       })
       await store.machines.setUpdateChannel(id, 'dev')
-      this.hello(id, version)
+      await this.hello(id, version)
     },
-    hello(id: string, version = target.version) {
-      registry.modules.machines.attachSupervisor(
+    async hello(id: string, version = target.version) {
+      await registry.modules.machines.attachSupervisor(
         asMachineId(id),
         (message: MachineSupervisorControlMessage) => {
           if (message.type === 'updateGrant') sent.push({ id, grant: message })
@@ -84,13 +84,13 @@ async function fixture() {
       })
     },
     async reboot(recoveryOnly = false) {
-      registry.dispose()
+      await registry.dispose()
       await store.close()
       return await open(recoveryOnly)
     },
-    close() {
-      registry.dispose()
-      store.close()
+    async close() {
+      await registry.dispose()
+      await store.close()
       rmSync(dir, { recursive: true, force: true })
     },
   }
@@ -104,7 +104,7 @@ describe('production adoption restores supervised execution proof', () => {
     try {
       const ids = count === 1 ? ['a'] : ['a', 'b']
       for (const id of ids) h.add(id)
-      h.add('already-healthy', target.version)
+      await h.add('already-healthy', target.version)
       h.registry.modules.updates.setTarget('dev', target)
       const started = await h.registry.modules.operations.engine.start(
         UPDATE_OPERATION_KIND,
@@ -119,7 +119,7 @@ describe('production adoption restores supervised execution proof', () => {
       const grant = h.sent[0]!.grant
       // This is the production pre-health supervisor hello: its build is now
       // persisted while the grant has no healthy execution report.
-      h.hello('a')
+      await h.hello('a')
       expect((await h.store.machines.listMachines()).find((m) => m.id === 'a')?.appVersion).toBe(
         target.version,
       )
@@ -147,8 +147,9 @@ describe('production adoption restores supervised execution proof', () => {
       expect((await machines())?.state).not.toBe('done')
       expect((await machines())?.places?.find((p) => p.id === 'a')?.state).not.toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
-      for (const machine of ids) h.hello(machine, machine === 'a' ? target.version : '0.4.1')
-      boot.modules.updateFleetBridge?.onFleetChanged()
+      for (const machine of ids)
+        await h.hello(machine, machine === 'a' ? target.version : '0.4.1')
+      await boot.modules.updateFleetBridge?.onFleetChanged()
       await boot.modules.operations.engine.whenSettled(id)
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
       const report = {
@@ -159,12 +160,12 @@ describe('production adoption restores supervised execution proof', () => {
         version: target.version,
         phaseDetail: 'current',
       }
-      boot.modules.updates.onStatus(asMachineId('a'), { ...report, grantId: 'stale' })
-      boot.modules.updateFleetBridge?.onFleetChanged()
+      await boot.modules.updates.onStatus(asMachineId('a'), { ...report, grantId: 'stale' })
+      await boot.modules.updateFleetBridge?.onFleetChanged()
       await boot.modules.operations.engine.whenSettled(id)
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
-      boot.modules.updates.onStatus(asMachineId('a'), report)
-      boot.modules.updateFleetBridge?.onFleetChanged()
+      await boot.modules.updates.onStatus(asMachineId('a'), report)
+      await boot.modules.updateFleetBridge?.onFleetChanged()
       await boot.modules.operations.engine.whenSettled(id)
       expect((await machines())?.places?.find((p) => p.id === 'a')?.state).toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(ids)
@@ -174,7 +175,7 @@ describe('production adoption restores supervised execution proof', () => {
       if (count === 1) expect((await machines())?.state).toBe('done')
       else expect(boot.modules.updates.waveRounds('dev')[0]?.gate).toBe('widen')
     } finally {
-      h.close()
+      await h.close()
     }
   })
 
@@ -194,7 +195,7 @@ describe('production adoption restores supervised execution proof', () => {
         await h.registry.modules.operations.engine.whenSettled(id)
         expect(h.sent.map((s) => s.id)).toEqual(['a'])
         const grant = h.sent[0]!.grant
-        updates.onStatus(asMachineId('a'), {
+        await updates.onStatus(asMachineId('a'), {
           type: 'updateStatus', state: 'restarting', version: '0.4.1',
           targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'restarting',
         })
@@ -209,19 +210,19 @@ describe('production adoption restores supervised execution proof', () => {
             () => h.context(['a', 'b']),
           )
         }
-        h.hello('a')
-        h.hello('b', '0.4.1')
+        await h.hello('a')
+        await h.hello('b', '0.4.1')
         const current = h.registry.modules.updates
         expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('stuck')
         const report = {
           type: 'updateStatus' as const, state: 'current' as const, version: target.version,
           targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
         }
-        current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
+        await current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
         expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
         for (let replay = 0; replay < 3; replay++) {
-          current.onStatus(asMachineId('a'), report)
-          h.registry.modules.updateFleetBridge?.onFleetChanged()
+          await current.onStatus(asMachineId('a'), report)
+          await h.registry.modules.updateFleetBridge?.onFleetChanged()
           await h.registry.modules.operations.engine.whenSettled(id)
           expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
           expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
@@ -230,14 +231,14 @@ describe('production adoption restores supervised execution proof', () => {
           expect(h.sent.map((s) => s.id)).toEqual(['a'])
         }
         const boot = await h.reboot()
-        h.hello('a')
-        h.hello('b', '0.4.1')
+        await h.hello('a')
+        await h.hello('b', '0.4.1')
         expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
         expect(await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
         expect((await h.store.operations.get(id))?.state).toBe('canceled')
         expect(h.sent.map((s) => s.id)).toEqual(['a'])
       } finally {
-        h.close()
+        await h.close()
       }
     },
   )
@@ -245,19 +246,19 @@ describe('production adoption restores supervised execution proof', () => {
   it('accepts retired proof in recovery-only memory without writing the reopened query-only database', async () => {
     const h = await fixture()
     try {
-      h.add('a')
-      h.add('b')
+      await h.add('a')
+      await h.add('b')
       const updates = h.registry.modules.updates
       updates.setTarget('dev', target)
-      updates.authorize()
+      await updates.authorize()
       const grant = h.sent[0]!.grant
       updates.withdrawAuthorization()
-      updates.releaseInFlightGrants('Canceled')
-      h.hello('a')
+      await updates.releaseInFlightGrants('Canceled')
+      await h.hello('a')
       const saved = h.store.updateRecovery.read()
       const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
-      boot.modules.updates.onStatus(asMachineId('a'), {
+      await boot.modules.updates.onStatus(asMachineId('a'), {
         type: 'updateStatus', state: 'current', version: target.version,
         targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
       })
@@ -269,7 +270,7 @@ describe('production adoption restores supervised execution proof', () => {
       expect(h.store.updateRecovery.read()).toEqual(saved)
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
     } finally {
-      h.close()
+      await h.close()
     }
   })
 
@@ -279,13 +280,13 @@ describe('production adoption restores supervised execution proof', () => {
   ])('serves repeated query-only fleet reads without writes or poisoned proof (legacy=%s)', async (legacy) => {
     const h = await fixture()
     try {
-      h.add('a')
+      await h.add('a')
       const updates = h.registry.modules.updates
       updates.setTarget('dev', target)
-      updates.authorize()
+      await updates.authorize()
       const grant = h.sent[0]!.grant
-      h.hello('a')
-      updates.onStatus(asMachineId('a'), {
+      await h.hello('a')
+      await updates.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         state: 'current',
         grantId: grant.grantId,
@@ -313,7 +314,7 @@ describe('production adoption restores supervised execution proof', () => {
       expect(h.store.updateRecovery.read()).toEqual(before)
       expect(h.sent).toHaveLength(1)
     } finally {
-      h.close()
+      await h.close()
     }
   })
 })

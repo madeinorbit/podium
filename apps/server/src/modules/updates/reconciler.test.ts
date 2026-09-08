@@ -418,7 +418,7 @@ describe('UpdateReconciler', () => {
     expect(h.reconciler.pending()).toEqual(['a'])
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled('dev', target())
+    await h.reconciler.onOperationSettled('dev', target())
 
     expect(h.granted()).toEqual(['a'])
     expect(h.reconciler.pending()).toEqual(['b'])
@@ -435,7 +435,7 @@ describe('UpdateReconciler', () => {
     await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled('dev', target(), 'canceled')
+    await h.reconciler.onOperationSettled('dev', target(), 'canceled')
 
     expect(h.granted()).toEqual([])
   })
@@ -445,7 +445,7 @@ describe('UpdateReconciler', () => {
     await h.updates.setTarget('dev', target())
 
     h.setOperationActive(false)
-    h.reconciler.onOperationSettled('dev', target(), 'failed')
+    await h.reconciler.onOperationSettled('dev', target(), 'failed')
 
     expect(h.granted()).toEqual(['a'])
   })
@@ -691,12 +691,12 @@ describe('decideReconciliation and a release that predates the machine', () => {
 })
 
 describe('specific update approval', () => {
-  it('refuses an idle publish followed by reconnect or boot', () => {
+  it('refuses an idle publish followed by reconnect or boot', async () => {
     const h = harness([machine({ id: 'a' })])
     h.setApproved(undefined)
     h.updates.setTarget('dev', target())
-    h.reconciler.onMachineConnected('a')
-    h.reconciler.onBoot()
+    await h.reconciler.onMachineConnected('a')
+    await h.reconciler.onBoot()
     expect(h.granted()).toEqual([])
     expect(decideReconciliation(facts({ approvedTargetVersion: undefined }))).toEqual({
       converge: false,
@@ -704,12 +704,12 @@ describe('specific update approval', () => {
     })
   })
 
-  it('never grants B when approved A settles after B was published', () => {
+  it('never grants B when approved A settles after B was published', async () => {
     const h = harness([machine({ id: 'a' })])
     h.updates.setTarget('dev', target({ version: '0.4.4' }))
-    h.reconciler.onOperationSettled('dev', target(), 'done')
-    h.reconciler.onMachineConnected('a')
-    h.clock.advance()
+    await h.reconciler.onOperationSettled('dev', target(), 'done')
+    await h.reconciler.onMachineConnected('a')
+    await h.clock.advance()
     expect(h.send.mock.calls.map((call) => call[1].target.version)).toEqual([])
     expect(decideReconciliation(facts({ target: target({ version: '0.4.4' }) }))).toEqual({
       converge: false,
@@ -717,20 +717,20 @@ describe('specific update approval', () => {
     })
   })
 
-  it('cancel removes approval for subsequent reconnects', () => {
+  it('cancel removes approval for subsequent reconnects', async () => {
     const h = harness([machine({ id: 'a' })])
     h.updates.setTarget('dev', target())
     h.setApproved(undefined)
-    h.reconciler.onOperationSettled('dev', target(), 'canceled')
-    h.reconciler.onMachineConnected('a')
+    await h.reconciler.onOperationSettled('dev', target(), 'canceled')
+    await h.reconciler.onMachineConnected('a')
     expect(h.granted()).toEqual([])
   })
 
-  it('boot converges an approved straggler once to the approved version', () => {
+  it('boot converges an approved straggler once to the approved version', async () => {
     const h = harness([machine({ id: 'a' })])
     h.updates.setTarget('dev', target())
-    h.reconciler.onBoot()
-    h.reconciler.onBoot()
+    await h.reconciler.onBoot()
+    await h.reconciler.onBoot()
     expect(h.granted()).toEqual(['a'])
     expect(h.send.mock.calls[0]?.[1]).toMatchObject({ target: { version: TARGET_VERSION } })
   })

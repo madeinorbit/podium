@@ -96,15 +96,15 @@ describe('SessionRegistry', () => {
       agentKind: 'codex',
       cwd: '/project',
     })
-    seeded.conversations.registry.ensure({
+    await seeded.conversations.registry.ensure({
       machineId: TEST_MACHINE,
       nativeId,
       providerId: 'codex',
       path: stalePath,
     })
     expect(await seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
-    seededRegistry.dispose()
-    seeded.close()
+    await seededRegistry.dispose()
+    await seeded.close()
 
     const queryOnly = await SessionStore.open(file, TEST_MACHINE, { queryOnly: true })
     expect(await queryOnly.sessions.getSession(sessionId)).toBeDefined()
@@ -114,14 +114,14 @@ describe('SessionRegistry', () => {
     })
     expect(await queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
     expect(await recovery.modules.sessions.listSessions()).toEqual([])
-    recovery.dispose()
-    queryOnly.close()
+    await recovery.dispose()
+    await queryOnly.close()
 
     const writable = await SessionStore.open(file, TEST_MACHINE)
     const ordinary = await SessionRegistry.create(writable, undefined, { instanceId: 'writable' })
     expect(await writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
-    ordinary.dispose()
-    writable.close()
+    await ordinary.dispose()
+    await writable.close()
   })
 
   it('create spawns via the daemon and lists the session as starting', async () => {
@@ -1871,17 +1871,17 @@ describe('SessionRegistry', () => {
   it('queues semantic activity while the transfer fence is read-only, then flushes it', async () => {
     const store = await SessionStore.open(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const cid = attachTestClient(reg.clientGateway, sink().send)
-    reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
     // biome-ignore lint/suspicious/noExplicitAny: assert the coalesced terminal dirty bit
     const session = (reg as any).modules.sessions.sessions.get(sessionId)
     session.terminal.clearActivityDirty()
     const spy = vi.spyOn(store.sessions, 'upsertSession')
 
-    store.beginTransferFence()
+    await store.beginTransferFence()
     expect(() =>
       reg.clientGateway.routeClientFrame(cid, {
         type: 'input',
@@ -1893,13 +1893,13 @@ describe('SessionRegistry', () => {
     expect(spy).not.toHaveBeenCalled()
     expect(session.terminal.activityDirty).toBe(true)
 
-    store.endTransferFence()
+    await store.endTransferFence()
     reg.modules.sessions.flushActivity()
     expect(spy).toHaveBeenCalledTimes(1)
     expect(session.terminal.activityDirty).toBe(false)
     session.terminal.stopOutput()
-    reg.dispose()
-    store.close()
+    await reg.dispose()
+    await store.close()
   })
 
   it('mints opaque durable session ids (uuid), not the s0 counter', async () => {
@@ -3609,7 +3609,7 @@ describe('hibernation', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
       await store.settings.setSettings({
         ...(await store.settings.getSettings()),
         hibernation: {
@@ -3630,7 +3630,7 @@ describe('hibernation', () => {
       vi.advanceTimersByTime(2 * 60_000)
       const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
 
-      store.beginTransferFence()
+      await store.beginTransferFence()
       expect(() =>
         reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'inventoryReport',
@@ -3661,7 +3661,7 @@ describe('hibernation', () => {
       expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
 
-      store.endTransferFence()
+      await store.endTransferFence()
       await reg.modules.machines.resumeAfterTransferFence()
       await reg.modules.hosts.resumeAfterTransferFence()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toMatchObject({
@@ -3670,8 +3670,8 @@ describe('hibernation', () => {
       expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
       expect(clearReadAt).toHaveBeenCalledOnce()
     } finally {
-      reg.dispose()
-      store.close()
+      await reg.dispose()
+      await store.close()
       vi.useRealTimers()
     }
   })
@@ -3736,7 +3736,7 @@ describe('hibernation', () => {
       seq: 0,
       data: 'eA==',
     })
-    reg.modules.sessions.flushActivity()
+    await reg.modules.sessions.flushActivity()
     // New registry on the SAME store — simulates a restart.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
@@ -6129,7 +6129,7 @@ describe('SessionRegistry — auto-continue', () => {
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     return sessionId
   }
 
@@ -6379,7 +6379,7 @@ describe('output-relay priority + frame batch', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
     reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId })

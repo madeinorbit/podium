@@ -171,12 +171,12 @@ describe('offline is not incapable', () => {
       let offlineMessage = ''
       let incapableMessage = ''
       try {
-        machines.requireRepoHost(laptop)
+        await machines.requireRepoHost(laptop)
       } catch (e) {
         offlineMessage = e instanceof Error ? e.message : String(e)
       }
       try {
-        machines.requireRepoHost(coordinator)
+        await machines.requireRepoHost(coordinator)
       } catch (e) {
         incapableMessage = e instanceof Error ? e.message : String(e)
       }
