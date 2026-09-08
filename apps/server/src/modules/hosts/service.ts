@@ -102,8 +102,8 @@ export interface HostsDeps {
    * row inspectable. Shells need no resume ref (a fresh spawn is recovery).
    * Does not free worktrees — that stays an explicit stop.
    */
-  parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
-  parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
+  parkShellSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
+  parkStaleSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
   hasScheduledWakeup(sessionId: SessionId, now: number): boolean | Promise<boolean>
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
   hasValidTerminalProof(sessionId: SessionId): boolean | Promise<boolean>
@@ -521,7 +521,7 @@ export class HostsService {
       })
       .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
     if (!target) return
-    const result = this.deps.parkShellSession({ sessionId: target.sessionId })
+    const result = await this.deps.parkShellSession({ sessionId: target.sessionId })
     if (!result.ok) {
       failed.add(target.sessionId)
       return
@@ -564,8 +564,8 @@ export class HostsService {
     if (!target) return
     const result =
       target.agentKind === 'shell'
-        ? this.deps.parkShellSession({ sessionId: target.sessionId })
-        : this.deps.parkStaleSession({ sessionId: target.sessionId })
+        ? await this.deps.parkShellSession({ sessionId: target.sessionId })
+        : await this.deps.parkStaleSession({ sessionId: target.sessionId })
     if (!result.ok) {
       failed.add(target.sessionId)
       return

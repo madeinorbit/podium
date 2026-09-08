@@ -141,7 +141,7 @@ function harness(input: {
       parked.push(sessionId)
       return { ok: true }
     },
-    parkStaleSession: ({ sessionId }) => {
+    parkStaleSession: async ({ sessionId }) => {
       const target = input.sessions.find((item) => item.sessionId === sessionId)
       if (!target || target.status !== 'live') return { ok: false, reason: 'not running' }
       target.status = target.resume ? 'hibernated' : 'exited'
@@ -149,7 +149,7 @@ function harness(input: {
       return { ok: true }
     },
     hasScheduledWakeup: async (sessionId) => input.scheduledWakeups?.has(sessionId) ?? false,
-    parkShellSession: ({ sessionId }) => {
+    parkShellSession: async ({ sessionId }) => {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
       if (target?.status !== 'live') return { ok: false, reason: 'not running' }
