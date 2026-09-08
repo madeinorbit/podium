@@ -74,8 +74,8 @@ describe('contract-backed blocking sends return receipt refusals (POD-3044)', ()
       receipts: { defer: true, answer: () => refused('not_running') },
       runtimeContractActive: () => true,
       awaitPollMs: 1,
-      onPoll: (poll) => {
-        if (poll === 1) h.settleReceipts()
+      onPoll: async (poll) => {
+        if (poll === 1) await h.settleReceipts()
       },
     })
     const issue = await h.createIssue({ title: 'target' })
@@ -122,7 +122,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     // way and the operator's bubble says so.
     expect(await h.svc.message(id)).toMatchObject({ status: 'delivered', deliveredTo: TARGET })
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     // THE DEFECT, CLOSED. `busy` means a turn was open — it ends on its own — so
     // the honest correction is to undo the claim and let the row wait its turn.
@@ -149,7 +149,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     const id = await chat(h, 'answer me when you can')
     const afterSend = h.pushes.length
 
-    h.settleReceipts()
+    await h.settleReceipts()
     // NOTHING WAS SENT BY THE CORRECTION ITSELF. A refusal that pushed would be
     // the retry storm the `unverified` policy forbids, wearing a different name.
     expect(h.pushes).toHaveLength(afterSend)
@@ -157,7 +157,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     // The ordinary backstop finds an un-pushed queued row and carries it, which
     // is the whole reason re-queueing is a sufficient answer.
     await h.svc.sweep()
-    h.settleReceipts()
+    await h.settleReceipts()
     expect(h.pushes.length).toBe(afterSend + 1)
     expect((await h.svc.message(id))!.status).toBe('delivered')
   })
@@ -166,7 +166,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     const h = await chatHarness(() => refused('lease_held', 'held by a human-controller'))
     const id = await chat(h, 'when you are free')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     expect((await h.svc.message(id))!.status).toBe('queued')
     // A re-queue is NOT a dead-letter, so the sender is told nothing: the message
@@ -183,7 +183,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     // and the one that hides the row from that session's own pending set.
     expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(true)
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(false)
   })
@@ -195,7 +195,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     const id = await chat(h, 'anyone home?')
     expect((await h.svc.message(id))!.status).toBe('delivered')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     // TERMINAL, with the same stamps the drain-abandonment route writes — one
     // undelivered turn reads the same way whichever route reported it.
@@ -220,7 +220,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     const h = await chatHarness(() => refused('session_ended'))
     const id = await chat(h, 'too late')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     expect(await h.svc.message(id)).toMatchObject({
       status: 'dead_letter',
@@ -237,7 +237,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     const h = await chatHarness(() => refused('staging_failed', 'ENOSPC'))
     const id = await chat(h, 'here is the screenshot')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     expect(await h.svc.message(id)).toMatchObject({
       status: 'dead_letter',
@@ -261,7 +261,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     })) as { id: string }
     expect(await h.svc.message(r.id)).toMatchObject({ status: 'delivered', injectedAt: null })
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     expect(await h.svc.message(r.id)).toMatchObject({
       status: 'dead_letter',
@@ -289,7 +289,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       // The optimism this issue is about: delivered before the driver answered.
       expect(await h.svc.message(id)).toMatchObject({ status: 'delivered', injectedAt: null })
 
-      h.settleReceipts()
+      await h.settleReceipts()
 
       const after = (await h.svc.message(id))!
       expect(
@@ -303,7 +303,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     const h = await chatHarness(() => refused('not_running', 'ECONNRESET'))
     const id = await chat(h, 'diagnose me')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     // The ledger stamp reuses the three-arm abandonment vocabulary (widening that
     // wire enum is a rolling-upgrade event, POD-2297) and loses nothing: the
@@ -333,7 +333,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     await h.svc.onTranscriptDelta(TARGET, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
     expect((await h.svc.message(r.id))!.status).toBe('delivered')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     // THE AGENT DEMONSTRABLY HAS IT. Its own transcript shows the envelope, and a
     // driver that could not prove what the transcript already showed must not
@@ -346,14 +346,14 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     const h = await chatHarness(() => refused('not_running'))
     const id = await chat(h, 'say it once')
 
-    h.settleReceipts()
+    await h.settleReceipts()
     // The write path is at-least-once and its consumer must be idempotent under
     // repeats. Nothing here dedupes by hand: the second verdict finds a row that
     // is no longer resting on the push it answers, and the guarded write is what
     // makes it silent. A sender nagged twice about one message stops trusting the
     // notice.
-    h.replayReceipts()
-    h.replayReceipts()
+    await h.replayReceipts()
+    await h.replayReceipts()
 
     expect(await transitions(h, 'message.dead_letter', id)).toHaveLength(1)
     expect(await notices(h)).toHaveLength(1)
@@ -363,8 +363,8 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     const h = await chatHarness(() => refused('busy'))
     const id = await chat(h, 'again, then')
 
-    h.settleReceipts()
-    h.replayReceipts()
+    await h.settleReceipts()
+    await h.replayReceipts()
 
     expect((await h.svc.message(id))!.status).toBe('queued')
     expect(await transitions(h, 'message.requeued', id)).toHaveLength(1)
@@ -465,7 +465,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     }))
     const id = await chat(h, 'unproven, not failed')
 
-    h.settleReceipts()
+    await h.settleReceipts()
 
     // `unverified` means the keystrokes WERE delivered and acceptance could not be
     // proven. Correcting on it would turn the one honest outcome in the contract
