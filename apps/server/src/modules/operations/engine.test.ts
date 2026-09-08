@@ -723,7 +723,7 @@ describe('adoption after a restart (P3, §3.4)', () => {
   it('defers adoption without a row write or runner, then persists one final retry', async () => {
     const { store, registry } = harness()
     await store.insert(midFlight())
-    const before = store.get('op_1')
+    const before = await store.get('op_1')
     const ensure = vi.fn(done)
     let final = false
     registry.register(
