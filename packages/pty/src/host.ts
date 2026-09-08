@@ -747,6 +747,8 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
           if (!disposed) proc.resize(g.cols, g.rows)
         })
         restoreOff = off
+      }).catch(() => {
+        // Redraw is fire-and-forget; connection failure remains exposed by ready.
       })
     },
     dispose() {
