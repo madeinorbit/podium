@@ -415,6 +415,7 @@ describe('StewardService cursor', () => {
       String(ids[JANITOR_STEWARD_EVENT_LIMIT - 1]),
     )
     await steward.tick()
+    expect(listSpy).toHaveBeenLastCalledWith(ids[JANITOR_STEWARD_EVENT_LIMIT - 1], undefined)
     expect(await store.events.getStewardState('cursor')).toBe(String(ids.at(-1)))
   })
 
