@@ -225,7 +225,8 @@ export class MirrorService {
       this.queues.set(machineId, queue)
     }
     queue.push({ nativeId, path })
-    if (!this.paused) void await this.drain(machineId)
+    // Enqueue acknowledges queued work; pause/settled own drain completion.
+    if (!this.paused) void this.drain(machineId)
   }
 
   /**
@@ -249,7 +250,7 @@ export class MirrorService {
     if (this.stopped || !this.paused) return
     this.paused = false
     for (const [machineId, queue] of this.queues) {
-      if (queue.length > 0) void await this.drain(machineId)
+      if (queue.length > 0) void this.drain(machineId)
     }
   }
 
@@ -366,7 +367,7 @@ export class MirrorService {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
-      if (restart) void await this.drain(machineId)
+      if (restart) void this.drain(machineId)
     }
   }
 
