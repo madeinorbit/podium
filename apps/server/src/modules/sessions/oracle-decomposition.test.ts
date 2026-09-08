@@ -231,7 +231,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       agentKind: 'claude-code',
       cwd: '/work',
     })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -241,7 +241,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     })
     const writes = vi.spyOn(o.store.sessions, 'upsertSession')
     for (let seq = 0; seq < 3; seq++) {
-      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq,
@@ -249,13 +249,13 @@ describe('oracle: activity flush and cumulative compute', () => {
       })
     }
     expect(writes).not.toHaveBeenCalled()
-    o.reg.modules.sessions.flushActivity()
+    await o.reg.modules.sessions.flushActivity()
     expect(writes).toHaveBeenCalledTimes(1)
     expect(
       (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.lastOutputAt,
     ).not.toBeNull()
     writes.mockClear()
-    o.reg.modules.sessions.flushActivity()
+    await o.reg.modules.sessions.flushActivity()
     expect(writes).not.toHaveBeenCalled()
 
     const state = (phase: 'working' | 'idle', workingMsTotal: number, since: string) => ({
@@ -271,7 +271,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       state('working', 0, '2026-08-01T00:01:00.000Z'),
       state('idle', 2_000, '2026-08-01T00:01:02.000Z'),
     ]) {
-      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: next,
@@ -305,7 +305,7 @@ describe('oracle: priority pushes', () => {
     o.daemon.length = 0
 
     const viewState = { type: 'viewState' as const, visible: [first, second], focused: second }
-    o.reg.clientGateway.routeClientFrame(clientId, viewState)
+    await o.reg.clientGateway.routeClientFrame(clientId, viewState)
     expect(priorities(o.daemon)).toEqual(
       expect.arrayContaining([
         { type: 'sessionPriority', sessionId: first, priority: 1, nativeView: true },
@@ -313,7 +313,7 @@ describe('oracle: priority pushes', () => {
       ]),
     )
     o.daemon.length = 0
-    o.reg.clientGateway.routeClientFrame(clientId, viewState)
+    await o.reg.clientGateway.routeClientFrame(clientId, viewState)
     expect(priorities(o.daemon)).toEqual([])
 
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
@@ -369,7 +369,7 @@ describe('oracle: native identity receipts', () => {
     const f = await twoUserOracle()
     f.o.daemon.length = 0
 
-    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
+    await f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.bob.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-bob' },
@@ -393,7 +393,7 @@ describe('oracle: native identity receipts', () => {
     const f = await twoUserOracle()
     const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
 
-    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
+    await f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.alice.sessionId,
       resume: shared,
@@ -402,7 +402,7 @@ describe('oracle: native identity receipts', () => {
     })
     f.o.daemon.length = 0
 
-    f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
+    await f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: f.bob.sessionId,
       resume: shared,
@@ -449,7 +449,7 @@ describe('oracle: browser-open forwarding', () => {
     })
     const browser: ServerMessage[] = []
     const clientId = attachTestClient(o.reg.clientGateway, (message) => browser.push(message))
-    o.reg.clientGateway.routeClientFrame(clientId, {
+    await o.reg.clientGateway.routeClientFrame(clientId, {
       type: 'presenceSubscribe',
       room: { kind: 'session', id: sessionId },
     })
@@ -457,7 +457,7 @@ describe('oracle: browser-open forwarding', () => {
     o.daemon.length = 0
     browser.length = 0
 
-    o.reg.gateway.routeDaemonFrame('foreign', {
+    await o.reg.gateway.routeDaemonFrame('foreign', {
       type: 'sessionOpenUrl',
       sessionId,
       requestId: 'forged-open',
@@ -469,7 +469,7 @@ describe('oracle: browser-open forwarding', () => {
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'forged-open' }),
     )
 
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'sessionOpenUrl',
       sessionId,
       requestId: 'open-1',
@@ -485,7 +485,7 @@ describe('oracle: browser-open forwarding', () => {
       actor: actorUser(asUserId('user:attacker')),
       onBehalfOf: asUserId('user:attacker'),
     } satisfies Attribution
-    o.reg.clientGateway.routeClientFrame(clientId, {
+    await o.reg.clientGateway.routeClientFrame(clientId, {
       type: 'sessionOpenUrlCallback',
       sessionId,
       requestId: 'open-1',
