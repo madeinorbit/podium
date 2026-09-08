@@ -312,6 +312,16 @@ export function reconcileServerMoveOperation(
   }
 }
 
+function transferDetails(record: TransferRecord): Record<string, unknown> {
+  return {
+    transferId: record.transferId,
+    manifestDigest: record.manifest?.digest,
+    bytesCopied: record.bytesCopied,
+    totalBytes: record.totalBytes,
+    offlineMachineIds: record.offlineMachineIds ?? [],
+  }
+}
+
 function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext): ServerMoveRun {
   if (context.run) return context.run
 
@@ -328,13 +338,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
   context.run = run
 
   const recordDetails = async (record: TransferRecord) => {
-    await context.engine.recordDetails(operation.id, {
-      transferId: record.transferId,
-      manifestDigest: record.manifest?.digest,
-      bytesCopied: record.bytesCopied,
-      totalBytes: record.totalBytes,
-      offlineMachineIds: record.offlineMachineIds ?? [],
-    })
+    await context.engine.recordDetails(operation.id, transferDetails(record))
   }
   run.promise = context.service.transfer(context.input, context.authorization, {
     operationId: operation.id,
@@ -374,7 +378,8 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
       })
     },
     beforeFence: async (record) => {
-      await recordDetails(record)
+      // Supply the final record to the chain owner. The service still waits for
+      // continueAfterSeal, which is released only after durable details and seal.
       sealReady.resolve(record)
       await continueAfterSeal.promise
     },
@@ -471,6 +476,10 @@ export function serverMoveOperationKind(
             }
           }
           const record = await run.sealReady.promise
+          // Only this runner owns the chain. beforeFence is a background service
+          // callback and can arrive before or during this runner; queueing its
+          // write there makes this runner wait for work queued behind itself.
+          await context.engine.recordDetailsLocked(operation.id, transferDetails(record))
           await context.engine.sealForHandoff(operation.id, 'fence', {
             step: { detail: 'pausing' },
             detailsPatch: {

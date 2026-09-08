@@ -4,7 +4,14 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { Operation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { ADOPTION_DEFERRED } from '../operations/kinds'
+import { ADOPTION_DEFERRED, OperationKindRegistry } from '../operations/kinds'
+import { OperationEngine } from '../operations/engine'
+import { OperationStore } from '../operations/store'
+import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { runDrizzleMigrations } from '../../migrations'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import type { ServerMoveContext } from './operation'
 import {
   projectRecoveryOperation,
   reconcileServerMoveOperation,
@@ -97,6 +104,84 @@ function journal(state: TransferJournalEntry['state']): TransferJournalEntry {
 }
 
 describe('server-move operation', () => {
+  it.each(['before runner', 'while runner holds chain'] as const)(
+    'durably seals and resumes transfer when beforeFence arrives %s',
+    async (timing) => {
+      const db = openDatabase(':memory:')
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      const store = new OperationStore(syncQueriesOver(db))
+      const registry = new OperationKindRegistry()
+      let fenceEntered!: () => void
+      const fenceRunning = new Promise<void>((resolve) => { fenceEntered = resolve })
+      let detailsDurableBeforeSeal = false
+      const engine = new OperationEngine({
+        store, registry, newId: () => 'operation-1',
+        clock: { now: Date.now, setTimeout: (fn, ms) => setTimeout(fn, ms),
+          clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) },
+        onChanged: (row) => {
+          const persisted = row.operation?.details
+          if (Array.isArray(persisted?.offlineMachineIds) &&
+              persisted.offlineMachineIds.includes('offline-final') && !persisted._handoff) {
+            detailsDurableBeforeSeal = true
+          }
+          if (row.operation?.steps?.find((step) => step.id === 'fence')?.state === 'running') {
+            fenceEntered()
+          }
+        },
+      })
+      let resumedDetails: Operation['details']
+      const record = journal('validated').record
+      const service = {
+        transfer: async (_input, _authorization, hooks = {}) => {
+          hooks.onRecord?.(record)
+          for (const phase of ['preflight', 'stage', 'validate'] as const) {
+            hooks.onPhase?.(phase, 'done', record)
+          }
+          if (timing === 'while runner holds chain') {
+            await fenceRunning
+            // Let the engine enter the real fence runner, just as endpoint/auth I/O does.
+            await new Promise<void>((resolve) => setImmediate(resolve))
+          }
+          await hooks.beforeFence?.({ ...record, offlineMachineIds: [asMachineId('offline-final')] })
+          resumedDetails = (await store.get('operation-1'))?.operation?.details
+          return { ok: true, state: 'committed', transferId: record.transferId,
+            targetMachineId: record.targetMachineId, publicUrl: record.publicUrl }
+        },
+        status: () => undefined,
+      } satisfies Pick<ServerTransferService, 'transfer' | 'status'>
+      registry.register(serverMoveOperationKind(service as ServerTransferService))
+      const context: ServerMoveContext = {
+        service: service as ServerTransferService, engine,
+        input: { targetMachineId: record.targetMachineId, publicUrl: record.publicUrl,
+          bindHost: record.bindHost, port: record.port, confirmation: 'TRANSFER SERVER' },
+        authorization: {} as ServerMoveContext['authorization'],
+        authorizedBy: 'user:sole', transferId: record.transferId,
+        sourceMachineId: record.sourceMachineId, publicUrl: record.publicUrl,
+        bindHost: record.bindHost, port: record.port,
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        expect((await engine.start('server-move', context)).started).toBe(true)
+        const completion = await Promise.race([
+          engine.whenSettled('operation-1').then(() => 'settled'),
+          new Promise<string>((resolve) => { timer = setTimeout(() => resolve('blocked at seal'), 1500) }),
+        ])
+        expect(completion).toBe('settled')
+        expect(resumedDetails).toMatchObject({
+          manifestDigest: record.manifest?.digest,
+          offlineMachineIds: ['offline-final'],
+          _handoff: { stepId: 'fence' },
+        })
+        expect(detailsDurableBeforeSeal).toBe(true)
+        expect(engine.isSealed('operation-1')).toBe(true)
+      } finally {
+        clearTimeout(timer)
+        engine.stop()
+        db.close()
+      }
+    },
+  )
+
   it('writes opt-in commit evidence and honors a one-shot failure marker', async () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-server-move-hook-'))
     const commitEvidence = join(root, 'commit-evidence')
