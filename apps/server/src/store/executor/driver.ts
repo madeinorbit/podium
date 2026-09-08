@@ -40,7 +40,9 @@ export type { SqlParam, SqlRunResult }
  * - `write` — serialised with all other writes; sees its own writes.
  * - `exclusive` — nothing else runs. Not a transaction: it is the lane the
  *   migrator, `wal_checkpoint`, backup, the transfer fence and `close` take,
- *   each of which manages its own transaction or needs none.
+ *   each of which manages its own transaction or needs none. Snapshot proof of
+ *   a retained copy is not on this list (spec §6 rule 67): it uses a different
+ *   file on a child connection.
  */
 export type Lane = 'read' | 'write' | 'exclusive'
 

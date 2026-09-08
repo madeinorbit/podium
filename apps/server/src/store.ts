@@ -50,19 +50,19 @@ import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
 import {
+  type SnapshotVerification,
+  SnapshotVerifier,
+  type SnapshotVerifierDeps,
+} from './migrations/snapshot-verifier'
+import {
   checkpointStore,
   configureStoreConnection,
   migrateStoreConnection,
   setStoreTransferFence,
 } from './migrations/store-lifecycle'
-import {
-  type SnapshotVerification,
-  SnapshotVerifier,
-  type SnapshotVerifierDeps,
-} from './migrations/snapshot-verifier'
 import { syncServerTables } from './migrations/sync-server-tables'
-import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { OperationStore } from './modules/operations/store'
+import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -569,6 +569,8 @@ export class SessionStore {
    * The only caller is the update operation's server-replacement step, which may
    * legitimately wait: awaiting this Promise leaves the event loop free, so
    * health and read requests continue while the verifier scans (POD-3068).
+   * Staging and the schema-version read take exclusive; the proof itself must
+   * not (rule 67) — exclusive is a barrier against every store read.
    */
   async verifiedSnapshotBeforeUpdate(
     fromVersion: string,
@@ -590,9 +592,7 @@ export class SessionStore {
       // A store with no migration identity still gets a quick_check proof; the
       // schema comparison is the part that is skipped, not the verification.
     }
-    return await this.executor.exclusive(async () =>
-      this.snapshotVerifier.verify(staged, expectedSchemaVersion),
-    )
+    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
   }
 
   /**
@@ -676,6 +676,9 @@ export class SessionStore {
   }
 
   async close(persist?: () => Promise<void>): Promise<void> {
+    // Abort the detached verifier first, then await its child inside close so a
+    // scan cannot outlive the database (rule 67). This is persist ordering, not
+    // exclusive-lane membership — the proof never held exclusive.
     for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
     const verifierClosed = this.snapshotVerifier.close()
     await this.executor.close(async () => {

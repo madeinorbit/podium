@@ -247,7 +247,10 @@ handle goes through the scheduler: migration (carrying the `foreign_keys` OFF/ON
 own connection), `wal_checkpoint`, backup, the transfer fence and `close` are exclusive
 operations on bun:sqlite; on the remote driver the file-level ones do not exist. The transfer
 fence (`PRAGMA query_only`) is per connection and therefore in-process only until the mint-session
-writer goes through the server.
+writer goes through the server. Snapshot proof of a retained copy is not on that exclusive list
+(rule 67): it opens a different file on a child connection, serialises with its own `inFlight`,
+and must not hold the exclusive barrier. Boot queues at most one background proof and does not
+await it. Shutdown aborts the verifier and awaits the child's death as a persistence step.
 
 ### 3.3 Post-commit work
 
@@ -385,9 +388,10 @@ connection, the connection string and auth token from the instance config and ne
 settings blob that round-trips to the browser.
 
 Durability is a port: the bun:sqlite implementation is the current code moved behind it,
-unchanged and running through the exclusive lane; the Turso implementation reports
-platform-managed for backup and snapshot, rejects the transfer fence and candidate-file
-validation as not applicable, and exposes migration head and feed identity through ordinary
+unchanged. Live-handle file operations (backup, `wal_checkpoint`, the transfer fence) run
+through the exclusive lane; snapshot proof of a retained copy does not (rule 67). The Turso
+implementation reports platform-managed for backup and snapshot, rejects the transfer fence
+and candidate-file validation as not applicable, and exposes migration head and feed identity through ordinary
 queries so the update flow's proofs still work; the update operation branches on the port's
 capability, never on the driver name. Moving a hosted tenant is a platform import of its SQLite
 file into its own Turso database, with the migration ledger and the feed identity (`feed_id`,
@@ -3762,3 +3766,47 @@ list to sit on and must be justified at the site or awaited.
 *Measured on POD-3524's branch: `keep-sync=3 refusals=11 proposed-files=1 proposed-awaits=6
 unused-keep-sync=3`. The six proposed awaits were two racing `claimGroup()` calls in each of three
 new concurrency tests — rule 59's exact shape, arriving from the pass rather than from a person.*
+
+### Rule 67 — SNAPSHOT PROOF IS NOT EXCLUSIVE: a retained copy has its own connection
+
+POD-3264 found the collision, and the two briefs it was holding are both right about their own
+object. They are not about the same object.
+
+B2.1 said snapshot verification goes through the exclusive lane, behaviour-preserved. Spec §3.2
+and the driver `Lane` comment already listed what exclusive is for: migration, `wal_checkpoint`,
+backup, the transfer fence, `close`. Those all use the LIVE database handle. `SnapshotVerifier.ts`
+said boot and maintenance readiness must not wait for a disk scan, because POD-3068 measured
+that scan at ~80 seconds on the event loop. `queueBackgroundVerification` therefore schedules
+`void this.verify` on `setImmediate`, and the worker opens the retained snapshot on a child
+connection, publishes catalogue metadata, and never touches the live handle.
+
+**THE RULING: the proof is not an exclusive live-handle operation, from any caller.**
+
+- Exclusive stays on the live-handle work: staging (`backupDatabase`), `wal_checkpoint`, the
+  transfer fence, migration, schema-version read, `close`.
+- `SnapshotVerifier.verify` opens a different file in a child process, serialises with its own
+  `inFlight` (one scan per instance), and publishes a JSON catalogue. It does not take the main
+  exclusive lane. Holding exclusive for the scan would block every store read for the duration of
+  `PRAGMA quick_check` — minutes, not milliseconds — which is the POD-3068 failure, now via the
+  scheduler instead of the event loop. POD-3558 making exclusive a real barrier against reads is
+  why this is load-bearing rather than documentary.
+- Boot and maintenance (`discoverAndQueue` / `queueBackgroundVerification`) queue at most one
+  background proof and MUST NOT await it. Readiness is catalogue plus `stat`.
+- The server-replacement step may await the proof Promise. Awaiting a Promise is not holding
+  exclusive. Staging and the schema-version read before it remain exclusive; the proof after
+  them does not.
+- Shutdown is persistence-step ordering, not exclusive-lane membership. `SnapshotVerifier.close`
+  aborts the child (the same SIGTERM → grace → SIGKILL the deadline uses) and `store.close`
+  awaits that death inside the executor close persist callback, so a scan cannot outlive the
+  database.
+
+**THE OTHER CANDIDATE IS REFUSED.** Putting the entire scan on exclusive so that "snapshot
+verification goes through exclusive, behaviour-preserved" misreads the B2.1 brief against §3.2.
+Behaviour-preserved means: live-handle file ops stay exclusive; the detached verifier stays
+detached. Wrapping `verify()` in exclusive for the foreground path while leaving background
+scheduling outside is the local guess this rule exists to forbid — the same method cannot be
+exclusive-or-not depending on its caller.
+
+**SITES.** `discoverAndQueue` stays outside the scheduler. `verifiedSnapshotBeforeUpdate` takes
+exclusive for staging and schema-version, then calls `verify` without exclusive.
+`store.close` keeps abort-then-await. Checkpoint, fence and backup stay exclusive.
