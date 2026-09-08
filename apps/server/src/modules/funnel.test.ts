@@ -2,7 +2,9 @@ import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
+import { runAtRoot } from '../store/executor/context'
 import { openTestStore } from '../test-support/open-test-store'
+import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
 
@@ -246,7 +248,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
 })
 
 describe('the ordered, coalesced delivery pipe (#256)', () => {
-  function pipedFunnel() {
+  function pipedFunnel(onPublicationIdle?: OnPublicationIdle) {
     const bus = new EventBus()
     const serving = recordingServing()
     const onPublished = vi.fn()
@@ -256,6 +258,7 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       serving: serving.port,
       onPublished,
       authority: fake.authority,
+      onPublicationIdle,
     })
     return { funnel, serving, onPublished, appended: fake.emit }
   }
@@ -289,11 +292,72 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     ])
   })
 
-  it('flushes on the microtask boundary without an explicit flush', async () => {
+  it('coalesces fifty async appends before automatic publication', async () => {
     const { serving, appended } = pipedFunnel()
-    appended([up(1, 'session', 's1')])
-    await Promise.resolve()
+    for (let seq = 1; seq <= 50; seq++) {
+      appended([up(seq, 'session', `s${seq}`)])
+      await Promise.resolve()
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(serving.published).toHaveLength(1)
+    expect(serving.rows().map((row) => row.seq)).toEqual(
+      Array.from({ length: 50 }, (_, index) => index + 1),
+    )
+  })
+
+  it('holds pending deliveries until scheduler idle and includes its next continuation', async () => {
+    vi.useFakeTimers()
+    try {
+      const listeners = new Set<() => void>()
+      const { serving, appended } = pipedFunnel((listener) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      })
+      appended([up(1, 'session', 's1')])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(serving.published).toEqual([])
+      for (const listener of listeners) listener()
+      await Promise.resolve()
+      appended([up(2, 'session', 's2')])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(serving.published).toHaveLength(1)
+      expect(serving.rows().map((row) => row.seq)).toEqual([1, 2])
+      expect(listeners.size).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('publishes within the deadline when the scheduler never becomes idle', async () => {
+    vi.useFakeTimers()
+    try {
+      const unsubscribe = vi.fn()
+      const { serving, appended } = pipedFunnel(() => unsubscribe)
+      appended([up(1, 'session', 's1')])
+      await vi.advanceTimersByTimeAsync(49)
+      expect(serving.published).toEqual([])
+      appended([up(2, 'session', 's2')])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(serving.rows().map((row) => row.seq)).toEqual([1, 2])
+      expect(unsubscribe).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels the idle subscription and deadline after an explicit flush', async () => {
+    vi.useFakeTimers()
+    try {
+      const unsubscribe = vi.fn()
+      const flush = vi.fn()
+      const cancel = scheduleFeedFlush(flush, () => unsubscribe)
+      cancel()
+      await vi.advanceTimersByTimeAsync(100)
+      expect(flush).not.toHaveBeenCalled()
+      expect(unsubscribe).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('tells the publication worker the feed advanced, ONCE per coalesced batch', () => {
@@ -314,18 +378,22 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     // healing. Pipe-first makes arrival order equal append order.
     const { funnel, bus, serving, ledger } = await makeFunnel()
     let reentered = false
+    let inner: Promise<unknown> | undefined
     bus.on('oplog.appended', () => {
       if (reentered) return
       reentered = true
-      ledger.commit({
+      // A subscriber starts independent work; it must not inherit the outer
+      // transaction or abandon an async nested savepoint inside it.
+      inner = runAtRoot(() => ledger.commit({
         write: async () => {},
         changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
-      })
+      }))
     })
     await ledger.commit({
       write: async () => {},
       changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
     })
+    await inner
     funnel.flushDeltas()
     const emitted = serving.rows()
     expect(emitted.map((c) => c.entityId)).toEqual(['outer', 'inner'])
