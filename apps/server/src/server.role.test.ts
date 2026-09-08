@@ -158,13 +158,16 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(hubNames).toEqual([
       'machines.adopt',
       'machines.applyUpdate',
+      // dev/mw renamed machines.transferServer to machines.moveServer. The list
+      // is compared after .sort(), so the new name belongs HERE, not in the slot
+      // the old one occupied at the end.
+      'machines.moveServer',
       'machines.pairingCode',
       'machines.rename',
       'machines.revoke',
       'machines.setUpdateChannel',
       'machines.share',
       'machines.transferOwnership',
-      'machines.moveServer',
       'machines.unshare',
     ])
     // Non-vacuity: the filter must actually be filtering. If every contract were

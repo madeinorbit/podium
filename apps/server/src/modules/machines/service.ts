@@ -300,6 +300,8 @@ export class MachinesService {
    * invalidateMachineCache(); the next read rebuilds lazily.
    */
   private machineRecordsCache: MachineRecord[] | null = null
+  /** Bumped by every invalidation; see {@link machineRecords}. */
+  private machineCacheEpoch = 0
   private machineNameCache = new Map<string, string>()
 
   /**
@@ -730,12 +732,33 @@ export class MachinesService {
     return await credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
+  /**
+   * INSTALL ONLY IF NOTHING INVALIDATED WHILE WE WERE READING.
+   *
+   * `listMachines` is async now, so the assignment lands AFTER the await, and
+   * that gap is a real window: a read that starts before a write, and resolves
+   * after the write's `invalidateMachineCache()`, would put its own STALE
+   * snapshot back into the cache and undo the invalidation. Nothing invalidates
+   * it again, so the cache stays wrong for the life of the process.
+   *
+   * That is not hypothetical. It is how a machine whose daemon component had
+   * just been written kept reading back as "runs no Podium daemon", which is a
+   * structural refusal on an AUTHORIZATION path -- requireMachineForRepo and
+   * requireCapability both decide through this cache.
+   *
+   * Before the flip the read was synchronous and there was no gap, so the plain
+   * assignment was correct. The epoch counter is what replaces that atomicity:
+   * compare against the LATEST invalidation, not merely against "was there one".
+   */
   private async machineRecords(): Promise<MachineRecord[]> {
-    if (!this.machineRecordsCache) {
-      this.machineRecordsCache = await this.deps.store.machines.listMachines()
-      this.machineNameCache = new Map(this.machineRecordsCache.map((m) => [m.id, m.name]))
-    }
-    return this.machineRecordsCache
+    if (this.machineRecordsCache) return this.machineRecordsCache
+    const epoch = this.machineCacheEpoch
+    const rows = await this.deps.store.machines.listMachines()
+    // The name map is a display-name projection: fresher is always better, and
+    // it is safe to refresh even when the records cache must be discarded.
+    this.machineNameCache = new Map(rows.map((m) => [m.id, m.name]))
+    if (epoch === this.machineCacheEpoch) this.machineRecordsCache = rows
+    return rows
   }
 
   /** Resolve the native login identity available on the machine that will run a session. */
@@ -755,6 +778,9 @@ export class MachinesService {
   }
 
   invalidateMachineCache(): void {
+    // Bump BEFORE clearing: a read in flight compares against this counter, and
+    // must see the invalidation whichever order the two lines are observed in.
+    this.machineCacheEpoch += 1
     this.machineRecordsCache = null
   }
 

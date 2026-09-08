@@ -1983,11 +1983,16 @@ export async function startServer(
             })
           },
         }
+        // AWAITED: attach records the machine's daemon COMPONENT, and the
+        // capability guards read that row. Dropped, the hello returns before the
+        // component is written, so the very next call decides the machine "runs no
+        // Podium daemon" -- and the write then lands after the store's scheduler
+        // has begun draining, surfacing as an unhandled SchedulerClosedError.
         if (registry.recoveryOnly) {
-          registry.modules.machines.attach(principal.machine, send)
-          registry.modules.machines.flushQueued(principal.machine)
+          await registry.modules.machines.attach(principal.machine, send)
+          await registry.modules.machines.flushQueued(principal.machine)
         } else {
-          registry.gateway.attachDaemon(principal, transport, outcome.acceptedCaps)
+          await registry.gateway.attachDaemon(principal, transport, outcome.acceptedCaps)
         }
         return {
           established: true as const,

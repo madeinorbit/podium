@@ -291,7 +291,11 @@ export class DaemonMux {
     // attach because that is the moment the answer changes, and it is the live
     // socket's answer — an in-process link and an older daemon both legitimately
     // arrive with none.
-    machines.attach(machineId, transport, caps)
+    // AWAITED: attach writes this machine's daemon COMPONENT, and every
+    // capability guard reads that row. Dropped, attachDaemon resolves before the
+    // component exists, so the next call decides the machine runs no daemon --
+    // and the write lands after the store's scheduler starts draining.
+    await machines.attach(machineId, transport, caps)
     // SAY THAT IT HAPPENED (POD-1585). Attach/detach ran silently, so a server
     // log with no daemon line looked identical whether the fleet was healthy or
     // no daemon had ever arrived — an instrument that cannot say NO. That silence
