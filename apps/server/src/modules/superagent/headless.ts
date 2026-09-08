@@ -38,7 +38,7 @@ export interface HeadlessDeps {
   nextRequestId(prefix: string): string
   /** A fresh copy of the default PTY geometry (headless rows still carry one). */
   defaultGeometry(): Geometry
-  persist(session: Session): void
+  persist(session: Session): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
@@ -168,7 +168,7 @@ export class HeadlessService {
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     this.deps.registerSession(session)
-    this.deps.persist(session)
+    await this.deps.persist(session)
     this.deps.broadcastSessions()
     return { sessionId }
   }
