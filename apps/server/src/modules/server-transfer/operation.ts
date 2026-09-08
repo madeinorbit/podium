@@ -1,5 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import type { MachineId } from '@podium/model'
+import { createLogger } from '@podium/logger'
 import type { Operation as ProtocolOperation, ServerBindHost } from '@podium/protocol'
 import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import type { OperationEngine } from '../operations/engine'
@@ -15,6 +16,8 @@ import {
   type ServerTransferInput,
   TRANSFER_FAILURE_CODES,
 } from './types'
+
+const log = createLogger('server:server-transfer')
 
 export const SERVER_MOVE_OPERATION_KIND = 'server-move'
 export const SERVER_MOVE_RECOVERY_ACTION = 'server-move-recovery'
@@ -340,13 +343,23 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
   const recordDetails = async (record: TransferRecord) => {
     await context.engine.recordDetails(operation.id, transferDetails(record))
   }
+  const reportDetailsFailure = (err: unknown): void => {
+    // Once handed off, this source no longer owns progress reporting. As with
+    // shutdown, a late background callback must not produce stale warnings.
+    if (run.sealed) return
+    log.warn('server move detail write failed', {
+      operationId: operation.id,
+      transferId: context.transferId,
+      err,
+    })
+  }
   run.promise = context.service.transfer(context.input, context.authorization, {
     operationId: operation.id,
     transferId: context.transferId,
     canceled: () => run.canceled,
     ...(context.crash ? { crash: context.crash } : {}),
     onRecord: (record) => {
-      void recordDetails(record)
+      void recordDetails(record).catch(reportDetailsFailure)
       if (run.currentPhase === 'stage') {
         void context.engine.recordProgress(operation.id, 'stage', {
           state: 'running',
@@ -357,7 +370,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
     },
     onPhase: (phase, state, record) => {
       run.currentPhase = phase
-      void recordDetails(record)
+      void recordDetails(record).catch(reportDetailsFailure)
       void context.engine.recordProgress(operation.id, phase, {
         state,
         ...(phase === 'stage'
