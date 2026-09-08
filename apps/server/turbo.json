@@ -1890,6 +1890,7 @@
         "src/server.role.test.ts",
         "src/server.setup-password.test.ts",
         "src/server.ts",
+        "src/server.update-adoption.test.ts",
         "src/server.version.test.ts",
         "src/session-by-id-scaling.test.ts",
         "src/session-cutover.audit.test.ts",
