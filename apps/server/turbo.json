@@ -1073,6 +1073,7 @@
         "src/modules/sessions/daemon-projection.test.ts",
         "src/modules/sessions/daemon-projection.ts",
         "src/modules/sessions/deterministic-status.test.ts",
+        "src/modules/sessions/durable-write-ordering.test.ts",
         "src/modules/sessions/ensure-ref-on-machine.test.ts",
         "src/modules/sessions/find-repo-on-machine.test.ts",
         "src/modules/sessions/handoff-transfer.ts",

@@ -7,7 +7,7 @@
  *   resumeSession      find-or-mint by resume ref (reuse / resurrect / fresh)
  *   findLiveByResume   the canonical row for a conversation
  *   resurrectSession   wake a hibernated/exited row under the same id
- *   finishResurrect    the synchronous half of that wake (fence + spawn frame)
+ *   finishResurrect    commit the wake before fencing and sending the spawn frame
  *   handoffSession     move a resumable worktree session to another machine
  *   handoffs           lazy factory for the single HandoffCoordinator
  *
@@ -341,9 +341,8 @@ export class SessionRevival {
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
     // so the agent has a real cwd. Transcript inspection does not need this.
-    // The common hibernate→wake path resolves synchronously, and the spawn
-    // must too: queueText fire-and-forgets this call and its callers rely on
-    // the spawn being on the wire before queueText returns [POD-197].
+    // Queue-driven wakes may run in the background, but this promise covers
+    // workspace preparation, the durable starting state, fencing and spawn.
     // Handoff already imported the source workspace and set session.cwd to the
     // target path. The issue is deliberately rehomed only after this spawn
     // succeeds, so consulting its still-source-machine worktree here would
@@ -384,7 +383,7 @@ export class SessionRevival {
       ...(session.issueId ? { issueId: session.issueId } : {}),
       existingOnly: true,
     })
-    this.ports.repository.write(session, (draft) => {
+    await this.ports.repository.write(session, (draft) => {
       draft.cwd = cwd
       draft.status = 'starting'
       draft.exitCode = undefined
@@ -392,6 +391,8 @@ export class SessionRevival {
       // lastActiveAt makes it immediately eligible to be parked again.
       session.markResumed(draft)
     })
+    // The durable commit suspends; retirement must still prevent a launch.
+    if (session.archived) return { ok: false, reason: 'session is archived' }
     const observationLease = await this.ports.terminalProof.fence(session)
     this.ports.toMachine(session.machineId, {
       type: 'spawn',

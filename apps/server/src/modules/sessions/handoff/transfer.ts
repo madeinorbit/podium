@@ -114,9 +114,22 @@ export class HandoffTransfer {
       session.status === 'reconnecting'
     if (wasRunning) {
       this.ports.onSessionGone(session.sessionId)
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.status = 'hibernated'
       })
+      // Parking now suspends. Revalidate the preflight grants before killing
+      // the source; a revoked transfer has not stopped either process yet.
+      try {
+        assertMachineUse(source.machineId)
+        assertMachineUse(input.machineId)
+      } catch (error) {
+        await this.ports.write(session, (draft) => {
+          draft.handoffTarget = undefined
+          if (!draft.archived && draft.status === 'hibernated') draft.status = source.status
+        })
+        this.ports.broadcastSessions()
+        throw error
+      }
       this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
       this.ports.broadcastSessions()
       await this.ports.sleep(SOURCE_RELEASE_MS)
@@ -261,10 +274,10 @@ export class HandoffTransfer {
       // status describe one session in one place, and until the row says so a
       // reader that saw the new machine with the old cwd would be reading a
       // session that exists on neither side of the move. The draft is cut HERE,
-      // after every await this method makes, rather than carried across them
+      // after the daemon round trips, rather than carried across them
       // (spec rule 26).
       const newCwd = imported.newCwd
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
         draft.machineId = asMachineId(input.machineId)
         draft.cwd = newCwd
@@ -349,7 +362,7 @@ export class HandoffTransfer {
           source.machineId,
         )
       }
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
         draft.machineId =
           sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId
