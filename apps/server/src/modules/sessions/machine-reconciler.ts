@@ -49,12 +49,12 @@ export interface MachineReconcilerPorts {
   /** Re-arm a parked queued-send drain. */
   drainInbox(sessionId: Session['sessionId']): Promise<void>
   /** Transcript-lake catch-up sweep for this machine. */
-  triggerLakeSweep(machineId: MachineId): void
+  triggerLakeSweep(machineId: MachineId): Promise<void>
   /** Clear the relay-priority delta cache, then re-push the full map. */
   resetPriorities(): void
   pushPriorities(): void
   /** Archive means stopped: park a survivor that is still live/reconnecting. */
-  parkArchivedSession(sessionId: Session['sessionId']): void
+  parkArchivedSession(sessionId: Session['sessionId']): Promise<void>
   /** Build the reattach control message for one survivor. */
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   toMachine(machineId: MachineId, message: ControlMessage): void
@@ -65,7 +65,7 @@ export interface MachineReconcilerPorts {
   markVolatileSessionDirty(sessionId: Session['sessionId'], fields: SessionVolatileField[]): void
   /** Durable write for a row this module repaired [POD-1953]. */
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  write(session: Session, mutate: (draft: SessionDurableState) => void): Promise<void>
   broadcastSessions(): void
 }
 
@@ -99,7 +99,9 @@ export class SessionMachineReconciler {
 
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.ports.triggerLakeSweep(machineId)
+    void this.ports.triggerLakeSweep(machineId).catch((err) => {
+      log.warn('attach transcript catch-up failed', { machineId, err })
+    })
 
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
@@ -116,7 +118,7 @@ export class SessionMachineReconciler {
     // reattached.
     for (const s of this.ports.sessions()) {
       if (s.machineId === machineId && !s.headless && s.archived) {
-        this.ports.parkArchivedSession(s.sessionId)
+        await this.ports.parkArchivedSession(s.sessionId)
       }
     }
 
@@ -144,7 +146,10 @@ export class SessionMachineReconciler {
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
     for (const s of probes) {
-      this.ports.toMachine(machineId, await this.ports.reattachMessage(s, machineId))
+      const message = await this.ports.reattachMessage(s, machineId)
+      if (s.machineId !== machineId || s.archived ||
+          (s.status !== 'reconnecting' && s.status !== 'exited')) continue
+      this.ports.toMachine(machineId, message)
     }
 
     // Headless sessions have no PTY to reattach; instead re-establish their
@@ -295,11 +300,13 @@ export class SessionMachineReconciler {
     // was right, the governor takes it again on its next tick — and now the kill
     // reports whether that one landed.
     this.ports.markVolatileSessionDirty(session.sessionId, ['status'])
-    this.ports.write(session, (draft) => {
+    await this.ports.write(session, (draft) => {
       draft.status = 'reconnecting'
       draft.exitCode = undefined
     })
-    this.ports.toMachine(machineId, await this.ports.reattachMessage(session, machineId))
+    const message = await this.ports.reattachMessage(session, machineId)
+    if (session.machineId !== machineId || session.archived || (session.status as Session['status']) !== 'reconnecting') return
+    this.ports.toMachine(machineId, message)
     this.ports.broadcastSessions()
   }
 
