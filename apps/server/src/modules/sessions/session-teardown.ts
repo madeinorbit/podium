@@ -317,7 +317,7 @@ export class SessionTeardown {
     if (wasRunning) {
       this.ports.autoContinue.onSessionGone(input.sessionId)
       this.ports.rearmUnread(input.sessionId)
-      this.ports.repository.write(
+      await this.ports.repository.write(
         session,
         (draft) => {
           if (session.agentKind !== 'shell' && !draft.resume) {
