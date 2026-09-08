@@ -332,7 +332,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     events: store.events,
     issues,
     sessions: {
-      listSessions: () => sessions,
+      listSessions: async () => sessions,
       sendText: record('sendText'),
       queueText: record('queueText'),
       interruptText: record('interruptText'),
@@ -382,7 +382,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     {
       messages: svc,
       issues,
-      listSessions: () => sessions,
+      listSessions: async () => sessions,
       spawnSession:
         opts?.spawnSession ??
         (async (input) => {

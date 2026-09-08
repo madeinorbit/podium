@@ -150,8 +150,8 @@ export function renderEnvelope(
  */
 export interface MessageRenderDeps {
   issues: Pick<IssueService, 'getMeta' | 'niceRef'>
-  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
-  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
+  listSessions(): Promise<SessionMeta[]>
+  sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string | Promise<string>

@@ -60,7 +60,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       facts: store.notificationFacts,
       messages: store.messages,
       issues,
-      listSessions: () => sessions,
+      listSessions: async () => sessions,
       sendTextWhenReady: vi.fn(),
       notify: vi.fn(),
       getSettings: () => settings,

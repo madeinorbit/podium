@@ -188,7 +188,7 @@ export interface MessageDeliveryDeps {
   events: EventsRepository
   issues: IssueService
   sessions: {
-    listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+    listSessions(): Promise<SessionMeta[]>
     /** The two NARROW reads delivery actually needs [POD-1653]. `listSessions()`
      *  is not an accessor — it is a reader-scoped projection that runs an
      *  authorization check (one issue row + one grants read) and a display-ref
@@ -199,11 +199,11 @@ export interface MessageDeliveryDeps {
      *  `listSessions` and nothing else, and the fallback computes the identical
      *  answer — the same predicate applied after the pass rather than instead of
      *  it — so an unwired fixture is slow, never wrong. */
-    sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
+    sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
     listSessionsForIssue?(
       worktreePath: string | null,
       issueId: IssueId,
-    ): SessionMeta[] | Promise<SessionMeta[]>
+    ): Promise<SessionMeta[]>
     sessionRoutingFacts?(): SessionRoutingFacts[]
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */

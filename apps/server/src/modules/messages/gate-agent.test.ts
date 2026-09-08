@@ -112,7 +112,7 @@ async function harness(opts?: {
     events: store.events,
     issues: fakeIssues(),
     sessions: {
-      listSessions: () => sessions,
+      listSessions: async () => sessions,
       sendText: async (i) => {
         sent.push({ fn: 'sendText', ...i })
         return { ok: true }
@@ -135,7 +135,7 @@ async function harness(opts?: {
   const gate = new MessageGate({
     messages: svc,
     issues,
-    listSessions: () => sessions,
+    listSessions: async () => sessions,
     spawnSession:
       opts?.spawnSession ??
       (async (i) => {

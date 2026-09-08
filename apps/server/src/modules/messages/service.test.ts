@@ -228,18 +228,18 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       opts?.prefix,
     ),
     sessions: {
-      listSessions: () => {
+      listSessions: async () => {
         listCalls.n += 1
         return sessions
       },
       // The narrow reads production wires [POD-1653]. They are counted
       // SEPARATELY from listSessions so a test can assert the thing that
       // actually costs: full reader-scoped passes, not lookups.
-      sessionById: (sessionId) => {
+      sessionById: async (sessionId) => {
         narrowCalls.byId += 1
         return sessions.find((s) => s.sessionId === sessionId)
       },
-      listSessionsForIssue: (worktreePath, issueId) => {
+      listSessionsForIssue: async (worktreePath, issueId) => {
         narrowCalls.byIssue += 1
         return sessionsForIssue(worktreePath, sessions, issueId)
       },
@@ -3144,7 +3144,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     return new MessageGate({
       messages: svc,
       issues: fakeIssues(),
-      listSessions: () => sessions,
+      listSessions: async () => sessions,
     })
   }
   const peerCap: Capability = {
