@@ -335,7 +335,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             services: body.services,
           }
           for (const status of body.statuses ?? []) {
-            updates.onStatus(asMachineId(body.id), status)
+            await updates.onStatus(asMachineId(body.id), status)
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
@@ -350,7 +350,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             })
             event('reconnect-decision', { machineId: body.id, verdict })
             if (verdict.converge)
-              updates.authorizeMachine(asMachineId(body.id), {
+              await updates.authorizeMachine(asMachineId(body.id), {
                 initiator: { kind: 'operator-apply' },
                 eligibility: 'fixture persisted exact approval reconnect',
               })
@@ -367,7 +367,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               context,
             )
           }
-          bridge?.onFleetChanged()
+          await bridge?.onFleetChanged()
           res.end(JSON.stringify({ grant: queues.get(body.id) }))
           queues.delete(body.id)
           return
@@ -387,7 +387,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           for (const machine of body.machines.filter(
             (machine: string) => machine !== 'coordinator',
           ))
-            updates.authorizeMachine(asMachineId(machine), {
+            await updates.authorizeMachine(asMachineId(machine), {
               initiator: { kind: 'operator-apply' },
               eligibility: 'fixture explicit operator approval',
             })
