@@ -77,6 +77,18 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
     let retry: (() => void) | undefined
     let serverSend: ((message: ControlMessage) => void) | undefined
     let connection: DaemonConnection | undefined
+    const pendingWork: Promise<unknown>[] = []
+    const track = (work: Promise<unknown>): void => {
+      pendingWork.push(work)
+    }
+    // Production send is synchronous: it puts the frame on the wire and returns.
+    // The fixture *is* the server, so capture attach/route completions here and
+    // await them before observing durable effects — do not await inside send.
+    const settled = async (): Promise<void> => {
+      while (pendingWork.length > 0) {
+        await Promise.all(pendingWork.splice(0))
+      }
+    }
 
     try {
       connection = createDaemonConnection({
@@ -109,14 +121,14 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
           }
         },
         sendApplicationFrame: (_socket, message) => {
-          registry.gateway.routeDaemonFrame(machineId, message)
+          track(registry.gateway.routeDaemonFrame(machineId, message))
           return true
         },
         onConnected: () => {
           const socket = activeSocket
           if (!socket) throw new Error('connected without an active socket')
           serverSend = (message) => socket.message(message)
-          registry.gateway.attachDaemon(machineId, serverSend)
+          track(registry.gateway.attachDaemon(machineId, serverSend))
         },
         onTerminal: vi.fn(),
         openSocket: () => {
@@ -131,19 +143,23 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       sockets[0]?.emit('open')
       sockets[0]?.message(helloOk)
       await started
+      await settled()
 
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(machineId, {
-        type: 'bind',
-        sessionId,
-        cmd: 'claude',
-        cwd: '/repo',
-        agentKind: 'claude-code',
-        geometry: { cols: 80, rows: 24 },
-      })
+      track(
+        registry.gateway.routeDaemonFrame(machineId, {
+          type: 'bind',
+          sessionId,
+          cmd: 'claude',
+          cwd: '/repo',
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+        }),
+      )
+      await settled()
       const sent = await registry.modules.messages.send(
         {
           kind: 'superagent',
@@ -177,6 +193,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       retry()
       sockets[1]?.emit('open')
       sockets[1]?.message(helloOk)
+      await settled()
 
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'dead_letter',
