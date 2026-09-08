@@ -27,20 +27,23 @@ function harness(defaultMachine = 'm1') {
   const sent: { machineId: string; msg: ControlMessage }[] = []
   const broker = new DaemonRequestBroker({
     toMachine: (machineId, msg) => sent.push({ machineId, msg }),
-    defaultMachine: () => asMachineId(defaultMachine),
+    defaultMachine: async () => asMachineId(defaultMachine),
   })
   const ask = async (machineId?: string) =>
     await broker.request({
       kind: PROBE,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
-      build: (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
+      build: async (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
       machineId: machineId ? asMachineId(machineId) : undefined,
     })
   /** The id the broker minted for the Nth send. */
   const idOf = (index: number): string =>
     (sent[index]?.msg as unknown as { requestId: string }).requestId
-  return { broker, sent, ask, idOf }
+  const waitForSends = async (count: number) => {
+    await vi.waitFor(() => expect(sent).toHaveLength(count))
+  }
+  return { broker, sent, ask, idOf, waitForSends }
 }
 
 beforeEach(() => {
@@ -56,6 +59,7 @@ describe('correlation', () => {
   it('sends to the named machine and settles that machine`s answer', async () => {
     const h = harness()
     const p = h.ask('m2')
+    await h.waitForSends(1)
 
     expect(h.sent[0]?.machineId).toBe('m2')
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'ok' })).toBe(true)
@@ -77,8 +81,9 @@ describe('correlation', () => {
       kind: PROBE,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
-      build: (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
+      build: async (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
     })
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
     expect(sent[0]?.machineId).toBe('m1')
     const requestId = (sent[0]?.msg as unknown as { requestId: string }).requestId
 
@@ -92,21 +97,27 @@ describe('correlation', () => {
 
   it('mints ids that never collide across request families', async () => {
     const h = harness()
-    void await h.ask()
-    void await h.broker.request({
+    const first = h.ask()
+    const other = h.broker.request({
       kind: OTHER,
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
-      build: (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
+      build: async (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
     })
-    void await h.ask()
+    const last = h.ask()
+    await h.waitForSends(3)
 
     expect([h.idOf(0), h.idOf(1), h.idOf(2)]).toEqual(['p0', 'o1', 'p2'])
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(Promise.all([first, other, last])).resolves.toEqual([
+      { answer: 'timeout' }, { answer: 'timeout' }, { answer: 'timeout' },
+    ])
   })
 
   it('resolves the caller`s fallback on timeout and forgets the request', async () => {
     const h = harness()
     const p = h.ask('m1')
+    await h.waitForSends(1)
     expect(h.broker.inFlight).toBe(1)
 
     await vi.advanceTimersByTimeAsync(1_000)
@@ -120,6 +131,7 @@ describe('correlation', () => {
   it('settles once — a duplicate reply is dropped', async () => {
     const h = harness()
     const p = h.ask('m1')
+    await h.waitForSends(1)
 
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'first' })).toBe(true)
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'second' })).toBe(false)
@@ -130,6 +142,7 @@ describe('correlation', () => {
   it('clears the timeout when it settles, so the fallback never lands after an answer', async () => {
     const h = harness()
     const p = h.ask('m1')
+    await h.waitForSends(1)
     h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'ok' })
 
     await vi.advanceTimersByTimeAsync(5_000)
@@ -144,6 +157,7 @@ describe('correlation', () => {
     const h = harness()
     const logs = captureLogs()
     const p = h.ask('m1')
+    await h.waitForSends(1)
 
     expect(h.broker.settle(OTHER, h.idOf(0), asMachineId('m1'), { answer: 'wrong family' })).toBe(
       false,
@@ -160,6 +174,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     const h = harness()
     const logs = captureLogs()
     const p = h.ask('m1')
+    await h.waitForSends(1)
 
     expect(
       h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' }),
@@ -182,6 +197,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     const h = harness()
     captureLogs()
     const p = h.ask('m1')
+    await h.waitForSends(1)
 
     h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' })
     expect(h.broker.inFlight).toBe(1)
@@ -198,6 +214,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     captureLogs()
     const toM1 = h.ask('m1')
     const toM2 = h.ask('m2')
+    await h.waitForSends(2)
 
     expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'crosstalk' })).toBe(
       false,
