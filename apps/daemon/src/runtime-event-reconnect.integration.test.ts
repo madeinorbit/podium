@@ -76,6 +76,18 @@ describe('coarse runtime events across a daemon disconnect', () => {
     let retry: (() => void) | undefined
     let serverSend: ((message: ControlMessage) => void) | undefined
     let connection: DaemonConnection | undefined
+    const pendingWork: Promise<unknown>[] = []
+    const track = (work: Promise<unknown>): void => {
+      pendingWork.push(work)
+    }
+    // Production send is synchronous: it puts the frame on the wire and returns.
+    // The fixture *is* the server, so capture attach/route completions here and
+    // await them before observing durable effects — do not await inside send.
+    const settled = async (): Promise<void> => {
+      while (pendingWork.length > 0) {
+        await Promise.all(pendingWork.splice(0))
+      }
+    }
 
     try {
       connection = createDaemonConnection({
@@ -107,14 +119,14 @@ describe('coarse runtime events across a daemon disconnect', () => {
           }
         },
         sendApplicationFrame: (_socket, message) => {
-          registry.gateway.routeDaemonFrame(machineId, message)
+          track(registry.gateway.routeDaemonFrame(machineId, message))
           return true
         },
         onConnected: () => {
           const socket = activeSocket
           if (!socket) throw new Error('connected without an active socket')
           serverSend = (message) => socket.message(message)
-          registry.gateway.attachDaemon(machineId, serverSend)
+          track(registry.gateway.attachDaemon(machineId, serverSend))
         },
         onTerminal: vi.fn(),
         openSocket: () => {
@@ -129,21 +141,25 @@ describe('coarse runtime events across a daemon disconnect', () => {
       sockets[0]?.emit('open')
       sockets[0]?.message(helloOk)
       await started
+      await settled()
 
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(machineId, {
-        type: 'bind',
-        sessionId,
-        cmd: 'codex app-server',
-        cwd: '/repo',
-        agentKind: 'codex',
-        geometry: { cols: 80, rows: 24 },
-        runtimeContract: true,
-        driverId: 'codex-app-server',
-      })
+      track(
+        registry.gateway.routeDaemonFrame(machineId, {
+          type: 'bind',
+          sessionId,
+          cmd: 'codex app-server',
+          cwd: '/repo',
+          agentKind: 'codex',
+          geometry: { cols: 80, rows: 24 },
+          runtimeContract: true,
+          driverId: 'codex-app-server',
+        }),
+      )
+      await settled()
       const at = new Date(
         Date.parse((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? '') + 1_000,
       ).toISOString()
@@ -162,6 +178,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
           turnEpoch: 1,
         },
       })
+      await settled()
       expect(runtimeOutbox.pending()).toEqual([])
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
@@ -200,6 +217,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
       retry()
       sockets[1]?.emit('open')
       sockets[1]?.message(helloOk)
+      await settled()
 
       expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
       expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(at)
@@ -243,10 +261,16 @@ describe('coarse runtime events across a daemon disconnect', () => {
       retry()
       sockets[2]?.emit('open')
       sockets[2]?.message(helloOk)
+      await settled()
 
       expect(runtimeOutbox.pending()).toEqual([])
       expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
-      expect(receipts.slice(-2)).toEqual([
+      // Replay sends both pending deliveries in one turn; production send does
+      // not wait, so the two handlers finish in completion order, not enqueue
+      // order. Pin the pair, not the race.
+      expect(
+        receipts.slice(-2).toSorted((a, b) => a.deliveryId.localeCompare(b.deliveryId)),
+      ).toEqual([
         {
           deliveryId: 'rejected-generation',
           outcome: 'rejected',
