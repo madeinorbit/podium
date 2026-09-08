@@ -60,7 +60,7 @@ describe('WorkflowService', () => {
           id === 'issue-1'
             ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
             : undefined,
-        repoIdForPath: () => 'repo-1',
+        repoIdForPath: async () => 'repo-1',
         notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
       }),
     )

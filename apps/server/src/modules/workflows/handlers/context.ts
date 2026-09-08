@@ -377,13 +377,13 @@ export class WorkflowAccess {
    *
    * What is gone from it is the operator early return.
    */
-  private inScope(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
+  private async inScope(caller: WorkflowCaller, workflow: WorkflowWire): Promise<boolean> {
     if (!this.hasAgentScope(caller) || caller.overrideScope) return true
     if (workflow.scope === 'global') return true
     const session = this.sessionFor(caller)
     if (!session) return false
     if (workflow.scope === 'repository') {
-      return workflow.scopeRef === this.deps.repoIdForPath(session.cwd)
+      return workflow.scopeRef === (await this.deps.repoIdForPath(session.cwd))
     }
     const scope = caller.capability?.scope
     return (
@@ -414,7 +414,7 @@ export class WorkflowAccess {
    * converge, reachable from one class, instead of two arms spread across
    * sixteen guards. When POD-1079 has the rule, the change is these two methods.
    */
-  private inWriteScope(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
+  private async inWriteScope(caller: WorkflowCaller, workflow: WorkflowWire): Promise<boolean> {
     if (!this.hasAgentScope(caller) || caller.overrideScope) return true
     const session = this.sessionFor(caller)
     if (!session) return false
@@ -422,15 +422,15 @@ export class WorkflowAccess {
     if (workflow.scope === 'task') {
       return workflow.scopeRef === session.sessionId || workflow.scopeRef === session.issueId
     }
-    const repoId = this.deps.repoIdForPath(session.cwd)
+    const repoId = await this.deps.repoIdForPath(session.cwd)
     return repoId !== null && workflow.scopeRef === repoId
   }
 
-  canReadWorkflow(
+  async canReadWorkflow(
     caller: WorkflowCaller,
     workflow: WorkflowWire,
     ownership: WorkflowOwnershipPort,
-  ): boolean {
+  ): Promise<boolean> {
     if (!canReadWorkflowEntity(this.principal(caller), this.entityFor(workflow), ownership)) {
       return false
     }
@@ -446,7 +446,7 @@ export class WorkflowAccess {
   async assertWorkflowRead(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
     const workflow = await this.deps.store.getWorkflow(workflowId)
     const ownership = await this.ownershipFor(workflow ? [this.entityFor(workflow)] : [])
-    if (!workflow || !this.canReadWorkflow(caller, workflow, ownership)) {
+    if (!workflow || !(await this.canReadWorkflow(caller, workflow, ownership))) {
       throw new Error(unknownWorkflow(workflowId))
     }
     return workflow
@@ -467,17 +467,17 @@ export class WorkflowAccess {
       }
       throw new Error(unknownWorkflow(workflowId))
     }
-    if (!this.inWriteScope(caller, workflow)) throw new Error(unknownWorkflow(workflowId))
+    if (!(await this.inWriteScope(caller, workflow))) throw new Error(unknownWorkflow(workflowId))
     return workflow
   }
 
   /** Creating into a scope. The `scope === 'global'` early return is gone: a
    *  global create is a library WRITE and is admin-grade. */
-  assertCreateScope(
+  async assertCreateScope(
     caller: WorkflowCaller,
     scope: WorkflowWire['scope'],
     scopeRef: string | null,
-  ): void {
+  ): Promise<void> {
     if (scope === 'global') {
       if (this.principal(caller).role !== 'admin') {
         throw new Error('approval required to create a global workflow')
@@ -488,7 +488,7 @@ export class WorkflowAccess {
     const session = this.sessionFor(caller)
     if (!session) throw new Error('workflow creation lost its session context')
     if (scope === 'task' && (scopeRef === session.sessionId || scopeRef === session.issueId)) return
-    if (scope === 'repository' && scopeRef === this.deps.repoIdForPath(session.cwd)) return
+    if (scope === 'repository' && scopeRef === (await this.deps.repoIdForPath(session.cwd))) return
     throw new Error(`${scope} workflow is outside this session`)
   }
 
@@ -564,14 +564,14 @@ export class WorkflowAccess {
    * everyone, plus the ownership decision per row. An admin still sees the lot,
    * but through the decision rather than around it.
    */
-  visibleBindings(
+  async visibleBindings(
     caller: WorkflowCaller,
     all: readonly WorkflowBindingWire[],
     ownership: WorkflowOwnershipPort,
   ) {
     const principal = this.principal(caller)
     const session = this.sessionFor(caller)
-    const repoId = session ? this.deps.repoIdForPath(session.cwd) : null
+    const repoId = session ? await this.deps.repoIdForPath(session.cwd) : null
     const scope = caller.capability?.scope
     return all.filter((binding) => {
       if (

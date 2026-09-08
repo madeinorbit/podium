@@ -115,7 +115,7 @@ export interface WorkflowServiceDeps {
   now(): string
   session(sessionId: SessionId): SessionInfo | undefined
   issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
-  repoIdForPath(path: string): string | null | Promise<string | null>
+  repoIdForPath(path: string): Promise<string | null>
   notifyCoordinator?(sessionId: SessionId, text: string): void
 }
 
@@ -222,21 +222,23 @@ export class WorkflowService implements WorkflowEngine {
     return await this.access.assertWorkflowRead(caller, workflowId)
   }
 
-  canReadWorkflow(
+  async canReadWorkflow(
     caller: WorkflowCaller,
     workflow: WorkflowWire,
     ownership: WorkflowOwnershipPort,
-  ): boolean {
+  ): Promise<boolean> {
     return this.access.canReadWorkflow(caller, workflow, ownership)
   }
 
   async list(input: WorkflowListInput, caller: WorkflowCaller) {
     const workflows = await this.deps.store.listWorkflows(input)
-    // Resolved ONCE for the whole page, in front of the filter, so the predicate
-    // stays synchronous (rule 52) and every row is decided against the same
-    // per-pass view rather than N separate reads.
+    // Resolve ownership once so every row uses the same per-pass view.
     const ownership = await this.access.ownershipFor(this.access.workflowEntities(workflows))
-    return workflows.filter((workflow) => this.canReadWorkflow(caller, workflow, ownership))
+    const visible: WorkflowWire[] = []
+    for (const workflow of workflows) {
+      if (await this.canReadWorkflow(caller, workflow, ownership)) visible.push(workflow)
+    }
+    return visible
   }
 
   async get(input: { id: string }, caller: WorkflowCaller) {

@@ -165,7 +165,7 @@ async function makeHarness(policy: Policy) {
       now: () => NOW,
       session: (id) => SESSIONS.get(id),
       issue: () => undefined,
-      repoIdForPath: (path) =>
+      repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
     },
     { ownership: policy.ownership, machines: policy.machines },
@@ -215,7 +215,7 @@ describe('ownership resolved per pass', () => {
         now: () => NOW,
         session: (id) => SESSIONS.get(id),
         issue: () => undefined,
-        repoIdForPath: () => null,
+        repoIdForPath: async () => null,
       },
       {
         machines: p.machines,

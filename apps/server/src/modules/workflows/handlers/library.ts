@@ -27,7 +27,7 @@ export async function createHandler(
 ) {
   const { caller, deps, access, engine } = ctx
   const scopeRef = engine.scopeRef(input.scope, input.scopeRef)
-  access.assertCreateScope(caller, input.scope, scopeRef)
+  await access.assertCreateScope(caller, input.scope, scopeRef)
   const now = deps.now()
   const workflowId = `wf_${randomUUID()}`
   await deps.store.insertWorkflow({

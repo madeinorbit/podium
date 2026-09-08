@@ -246,7 +246,7 @@ async function makeHarness(path = ':memory:'): Promise<Harness> {
       now: () => clock.value,
       session: (id) => SESSIONS.get(id),
       issue: (id) => ISSUES.get(id),
-      repoIdForPath: (path) =>
+      repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
       notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
     },
@@ -815,7 +815,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(NOW)
     })
 
-    it('repository scope resolves through repoIdForPath against the caller session cwd — create', async () => {
+    it('async repository lookup allows own-repository creation and refuses other or unknown repositories', async () => {
       // s1 is in /repo-a/wt → repo-a. Its own repo is allowed...
       const mine = (await h.service.create(
         {
@@ -864,7 +864,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: repository workflow is outside this session | code=undefined')
     })
 
-    it('repository scope on the WRITE side and the READ side', async () => {
+    it('async repository lookup allows own-repository writes and reads while hiding other repositories', async () => {
       const repoB = (await h.service.create(
         {
           name: 'Repo b write',
@@ -910,6 +910,8 @@ describe('POD-730 workflow mutation characterization', () => {
         repoB.workflow.id,
       )
       expect(((await h.service.list({}, agent('s1')))).map((w) => w.id)).not.toContain(repoB.workflow.id)
+      expect((await h.service.list({}, agent('s3', 'issue-2'))).map((w) => w.id)).toContain(repoB.workflow.id)
+      expect((await h.service.list({}, agent('s5'))).map((w) => w.id)).not.toContain(repoB.workflow.id)
     })
 
     it('task scope matches the SESSION id or the session issue id, on create/write/read', async () => {
@@ -1301,7 +1303,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: unknown workflow revision: wfr_nope | code=undefined')
     })
 
-    it('SINGLE-OPERATOR: bindings() returns EVERY binding for the operator and a session-filtered view otherwise', async () => {
+    it('async repository lookup exposes own-repository bindings and filters other repositories', async () => {
       const g = await publishedRevision('G', 'global')
       const r = await publishedRevision('R', 'repository', 'repo-a')
       const rb = await publishedRevision('Rb', 'repository', 'repo-b')
