@@ -59,7 +59,13 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     ).rpc
     rpc.repoOp = async (op, _cwd, args) => {
       repoOps.push({ op, ...(args ? { args } : {}) })
-      return { ok: true, output: op === 'status' ? '## issue/real-work\n' : '' }
+      // Removal checks Git's linked-worktree registry (--porcelain -z).
+      const output = op === 'status'
+        ? '## issue/real-work\n'
+        : op === 'worktreeList'
+          ? 'worktree /repo\0HEAD abc123\0branch refs/heads/main\0\0worktree /repo/wt\0HEAD def456\0branch refs/heads/issue/real-work\0'
+          : ''
+      return { ok: true, output }
     }
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     await reg.issues.update(issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
