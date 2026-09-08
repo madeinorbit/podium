@@ -384,14 +384,14 @@ describe('per-entity revision (ADR 2 D3)', () => {
     const wire = await svc.create({ repoPath: '/r', title: 'original', startNow: false })
     const row = (await store.issues.listIssueRows()).find((r) => r.id === wire.id)
     if (!row) throw new Error('row missing')
-    expect(() =>
+    await expect(
       ledger.commit({
         write: async () => await store.issues.upsertIssue({ ...row, title: 'mutated' }),
         changes: () => {
           throw new Error('declaration failed')
         },
       }),
-    ).toThrow('declaration failed')
+    ).rejects.toThrow('declaration failed')
     // upsertIssue assigned revision 2 inside the span; the throw rolled the row
     // back, so the token must have gone with it — a burned revision would leave
     // the authority claiming a write that never landed, and the next real write
