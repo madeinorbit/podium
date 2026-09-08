@@ -2194,7 +2194,17 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         context.appVersion() !== details.target.version) {
       const hostId = context.hostMachineId
       let replacement: Promise<StepOutcome> | undefined
-      context.updates.handleCoordinatorUpdate(hostId, {
+      // BOTH AWAITED BEFORE `replacement` IS READ. `replacement` is assigned by
+      // the dispatch callback, and dispatch only runs after these two have
+      // awaited: handleCoordinatorUpdate awaits handler.active before dispatching
+      // a pending grant, and grantCoordinatorUpdate awaits the machines read
+      // before it reaches issueGrants, which awaits its admission guards again.
+      // Called without awaiting, the fallback below was chosen while dispatch was
+      // still pending, so this runner reported coordinator-update-inactive even
+      // when the update was active and approved -- and the grant then began the
+      // replacement AFTER the step had already returned failure. Persisting that
+      // failure can revoke admission out from under the late work (POD-3679).
+      await context.updates.handleCoordinatorUpdate(hostId, {
         active: async () =>
           !canceledCoordinatorUpdates.has(operation.id) &&
           (await context.stepActive?.(operation.id, UPDATE_STEP_SERVER)) !== false &&
@@ -2203,7 +2213,7 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
           replacement = ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER, grant)
         },
       })
-      context.updates.grantCoordinatorUpdate(hostId, details.channel, details.target, {
+      await context.updates.grantCoordinatorUpdate(hostId, details.channel, details.target, {
         initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_SERVER },
         eligibility: 'the operation reached its coordinator replacement step after the fleet',
       })
