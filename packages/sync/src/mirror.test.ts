@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { addSink } from '@podium/logger'
+import { addSink, type LogRecord } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -250,6 +250,86 @@ async function settle(mirror: MirrorService, machineId: MachineId): Promise<void
 }
 
 describe('MirrorService', () => {
+  for (const launch of ['enqueue', 'resume', 'restart'] as const) {
+    for (const stopped of [false, true]) {
+      it(`${launch} drain rejection is ${stopped ? 'silent after stop' : 'reported while running'} without an unhandled rejection`, async () => {
+        const { store, mirror, lakeDir } = setup()
+        const path = seed(store, M1, 'drain-failure')
+        const records: LogRecord[] = []
+        const restore = addSink({ name: 'drain-failure-test', write: (r) => records.push(r) })
+        const unhandled: unknown[] = []
+        const onUnhandled = (error: unknown) => { unhandled.push(error) }
+        process.on('unhandledRejection', onUnhandled)
+        let releaseFailure!: () => void
+        const failureBarrier = new Promise<void>((resolve) => { releaseFailure = resolve })
+        let markFailureStarted!: () => void
+        const failureStarted = new Promise<void>((resolve) => { markFailureStarted = resolve })
+        let releaseFirst!: () => void
+        const firstBarrier = new Promise<void>((resolve) => { releaseFirst = resolve })
+        let markFirstStarted!: () => void
+        const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve })
+        // A denied read enters the inner catch. Its async cursor lookup then
+        // rejects OUTSIDE that catch, so only the drain launch can observe it.
+        const failure = new Error('denied-path cursor lookup failed')
+        Object.defineProperty(store, 'mirrorCursor', { value: async () => {
+          markFailureStarted()
+          await failureBarrier
+          throw failure
+        } })
+        let calls = 0
+        const internals = mirror as unknown as {
+          mirrorOne(machineId: MachineId, nativeId: string, path: string,
+            pass: { remainingBytes: number }): Promise<boolean>
+        }
+        internals.mirrorOne = async (_machineId, _nativeId, _path, pass) => {
+          if (launch === 'restart' && calls++ === 0) {
+            markFirstStarted()
+            await firstBarrier
+            pass.remainingBytes = 0
+            return true
+          }
+          throw new Error('denied')
+        }
+        try {
+          if (launch === 'resume') await mirror.pause()
+          await mirror.enqueue(M1, 'drain-failure', path)
+          if (launch === 'resume') await mirror.resume()
+          if (launch === 'restart') {
+            await firstStarted
+            // Coalesce a fresh observation while the first pass is active.
+            // Its exhausted budget causes the finally block to launch pass two.
+            await mirror.enqueueDirty(M1)
+            releaseFirst()
+          }
+          await failureStarted
+          if (stopped) mirror.dispose()
+          releaseFailure()
+          await mirror.settled(M1)
+          await new Promise<void>((resolve) => setImmediate(resolve))
+          const warnings = records.filter((r) => r.ns === 'sync:mirror' && r.level === 'warn')
+          if (stopped) {
+            expect(warnings).toEqual([])
+          } else {
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0]).toMatchObject({
+              msg: 'mirror drain failed', machineId: M1,
+              err: { message: failure.message },
+            })
+          }
+          expect(unhandled).toEqual([])
+        } finally {
+          mirror.dispose()
+          releaseFirst()
+          releaseFailure()
+          await mirror.settled(M1)
+          process.off('unhandledRejection', onUnhandled)
+          restore()
+          rmSync(lakeDir, { recursive: true, force: true })
+        }
+      })
+    }
+  }
+
   it('fences an in-flight read, preserves queued work, and resumes it after abort', async () => {
     const { store, fs, mirror } = setup()
     const pathA = seed(store, M1, 'pause-a')
