@@ -265,7 +265,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         DEPLOYMENT,
       )
       if (!recoveryTransportOnly(registry) && outcome.build) {
-        registry.modules.machines.recordLegacyBuild(
+        await registry.modules.machines.recordLegacyBuild(
           outcome.machineId,
           outcome.build,
           outcome.offeredCaps,
@@ -496,7 +496,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     try {
       const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
       if (message.type === 'machineReport') {
-        registry.modules.machines.recordSupervisorReport(
+        await registry.modules.machines.recordSupervisorReport(
           principal.machine,
           message.services,
           new Date().toISOString(),

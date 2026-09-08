@@ -211,7 +211,7 @@ describe('MachinesService supervisor presence', () => {
     await svc.attachSupervisor(MACHINE, (message) => supervisor.push(message), build, [
       'update.delivery.feed',
     ])
-    svc.recordSupervisorReport(
+    await svc.recordSupervisorReport(
       MACHINE,
       {
         server: { policy: 'enabled', state: 'available', observedAt },
@@ -262,17 +262,17 @@ describe('MachinesService supervisor presence', () => {
       await svc.attach(MACHINE, daemon.send, ['recovery-cap'])
       await svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
       await svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
-      expect(svc.detachSupervisor(MACHINE, old)).toBe(false)
-      expect(svc.detachSupervisor(MACHINE, fresh)).toBe(true)
+      expect(await svc.detachSupervisor(MACHINE, old)).toBe(false)
+      expect(await svc.detachSupervisor(MACHINE, fresh)).toBe(true)
       await svc.recordComponent(MACHINE, 'daemon')
-      svc.recordLegacyBuild(MACHINE, build, [], new Date().toISOString())
+      await svc.recordLegacyBuild(MACHINE, build, [], new Date().toISOString())
       await svc.attachSupervisor(MACHINE, fresh, build, ['update.delivery.feed'])
       const status = {
         policy: 'enabled' as const,
         state: 'available' as const,
         observedAt: new Date().toISOString(),
       }
-      svc.recordSupervisorReport(
+      await svc.recordSupervisorReport(
         MACHINE,
         { server: status, agentExecution: status },
         status.observedAt,
@@ -302,7 +302,7 @@ describe('MachinesService supervisor presence', () => {
 
     await svc.attachSupervisor(MACHINE, oldSend, build, ['update.delivery.feed'])
     await svc.attachSupervisor(MACHINE, successorSend, build, ['update.delivery.feed'])
-    expect(svc.detachSupervisor(MACHINE, oldSend)).toBe(false)
+    expect(await svc.detachSupervisor(MACHINE, oldSend)).toBe(false)
     svc.toMachine(MACHINE, grant)
 
     expect(successor.at(-1)).toEqual(grant)
@@ -315,7 +315,7 @@ describe('MachinesService supervisor presence', () => {
       const { svc } = await storedService()
       const send = (_message: MachineSupervisorControlMessage) => {}
       await svc.attachSupervisor(MACHINE, send, build, ['update.delivery.feed'])
-      expect(svc.detachSupervisor(MACHINE, send)).toBe(true)
+      expect(await svc.detachSupervisor(MACHINE, send)).toBe(true)
       expect((await svc.listMachines())[0]?.online).toBe(true)
 
       vi.advanceTimersByTime(30_001)
