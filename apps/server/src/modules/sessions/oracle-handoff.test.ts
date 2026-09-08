@@ -466,7 +466,7 @@ const handoffRecords = async (f: HandoffFixture): Promise<unknown[]> =>
     }))
 
 describe('oracle: handoff success across two machines', () => {
-  it('waits for a reconnected target inventory before placement can refuse or move anything', async () => {
+  it(`${MUST_NOT_CHANGE}: waits for a reconnected target inventory before placement can refuse or move anything`, async () => {
     const f = await handoffFixture({ deferTargetInventory: true })
 
     await expect(

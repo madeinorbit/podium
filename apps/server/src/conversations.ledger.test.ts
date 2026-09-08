@@ -244,14 +244,16 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(value?.name).toBe('My run')
     expect(value?.summary).toBe('sum')
     // …and live on BOTH planes: the delta client got the metadataDelta…
-    const deltaChanges = deltaConversationChanges(delta.inbox.slice(deltaBefore))
-    expect(
-      deltaChanges.some((c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run'),
+    // Capture completion does not await the serving edge's async feed framing.
+    // Observe both clients receiving the committed row, not a timer duration.
+    await expect.poll(() =>
+      deltaConversationChanges(delta.inbox.slice(deltaBefore)).some(
+        (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
+      ),
     ).toBe(true)
     // …and the peer without the retired cap got the same canonical update.
-    const baselineChanges = deltaConversationChanges(legacy.inbox.slice(legacyBefore))
-    expect(
-      baselineChanges.some(
+    await expect.poll(() =>
+      deltaConversationChanges(legacy.inbox.slice(legacyBefore)).some(
         (c) => (c as { value?: ConversationSummaryWire }).value?.name === 'My run',
       ),
     ).toBe(true)

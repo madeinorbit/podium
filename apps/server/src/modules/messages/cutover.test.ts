@@ -444,29 +444,29 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
 describe('the two halves of the ceiling are one object', () => {
   const ceiling = { canSee: async () => true }
 
-  it('refuses to compose a gate whose delivery service carries a DIFFERENT ceiling', () => {
+  it('refuses to compose a gate whose delivery service carries a DIFFERENT ceiling', async () => {
     const other = { canSee: async () => true }
-    expect(() =>
+    await expect(
       mailHarness({ ceiling, authorizeAtApply: mailPolicy({ ceiling: other }).authorizeAtApply }),
-    ).toThrow(/DIFFERENT object/)
+    ).rejects.toThrow(/DIFFERENT object/)
   })
 
-  it('refuses a real ceiling with no apply-time port at all — half a ceiling', () => {
-    expect(() => mailHarness({ ceiling })).toThrow(/carries no apply-time port/)
+  it('refuses a real ceiling with no apply-time port at all — half a ceiling', async () => {
+    await expect(mailHarness({ ceiling })).rejects.toThrow(/carries no apply-time port/)
   })
 
-  it('composes when both come from one mailPolicy() — the instrument can say yes', () => {
+  it('composes when both come from one mailPolicy() — the instrument can say yes', async () => {
     const policy = mailPolicy({ ceiling })
-    expect(() =>
+    await expect(
       mailHarness({
         ceiling: policy.gateOptions.ceiling,
         authorizeAtApply: policy.authorizeAtApply,
       }),
-    ).not.toThrow()
+    ).resolves.toBeDefined()
   })
 
-  it('leaves the single-user default alone — neither half wired is not a misconfiguration', () => {
-    expect(() => mailHarness()).not.toThrow()
+  it('leaves the single-user default alone — neither half wired is not a misconfiguration', async () => {
+    await expect(mailHarness()).resolves.toBeDefined()
   })
 
   it('wires the apply-time port at the REAL composition root', () => {

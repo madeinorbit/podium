@@ -495,7 +495,7 @@ describe('oracle: kill', () => {
     )
   })
 })
-  it('coalesces resurrection while asynchronous worktree preparation is pending', async () => {
+  it(`${MUST_NOT_CHANGE}: coalesces resurrection while asynchronous worktree preparation is pending`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
@@ -696,7 +696,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect((await o.meta(sessionId)).status).toBe('starting')
   })
 
-  it('sendText after process-gone resurrects once and drains concurrent/replayed sends exactly once', async () => {
+  it(`${MUST_NOT_CHANGE}: sendText after process-gone resurrects once and drains concurrent/replayed sends exactly once`, async () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(new Date('2026-08-31T00:00:00.000Z'))
@@ -778,7 +778,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     }
   })
 
-  it('refuses archived and unresumable dead targets before durable acceptance', async () => {
+  it(`${MUST_NOT_CHANGE}: refuses archived and unresumable dead targets before durable acceptance`, async () => {
     const archived = await makeOracle()
     const { sessionId: archivedId } = await archived.call.sessions.create({
       agentKind: 'claude-code',
@@ -826,8 +826,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(await unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
   })
 
-  it.each(['errored', 'idle'] as const)(
-    'does not resurrect an already-live %s target',
+  it.each(['errored', 'idle'] as const)(`${MUST_NOT_CHANGE}: does not resurrect an already-live %s target`,
     async (phase) => {
       const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

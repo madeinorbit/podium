@@ -294,7 +294,7 @@ describe('oracle: sessions.uploadImage', () => {
     )
   })
 
-  it('routes a live runtime session through staged refs and preserves typed refusals', async () => {
+  it(`${MUST_NOT_CHANGE}: routes a live runtime session through staged refs and preserves typed refusals`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
@@ -358,9 +358,7 @@ describe('oracle: sessions.uploadImage', () => {
     expect(o.daemon.some((msg) => msg.type === 'imageUploadRequest')).toBe(false)
   })
 
-  it(
-    MUST_NOT_CHANGE +
-      ": a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message",
+  it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`,
     async () => {
       const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
@@ -669,7 +667,7 @@ describe('oracle: sessions.uploadImage', () => {
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(2)
   })
 
-  it('rejects forged local-file refs from both chat and mail before crossing to the daemon', async () => {
+  it(`${MUST_NOT_CHANGE}: rejects forged local-file refs from both chat and mail before crossing to the daemon`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
