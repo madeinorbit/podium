@@ -16,19 +16,18 @@ const session = (input: Partial<SessionMetaInput> & { sessionId: string }): Sess
 
 function harness(sessions: SessionMeta[], coordinatorSessionId?: string) {
   return {
-    issueMeta: vi.fn(() => ({
+    issueMeta: vi.fn(async () => ({
       id: ISSUE_ID,
       worktreePath: '/r/.worktrees/target',
       ...(coordinatorSessionId ? { coordinatorSessionId: asSessionId(coordinatorSessionId) } : {}),
     })),
-    sessionsForIssue: vi.fn(() => sessions),
-    sendText: vi.fn(),
-    queueText: vi.fn(),
+    sessionsForIssue: vi.fn(async () => sessions),
+    receiptSend: vi.fn(async () => ({ ok: true })),
   }
 }
 
 describe('legacy issue-mail coordinator nudge', () => {
-  it('resolves explicit membership by canonical issue id and sends to the idle coordinator', () => {
+  it('resolves explicit membership by canonical issue id and sends to the idle coordinator', async () => {
     const ports = harness(
       [
         session({
@@ -45,16 +44,17 @@ describe('legacy issue-mail coordinator nudge', () => {
       'coordinator',
     )
 
-    nudgeIssueMail(ports, { issueId: ISSUE_ID, seq: 42 })
+    await nudgeIssueMail(ports, { issueId: ISSUE_ID, seq: 42 })
 
     expect(ports.sessionsForIssue).toHaveBeenCalledWith('/r/.worktrees/target', ISSUE_ID)
-    expect(ports.sendText).toHaveBeenCalledWith(
+    expect(ports.receiptSend).toHaveBeenCalledWith(
+      'now',
       expect.objectContaining({ sessionId: asSessionId('coordinator') }),
     )
-    expect(ports.queueText).not.toHaveBeenCalled()
+    expect(ports.receiptSend).not.toHaveBeenCalledWith('queue', expect.anything())
   })
 
-  it('queues for a busy coordinator and falls back only when the coordinator is unavailable', () => {
+  it('queues for a busy coordinator and falls back only when the coordinator is unavailable', async () => {
     const members = [
       session({
         sessionId: 'worker',
@@ -68,15 +68,31 @@ describe('legacy issue-mail coordinator nudge', () => {
       }),
     ]
     const coordinated = harness(members, 'coordinator')
-    nudgeIssueMail(coordinated, { issueId: ISSUE_ID, seq: 42 })
-    expect(coordinated.queueText).toHaveBeenCalledWith(
+    await nudgeIssueMail(coordinated, { issueId: ISSUE_ID, seq: 42 })
+    expect(coordinated.receiptSend).toHaveBeenCalledWith(
+      'queue',
       expect.objectContaining({ sessionId: asSessionId('coordinator') }),
     )
 
     const dangling = harness(members, 'gone')
-    nudgeIssueMail(dangling, { issueId: ISSUE_ID, seq: 42 })
-    expect(dangling.queueText).toHaveBeenCalledWith(
+    await nudgeIssueMail(dangling, { issueId: ISSUE_ID, seq: 42 })
+    expect(dangling.receiptSend).toHaveBeenCalledWith(
+      'queue',
       expect.objectContaining({ sessionId: asSessionId('worker') }),
     )
   })
+
+  it('reports an asynchronous receipt admission failure to the event caller', async () => {
+    const ports = harness([
+      session({
+        sessionId: 'coordinator',
+        agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
+      }),
+    ], 'coordinator')
+    const failure = new Error('receipt admission failed')
+    ports.receiptSend.mockImplementation(async () => { throw failure })
+
+    await expect(nudgeIssueMail(ports, { issueId: ISSUE_ID, seq: 42 })).rejects.toBe(failure)
+  })
+
 })
