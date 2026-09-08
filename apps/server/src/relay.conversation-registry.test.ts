@@ -31,29 +31,30 @@ describe('SessionRegistry conversation registry', () => {
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', async () => {
     const registry = await makeRegistry()
-    registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m1', () => {})
     for (const conversationId of ['parent-1', 'sub-1']) {
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/owned/' + conversationId,
       })
-      registry.gateway.routeDaemonFrame('m1', {
+      await registry.gateway.routeDaemonFrame('m1', {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: conversationId },
       })
     }
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
+    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
     inbox.length = 0
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],
       diagnostics: [],
@@ -62,6 +63,8 @@ describe('SessionRegistry conversation registry', () => {
     // deterministic seam. Without it the last `conversationsChanged` in the inbox
     // is still the one the ATTACH produced, before the scan committed anything.
     registry.modules.funnel.flushDeltas()
+    await expect.poll(() => inbox.flatMap((m) => m.type === 'feedDelta' ? m.changes : [])
+      .filter((c) => c.entity === 'conversation' && c.op === 'upsert').length).toBe(2)
     const byId = new Map(
       inbox
         .flatMap((message) => (message.type === 'feedDelta' ? message.changes : []))
@@ -78,7 +81,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(sub?.podiumId).not.toBe(parent?.podiumId)
 
     // Re-scan: identities are stable, not re-minted.
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1')],
       diagnostics: [],
@@ -92,25 +95,33 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', async () => {
     const registry = await makeRegistry()
     const daemon: unknown[] = []
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+      daemon.push(m)
+      if (m.type === 'transcriptRead') {
+        void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'transcriptReadResult', requestId: m.requestId, sessionId: m.sessionId,
+          items: [], hasMore: false,
+        })
+      }
+    })
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
       ],
       diagnostics: [],
     })
-    void await registry.modules.rpc.readTranscript(
+    await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
@@ -124,13 +135,13 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', async () => {
     const registry = await makeRegistry()
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
 
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
@@ -140,7 +151,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },
