@@ -179,6 +179,7 @@ describe('resetInstallId', () => {
 
 describe('endpoint precedence', () => {
   it('defaults to the baked-in relay', () => {
+    expect(DEFAULT_TELEMETRY_ENDPOINT).toBe('https://pulse.podium.do/v1/u')
     expect(resolveTelemetryEndpoint({}, {})).toBe(DEFAULT_TELEMETRY_ENDPOINT)
   })
   it('signed-manifest value beats the baked-in default', () => {
