@@ -742,7 +742,7 @@ export class SessionRepository {
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
     const runtimeItems =
-      (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId)).flatMap(
+      (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? []).flatMap(
         (event) => {
           const item = runtimeTranscriptItemFromEvent(event)
           return item ? [item] : []
