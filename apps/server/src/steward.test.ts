@@ -67,10 +67,10 @@ async function harness(
     facts: store.notificationFacts,
     messages: store.messages,
     issues,
-    listSessions: () => sessions,
+    listSessions: async () => sessions,
     sendTextWhenReady,
     notify,
-    getSettings: () => settings,
+    getSettings: async () => settings,
     now,
   }
   return {
@@ -397,14 +397,15 @@ describe('StewardService cursor', () => {
     // Establish ownership at an empty head, then create a genuine post-activation
     // backlog. The first bounded pass must not consume beyond its budget.
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
-    const ids = Array.from({ length: JANITOR_STEWARD_EVENT_LIMIT + 2 }, async (_, index) =>
-      await store.events.appendEvent({
+    const ids: number[] = []
+    for (let index = 0; index < JANITOR_STEWARD_EVENT_LIMIT + 2; index++) {
+      ids.push(await store.events.appendEvent({
         ts: 't',
         kind: 'test.unmatched',
         subject: 'subject-' + index,
         repoPath: '/r',
-      }),
-    )
+      }))
+    }
     const listSpy = vi.spyOn(store.events, 'listEventsSince')
 
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
@@ -792,7 +793,8 @@ describe('StewardService parent-nudge handler', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     // #175: bodies left the wire — assert via counts + the thread read.
     expect((await issues.list('/r')).every((w) => (w.commentCount ?? 0) === 0)).toBe(true)
-    expect((await issues.list('/r')).flatMap((w) => issues.comments(w.id))).toEqual([])
+    const comments = await Promise.all((await issues.list('/r')).map((w) => issues.comments(w.id)))
+    expect(comments.flat()).toEqual([])
   })
 
   it('suppresses the nudge to the session that caused the child close, comment still lands', async () => {
@@ -984,7 +986,7 @@ describe('StewardService gating and resilience', () => {
     const b = await issues.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.addDep(b.id, a.id, 'blocks')
     await issues.close(a.id)
-    const addComment = vi.spyOn(issues.commentsMail, 'addComment').mockImplementation(() => {
+    const addComment = vi.spyOn(issues.commentsMail, 'addComment').mockImplementation(async () => {
       throw new Error('boom')
     })
     const logs = captureLogs()
