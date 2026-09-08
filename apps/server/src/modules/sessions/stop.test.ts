@@ -105,8 +105,8 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   }
 }
 
-function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): Promise<void> {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -114,7 +114,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -138,9 +138,9 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: '/r/.worktrees/issue-1-stop-target',
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
+    await bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
-    reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
     expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
@@ -168,6 +168,23 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(after?.branch).toBe('issue/1-stop-target')
   })
 
+  it('refuses the stop when the durable parking write fails before killing the process', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    await bindLive(reg, sessionId, '/r')
+    const failure = new Error('parking checkpoint write failed')
+    vi.spyOn(reg.sessionStore.observationCheckpoints, 'cancelTerminalCandidate')
+      .mockImplementation(async () => { throw failure })
+
+    await expect(reg.modules.issueSessionLifecycle.stopSession({ sessionId })).rejects.toBe(failure)
+    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
+    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status)
+      .toBe('live')
+  })
+
   it('refuses stop when the working tree is dirty without --force', async () => {
     const { reg, setRepoOp } = await makeRegistry()
     setRepoOp(async (op) => {
@@ -189,7 +206,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: '/r/.worktrees/issue-2-dirty',
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, '/r/.worktrees/issue-2-dirty')
+    await bindLive(reg, sessionId, '/r/.worktrees/issue-2-dirty')
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(false)
@@ -226,7 +243,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: '/r/.worktrees/issue-3-force',
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, '/r/.worktrees/issue-3-force')
+    await bindLive(reg, sessionId, '/r/.worktrees/issue-3-force')
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId, force: true })
     expect(r.ok).toBe(true)
@@ -244,7 +261,7 @@ describe('stopSession [spec:SP-9904]', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    bindLive(reg, sessionId, '/w')
+    await bindLive(reg, sessionId, '/w')
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId, selfStop: true })
     expect(r.ok).toBe(true)
@@ -277,8 +294,8 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })).sessionId
-    bindLive(reg, a, wt)
-    bindLive(reg, b, wt)
+    await bindLive(reg, a, wt)
+    await bindLive(reg, b, wt)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: a })
     expect(r.ok).toBe(true)
@@ -312,8 +329,8 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: wt,
       issueId: b.id,
     })).sessionId
-    bindLive(reg, owner, wt)
-    bindLive(reg, squatter, wt)
+    await bindLive(reg, owner, wt)
+    await bindLive(reg, squatter, wt)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: owner })
     expect(r.ok).toBe(true)
@@ -411,7 +428,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, wt)
+    await bindLive(reg, sessionId, wt)
     const alice = asUserId('user:alice')
     const r = await reg.modules.issueSessionLifecycle.stopSession({
       sessionId,
@@ -440,7 +457,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, wt)
+    await bindLive(reg, sessionId, wt)
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
 
@@ -474,7 +491,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: '/r',
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, '/r')
+    await bindLive(reg, sessionId, '/r')
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
 
     daemon.length = 0
@@ -505,7 +522,12 @@ describe('stopIssue [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, wt)
+    await bindLive(reg, sessionId, wt)
+    // Session creation publishes coordinator assignment as a background event.
+    // Finish that setup write before starting the independent close command.
+    await vi.waitFor(async () => {
+      expect((await reg.modules.issues.getMeta(issue.id))?.coordinatorSessionId).toBe(sessionId)
+    })
 
     await reg.modules.issues.update(issue.id, { stage: 'done' })
 
@@ -513,8 +535,8 @@ describe('stopIssue [spec:SP-9904]', () => {
       expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
         'hibernated',
       )
+      expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
     })
-    expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
     expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/close-target')
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
     expect(repoOps.some((call) => call.op === 'worktreeRemove')).toBe(true)
@@ -534,7 +556,7 @@ describe('stopIssue [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })
-    bindLive(reg, sessionId, wt)
+    await bindLive(reg, sessionId, wt)
 
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(daemon.filter((m) => m.type === 'kill' && m.sessionId === sessionId)).toHaveLength(1)
@@ -564,8 +586,8 @@ describe('stopIssue [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })).sessionId
-    bindLive(reg, a, wt)
-    bindLive(reg, b, wt)
+    await bindLive(reg, a, wt)
+    await bindLive(reg, b, wt)
 
     const r = await reg.modules.issueSessionLifecycle.stopIssue({ issueId: issue.id })
     expect(r.ok).toBe(true)
@@ -599,8 +621,8 @@ describe('stopIssue [spec:SP-9904]', () => {
       cwd: wt,
       issueId: issue.id,
     })).sessionId
-    bindLive(reg, a, wt)
-    bindLive(reg, b, wt)
+    await bindLive(reg, a, wt)
+    await bindLive(reg, b, wt)
 
     // The CLI passes the ref verbatim (resolution is server-side); before the fix,
     // stopIssue compared the raw ref against stored internal ids and stopped 0.
