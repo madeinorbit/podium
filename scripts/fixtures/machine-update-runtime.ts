@@ -367,7 +367,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               context,
             )
           }
-          bridge?.onFleetChanged()
+          await bridge?.onFleetChanged()
           res.end(JSON.stringify({ grant: queues.get(body.id) }))
           queues.delete(body.id)
           return
