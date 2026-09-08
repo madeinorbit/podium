@@ -163,7 +163,9 @@ describe('the event log announces after the commit', () => {
   it('holds the feed announcement until the enclosing span commits', async () => {
     const { store } = await openWiredStore()
     const announced: string[] = []
-    await store.events.onAppend((_id, event) => announced.push(event.kind))
+    await store.events.onAppend((_id, event) => {
+      announced.push(event.kind)
+    })
 
     await store.transact(async () => {
       await store.events.appendEvent({
@@ -180,7 +182,9 @@ describe('the event log announces after the commit', () => {
   it('announces nothing for an append the span rolled back', async () => {
     const { store } = await openWiredStore()
     const announced: string[] = []
-    await store.events.onAppend((_id, event) => announced.push(event.kind))
+    await store.events.onAppend((_id, event) => {
+      announced.push(event.kind)
+    })
 
     await expect(
       store.transact(async () => {
@@ -199,7 +203,9 @@ describe('the event log announces after the commit', () => {
   it('announces immediately outside a span, exactly where it did before', async () => {
     const { store } = await openWiredStore()
     const announced: string[] = []
-    await store.events.onAppend((_id, event) => announced.push(event.kind))
+    await store.events.onAppend((_id, event) => {
+      announced.push(event.kind)
+    })
     await store.events.appendEvent({
       ts: new Date().toISOString(),
       kind: 'session.exited',

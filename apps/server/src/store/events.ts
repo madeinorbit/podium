@@ -118,7 +118,7 @@ export interface EventPrunePlan {
 export type EventAppendListener = (
   id: number,
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
-) => void
+) => void | Promise<void>
 
 export class EventsRepository {
   /** The feed publisher, installed by the composition root once the ledger
@@ -412,7 +412,14 @@ export class EventsRepository {
     const row = await this.db.select().from(podiumEvents).where(eq(podiumEvents.id, id)).get()
     if (!row) throw new Error(`unknown podium event ${id}`)
     const event = rowToEvent(row)
-    this.appendListener(id, {
+    // AWAITED. The installed listener publishes to the metadata feed and is
+    // async; the slot used to be `=> void`, which accepts a promise silently,
+    // so this call returned before the publish and swallowed its rejection.
+    // The append path does not have that hole — it registers through
+    // `afterCommit`, whose scheduler tracks the returned promise and drains it.
+    // This path has no scheduler behind it, so the await is the whole guarantee
+    // the doc comment above already claims [POD-3733].
+    await this.appendListener(id, {
       ts: event.ts,
       kind: event.kind,
       subject: event.subject,

@@ -344,6 +344,61 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     await store.close()
   })
 
+  it('waits for an async listener before announceEvent resolves', async () => {
+    // The real listener is async (it publishes to the metadata feed). The slot
+    // used to be `=> void`, which accepts a promise without complaint, so this
+    // returned before the publish had run. Asserted on the OUTCOME rather than
+    // on a spy: a spy observes its own promise and would pass either way, and a
+    // SYNC double completes correctly even through an unawaited call.
+    const store = await openTestStore(':memory:')
+    let released!: () => void
+    const parked = new Promise<void>((resolve) => {
+      released = resolve
+    })
+    const published: number[] = []
+    await store.events.onAppend(async (id) => {
+      await parked
+      published.push(id)
+    })
+
+    const id = await store.events.appendEvent(
+      { ts: 't', kind: 'issue.created', subject: 'iss_1' },
+      { announce: false },
+    )
+    let resolved = false
+    const announcing = store.events.announceEvent(id).then(() => {
+      resolved = true
+    })
+    // FLUSH PROPERLY. One microtask is not enough to tell the two apart: even
+    // with the await dropped, `announceEvent`'s own promise and the `.then`
+    // above each cost a turn, so a single flush reads as "not resolved" in both
+    // versions and the case passes vacuously.
+    for (let i = 0; i < 50; i += 1) await Promise.resolve()
+    expect(resolved, 'announceEvent must not resolve while the publish is parked').toBe(false)
+    expect(published).toEqual([])
+
+    released()
+    await announcing
+    expect(published, 'the publish ran before announceEvent resolved').toEqual([id])
+    await store.close()
+  })
+
+  it('surfaces an async listener failure instead of swallowing it', async () => {
+    // A dropped promise here loses the rejection entirely: the caller sees a
+    // clean announcement and the feed never got the event.
+    const store = await openTestStore(':memory:')
+    await store.events.onAppend(async () => {
+      await Promise.resolve()
+      throw new Error('publish failed')
+    })
+    const id = await store.events.appendEvent(
+      { ts: 't', kind: 'issue.created', subject: 'iss_1' },
+      { announce: false },
+    )
+    await expect(store.events.announceEvent(id)).rejects.toThrow(/publish failed/)
+    await store.close()
+  })
+
   it('refuses an unknown id — but only once a listener is installed', async () => {
     const store = await openTestStore(':memory:')
     // The listener check comes FIRST, so with nothing wired the unknown id is
