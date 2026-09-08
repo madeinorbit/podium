@@ -127,17 +127,22 @@ function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
   }
 }
 
-async function seedLegacyNamedState(spec: InstanceSpec): Promise<void> {
+async function seedNamedState(spec: InstanceSpec): Promise<void> {
   mkdirSync(spec.stateDir, { recursive: true })
   const path = join(spec.stateDir, 'podium.db')
-  ;await (await openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734'))).close()
+  // Isolation starts from a supported database. Retired sentinel IDs are refused
+  // by store boot; machine-identity.test.ts owns that refusal contract. Keep the
+  // unowned host row so this lane still proves boot assigns its admin owner.
+  const machineId = '00000000-0000-4000-8000-000000000734'
+  writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
+  await (await openTestStore(path, asMachineId(machineId))).close()
   const db = openDatabase(path)
   db.prepare('DELETE FROM machines').run()
   db.prepare(
     `INSERT INTO machines
       (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
-      VALUES ('local', 'legacy-host', 'legacy-host', 'legacy-token', 't', 't', NULL)`,
-  ).run()
+      VALUES (?, 'named-host', 'named-host', 'named-token', 't', 't', NULL)`,
+  ).run(machineId)
   db.prepare(
     `INSERT INTO users (id, display_name, role, created_at, disabled_at)
      VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
@@ -270,7 +275,13 @@ async function waitUntil(
   while (!(await predicate())) {
     if (Date.now() >= deadline) {
       const diagnostics = running
-        .map((instance) => `${instance.id} pid=${instance.child.pid}:\n${instance.output()}`)
+        .map((instance) => {
+          const childLogs = ['server', 'daemon'].map((role) => {
+            const path = join(instance.stateDir, 'logs', `${role}.log`)
+            return `${role} stdout/stderr:\n${existsSync(path) ? readFileSync(path, 'utf8').slice(-16_384) : '(missing)'}`
+          })
+          return `${instance.id} pid=${instance.child.pid}:\n${instance.output()}\n${childLogs.join('\n')}`
+        })
         .join('\n')
       throw new Error(`timed out waiting for ${label}\n${diagnostics}`)
     }
@@ -1622,7 +1633,7 @@ exec "$CANARY_REAL_CLI" "$@"
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
     const compat = startInstance(makeSpec('default'))
     const namedSpec = makeSpec('blue')
-    await seedLegacyNamedState(namedSpec)
+    await seedNamedState(namedSpec)
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
