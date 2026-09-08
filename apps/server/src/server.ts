@@ -1,4 +1,3 @@
-import type { UpdateReality } from './modules/updates/operation'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -122,6 +121,7 @@ import {
   createInstalledCoordinatorUpdate,
 } from './modules/updates/installed-restart'
 import { startLocalUpdateParticipant } from './modules/updates/local-participant'
+import type { UpdateReality } from './modules/updates/operation'
 import type { ChannelFeed } from './modules/updates/release-target'
 import {
   readOrCreateDevArtifactToken,

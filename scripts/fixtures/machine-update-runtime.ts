@@ -226,7 +226,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       concurrency: 3,
       fleetChannel: () => 'dev',
     })
-    if (policy.published) await updates.setTarget('dev', policy.published)
+    if (policy.published) updates.setTarget('dev', policy.published)
     const context = (): UpdateOperationContext => ({
       updates,
       channel: 'dev',
@@ -332,7 +332,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             services: body.services,
           }
           for (const status of body.statuses ?? []) {
-            await updates.onStatus(asMachineId(body.id), status)
+            updates.onStatus(asMachineId(body.id), status)
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
@@ -347,7 +347,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             })
             event('reconnect-decision', { machineId: body.id, verdict })
             if (verdict.converge)
-              await updates.authorizeMachine(asMachineId(body.id), {
+              updates.authorizeMachine(asMachineId(body.id), {
                 initiator: { kind: 'operator-apply' },
                 eligibility: 'fixture persisted exact approval reconnect',
               })
@@ -375,7 +375,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         }
         if (req.url === '/publish') {
           policy.published = body
-          await updates.setTarget('dev', body)
+          updates.setTarget('dev', body)
         } else if (req.url === '/approve') {
           if (policy.published?.version !== body.version)
             throw new Error('target changed before approval')
@@ -384,7 +384,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           for (const machine of body.machines.filter(
             (machine: string) => machine !== 'coordinator',
           ))
-            await updates.authorizeMachine(asMachineId(machine), {
+            updates.authorizeMachine(asMachineId(machine), {
               initiator: { kind: 'operator-apply' },
               eligibility: 'fixture explicit operator approval',
             })

@@ -78,7 +78,9 @@ class Group {
     }
   }
   async coordinatorReplacement(target: UpdateTarget, operationId: string, oldPid: number) {
-    const journal = await this.phase('coordinator', 'current')
+    const journal = await this.phase('coordinator', 'current').catch(async (error) => {
+      throw new Error(`${error}\nOperation: ${JSON.stringify(await this.operation(operationId))}`)
+    })
     const digest = target.artifacts.headless!.platforms['linux-x86_64']!.digest
     expect(journal?.grant.target).toEqual(target)
     expect(journal?.prepared?.digest).toBe(digest)
