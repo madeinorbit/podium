@@ -101,7 +101,7 @@ describe('resolved runtime driver projection', () => {
       cwd: '/proj',
     })
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'codex app-server (codex-app-server)',
@@ -132,7 +132,7 @@ describe('resolved runtime driver projection', () => {
     )
     expect(reattach?.requestedDriverId).toBe('opencode-server')
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'codex app-server (codex-app-server)',
@@ -166,7 +166,7 @@ describe('Claude SDK continuity projection', () => {
     expect(spawns(daemon).at(-1)).toMatchObject({ sessionId, runtimeContract: 'claude-sdk' })
 
     const resume = { kind: 'claude-session', value: 'claude-sdk-resume' } as const
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'Claude Agent SDK (embedded)',
@@ -177,13 +177,13 @@ describe('Claude SDK continuity projection', () => {
       driverId: 'claude-sdk',
       requestedDriverId: 'claude-pty',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume,
       confidence: 'exact',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -233,7 +233,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       agentKind: 'opencode',
       cwd: '/proj',
     })
-    first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
+    await first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
       type: 'driverSelected',
       sessionId,
       driverId: 'opencode-server',
@@ -263,7 +263,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       agentKind: 'opencode',
       cwd: '/proj',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'opencode',
@@ -273,13 +273,13 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       runtimeContract: true,
       driverId: 'opencode-server',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'opencode-session', value: 'legacy-revival' },
       confidence: 'exact',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -306,7 +306,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       cwd: '/proj',
       runtimeContract: 'opencode-server',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'opencode',
@@ -316,13 +316,13 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       runtimeContract: true,
       driverId: 'generic-pty',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'opencode-session', value: 'legacy-resume' },
       confidence: 'exact',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -347,7 +347,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       agentKind: 'codex',
       cwd: '/proj',
     })
-    first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
+    await first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
       type: 'driverSelected',
       sessionId,
       driverId: 'generic-pty',
@@ -381,7 +381,7 @@ describe('SessionStart: live session-id collision guard', () => {
     })
     // Bind so the session is live — the silent-overwrite harm is orphaning a
     // bound PTY/daemon mapping, not merely losing the error path.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -398,14 +398,14 @@ describe('SessionStart: live session-id collision guard', () => {
     )
     expect(spawns(daemon).filter((m) => m.sessionId === sessionId)).toHaveLength(1)
 
-    expect(() =>
+    await expect(
       reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd: '/other',
         sessionId,
         title: 'clobber attempt',
       }),
-    ).toThrow(/refusing to reuse an existing session id/)
+    ).rejects.toThrow(/refusing to reuse an existing session id/)
 
     // First session still the only occupant of that id — not overwritten.
     const after = (await reg.sessionStore.sessions.loadSessions()).filter((r) => r.id === sessionId)
