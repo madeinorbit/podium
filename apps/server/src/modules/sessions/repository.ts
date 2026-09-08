@@ -489,13 +489,24 @@ export class SessionRepository {
       () => this.sessionWriteScope.run(sessionId, fn),
       () => this.sessionWriteScope.run(sessionId, fn),
     )
-    this.sessionWriteTail.set(
-      sessionId,
-      run.then(
-        () => undefined,
-        () => undefined,
-      ),
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
     )
+    this.sessionWriteTail.set(sessionId, settled)
+    // DRAIN THE TAIL WHEN IT IS THIS WRITE'S. Every other per-session map here
+    // is dropped when the session is removed; this one is keyed by every session
+    // ever written and would otherwise hold an entry for the process's life.
+    //
+    // The identity check is what makes draining safe, and it takes THREE writers
+    // to observe: if a sibling has already queued behind us it has overwritten
+    // the entry, so an unconditional delete clears ITS tail and a third writer
+    // finds none and runs concurrently with it. Two-writer cases cannot see
+    // that — `still serializes a third write arriving after the first drains
+    // its tail` is the one that goes red.
+    void settled.then(() => {
+      if (this.sessionWriteTail.get(sessionId) === settled) this.sessionWriteTail.delete(sessionId)
+    })
     return run
   }
 

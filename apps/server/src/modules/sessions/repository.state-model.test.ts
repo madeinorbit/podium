@@ -370,6 +370,8 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
     const upserted: { id: string; title: string | null; name: string | null }[] = []
     let hold = false
     const waiting: Array<() => void> = []
+    let inFlight = 0
+    let maxInFlight = 0
     const repo = new SessionRepository({
       sessions,
       store: {
@@ -380,9 +382,15 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
       },
       ledger: {
         commit: async ({ write }: { write: () => Promise<void> }) => {
-          if (hold) await new Promise<void>((resolve) => waiting.push(resolve))
-          await write()
-          return { changes: [] }
+          inFlight += 1
+          maxInFlight = Math.max(maxInFlight, inFlight)
+          try {
+            if (hold) await new Promise<void>((resolve) => waiting.push(resolve))
+            await write()
+            return { changes: [] }
+          } finally {
+            inFlight -= 1
+          }
         },
         capture: () => [],
       },
@@ -411,6 +419,16 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
         for (const resolve of waiting) resolve()
         waiting.length = 0
       },
+      /** Let exactly one held commit through, keeping the hold on for the rest. */
+      releaseOne() {
+        waiting.shift()?.()
+      },
+      /** Spin microtasks until `n` commits are parked, so ordering is not guessed at. */
+      async untilWaiting(n: number) {
+        for (let i = 0; i < 200 && waiting.length < n; i += 1) await Promise.resolve()
+        expect(waiting.length, `expected ${n} parked commit(s)`).toBe(n)
+      },
+      maxInFlight: () => maxInFlight,
     }
   }
 
@@ -450,5 +468,64 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
 
     expect(f.session.name, "the first draft's field is still on the session").toBe('A name')
     expect(f.session.title, "the second draft's field is still on the session").toBe('B title')
+  })
+
+  it('still serializes a third write arriving after the first drains its tail', async () => {
+    // THE CASE THE TWO-WRITER TESTS CANNOT SEE. Draining the tail when the
+    // first write settles must not clear an entry a SECOND writer has already
+    // queued behind it — a third writer would then find no tail and run
+    // concurrently with the second. Asserted on the lease's own guarantee
+    // rather than on a lost field: the overlay resolves inside the commit, so
+    // whether an overlapping write loses a value depends on interleaving, but
+    // whether it overlaps at all does not.
+    const f = overlapFixture()
+    await f.repo.persist(f.session)
+    f.holdNextCommits()
+
+    const first = f.repo.write(f.session, (draft) => {
+      draft.name = 'A name'
+    })
+    await f.untilWaiting(1)
+    const second = f.repo.write(f.session, (draft) => {
+      draft.title = 'B title'
+    })
+    f.releaseOne()
+    await first
+    await f.untilWaiting(1)
+
+    // Arrives once the first write has settled and drained.
+    const third = f.repo.write(f.session, (draft) => {
+      draft.name = 'C name'
+    })
+    f.releaseCommits()
+    await Promise.all([second, third])
+
+    expect(f.maxInFlight(), 'one session commits one write at a time').toBe(1)
+    expect(f.session.title, "the second write's field survived the third").toBe('B title')
+    expect(f.session.name, 'the third write is the last name writer').toBe('C name')
+  })
+
+  it('drops the write tail once a session has no writes queued behind it', async () => {
+    // The tail is keyed by every session ever written, and unlike the other
+    // per-session maps here nothing removes a session from it. Left alone it
+    // grows for the life of the process. This case pins the drain; the
+    // three-writer case above pins the identity check that makes the drain
+    // safe. Neither covers the other.
+    const f = overlapFixture()
+    const tail = (f.repo as unknown as { sessionWriteTail: Map<string, Promise<void>> })
+      .sessionWriteTail
+
+    const first = f.repo.write(f.session, (draft) => {
+      draft.name = 'A name'
+    })
+    const second = f.repo.write(f.session, (draft) => {
+      draft.title = 'B title'
+    })
+    expect(tail.has(f.session.sessionId), 'a write in flight holds its tail').toBe(true)
+    await Promise.all([first, second])
+    await Promise.resolve()
+
+    expect(tail.has(f.session.sessionId), 'the settled tail is dropped').toBe(false)
+    expect(tail.size, 'no other session leaked an entry').toBe(0)
   })
 })
