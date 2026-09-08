@@ -387,9 +387,8 @@ describe('attachSession', () => {
       newSpinoff: { title: 'Next hop', origin: 'agent' },
       confirmRehome: true,
     })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect((await svc.get(spun.id))?.worktreePath).toBe('/r/.worktrees/o')
+    // Worktree adoption is a detached follow-up; observe its persisted outcome.
+    await expect.poll(async () => (await svc.get(spun.id))?.worktreePath).toBe('/r/.worktrees/o')
     expect((await svc.get(spun.id))?.branch).toBe('issue/1-origin')
     expect((await svc.get(spun.id))?.machineId).toBe(deps.store.hostMachineId)
     expect((await svc.get(origin.id))?.worktreePath).toBeNull()

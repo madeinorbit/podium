@@ -30,7 +30,7 @@ describe('causal session observation gate', () => {
       },
       { instanceId: 'default' },
     )
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -48,8 +48,8 @@ describe('causal session observation gate', () => {
       if (observation) effects.push(observation)
     })
 
-    const observe = (observation: AgentObservation) =>
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    const observe = async (observation: AgentObservation) =>
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentObservation',
         observation,
       })
@@ -75,7 +75,7 @@ describe('causal session observation gate', () => {
       state: runtime('idle', 10),
     }
 
-    observe(base)
+    await observe(base)
     expect(
       (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(10) })
@@ -83,7 +83,7 @@ describe('causal session observation gate', () => {
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     // Frozen history is cursor-equal even when re-described.
-    observe({ ...base, transitionId: 'snapshot-again' })
+    await observe({ ...base, transitionId: 'snapshot-again' })
     expect(effects).toEqual([])
 
     const working: AgentObservation = {
@@ -100,8 +100,8 @@ describe('causal session observation gate', () => {
       transitionId: 'turn-1-open',
       state: runtime('working', 20),
     }
-    observe(working)
-    observe({
+    await observe(working)
+    await observe({
       ...working,
       transitionKind: 'activity',
       sourceEventKind: 'token_count',
@@ -125,7 +125,7 @@ describe('causal session observation gate', () => {
       transitionId: 'turn-1-done',
       state: runtime('idle', 30, { idle: { kind: 'done' } }),
     }
-    observe(done)
+    await observe(done)
     expect(effects.map((event) => event.transitionId)).toEqual(['turn-1-open', 'turn-1-done'])
     expect(
       (await store.events.listEventsSince(0, { kinds: ['session.phase'] })).map(
@@ -137,7 +137,7 @@ describe('causal session observation gate', () => {
     ])
 
     // Once v1 exists, a legacy daemon frame cannot downgrade it.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: runtime('working', 40),
@@ -152,7 +152,7 @@ describe('causal session observation gate', () => {
     expect(
       (await restarted.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
     )
     const reattach = restartedSent.find(
@@ -172,7 +172,7 @@ describe('causal session observation gate', () => {
     restarted.bus.on('session.stateChanged', ({ observation }) => {
       if (observation) restartEffects.push(observation)
     })
-    restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
+    await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: {
         ...done,
@@ -194,14 +194,14 @@ describe('causal session observation gate', () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
     await store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
 
-    expect(() =>
+    await expect(
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentObservation',
         observation: {
@@ -226,7 +226,7 @@ describe('causal session observation gate', () => {
           state: runtime('idle', 10),
         },
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
     expect(sent.at(-1)).toMatchObject({
       type: 'agentObservationAck',
       sessionId,
@@ -248,12 +248,12 @@ describe('causal session observation gate', () => {
     const ntfy = vi.fn()
     const telegram = vi.fn()
     const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -284,13 +284,13 @@ describe('causal session observation gate', () => {
       transitionId: 'thread-1-bootstrap',
       state: runtime('idle', 10),
     }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: bootstrap,
     })
     expect((await store.observationCheckpoints.get(sessionId))?.checkpoint).not.toBeNull()
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -323,7 +323,7 @@ describe('causal session observation gate', () => {
     expect(ntfy).not.toHaveBeenCalled()
     expect(telegram).not.toHaveBeenCalled()
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: {
         ...bootstrap,
@@ -351,7 +351,7 @@ describe('causal session observation gate', () => {
       providerCursor: { segmentId: 'rollout-2', components: { file: 5 } },
       transitionId: 'thread-2-bootstrap',
     }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: thread2Bootstrap,
     })
@@ -363,7 +363,7 @@ describe('causal session observation gate', () => {
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -382,7 +382,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
       checkpoint: { providerSessionId: 'thread-2', lastTransitionId: 'thread-2-bootstrap' },
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -415,7 +415,7 @@ describe('causal session observation gate', () => {
     )
     expect(thread2Conversation).toBeDefined()
     expect(await store.conversations.registry.podiumId(store.hostMachineId, 'thread-3')).toBeUndefined()
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -439,7 +439,7 @@ describe('causal session observation gate', () => {
     await reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
     )
     expect(
@@ -465,9 +465,9 @@ describe('causal session observation gate', () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const owner = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: owner.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-owned' },
@@ -475,7 +475,7 @@ describe('causal session observation gate', () => {
     })
     const fresh = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId: fresh.sessionId,
       provider: 'codex',
@@ -516,7 +516,7 @@ describe('causal session observation gate', () => {
     const explicitlyResumed = reg.modules.sessions.sessions.get(fresh.sessionId)
     expect(explicitlyResumed).toBeDefined()
     explicitlyResumed!.resume = { kind: 'codex-thread', value: 'thread-owned' }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
       sessionId: fresh.sessionId,
       provider: 'codex',
@@ -543,9 +543,9 @@ describe('causal session observation gate', () => {
   it('rolls back resume and lease when conversation linking throws', async () => {
     const store = await openTestStore(':memory:')
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -572,14 +572,14 @@ describe('causal session observation gate', () => {
       transitionId: 'bootstrap-1',
       state: runtime('idle', 1),
     }
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservation',
       observation: bootstrap,
     })
-    vi.spyOn(store.conversations.registry, 'linkSegment').mockImplementation(() => {
+    const linkSegment = vi.spyOn(store.conversations.registry, 'linkSegment').mockImplementation(async () => {
       throw new Error('link failed')
     })
-    expect(() =>
+    await expect(
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentObservationRebind',
         sessionId,
@@ -591,7 +591,9 @@ describe('causal session observation gate', () => {
         resumeKind: 'codex-thread',
         rebindId: 'rollback-rebind',
       }),
-    ).toThrow('link failed')
+    ).resolves.toBeUndefined()
+    // The gateway owns handler rejections; the observable contract is rollback.
+    expect(linkSegment).toHaveBeenCalledTimes(1)
     expect(
       (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-1' })

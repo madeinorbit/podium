@@ -48,7 +48,7 @@ describe('session birth naming (#474)', () => {
   it('first attach names an unnamed session with the issue letter (no DRAFT brand)', async () => {
     const { reg, issue, meta } = await harness()
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
-    reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect((await meta(sessionId))?.displayRef).toBe(`${issue.displayRef}-A`)
   })
 
@@ -58,11 +58,11 @@ describe('session birth naming (#474)', () => {
     const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
-    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
       throw new Error('first attachment append failed')
     })
 
-    expect(() => reg.modules.sessions.setSessionIssueId(sessionId, issue.id)).toThrow(
+    await expect(reg.modules.sessions.setSessionIssueId(sessionId, issue.id)).rejects.toThrow(
       'first attachment append failed',
     )
     append.mockRestore()
@@ -80,7 +80,7 @@ describe('session birth naming (#474)', () => {
     })
     expect(events).toEqual([])
 
-    reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect((await meta(sessionId))?.displayRef).toBe(issue.displayRef + '-A')
   })
 
@@ -89,13 +89,13 @@ describe('session birth naming (#474)', () => {
     const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
-    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
       throw new Error('first draft append failed')
     })
 
-    expect(() =>
+    await expect(
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }),
-    ).toThrow('first draft append failed')
+    ).rejects.toThrow('first draft append failed')
     append.mockRestore()
     expect(await reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
@@ -116,7 +116,7 @@ describe('session birth naming (#474)', () => {
       cwd: '/r/podium',
       issueId: issue.id,
     })
-    reg.modules.sessions.setSessionIssueId(sessionId, other.id)
+    await reg.modules.sessions.setSessionIssueId(sessionId, other.id)
     expect((await meta(sessionId))?.displayRef).toBe(`${issue.displayRef}-A`)
     expect((await meta(sessionId))?.issueId).toBe(other.id)
   })

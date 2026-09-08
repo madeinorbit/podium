@@ -75,17 +75,17 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     expect(daemon1).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
     // A client attached from the start observes everything live.
     const witness = sink()
     const witnessId = attachTestClient(reg.clientGateway, witness.send)
-    reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
     // IGNORED: the server assigns its own monotonic seq starting at 0.
     for (const [i, data] of (['QQ==', 'Qg==', 'Qw=='] as const).entries()) {
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentFrame',
         sessionId,
         seq: i,
@@ -102,7 +102,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
@@ -110,13 +110,13 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
     // fresh PTY bridge does). A single-frame batch remains one server frame; a
     // multi-frame batch is byte-concatenated under one server seq (POD-1002).
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId,
       seq: 0,
       data: 'RA==',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrameBatch',
       sessionId,
       frames: ['RQ=='],
@@ -139,7 +139,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
     const resumerId = attachTestClient(reg.clientGateway, resumer.send)
-    reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
+    await reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
       epoch: 0,
@@ -156,7 +156,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // not dropped by the reconnect.
     const fresh = sink()
     const freshId = attachTestClient(reg.clientGateway, fresh.send)
-    reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
+    await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
       0, 1, 2, 3, 4,
@@ -189,7 +189,7 @@ interface LifecycleObservation {
 
 /** Everything observable after the lifecycle ran on one registry. */
 async function observe(reg: SessionRegistry, issueId: string): Promise<LifecycleObservation> {
-  reg.modules.sessions.flushBroadcasts()
+  await reg.modules.sessions.flushBroadcasts()
   const store = reg.sessionStore
   return {
     wire: normalize(await reg.issues.get(issueId)),
@@ -229,7 +229,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     // all three runs identically.
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
-    reg.clientGateway.routeClientFrame(id, {
+    await reg.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -358,9 +358,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(closed).toHaveLength(1)
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
-      expect(() =>
+      await expect(
         reg.issues.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
-      ).toThrow(/closedReason/)
+      ).rejects.toThrow(/closedReason/)
     } finally {
       await reg.dispose()
     }
@@ -517,7 +517,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     await reg1.issues.close(issue.id, 'done')
     await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({ ok: true }))
     await store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
-    reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
+    await reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
     // Capture the observable truth, then shut down cleanly.
     const before = {

@@ -174,11 +174,11 @@ describe('cloud router', () => {
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.gateway.routeDaemonFrame(
+    await registry.gateway.routeDaemonFrame(
       registry.sessionStore.hostMachineId,
       bind(sessionId, '/workspace/podium', 'claude-code'),
     )
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },

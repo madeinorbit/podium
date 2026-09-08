@@ -49,7 +49,7 @@ async function fleet() {
   // Held so a test can drop exactly this socket: `detach` ignores a send that is
   // not the registered one (a superseded socket must not evict a fresh one).
   const laptopSocket = (): void => {}
-  registry.gateway.attachDaemon(laptop, laptopSocket)
+  await registry.gateway.attachDaemon(laptop, laptopSocket)
   registry.modules.machines.invalidateMachineCache()
   const repos = new RepoRegistry(registry, store)
   const superagent = await SuperagentService.create(registry.modules, repos, store)
@@ -90,13 +90,13 @@ describe('the component fact', () => {
 
   it('is additive: a coordinator that also runs a daemon keeps both', async () => {
     const { registry, coordinator } = await fleet()
-    registry.gateway.attachDaemon(coordinator, () => {})
+    await registry.gateway.attachDaemon(coordinator, () => {})
     registry.modules.machines.invalidateMachineCache()
     const machine = (await registry.modules.machines.listMachines()).find((m) => m.id === coordinator)
     expect(machine?.components).toEqual(['server', 'daemon'])
     // And it is then perfectly able to host a repo — the fact is about the box,
     // not about being the coordinator.
-    expect(() => registry.modules.machines.requireRepoHostStructure(coordinator)).not.toThrow()
+    await expect(registry.modules.machines.requireRepoHostStructure(coordinator)).resolves.toBeUndefined()
   })
 })
 
@@ -148,14 +148,14 @@ describe('issue homing refuses a machine that can never hold the worktree', () =
   it('issues.create refuses to home an issue on the coordinator', async () => {
     const { registry, coordinator, repos } = await fleet()
     await repos.add('/home/mgw/src/thing', asMachineId('laptop'))
-    expect(() =>
+    await expect(
       registry.modules.issues.create({
         title: 'homed wrongly',
         repoPath: '/home/mgw/src/thing',
         machineId: coordinator,
         startNow: false,
       }),
-    ).toThrow(/runs no Podium daemon/)
+    ).rejects.toThrow(/runs no Podium daemon/)
   })
 })
 

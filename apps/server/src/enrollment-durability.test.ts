@@ -559,7 +559,9 @@ describe('D19.4 regression sequences', () => {
       clients: () => [],
       machinesForPrincipal: async () => [],
     })
-    // Constructor ran reconcileOwnersFromLedger — row now shows NEW owner.
+    // Boot explicitly awaits reconciliation now that store writes are async.
+    await svc.reconcileOwnersFromLedger()
+    // The repaired row must show the ledger owner before authorization reads it.
     expect((await restarted.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
     const ownership = await ownershipSnapshotFromMachines(svc)
     expect(

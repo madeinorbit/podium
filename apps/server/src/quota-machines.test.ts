@@ -51,8 +51,8 @@ async function regWithTwoDaemons() {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
-  reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
-  reg.gateway.attachDaemon('m2', (msg) => m2Out.push(msg))
+  await reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
+  await reg.gateway.attachDaemon('m2', (msg) => m2Out.push(msg))
   return { reg, store, m1Out, m2Out }
 }
 
@@ -66,14 +66,18 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   it('fans out to every online daemon, tagging each reply with machineId + machineName', async () => {
     const { reg, m1Out, m2Out } = await regWithTwoDaemons()
     const p = reg.modules.rpc.agentQuotaAll()
+    await vi.waitFor(() => {
+      reqId(m1Out, 'agentQuotaRequest')
+      reqId(m2Out, 'agentQuotaRequest')
+    })
 
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(m1Out, 'agentQuotaRequest'),
       hostname: 'podium-host',
       agents: [agent({ account: { email: 'lud@example.com', plan: 'max' } })],
     } as DaemonMessage)
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'agentQuotaResult',
       requestId: reqId(m2Out, 'agentQuotaRequest'),
       hostname: 'vmi',
@@ -120,10 +124,11 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []
-    reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
+    await reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
     const p = reg.modules.rpc.agentQuotaAll()
-    reg.gateway.routeDaemonFrame('m1', {
+    await vi.waitFor(() => reqId(out, 'agentQuotaRequest'))
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(out, 'agentQuotaRequest'),
       hostname: 'solo',
