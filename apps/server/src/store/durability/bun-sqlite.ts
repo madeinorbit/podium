@@ -6,6 +6,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import {
+  SqliteCandidateError,
+  validateSqliteCandidate as validateSqliteCandidateFile,
+} from '@podium/runtime/sqlite-candidate'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { backupDatabase } from '../../migrations/backup'
 import { latestAppliedMigration } from '../../migrations/index'
@@ -169,62 +173,21 @@ function readLiveFeedIdentity(database: SqlDatabase): FeedIdentity {
 }
 
 /**
- * The database half of daemon candidate-file validation, moved here so both
- * the live store and (at E.5) the daemon go through the port. Enrollment
- * ledger checks stay with the daemon: they are not a database file.
+ * The database half of daemon candidate-file validation. Implementation lives
+ * in `@podium/runtime/sqlite-candidate` so the daemon can call the same
+ * function without an app→app import. This wrapper raises {@link DurabilityError}
+ * so the port's callers keep one error type. Enrollment-ledger checks stay in
+ * the daemon: they are not a database file.
  */
 export function validateSqliteCandidate(
   request: CandidateValidationRequest,
 ): CandidateValidationProof {
-  let db: SqlDatabase | undefined
   try {
-    db = openDatabase(request.databasePath, { readOnly: true })
-    const integrity = db.prepare('PRAGMA integrity_check').get() as
-      | { integrity_check?: string }
-      | undefined
-    if (integrity?.integrity_check !== 'ok') {
-      throw new DurabilityError('candidate-invalid', 'candidate database failed integrity_check')
-    }
-    const target = db.prepare('SELECT id FROM machines WHERE id = ?').get(request.targetMachineId)
-    if (!target) {
-      throw new DurabilityError(
-        'identity-mismatch',
-        'target machine is absent from the candidate database',
-      )
-    }
-    const feed = db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get() as
-      | { feed_id?: string; epoch?: string }
-      | undefined
-    if (!feed?.feed_id || !feed.epoch) {
-      throw new DurabilityError('candidate-invalid', 'candidate database has no feed identity')
-    }
-    const schema = db
-      .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
-      .get() as { name?: string } | undefined
-    if (!schema?.name) {
-      throw new DurabilityError('candidate-invalid', 'candidate database has no schema ledger')
-    }
-    if (feed.feed_id !== request.expectedFeedId || feed.epoch !== request.expectedFeedEpoch) {
-      throw new DurabilityError(
-        'identity-mismatch',
-        'candidate feed identity does not match transfer manifest',
-      )
-    }
-    if (schema.name !== request.expectedSchemaVersion) {
-      throw new DurabilityError(
-        'candidate-invalid',
-        'candidate schema does not match transfer manifest',
-      )
-    }
-    return {
-      feedId: feed.feed_id,
-      feedEpoch: feed.epoch,
-      schemaVersion: schema.name,
-    }
+    return validateSqliteCandidateFile(request)
   } catch (error) {
-    if (error instanceof DurabilityError) throw error
-    throw new DurabilityError('candidate-invalid', 'candidate database schema is not supported')
-  } finally {
-    db?.close()
+    if (error instanceof SqliteCandidateError) {
+      throw new DurabilityError(error.code, error.message)
+    }
+    throw error
   }
 }

@@ -23,6 +23,7 @@ import {
   resolveAgentRelayPort,
   resolveAllowedOrigins,
   resolveAppUrl,
+  candidateValidationCapability,
   resolveDatabaseBackend,
   resolveDevArtifactOrigin,
   resolveFeatureOverrides,
@@ -278,6 +279,13 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(() =>
       resolveDatabaseBackend({}, { PODIUM_DATABASE_URL: 'libsql://missing-token.example' }),
     ).toThrow(/AUTH_TOKEN/)
+    expect(candidateValidationCapability({}, {})).toBe('file')
+    expect(
+      candidateValidationCapability(
+        {},
+        { PODIUM_DATABASE_URL: 'libsql://hosted.example', PODIUM_DATABASE_AUTH_TOKEN: 't' },
+      ),
+    ).toBe('not-applicable')
   })
 
   it('PodiumConfig stores database credentials and LAYERED_KEYS does not name them', () => {

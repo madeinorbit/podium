@@ -1127,6 +1127,20 @@ export function resolveDatabaseBackend(
 }
 
 /**
+ * Callers branch on THIS, never on a driver or backend name [POD-3270 / POD-3272].
+ * File transfer of podium.db is a bun:sqlite capability; Turso moves by
+ * changing the connection string.
+ */
+export type CandidateValidationCapability = 'file' | 'not-applicable'
+
+export function candidateValidationCapability(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): CandidateValidationCapability {
+  return resolveDatabaseBackend(config, env).kind === 'sqlite' ? 'file' : 'not-applicable'
+}
+
+/**
  * Device-reachable base URL: PODIUM_PUBLIC_URL → config.publicUrl → undefined.
  * The env layer is normalized to a bare origin and must be https unless the host
  * is loopback; the file layer is unchanged — see {@link parseEnvPublicUrl}.

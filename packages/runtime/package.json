@@ -10,6 +10,7 @@
       "import": "./src/index.ts"
     },
     "./sqlite": "./src/sqlite/index.ts",
+    "./sqlite-candidate": "./src/sqlite-candidate.ts",
     "./config": "./src/config.ts",
     "./instance": "./src/instance.ts",
     "./abduco-socket": "./src/abduco-socket.ts",
