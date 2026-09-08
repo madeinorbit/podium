@@ -130,12 +130,12 @@ describe('the blob write may not carry a secret', () => {
       }),
     ).rejects.toThrow(/may not write server-owned secrets \(apiKeys\.openai\)/)
     // The material is not in the message, and it is not in the store.
-    expect(() =>
+    await expect(
       service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
-    ).not.toThrow(/sk-smuggled/)
+    ).rejects.not.toThrow(/sk-smuggled/)
     expect(await secrets.get('apiKeys.openai')).toBeUndefined()
   })
 
@@ -152,9 +152,9 @@ describe('the blob write may not carry a secret', () => {
     // admin-grade, never queued.
     await service.setSecret('apiKeys.anthropic', 'sk-configured')
     const current = await service.getSettingsFor(USER)
-    expect(() =>
+    await expect(
       service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
-    ).not.toThrow()
+    ).resolves.toBeDefined()
     expect(await secrets.get('apiKeys.anthropic')).toBe('sk-configured')
   })
 
@@ -165,13 +165,13 @@ describe('the blob write may not carry a secret', () => {
     // to prevent, now expressed against the keyed store.
     await service.setSecret('apiKeys.openai', 'sk-served-earlier')
     const current = await service.getSettingsFor(USER)
-    expect(() =>
+    await expect(
       service.setSettingsFor(USER, {
         ...current,
         apiKeys: { ...current.apiKeys, openai: 'sk-served-earlier' },
         sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
       }),
-    ).not.toThrow()
+    ).resolves.toBeDefined()
     expect((await service.getSettingsFor(USER)).sidebar.repoSort).toBe('alphabetical')
     expect(await secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
   })

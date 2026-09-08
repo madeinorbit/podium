@@ -32,7 +32,7 @@ function fixture(opts?: {
     },
   })
   const toMachine = vi.fn()
-  const createSession = vi.fn(() => ({
+  const createSession = vi.fn(async () => ({
     sessionId: SESSION,
     agentId: SESSION,
     harness: 'shell',
@@ -44,7 +44,7 @@ function fixture(opts?: {
   }))
   const service = new NativeLoginService({
     bus,
-    machines: { listMachines: () => [machine()], toMachine } as never,
+    machines: { listMachines: async () => [machine()], toMachine } as never,
     sessions: { createSession } as never,
     // SETUP ONLY (POD-3257 / spec rule 18): `authorize` became `authorizerFor`,
     // which resolves the owner once and returns the per-machine check.
@@ -61,7 +61,7 @@ function fixture(opts?: {
 }
 
 describe('NativeLoginService', () => {
-  it('holds one grant snapshot for a login pass and re-reads on the next pass', () => {
+  it('holds one grant snapshot for a login pass and re-reads on the next pass', async () => {
     let granted = true
     const grantSnapshot = readScopeSlot(() => granted)
     const f = fixture({
@@ -72,19 +72,19 @@ describe('NativeLoginService', () => {
       },
     })
 
-    expect(() =>
+    await expect(
       f.service.start({
         harness: 'codex',
         ownerUserId: OWNER,
       }),
-    ).not.toThrow()
-    expect(() =>
+    ).resolves.toMatchObject({ sessionId: SESSION, status: 'running' })
+    await expect(
       f.service.start({
         harness: 'claude-code',
         machineId: MACHINE,
         ownerUserId: OWNER,
       }),
-    ).toThrow('fresh grant snapshot taken mid-pass')
+    ).rejects.toThrow('fresh grant snapshot taken mid-pass')
     expect(f.createSession).toHaveBeenCalledTimes(1)
   })
 

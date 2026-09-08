@@ -955,9 +955,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
      *  the only way to produce the quarantine state (D19.4b) honestly. */
     known: Set<string>
     /** Rebuild the service over the SAME ledger directory and the same store.
-     *  The constructor runs `reconcileOwnersFromLedger`, so this is the boot
+     *  Boot explicitly awaits `reconcileOwnersFromLedger`, so this is the boot
      *  repair path, and it is how a test can ask what the LEDGER alone says. */
-    reboot: () => MachinesService
+    reboot: () => Promise<MachinesService>
   }> {
     const dir = mkdtempSync(join(tmpdir(), 'podium-adopt-'))
     const store = await openTestStore(':memory:')
@@ -982,7 +982,14 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       ownerUserId: opts.rowOwner ?? null,
     })
     await store.machines.setMachineOwner(MACHINE, opts.rowOwner ?? null)
-    return { svc, store, dir, known, reboot: build }
+    return {
+      svc, store, dir, known,
+      reboot: async () => {
+        const rebooted = build()
+        await rebooted.reconcileOwnersFromLedger()
+        return rebooted
+      },
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1031,7 +1038,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // exactly as production reaches it: `userExists` stops resolving a name
       // the ledger still records, and boot reconcile projects null.
       known.delete(ALICE)
-      const rebooted = reboot()
+      const rebooted = await reboot()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
       // The LEDGER still says Alice — it is append-only and never rewritten.
       // What changed is that Alice no longer resolves, which is why this reads
@@ -1141,7 +1148,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // the same `reconcileOwnersFromLedger` sequence that recovers a crash
       // between the append and the row write, and it is what makes the append —
       // not the row — the moment the adoption became real.
-      const rebooted = reboot()
+      const rebooted = await reboot()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
       expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
     } finally {
@@ -1154,7 +1161,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       await svc.transferOwnership(MACHINE, asUserId(ALICE))
       known.delete(ALICE)
-      const quarantined = reboot()
+      const quarantined = await reboot()
       await quarantined.adoptMachine(MACHINE, asUserId(BOB))
 
       // Alice's account comes back — a half-restored directory finishing its
@@ -1163,7 +1170,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // append rather than overwritten it, or Bob's ownership would evaporate
       // the moment Alice resolves again.
       known.add(ALICE)
-      expect(await reboot().effectiveOwner(MACHINE)).toBe(BOB)
+      expect(await (await reboot()).effectiveOwner(MACHINE)).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
