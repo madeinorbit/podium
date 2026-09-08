@@ -85,8 +85,16 @@ const issuePort = {
 }
 const compatibilityPolicy = new CompatibilityShippingPolicyResolver(() => 'main')
 const recoveryPolicy = {
-  resolve: (issue: IssueWire) => ({
-    ...compatibilityPolicy.resolve(issue),
+  // ASYNC, AND THE SPREAD IS AWAITED. compatibilityPolicy.resolve returns
+  // Promise<ResolvedShippingPolicy>; spreading the promise copies none of its
+  // fields, so this override silently kept only the two literals below and lost
+  // targetBranch, id, evidenceOptional and the rest. Downstream that produced
+  // `git rev-parse refs/heads/undefined`, which fails BEFORE the point the
+  // restart-recovery test measures -- so the test could not prove recovery.
+  // TypeScript does not object because a spread of a Promise structurally
+  // preserves its methods in the type, even though nothing is copied at runtime.
+  resolve: async (issue: IssueWire) => ({
+    ...(await compatibilityPolicy.resolve(issue)),
     validationProfileId: 'recovery-proof',
     validationProfile: {
       id: 'recovery-proof',
@@ -190,7 +198,7 @@ const staleFacts = {
   expectedTargetSha: order.approvedBaseSha,
   destination: order.destination,
   policyId: order.policyId,
-  validationProfile: recoveryPolicy.resolve(issue).validationProfile,
+  validationProfile: (await recoveryPolicy.resolve(issue)).validationProfile,
 }
 const staleGeneration = await rpc.shippingJob(
   {

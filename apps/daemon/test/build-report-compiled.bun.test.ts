@@ -82,9 +82,11 @@ describe('compiled installed daemon build report', () => {
       })
 
       const started = Date.now()
-      let installed = server.registry.modules.machines
-        .listMachines()
-        .find((machine) => machine.installKind === 'installed')
+      // AWAITED: listMachines returns Promise<MachineWire[]>, so `.find` on it
+      // throws TypeError before the polling loop below ever runs.
+      let installed = (await server.registry.modules.machines.listMachines()).find(
+        (machine) => machine.installKind === 'installed',
+      )
       while (!installed || !stdout.includes('DAEMON_READY')) {
         if (child.exitCode !== null || child.signalCode !== null) {
           throw new Error(`compiled daemon exited early\nstdout:\n${stdout}\nstderr:\n${stderr}`)
@@ -95,9 +97,9 @@ describe('compiled installed daemon build report', () => {
           )
         }
         await new Promise((resolve) => setTimeout(resolve, 25))
-        installed = server.registry.modules.machines
-          .listMachines()
-          .find((machine) => machine.installKind === 'installed')
+        installed = (await server.registry.modules.machines.listMachines()).find(
+          (machine) => machine.installKind === 'installed',
+        )
       }
 
       expect(stdout).toContain('DAEMON_READY')
