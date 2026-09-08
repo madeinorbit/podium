@@ -18,7 +18,7 @@
  *     silently never fires.
  */
 
-import type { Client, InValue, ResultSet, Transaction } from '@libsql/client/web'
+import type { Client, InValue, ResultSet, Transaction } from '@podium/runtime/libsql'
 import { attachLaneIntentAudit } from './lane-intent-audit'
 import type {
   BatchRouter,

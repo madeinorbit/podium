@@ -26,7 +26,11 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
-import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../packages/janitor/src/janitor'
+import {
+  IssueAutoArchiveReader,
+  janitorSqlFromSqlite,
+  SessionAutoArchiveReader,
+} from '../packages/janitor/src/janitor'
 
 const OTHER_USER = asUserId('user:other')
 const READ_OLD = '2026-07-01T00:00:00.000Z'
@@ -126,6 +130,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   let dbPath: string
   let store: SessionStore
   let db: SqlDatabase
+  let sql: ReturnType<typeof janitorSqlFromSqlite>
   let priorStateDir: string | undefined
 
   beforeEach(async () => {
@@ -135,6 +140,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     process.env.PODIUM_STATE_DIR = dir
     store = await openTestStore(dbPath)
     db = openDatabase(dbPath, { readOnly: true })
+    sql = janitorSqlFromSqlite(db)
   })
 
   afterEach(async () => {
@@ -151,7 +157,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       readAt: READ_OLD,
     })
 
-    const candidates = await new IssueAutoArchiveReader(db).read({
+    const candidates = await new IssueAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -175,7 +181,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     await store.issues.upsertIssue(issueRow('iss_theirs'))
     await store.issues.setIssueUserState(OTHER_USER, asIssueId('iss_theirs'), { readAt: READ_OLD })
 
-    const candidates = await new IssueAutoArchiveReader(db).read({
+    const candidates = await new IssueAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -186,7 +192,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     expect(candidates).toEqual([])
     // ...and the SAME fixture is a candidate when the reader IS that user, so
     // the empty result above is scoping, not an accidentally-empty query.
-    const theirs = await new IssueAutoArchiveReader(db, OTHER_USER).read({
+    const theirs = await new IssueAutoArchiveReader(sql, OTHER_USER).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -204,7 +210,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       readAt: READ_RECENT,
     })
 
-    const candidates = await new IssueAutoArchiveReader(db).read({
+    const candidates = await new IssueAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -222,7 +228,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId(id), { readAt: READ_OLD })
     }
 
-    const candidates = await new IssueAutoArchiveReader(db).read({
+    const candidates = await new IssueAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -242,7 +248,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId(id), { readAt: READ_OLD })
     }
 
-    const candidates = await new IssueAutoArchiveReader(db).read({
+    const candidates = await new IssueAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -258,7 +264,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     await store.sessions.markSessionRead(FIRST_ADMIN_USER_ID, asSessionId('ses_mine'), READ_OLD)
     await store.sessions.markSessionRead(OTHER_USER, asSessionId('ses_theirs'), READ_OLD)
 
-    const candidates = await new SessionAutoArchiveReader(db).read({
+    const candidates = await new SessionAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
@@ -273,7 +279,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('does NOT propose a session the viewer has never opened', async () => {
     await seedSession(store, 'ses_unread')
 
-    const candidates = await new SessionAutoArchiveReader(db).read({
+    const candidates = await new SessionAutoArchiveReader(sql).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })

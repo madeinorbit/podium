@@ -16,7 +16,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { Client } from '@libsql/client/web'
+import type { Client } from '@podium/runtime/libsql'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { type DrizzleMigration, outOfOrderPending } from './index'

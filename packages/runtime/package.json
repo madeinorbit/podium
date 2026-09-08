@@ -73,6 +73,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@libsql/core": "^0.18.0",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
