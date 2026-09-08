@@ -80,9 +80,7 @@ export interface SessionTeardownPorts {
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
   /** Snapshot tail for auto-archive parent-issue check. */
-  snapshotTail():
-    | { issues: { id: string; parentId?: string | null }[] }
-    | Promise<{ issues: { id: string; parentId?: string | null }[] }>
+  snapshotTail(): Promise<{ issues: { id: string; parentId?: string | null }[] }>
 }
 
 export class SessionTeardown {

@@ -21,5 +21,5 @@ export interface SessionIssueWorkflowPort {
   recordSessionGitActivity?(
     sessionId: SessionId,
     input: { commits?: string[]; touched?: string[] },
-  ): void | Promise<void>
+  ): Promise<void>
 }

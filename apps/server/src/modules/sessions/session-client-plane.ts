@@ -63,13 +63,13 @@ export class SessionClientPlane {
   async reattachMessageFor(session: Session, machineId: MachineId): Promise<ControlMessage> {
     const observationLease = await this.ports.terminalProof.fence(session)
     const transcriptHint = await this.ports.rpc.transcriptPathHint(
-        { kind: 'system', id: 'session-attach' },
-        {
-          id: session.sessionId,
-          machineId: session.machineId,
-          ...(session.resume ? { resume: session.resume } : {}),
-        },
-      )
+      { kind: 'system', id: 'session-attach' },
+      {
+        id: session.sessionId,
+        machineId: session.machineId,
+        ...(session.resume ? { resume: session.resume } : {}),
+      },
+    )
 
     const recoveryMachineAccess =
       machineUseDecision(

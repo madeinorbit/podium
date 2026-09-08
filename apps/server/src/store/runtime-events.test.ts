@@ -588,9 +588,9 @@ describe('durable runtime observation gate', () => {
     expect(restartedBoard).toEqual([])
 
     const fineSeen: string[] = []
-    const stopFine = restarted.modules.sessions.runtimeGateway.onEvent((_id, event) =>
-      fineSeen.push(event.t),
-    )
+    const stopFine = restarted.modules.sessions.runtimeGateway.onEvent(async (_id, event) => {
+      fineSeen.push(event.t)
+    })
     const runtimeFineEventCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeFineEvent',
       sessionId,
@@ -983,7 +983,7 @@ describe('durable runtime observation gate', () => {
       session: () => undefined,
       persist: async () => {},
       write: async () => {},
-      board: () => {},
+      board: async () => {},
       now: () => 0,
     })
 

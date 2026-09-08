@@ -90,7 +90,7 @@ export interface SessionRepositoryPorts {
   broadcastSessions(): void
   flushBroadcasts(): Promise<void>
   runScheduledBroadcast(): Promise<void>
-  listSessions(): SessionMeta[]
+  listSessions(): Promise<SessionMeta[]>
   now(): number
   appliedMutationMaxAgeMs: number
 }
@@ -217,7 +217,7 @@ export class SessionRepository {
   private readonly toMachine = (machineId: MachineId, message: ControlMessage): void =>
     this.ports.toMachine(machineId, message)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
-  private readonly listSessions = (): SessionMeta[] => this.ports.listSessions()
+  private readonly listSessions = (): Promise<SessionMeta[]> => this.ports.listSessions()
   private readonly now = (): number => this.ports.now()
 
   hasPendingVolatile(): boolean {

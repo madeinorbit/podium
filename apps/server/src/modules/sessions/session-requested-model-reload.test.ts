@@ -87,7 +87,7 @@ const hydrator = (): SessionRepository =>
     runScheduledBroadcast: vi.fn(),
     broadcastSessions: vi.fn(),
     flushBroadcasts: vi.fn(),
-    listSessions: vi.fn(() => []),
+    listSessions: vi.fn(async () => []),
     toPtyInput: vi.fn(),
     toMachine: vi.fn(),
   } as never)

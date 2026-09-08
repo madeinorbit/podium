@@ -2138,11 +2138,11 @@ export class SessionRegistry {
     )
     sessionInstructions.register({
       source: 'podium:issues',
-      prepare: () => ({ content: ISSUE_SYSTEM_POINTER }),
+      prepare: async () => ({ content: ISSUE_SYSTEM_POINTER }),
     })
     sessionInstructions.register({
       source: 'podium:specs',
-      prepare: () => (featureEnabled('specs') ? { content: SPEC_SYSTEM_POINTER } : null),
+      prepare: async () => (featureEnabled('specs') ? { content: SPEC_SYSTEM_POINTER } : null),
     })
     sessionInstructions.register({
       source: 'podium:workflow',
