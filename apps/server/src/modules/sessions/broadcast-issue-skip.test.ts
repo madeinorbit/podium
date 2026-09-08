@@ -1,6 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachTestClient } from '../../test-support/client-transport'
 
@@ -20,23 +20,24 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
 
   async function setup() {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     await reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/w',
     })).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    reg.modules.sessions.flushBroadcasts()
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
-    reg.clientGateway.routeClientFrame(clientId, {
+    await reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    reg.modules.sessions.flushBroadcasts()
+    await reg.modules.sessions.flushBroadcasts()
+    await vi.waitFor(() => expect(inbox.some((m) => m.type === 'feedBootstrap')).toBe(true))
     // Clear the bootstrap traffic; from here on we watch only what our churn emits.
     inbox.length = 0
     return { reg, s1, clientId, inbox }
@@ -47,9 +48,9 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
 
     // A full session switch: attach the new session, detach the old — only
     // clientCount/controllerId move, so no issue payload can change.
-    reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: s1 })
-    reg.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId: s1 })
-    reg.modules.sessions.flushBroadcasts()
+    await reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: s1 })
+    await reg.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId: s1 })
+    await reg.modules.sessions.flushBroadcasts()
 
     // WHAT POD-1203 CHANGED, and it is the stronger half of POD-722's claim.
     // Attach-then-detach is an A→B→A on clientCount/controllerId: the volatile
@@ -64,13 +65,13 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // The paired half: this client is not simply deaf. A REAL change reaches it
     // through the same sink — without this, the assertions above are equally
     // satisfied by a connection that was never served at all.
-    reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
-    reg.modules.sessions.flushBroadcasts()
-    expect(
+    await reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
+    await reg.modules.sessions.flushBroadcasts()
+    await vi.waitFor(() => expect(
       inbox.some(
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
       ),
-    ).toBe(true)
+    ).toBe(true))
     await reg.dispose()
   })
 
@@ -93,14 +94,14 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // live state a user sees comes from the `session` entity, which DID update.
     const { reg, s1, inbox } = await setup()
 
-    reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
-    reg.modules.sessions.flushBroadcasts()
+    await reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
+    await reg.modules.sessions.flushBroadcasts()
 
-    expect(
+    await vi.waitFor(() => expect(
       inbox.some(
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'session'),
       ),
-    ).toBe(true)
+    ).toBe(true))
     expect(inbox.some((m) => m.type === 'issuesChanged')).toBe(false)
 
     // THE PAIRED HALF, without which the line above is satisfied by an issue
@@ -110,12 +111,12 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     const issue = (await reg.issues.list('/repo'))[0]
     expect(issue).toBeDefined()
     await reg.issues.update(issue!.id, { title: 'renamed' })
-    reg.modules.sessions.flushBroadcasts()
-    expect(
+    await reg.modules.sessions.flushBroadcasts()
+    await vi.waitFor(() => expect(
       inbox.some(
         (m) => m.type === 'feedDelta' && m.changes.some((change) => change.entity === 'issue'),
       ),
-    ).toBe(true)
+    ).toBe(true))
     await reg.dispose()
   })
 })
