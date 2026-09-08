@@ -127,27 +127,29 @@ export async function buildSuperagentTools(
       },
       run: async () =>
         JSON.stringify(
-          (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
-            // Reverse of issue_show's session list (issue #72): session cwd →
-            // bound issue, via the same worktree-containment rule as authz scope.
-            const issueId = issues.issueForCwd(s.cwd)
-            const issue = issueId ? await issues.getMeta(issueId) : null
-            return {
-              sessionId: s.sessionId,
-              name: s.name ?? s.title,
-              kind: s.agentKind,
-              cwd: s.cwd,
-              status: s.status,
-              phase: s.agentState?.phase ?? 'unknown',
-              archived: s.archived,
-              lastActiveAt: s.lastActiveAt,
-              // Provenance + snooze (issue #62): who created it, and whether it's
-              // parked out of the attention flow (null = until next message).
-              spawnedBy: s.spawnedBy,
-              snoozedUntil: s.snoozedUntil,
-              ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
-            }
-          }),
+          await Promise.all(
+            (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
+              // Reverse of issue_show's session list (issue #72): session cwd →
+              // bound issue, via the same worktree-containment rule as authz scope.
+              const issueId = issues.issueForCwd(s.cwd)
+              const issue = issueId ? await issues.getMeta(issueId) : null
+              return {
+                sessionId: s.sessionId,
+                name: s.name ?? s.title,
+                kind: s.agentKind,
+                cwd: s.cwd,
+                status: s.status,
+                phase: s.agentState?.phase ?? 'unknown',
+                archived: s.archived,
+                lastActiveAt: s.lastActiveAt,
+                // Provenance + snooze (issue #62): who created it, and whether it's
+                // parked out of the attention flow (null = until next message).
+                spawnedBy: s.spawnedBy,
+                snoozedUntil: s.snoozedUntil,
+                ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
+              }
+            }),
+          ),
         ),
     },
     {
@@ -774,12 +776,14 @@ export async function buildSuperagentTools(
           kinds && kinds.length > 0 ? raw.filter((r) => kinds.includes(r.kind)) : raw
         ).slice(0, limit)
         if (results.length === 0) return '(no results)'
-        const lines = results.map(async (r) => {
-          // Issues read by display seq (what users and issue_* tools speak).
-          const seq = r.kind === 'issue' ? (await issues.getMeta(r.id))?.seq : undefined
-          const ref = seq !== undefined ? `#${seq}` : r.id
-          return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
-        })
+        const lines = await Promise.all(
+          results.map(async (r) => {
+            // Issues read by display seq (what users and issue_* tools speak).
+            const seq = r.kind === 'issue' ? (await issues.getMeta(r.id))?.seq : undefined
+            const ref = seq !== undefined ? `#${seq}` : r.id
+            return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
+          }),
+        )
         return `${lines.join('\n')}\n\n${JSON.stringify(results)}`
       },
     },
