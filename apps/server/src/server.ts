@@ -1689,8 +1689,8 @@ export async function startServer(
       settled = true
       stopDeferredPromotionPoll()
       stopDeferredSourceMovePoll()
-      messaging.stop()
-      registry.dispose()
+      await messaging.stop()
+      await registry.dispose()
       // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
       // here, so this server may hold armed deadlines and drives in flight over
       // the store about to close — and a port-in-use start, the routine outcome
@@ -1698,7 +1698,7 @@ export async function startServer(
       // same order as the shutdown persist list below.
       registry.modules.operations.cleanupJanitor.stop()
       registry.modules.operations.engine.stop()
-      store.close()
+      await store.close()
       reject(
         isAddressInUseError(err)
           ? new PortInUseError(requestedPort, { cause: err })
@@ -2103,14 +2103,35 @@ export async function startServer(
               ['fleetLogs.close', () => registry.modules.fleetLogs.close()],
               [
                 'janitorHost.close',
-                () => {
+                // AWAIT THE START FIRST. The host is constructed off the listen
+                // path, so at shutdown it may still be starting and `janitorHost`
+                // still undefined -- in which case `janitorHost?.close()` is a
+                // no-op, shutdown completes, and a worker THREAD comes up behind
+                // it and keeps the process alive. That is the hang: server.janitor
+                // and server.role were timing out in afterEach on handle.close().
+                // dev/mw's version of this step was synchronous, which was correct
+                // on its base; this epic made close async and the merge took the
+                // sync one.
+                async () => {
                   janitorHostClosing = true
-                  janitorHost?.close()
+                  await janitorHostStarting
+                  if (janitorHost) {
+                    const closing: Promise<void> = janitorHost.close()
+                    await closing
+                  }
                 },
               ],
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
               ['registry.dispose', () => registry.dispose()],
-              ['store.close', () => store.close()],
+              // NO 'store.close' STEP HERE. `drainStore` above already IS
+              // store.close(persist) -- it runs this whole list from inside the
+              // close it is performing. dev/mw had no drainStore and closed the
+              // store as the last persist step, which was right on its base;
+              // this epic moved that responsibility into drainStore so the
+              // persist work happens while the database is still open. The merge
+              // kept BOTH, so the last step re-entered the close it was running
+              // inside, and awaited a drain that could not finish. That was the
+              // shutdown hang: handle.close() never resolved.
             ],
           }),
       })
