@@ -279,7 +279,7 @@ describe('MemoryService omni-search', () => {
       })
       const nativeId = `native-conversation-${i}`
       conversationIds.push(nativeId)
-      registry.gateway.routeDaemonFrame('m1', {
+      await registry.gateway.routeDaemonFrame('m1', {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
@@ -333,9 +333,14 @@ describe('MemoryService omni-search', () => {
     expect(visible.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
     // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration: four distinct
     // issue owners still require one live batch and no per-owner statements.
+    // Awaiting the binding also lets feed publication prepare visibility for
+    // the last fixture issue during this read window. That separate feed batch
+    // cannot reuse search's request-local authorization memo: expect two reads,
+    // with exactly these inputs, rather than treating it as search fanout.
     expect(singleReads).toBe(0)
-    expect(batchReads).toHaveLength(1)
+    expect(batchReads).toHaveLength(2)
     expect(new Set(batchReads[0])).toEqual(new Set(issueIds))
+    expect(batchReads[1]).toEqual([issueIds[3]])
     expect(singleGrantReads).toBe(0)
     expect(batchGrantReads).toHaveLength(1)
     expect(new Set(batchGrantReads[0])).toEqual(new Set(issueIds))
