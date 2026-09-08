@@ -1121,6 +1121,7 @@
         "src/modules/sessions/queries.ts",
         "src/modules/sessions/read-toolkit.test.ts",
         "src/modules/sessions/read-toolkit.ts",
+        "src/modules/sessions/receipt-reconciliation.test.ts",
         "src/modules/sessions/receipt-retention.test.ts",
         "src/modules/sessions/receipt-send.guard.test.ts",
         "src/modules/sessions/receipt-send.ts",

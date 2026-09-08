@@ -42,6 +42,7 @@
  * driver-side queue would drain unauthorized. Nothing here forwards one.
  */
 
+import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
@@ -216,6 +217,7 @@ export class ReceiptSender {
     if (invalidAttachment) {
       return this.refuseAttachments(
         via,
+        input,
         'staging_failed',
         'file attachment reference was not staged for this session',
         onReceipt,
@@ -225,6 +227,7 @@ export class ReceiptSender {
       if (input.attachments?.length) {
         return this.refuseAttachments(
           via,
+          input,
           'unsupported',
           'this agent cannot accept file attachments',
           onReceipt,
@@ -269,6 +272,7 @@ export class ReceiptSender {
       if (input.attachments?.length) {
         return this.refuseAttachments(
           via,
+          input,
           'unsupported',
           'files cannot wait behind another turn; try again when pending messages have delivered',
           onReceipt,
@@ -305,12 +309,14 @@ export class ReceiptSender {
     // mid-window rejects, and a caller waiting to reconcile a row would
     // otherwise wait forever — so the failure is reported AS a receipt, in the
     // vocabulary the caller already handles.
-    settled.then(
+    void settled.then(
       (receipt) => {
-        onReceipt?.(receipt, via)
+        this.dispatchReceipt(input, via, receipt, onReceipt)
       },
       (err: unknown) => {
-        onReceipt?.(
+        this.dispatchReceipt(
+          input,
+          via,
           {
             outcome: 'refused',
             refusal: {
@@ -318,7 +324,7 @@ export class ReceiptSender {
               detail: err instanceof Error ? err.message : String(err),
             },
           },
-          via,
+          onReceipt,
         )
       },
     )
@@ -328,13 +334,44 @@ export class ReceiptSender {
     return { ok: true }
   }
 
+  /** Invoke immediately, but own completion separately from send admission.
+   * Reconciliation may have partially committed: report for inspection rather
+   * than replaying the receipt or resending the message automatically.
+   */
+  private dispatchReceipt(
+    input: ReceiptSendInput,
+    via: ReceiptSendVia,
+    receipt: TurnReceipt,
+    onReceipt?: ReceiptReconciler,
+  ): void {
+    if (!onReceipt) return
+    const operationId = input.mutationId ?? input.sourceMessageId ?? randomUUID()
+    // Await consumes even an async callback supplied through the legacy void
+    // signature. The async wrapper also turns synchronous throws into rejections.
+    const reconcile = async (): Promise<void> => {
+      await onReceipt(receipt, via)
+    }
+    void reconcile().catch((error: unknown) => {
+      console.error('[receipt-send] reconciliation failed', {
+        operationId,
+        sessionId: input.sessionId,
+        sourceMessageId: input.sourceMessageId,
+        via,
+        outcome: receipt.outcome,
+        error,
+        recovery: 'Inspect the message ledger before retrying reconciliation; delivery may already have occurred.',
+      })
+    })
+  }
+
   private refuseAttachments(
     via: ReceiptSendVia,
+    input: ReceiptSendInput,
     reason: 'unsupported' | 'staging_failed',
     detail: string,
     onReceipt?: ReceiptReconciler,
   ): ReceiptSendResult {
-    onReceipt?.({ outcome: 'refused', refusal: { reason, detail } }, via)
+    this.dispatchReceipt(input, via, { outcome: 'refused', refusal: { reason, detail } }, onReceipt)
     return { ok: false, reason: detail }
   }
 
@@ -359,7 +396,9 @@ export class ReceiptSender {
       ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
     })
     if (!queued.ok) {
-      onReceipt?.(
+      this.dispatchReceipt(
+        input,
+        via,
         {
           outcome: 'refused',
           refusal: {
@@ -367,20 +406,22 @@ export class ReceiptSender {
             ...(queued.detail === undefined ? {} : { detail: queued.detail }),
           },
         },
-        via,
+        onReceipt,
       )
       // The legacy vocabulary for the same refusal, so an upstream branch that
       // recognises 'no resume ref' (and routes it to spawn-on-wake) still does.
       return { ok: false, reason: queued.detail ?? queued.reason }
     }
-    onReceipt?.(
+    this.dispatchReceipt(
+      input,
+      via,
       {
         outcome: 'queued',
         position: queued.position,
         deliveredAs: 'queue',
         at: new Date(this.ports.now()).toISOString(),
       },
-      via,
+      onReceipt,
     )
     return { ok: true, queued: true, position: queued.position }
   }
