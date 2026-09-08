@@ -906,12 +906,12 @@ export class IssueCrudModule {
    *  head-insert would push it toward the wire cap (POD-1102) — see
    *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
    *  than the create that grew it. */
-  private mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): string {
+  private async mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): Promise<string> {
     // Measured over the unpinned rows, renumbered over the whole key space —
     // see `sortScopeRows` for why those two sets differ.
     let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
     if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
-      this.compactSortKeys(this.sortKeySpaceRows(repoId, repoPath, parentId))
+      await this.compactSortKeys(this.sortKeySpaceRows(repoId, repoPath, parentId))
       min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
     }
     return sortKeyBetween(null, min)
@@ -982,7 +982,7 @@ export class IssueCrudModule {
       // Keyed into the scope it will LAND in: the parent's children when this
       // is a subtask create (parentId is applied after persist via reparent,
       // so the scope is resolved from the input here).
-      sortKey: this.mintSortKey(
+      sortKey: await this.mintSortKey(
         repoId,
         input.repoPath,
         input.parentId ? await this.store.resolveRef(input.parentId, input.repoPath) : null,
