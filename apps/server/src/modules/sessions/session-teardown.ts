@@ -317,7 +317,7 @@ export class SessionTeardown {
     if (wasRunning) {
       this.ports.autoContinue.onSessionGone(input.sessionId)
       this.ports.rearmUnread(input.sessionId)
-      this.ports.repository.write(
+      await this.ports.repository.write(
         session,
         (draft) => {
           if (session.agentKind !== 'shell' && !draft.resume) {
@@ -564,7 +564,7 @@ export class SessionTeardown {
       // is the right thing to re-derive from, and it is also the only correct
       // one: the comparison exists to catch the session doing something between
       // the two derivations, which a draft cut before the first would hide.
-      this.ports.repository.write(
+      await this.ports.repository.write(
         session,
         (draft) => {
           draft.status = 'hibernated'

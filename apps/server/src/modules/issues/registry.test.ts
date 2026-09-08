@@ -305,16 +305,16 @@ describe('guardIssueCommand authorization matrix', () => {
   it('reads pass for any role; writes are role-gated (viewer FORBIDDEN)', async () => {
     const reg = await fresh()
     const viewer = { capability: { role: 'viewer', scope: { kind: 'all' } } } as const
-    expect(() =>
+    await expect(
       guardIssueCommand(viewer, reg.issues, 'list', issueRegistry.defs.list, {}),
-    ).not.toThrow()
-    expect(() =>
+    ).resolves.toBeUndefined()
+    await expect(
       guardIssueCommand(viewer, reg.issues, 'create', issueRegistry.defs.create, {
         repoPath: '/r',
         title: 'x',
         startNow: false,
       }),
-    ).toThrow(/not allowed/)
+    ).rejects.toThrow(/not allowed/)
   })
 
   it('a subtree worker writing an outside target gets PRECONDITION unless overridden', async () => {
@@ -324,19 +324,19 @@ describe('guardIssueCommand authorization matrix', () => {
     const scoped = {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
-    expect(() =>
+    await expect(
       guardIssueCommand(scoped, reg.issues, 'update', issueRegistry.defs.update, {
         id: a.id,
         patch: {},
       }),
-    ).not.toThrow()
-    expect(() =>
+    ).resolves.toBeUndefined()
+    await expect(
       guardIssueCommand(scoped, reg.issues, 'update', issueRegistry.defs.update, {
         id: b.id,
         patch: {},
       }),
-    ).toThrow(/outside your subtree/)
-    expect(() =>
+    ).rejects.toThrow(/outside your subtree/)
+    await expect(
       guardIssueCommand(
         { ...scoped, overrideScope: true },
         reg.issues,
@@ -344,7 +344,7 @@ describe('guardIssueCommand authorization matrix', () => {
         issueRegistry.defs.update,
         { id: b.id, patch: {} },
       ),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
   it('the guard resolves display refs (#seq) before the subtree check (#140)', async () => {
@@ -354,12 +354,12 @@ describe('guardIssueCommand authorization matrix', () => {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
     // The agent's own issue addressed by bare display seq must NOT trip the gate.
-    expect(() =>
+    await expect(
       guardIssueCommand(scoped, reg.issues, 'update', issueRegistry.defs.update, {
         id: String(a.seq),
         patch: {},
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 
   it('the five lifecycle repairs are worker-write in subtree, confirm outside, and viewer-denied', async () => {
@@ -397,13 +397,13 @@ describe('guardIssueCommand authorization matrix', () => {
       // Read through the contract so this asserts the fact the guard actually
       // consults, rather than a copy of it left on the handler.
       expect(ISSUE_CONTRACTS[name].policy.resource, name).toBe('issue')
-      expect(() =>
+      await expect(
         guardIssueCommand(scoped, reg.issues, name, definition, insideInput),
-      ).not.toThrow()
-      expect(() => guardIssueCommand(scoped, reg.issues, name, definition, outsideInput)).toThrow(
-        /outside your subtree/,
-      )
-      expect(() =>
+      ).resolves.toBeUndefined()
+      await expect(
+        guardIssueCommand(scoped, reg.issues, name, definition, outsideInput),
+      ).rejects.toThrow(/outside your subtree/)
+      await expect(
         guardIssueCommand(
           { ...scoped, overrideScope: true },
           reg.issues,
@@ -411,10 +411,10 @@ describe('guardIssueCommand authorization matrix', () => {
           definition,
           outsideInput,
         ),
-      ).not.toThrow()
-      expect(() => guardIssueCommand(viewer, reg.issues, name, definition, insideInput)).toThrow(
-        /not allowed/,
-      )
+      ).resolves.toBeUndefined()
+      await expect(
+        guardIssueCommand(viewer, reg.issues, name, definition, insideInput),
+      ).rejects.toThrow(/not allowed/)
     }
   })
 
@@ -426,22 +426,22 @@ describe('guardIssueCommand authorization matrix', () => {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
     // mailSend addressed OUTSIDE the subtree passes (no target extractor).
-    expect(() =>
+    await expect(
       guardIssueCommand(scoped, reg.issues, 'mailSend', issueRegistry.defs.mailSend, {
         id: b.id,
         body: 'hi',
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
     // manage from a worker is a hard role denial regardless of target.
-    expect(() =>
+    await expect(
       guardIssueCommand(scoped, reg.issues, 'delete', issueRegistry.defs.delete, { id: a.id }),
-    ).toThrow(/not allowed/)
+    ).rejects.toThrow(/not allowed/)
     // the operator is unconstrained.
-    expect(() =>
+    await expect(
       guardIssueCommand({ capability: OPERATOR }, reg.issues, 'delete', issueRegistry.defs.delete, {
         id: b.id,
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 })
 
@@ -556,20 +556,15 @@ describe('Shipping command boundary', () => {
     await expect(
       dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
     ).resolves.toBeDefined()
-    // `run` is the ALREADY-guarded, ALREADY-parsed entry point and returns the
-    // handler's own return value unwrapped — unlike `dispatch`, which defers into
-    // `Promise.resolve().then(...)` and so rejects. `requirePrincipal` refuses while
-    // the handler is still building its argument, so the refusal arrives as a
-    // synchronous throw and has to be asserted as one; `.rejects` never saw it,
-    // because the throw escaped before `expect` was ever called.
-    expect(() =>
+    // The guarded handler is async, so missing-principal refusals reject its promise.
+    await expect(
       dispatcher.run(
         { capability: agentCaller(root.id).capability },
         'ship',
         issueRegistry.defs.ship,
         {},
       ),
-    ).toThrow(/missing authenticated command principal/)
+    ).rejects.toThrow(/missing authenticated command principal/)
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
   })
 
@@ -589,7 +584,7 @@ describe('Shipping command boundary', () => {
       expect.objectContaining({ issueId: outside.id, overrideScope: true }),
     )
 
-    expect(() =>
+    await expect(
       guardIssueCommand(
         {
           capability: { role: 'viewer', scope: { kind: 'all' } },
@@ -600,7 +595,7 @@ describe('Shipping command boundary', () => {
         issueRegistry.defs.ship,
         { id: outside.id },
       ),
-    ).toThrow(/not allowed/)
+    ).rejects.toThrow(/not allowed/)
   })
 
   it('forwards typed hold action and generation once without a fake question path', async () => {
@@ -707,45 +702,45 @@ describe('Shipping command boundary', () => {
               action: 'enqueue'
               issue: typeof root
               overrideScope: boolean
-            }): void
+            }): Promise<void>
           }
         }
       }
     ).deps.authorization
 
-    expect(() =>
+    await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'enqueue',
         issue: root,
         overrideScope: false,
       }),
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
 
     const store = registry as unknown as {
       store: {
-        users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => 'admin' | 'member' | undefined }
+        users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => Promise<'admin' | 'member' | undefined> }
       }
     }
-    const roleOf = vi.spyOn(store.store.users, 'roleOf').mockReturnValue('member')
-    expect(() =>
+    const roleOf = vi.spyOn(store.store.users, 'roleOf').mockResolvedValue('member')
+    await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'enqueue',
         issue: root,
         overrideScope: true,
       }),
-    ).toThrow(/unknown issue/)
+    ).rejects.toThrow(/unknown issue/)
 
-    roleOf.mockReturnValue(undefined)
-    expect(() =>
+    roleOf.mockResolvedValue(undefined)
+    await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'enqueue',
         issue: root,
         overrideScope: true,
       }),
-    ).toThrow(/no longer active/)
+    ).rejects.toThrow(/no longer active/)
   })
 
   it('authorizes receipt reads from the active human owner or grant, not agent write scope', async () => {
@@ -778,32 +773,32 @@ describe('Shipping command boundary', () => {
               action: 'read-receipt'
               issue: typeof ownedOutside
               overrideScope: boolean
-            }): void
+            }): Promise<void>
           }
         }
       }
     ).deps.authorization
     const store = registry as unknown as {
-      store: { users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => 'member' | undefined } }
+      store: { users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => Promise<'member' | undefined> } }
     }
-    vi.spyOn(store.store.users, 'roleOf').mockReturnValue('member')
+    vi.spyOn(store.store.users, 'roleOf').mockResolvedValue('member')
 
-    expect(() =>
+    await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'read-receipt',
         issue: ownedOutside,
         overrideScope: false,
       }),
-    ).not.toThrow()
-    expect(() =>
+    ).resolves.toBeUndefined()
+    await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'read-receipt',
         issue: hiddenOutside,
         overrideScope: true,
       }),
-    ).toThrow(/unknown issue/)
+    ).rejects.toThrow(/unknown issue/)
   })
 })
 
@@ -869,11 +864,11 @@ describe('issue spawn provenance', () => {
           issues: {
             listIssueComments(
               id: string,
-            ): Array<{ actor?: string | null; onBehalfOf?: string | null }>
+            ): Promise<Array<{ actor?: string | null; onBehalfOf?: string | null }>>
           }
         }
       }
-      expect(internal.store.issues.listIssueComments(issue.id)).toMatchObject([
+      expect(await internal.store.issues.listIssueComments(issue.id)).toMatchObject([
         { actor: 'session:comment-agent', onBehalfOf: FIRST_ADMIN_USER_ID },
       ])
     } finally {

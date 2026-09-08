@@ -39,7 +39,7 @@ async function stoppedAndRead(): Promise<{
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
-  reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+  await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
   const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
   return { reg, sessionId, stoppedMs: Date.parse(meta?.stoppedAt ?? '') }
 }
@@ -58,7 +58,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 8 * DAY_MS,
       ),
@@ -75,7 +75,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         {
           ...observation(sessionId, asUserId('user:other')),
           stoppedAt: meta?.stoppedAt ?? '',
@@ -95,7 +95,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, ''), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 8 * DAY_MS,
       ),
@@ -111,9 +111,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     // check below already refuses that — which is why the CAS was redundant.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
-    reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId) // re-read, "now"
+    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId) // re-read, "now"
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 1000,
       ),
@@ -126,9 +126,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
-    reg.modules.sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId) // deletes the marker
+    await reg.modules.sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId) // deletes the marker
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 8 * DAY_MS,
       ),
@@ -141,7 +141,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
   it('still refuses a stoppedAt that has moved since the observation', async () => {
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     expect(
-      reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         {
           ...observation(sessionId, FIRST_ADMIN_USER_ID),
           stoppedAt: '2020-01-01T00:00:00.000Z',

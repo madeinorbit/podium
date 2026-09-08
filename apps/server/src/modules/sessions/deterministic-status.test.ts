@@ -30,7 +30,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   const store = await openTestStore(':memory:')
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
 
   const spawned = await registry.modules.sessions.createSession({
     agentKind: 'codex',
@@ -41,13 +41,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     forceUnknownModel: true,
   })
 
-  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'agentModel',
     sessionId: spawned.sessionId,
     model: 'observed-model',
     effort: 'xhigh',
   })
-  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'agentContext',
     sessionId: spawned.sessionId,
     percent: 37.5,
@@ -84,12 +84,12 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   const toolkit = new SessionReadToolkit({
     listSessions: () => [meta as SessionMeta],
     issues: ({
-        resolveRef: () => ISSUE.id,
-        getMeta: () => ISSUE,
-        get: () => ISSUE,
-        issueForCwd: () => ISSUE.id,
+        resolveRef: async () => ISSUE.id,
+        getMeta: async () => ISSUE,
+        get: async () => ISSUE,
+        issueForCwd: async () => ISSUE.id,
       }) as unknown as IssueService,
-    messages: ({ deliveredUnacked: () => [] }) as unknown as MessageDeliveryService,
+    messages: ({ deliveredUnacked: async () => [] }) as unknown as MessageDeliveryService,
     events: { appendEvent: async () => 1 },
     watermarks: {
       getRecapWatermark: async () => null,

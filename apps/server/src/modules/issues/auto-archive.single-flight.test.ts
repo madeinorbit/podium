@@ -12,7 +12,7 @@ import {
 describe('IssueAutoArchive single-flight (POD-3258)', () => {
   const noIssues: IssueWire[] = []
 
-  it('skips a tick that lands on a sweep already running', () => {
+  it('skips a tick that lands on a sweep already running', async () => {
     vi.useFakeTimers()
     try {
       let sweeps = 0
@@ -33,11 +33,11 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
       // Past the boot one-shot FIRST. `start` assigns the interval only after
       // the boot pass returns, so re-entering from inside that pass would have
       // nothing to fire and the test would pass vacuously.
-      vi.advanceTimersByTime(AUTO_ARCHIVE_BOOT_DELAY_MS)
+      await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_BOOT_DELAY_MS)
       expect(sweeps).toBe(1)
       armed = true
 
-      vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
+      await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_INTERVAL_MS)
       archive.dispose()
 
       expect(reentered).toBe(true)
@@ -47,7 +47,7 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
     }
   })
 
-  it('releases the fence when a sweep throws', () => {
+  it('releases the fence when a sweep throws', async () => {
     vi.useFakeTimers()
     try {
       let sweeps = 0
@@ -58,8 +58,8 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
         },
       })
       archive.start()
-      vi.advanceTimersByTime(AUTO_ARCHIVE_BOOT_DELAY_MS)
-      vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
+      await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_BOOT_DELAY_MS)
+      await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_INTERVAL_MS)
       archive.dispose()
 
       expect(sweeps).toBe(2)

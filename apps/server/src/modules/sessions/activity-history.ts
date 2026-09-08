@@ -60,6 +60,9 @@ export class SessionActivityHistory {
   /** Last phase we durably recorded per session — the dedupe for the frequent
    *  same-phase refreshes (`stateSource: poll` re-asserts the current phase). */
   private readonly lastRecorded = new Map<SessionId, AgentPhase>()
+  // Reserve a phase while its async append is outstanding so repeated events
+  // cannot append it twice. Keep durable state separate so failed writes retry.
+  private readonly recording = new Map<SessionId, { phase: AgentPhase }>()
   private readonly unsubscribe: () => void
 
   constructor(
@@ -88,8 +91,10 @@ export class SessionActivityHistory {
   }
 
   private async record(sessionId: SessionId, phase: AgentPhase, prev: AgentPhase | undefined): Promise<void> {
-    const known = this.lastRecorded.get(sessionId) ?? prev
+    const known = this.recording.get(sessionId)?.phase ?? this.lastRecorded.get(sessionId) ?? prev
     if (known === phase) return
+    const recording = { phase }
+    this.recording.set(sessionId, recording)
     try {
       await this.deps.events.appendEvent({
         ts: new Date(this.deps.now()).toISOString(),
@@ -100,6 +105,8 @@ export class SessionActivityHistory {
       this.lastRecorded.set(sessionId, phase)
     } catch {
       // Observational log; the transition it describes must proceed regardless.
+    } finally {
+      if (this.recording.get(sessionId) === recording) this.recording.delete(sessionId)
     }
   }
 

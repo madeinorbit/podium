@@ -114,7 +114,7 @@ export class HandoffTransfer {
       session.status === 'reconnecting'
     if (wasRunning) {
       this.ports.onSessionGone(session.sessionId)
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.status = 'hibernated'
       })
       this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
@@ -264,7 +264,7 @@ export class HandoffTransfer {
       // after every await this method makes, rather than carried across them
       // (spec rule 26).
       const newCwd = imported.newCwd
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
         draft.machineId = asMachineId(input.machineId)
         draft.cwd = newCwd
@@ -349,7 +349,7 @@ export class HandoffTransfer {
           source.machineId,
         )
       }
-      this.ports.write(session, (draft) => {
+      await this.ports.write(session, (draft) => {
         draft.handoffTarget = undefined
         draft.machineId =
           sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId

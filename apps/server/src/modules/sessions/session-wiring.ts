@@ -1086,12 +1086,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
     nudgeIssueMail(
       {
-        issueMeta: (issueId) => bag.deps.issueAccess.getMeta(issueId) ?? undefined,
+        issueMeta: async (issueId) => (await bag.deps.issueAccess.getMeta(issueId)) ?? undefined,
         sessionsForIssue: (worktreePath, issueId) => bag.view.listForIssue(worktreePath, issueId),
-        sendText: (input) => {
-          bag.receiptSender.send('now', input)
-        },
-        queueText: (input) => bag.receiptSender.send('queue', input),
+        receiptSend: (via, input) => bag.receiptSender.send(via, input),
       },
       event,
     ),

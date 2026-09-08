@@ -36,7 +36,7 @@ async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 
@@ -60,14 +60,14 @@ it('rejects an unlisted model before spawning — no frame, no session', async (
 it('rejects an unlisted effort with a suggestion', async () => {
   const store = await storeWithCatalog()
   const { reg } = await makeRegistry(store)
-  expect(() =>
+  await expect(
     reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/tmp/x',
       model: 'gpt-5.6',
       effort: 'highh',
     }),
-  ).toThrow(/unknown effort "highh".*Did you mean "high"/s)
+  ).rejects.toThrow(/unknown effort "highh".*Did you mean "high"/s)
 })
 
 it('force spawns the unlisted model AND records agent.model_forced', async () => {

@@ -41,15 +41,15 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     const upserted: string[] = []
     const repo = new SessionRepository({
       sessions,
-      store: { sessions: { upsertSession: (row: { id: string }) => upserted.push(row.id) } },
+      store: { sessions: { upsertSession: async (row: { id: string }) => { upserted.push(row.id) } } },
       ledger: {
-        commit: ({ write }: { write: () => void }) => {
-          write()
+        commit: async ({ write }: { write: () => Promise<void> }) => {
+          await write()
           return { changes: [] }
         },
         capture: () => [],
       },
-      view: { wire: (session: Session) => ({ sessionId: session.sessionId }) },
+      view: { wire: async (session: Session) => ({ sessionId: session.sessionId }) },
       now: () => Date.now(),
       broadcastSessions: vi.fn(),
       flushBroadcasts: vi.fn(),
@@ -59,23 +59,23 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     return { repo, rows, upserted }
   }
 
-  it('skips a flush that lands on a flush already running', () => {
+  it('skips a flush that lands on a flush already running', async () => {
     const { repo, rows, upserted } = fixture(1)
     rows[0]!.terminal.recordResumeActivity()
     expect(rows[0]!.terminal.activityDirty).toBe(true)
 
     let reentered = false
     const original = repo.persist.bind(repo)
-    const spy = vi.spyOn(repo, 'persist').mockImplementation((session, extra) => {
+    const spy = vi.spyOn(repo, 'persist').mockImplementation(async (session, extra) => {
       if (!reentered) {
         reentered = true
         // Re-enter in the window between the write and `clearActivityDirty`.
-        repo.flushActivity()
+        await repo.flushActivity()
       }
       return original(session, extra)
     })
 
-    repo.flushActivity()
+    await repo.flushActivity()
 
     expect(reentered).toBe(true)
     expect(spy).toHaveBeenCalledTimes(1)
@@ -83,18 +83,18 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     spy.mockRestore()
   })
 
-  it('a later flush persists a session that went dirty again', () => {
+  it('a later flush persists a session that went dirty again', async () => {
     const { repo, rows, upserted } = fixture(1)
     rows[0]!.terminal.recordResumeActivity()
-    repo.flushActivity()
+    await repo.flushActivity()
     expect(upserted).toEqual(['flush-0'])
 
     // Clean now — a flush must not write it again.
-    repo.flushActivity()
+    await repo.flushActivity()
     expect(upserted).toEqual(['flush-0'])
 
     rows[0]!.terminal.recordResumeActivity()
-    repo.flushActivity()
+    await repo.flushActivity()
     expect(upserted).toEqual(['flush-0', 'flush-0'])
   })
 
@@ -103,7 +103,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
     rows[0]!.terminal.recordResumeActivity()
 
     let calls = 0
-    const spy = vi.spyOn(repo, 'persist').mockImplementation(() => {
+    const spy = vi.spyOn(repo, 'persist').mockImplementation(async () => {
       calls += 1
       throw new Error('ledger is gone')
     })

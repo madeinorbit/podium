@@ -604,24 +604,20 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      // uniqueness is enforced only by `workflows_scope_name_active`, so the
-      // failure surfaces as a raw SQLite constraint error, not a domain error.
-      // The service has no pre-check and no friendly message.
-      expect(
-        await thrown(() =>
-          h.service.create(
-            {
-              name: 'Same name',
-              description: '',
-              scope: 'task',
-              scopeRef: 'issue-1',
-              instructions: '',
-              steps: [],
-            },
-            operator,
-          ),
+      // Drizzle wraps the SQLite error; the unique index must remain the cause.
+      await expect(
+        h.service.create(
+          {
+            name: 'Same name',
+            description: '',
+            scope: 'task',
+            scopeRef: 'issue-1',
+            instructions: '',
+            steps: [],
+          },
+          operator,
         ),
-      ).toMatch(/UNIQUE constraint failed|constraint/i)
+      ).rejects.toHaveProperty('cause.message', expect.stringMatching(/UNIQUE constraint failed/i))
     })
 
     it('input validation: duplicate step ids are rejected at the schema, not the service', async () => {
@@ -3325,7 +3321,7 @@ describe('POD-730 workflow mutation characterization', () => {
         workflow: { id: created.workflow.id },
       })
       expect(await dispatchWorkflowRpc(h.service, operator, 'notAProc', {})).toBeUndefined()
-      expect(() => dispatchWorkflowRpc(h.service, operator, 'get', {})).toThrow('Required')
+      await expect(dispatchWorkflowRpc(h.service, operator, 'get', {})).rejects.toThrow('Required')
     })
 
     /**
@@ -3356,7 +3352,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      expect(() =>
+      await expect(
         dispatchWorkflowRpc(
           h.service,
           operator,
@@ -3364,10 +3360,10 @@ describe('POD-730 workflow mutation characterization', () => {
           { revisionId: created.revision.id },
           'outbox',
         ),
-      ).toThrow('workflows.publish is not available over the outbox transport')
-      expect(() =>
+      ).rejects.toThrow('workflows.publish is not available over the outbox transport')
+      await expect(
         dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'outbox'),
-      ).toThrow('workflows.get is not available over the outbox transport')
+      ).rejects.toThrow('workflows.get is not available over the outbox transport')
       // The counterfactual: the SAME calls on a declared transport go through,
       // so the refusal above is about the transport and not about the call.
       expect(
@@ -3856,7 +3852,7 @@ describe('POD-730 workflow mutation characterization', () => {
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         operator,
       )
-      before.service.checkpoint(
+      await before.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',
@@ -3934,11 +3930,11 @@ describe('POD-730 workflow mutation characterization', () => {
       const path = join(dir, 'volatile.sqlite')
       const before = await makeHarness(path)
       const { run } = await twoStepRun(before)
-      before.service.assignStep(
+      await before.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         operator,
       )
-      before.service.checkpoint(
+      await before.service.checkpoint(
         {
           runId: run.id,
           stepId: 'implement',

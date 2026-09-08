@@ -19,17 +19,17 @@ async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMe
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 
-function bindLive(
+async function bindLive(
   reg: SessionRegistry,
   sessionId: SessionId,
   cwd: string,
   opts: { resume?: boolean } = {},
-): void {
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+): Promise<void> {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -38,7 +38,7 @@ function bindLive(
     geometry: { cols: 80, rows: 24 },
   })
   if (opts.resume !== false) {
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-1' },
@@ -57,12 +57,12 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
-    reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    await bindLive(reg, sessionId, '/r')
+    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
     expect((await meta(reg, sessionId))?.status).toBe('live')
 
     const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
-    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived({ sessionId, archived: true })
     expect(gitCleanup).toHaveBeenCalledWith(sessionId)
 
     const m = await meta(reg, sessionId)
@@ -83,9 +83,9 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r', { resume: false })
+    await bindLive(reg, sessionId, '/r', { resume: false })
 
-    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived({ sessionId, archived: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('exited')
     expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
@@ -97,12 +97,12 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
+    await bindLive(reg, sessionId, '/r')
     const r = await reg.modules.sessions.hibernateSession({ sessionId })
     expect(r.ok).toBe(true)
     const killsAfterHibernate = daemon.filter((c) => c.type === 'kill').length
 
-    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived({ sessionId, archived: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('hibernated')
     expect(daemon.filter((c) => c.type === 'kill').length).toBe(killsAfterHibernate)
@@ -114,11 +114,11 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
-    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await bindLive(reg, sessionId, '/r')
+    await reg.modules.sessions.setArchived({ sessionId, archived: true })
     const spawnsBefore = daemon.filter((c) => c.type === 'spawn').length
 
-    reg.modules.sessions.setArchived({ sessionId, archived: false })
+    await reg.modules.sessions.setArchived({ sessionId, archived: false })
 
     const m = await meta(reg, sessionId)
     expect(m?.archived).toBe(false)
@@ -132,8 +132,8 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
-    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await bindLive(reg, sessionId, '/r')
+    await reg.modules.sessions.setArchived({ sessionId, archived: true })
     const spawnsBefore = daemon.filter((c) => c.type === 'spawn').length
 
     expect(
@@ -152,7 +152,7 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
+    await bindLive(reg, sessionId, '/r')
     // Simulate a row archived before archive learned to kill: the flag is set
     // but the status is still live (17 such rows existed on the origin host).
     const internals = reg.modules.sessions as unknown as {
@@ -164,7 +164,7 @@ describe('archive parks the session process [POD-108]', () => {
     expect((await meta(reg, sessionId))?.status).toBe('live')
 
     const reattached: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
       daemon.push(m)
       reattached.push(m)
     })
@@ -182,7 +182,7 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r')
+    await bindLive(reg, sessionId, '/r')
     // No terminal proof and no phase gate: the backstop exists for exactly the
     // sessions the proof path can never clear.
     expect(await reg.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
@@ -212,7 +212,7 @@ describe('archive parks the session process [POD-108]', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    bindLive(reg, sessionId, '/r', { resume: false })
+    await bindLive(reg, sessionId, '/r', { resume: false })
 
     expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
 

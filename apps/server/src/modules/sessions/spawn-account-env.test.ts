@@ -57,7 +57,7 @@ async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
   return { reg, daemon }
 }
 
@@ -81,7 +81,7 @@ async function resurrectFrame(store: SessionStore) {
     resume: { kind: 'codex-thread', value: 't1' },
     conversationId: 'c1',
   })
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId,
     cmd: 'codex',
