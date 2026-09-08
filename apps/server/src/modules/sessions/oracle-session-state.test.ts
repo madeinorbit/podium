@@ -444,7 +444,7 @@ describe('oracle: composer drafts', () => {
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
 
-    o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
+    await o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 
     const shape = expect.objectContaining({
       type: 'sessionDraftChanged',
