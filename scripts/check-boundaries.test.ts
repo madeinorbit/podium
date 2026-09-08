@@ -1182,17 +1182,21 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
   it('checks the `sql` body even on an UNCONVERTED file', () => {
     // The ledger excuses a file's RAW HANDLES, never its statements: an
     // unconverted repository that starts writing `sql` templates is exactly
-    // where a PRAGMA would arrive looking like progress.
-    const ledgered = STAGE_A_UNCONVERTED[0]
-    expect(ledgered).toBeDefined()
+    // where a PRAGMA would arrive looking like progress. Stage A emptied the
+    // live ledger, so this plants a synthetic entry rather than indexing
+    // STAGE_A_UNCONVERTED[0] — the property is about the skip, not about a
+    // surviving path.
+    const ledgered = 'apps/server/src/store/widgets.ts'
+    const ledger = [ledgered]
     expect(
       checkStoreRawHandles(
-        ledgered as string,
+        ledgered,
         `import { transaction } from '@podium/runtime/sqlite'\n`,
+        ledger,
       ),
     ).toEqual([])
     expect(
-      checkStoreRawHandles(ledgered as string, `const q = sql\`PRAGMA foreign_keys = ON\`\n`),
+      checkStoreRawHandles(ledgered, `const q = sql\`PRAGMA foreign_keys = ON\`\n`, ledger),
     ).toHaveLength(1)
   })
 
@@ -1395,6 +1399,7 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
       'apps/server/src/store/executor/bun-driver.ts',
       'apps/server/src/store/spike/turso-append/libsql-driver.ts',
       'apps/server/src/store/spike/turso-append/run-proofs.ts',
+      'packages/sync/src/adapters/sqlite/test-support.ts',
     ]) {
       expect(
         checkDrizzleTransaction(driver, `${DRIZZLE_IMPORT}await client.transaction('write')\n`),
@@ -1412,6 +1417,7 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
       'apps/server/src/store/executor/scheduler.ts',
       'apps/server/src/store/executor/executor.ts',
       'apps/server/src/store/spike/turso-append/sync-append.ts',
+      'packages/sync/src/adapters/sqlite/sync-repository.ts',
     ]) {
       const vs = checkDrizzleTransaction(
         neighbour,
@@ -1526,27 +1532,26 @@ describe('store-boundary-ledger (POD-3252, Stage A’s completeness proof)', () 
     // converts a repository can leave its line behind and the list stops
     // measuring anything. Every OTHER entry is planted still-unconverted, so
     // the one violation reported is attributable to the one file that changed.
-    const converted = STAGE_A_UNCONVERTED[0]
-    expect(converted).toBeDefined()
+    // Stage A emptied the live ledger; a synthetic two-entry list is what
+    // still exercises the ratchet.
+    const converted = 'apps/server/src/store/widgets.ts'
+    const stillRaw = 'apps/server/src/store/gadgets.ts'
     const unconverted = `import type { SqlDatabase } from '@podium/runtime/sqlite'\n`
-    const root = plantLedger(
-      Object.fromEntries(
-        STAGE_A_UNCONVERTED.map((f) => [
-          f,
-          f === converted ? `export const clean = 1\n` : unconverted,
-        ]),
-      ),
-    )
-    const v = checkStoreBoundaryLedger(root)
+    const root = plantLedger({
+      [converted]: `export const clean = 1\n`,
+      [stillRaw]: unconverted,
+    })
+    const v = checkStoreBoundaryLedger(root, [converted, stillRaw])
     expect(v.map((x) => x.file)).toEqual([converted])
     expect(v[0]?.rule).toBe('store-boundary-ledger')
     expect(v[0]?.message).toContain('CONVERTED')
   })
 
   it('refuses a STALE entry — a listed file that no longer exists', () => {
-    const v = checkStoreBoundaryLedger(plantLedger({}))
-    expect(v.length).toBe(STAGE_A_UNCONVERTED.length)
-    expect(v.every((x) => x.message.includes('does not exist'))).toBe(true)
+    const missing = 'apps/server/src/store/widgets.ts'
+    const v = checkStoreBoundaryLedger(plantLedger({}), [missing])
+    expect(v.map((x) => x.file)).toEqual([missing])
+    expect(v[0]?.message).toContain('does not exist')
   })
 
   it('every entry is inside the store boundary — an entry outside exempts nothing', () => {

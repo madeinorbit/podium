@@ -26,14 +26,15 @@ describe('the hidden-read inventory', () => {
   })
 
   it('still counts the boot reads and the registration instead of hiding them', () => {
-    // The residue is visible ON PURPOSE: nine SessionStore boot reads the flip
-    // [B1] converts, and one listener install that issues no statement. If this
-    // count moves, either the flip happened or something new slipped into
-    // `SessionStore`'s constructor — both want a human.
+    // The residue is visible ON PURPOSE. B1 converted SessionStore's constructor
+    // reads into `SessionStore.open()`, and `events.onAppend` left the
+    // SessionRegistry constructor for async hydration (the method is itself
+    // async now). Both buckets are empty on the shipped tree: a constructor
+    // store read or an eager listener install returning here is a regression.
+    // CLASSIFICATION.registrations still names onAppend so a constructor
+    // reintroduction is counted as a registration, not a shipping read.
     const { boot, registrations } = scanCheckout()
-    expect(boot).toHaveLength(9)
-    expect(registrations.map((f) => `${f.holder}.${f.call}`)).toEqual([
-      'SessionRegistry.this.store.events.onAppend',
-    ])
+    expect(boot).toHaveLength(0)
+    expect(registrations).toEqual([])
   })
 })

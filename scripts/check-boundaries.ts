@@ -1198,6 +1198,13 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
  * itself to a list that already says what the list is for, instead of
  * discovering the rule on its first day.
  *
+ * `packages/sync/src/adapters/sqlite/test-support.ts` is the test composition
+ * of the same port: `createTestSyncQueries` implements `createOrJoinTransaction`
+ * with drizzle's `transaction` (immediate, nested as savepoints). That call is
+ * the port being obeyed for in-memory sync tests, the same role bun-driver has
+ * in production. Named, not a `adapters/sqlite/**` glob — `sync-repository.ts`
+ * beside it must stay covered.
+ *
  * THE SPIKE GETS NO BLANKET EXEMPTION (spec §6 rule 22). Its driver is named
  * here like any other driver; `run-proofs.ts` is named because it drives raw
  * transactions DELIBERATELY — the probes measuring the server's idle budget and
@@ -1208,6 +1215,7 @@ const TRANSACTION_OPENERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/bun-driver.ts',
   'apps/server/src/store/spike/turso-append/libsql-driver.ts',
   'apps/server/src/store/spike/turso-append/run-proofs.ts',
+  'packages/sync/src/adapters/sqlite/test-support.ts',
 ])
 
 /** The runtime's SQLite shim: the raw handle, by any subpath spelling. */
@@ -2023,13 +2031,17 @@ export function checkStageAExitOwnership(): Violation[] {
   }))
 }
 
-export function checkStoreRawHandles(file: string, source: string): Violation[] {
+export function checkStoreRawHandles(
+  file: string,
+  source: string,
+  unconverted: readonly string[] = STAGE_A_UNCONVERTED,
+): Violation[] {
   if (!inStoreBoundary(file)) return []
   if (isTestFile(file)) return []
   if (SEARCH_INDEX_PORT.has(file)) return []
   if (RAW_HANDLE_OWNERS.has(file)) return []
   const violations: Violation[] = []
-  if (!STAGE_A_UNCONVERTED.includes(file)) violations.push(...rawHandleViolations(file, source))
+  if (!unconverted.includes(file)) violations.push(...rawHandleViolations(file, source))
   // The `sql`-body clause runs even on an UNCONVERTED file. Nothing about
   // being mid-conversion makes a `PRAGMA` acceptable, and a converted-looking
   // `sql` template is exactly where one would arrive unnoticed.
@@ -2259,9 +2271,12 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
  * always errors. An entry here is a claim about work not yet done, and a claim
  * that has stopped being true is worse than no claim at all.
  */
-export function checkStoreBoundaryLedger(repoRoot: string): Violation[] {
+export function checkStoreBoundaryLedger(
+  repoRoot: string,
+  unconverted: readonly string[] = STAGE_A_UNCONVERTED,
+): Violation[] {
   const violations: Violation[] = []
-  for (const file of STAGE_A_UNCONVERTED) {
+  for (const file of unconverted) {
     if (!inStoreBoundary(file)) {
       violations.push({
         file,

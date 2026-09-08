@@ -63,8 +63,9 @@
  * Two categories are not "clean" and are not filtered away: they are counted and
  * printed on every run.
  *
- *  - `SessionStore`'s own constructor ({@link OUT_OF_SCOPE}) — nine boot reads
- *    the flip [B1] converts to `SessionStore.open()`, by design still there.
+ *  - `SessionStore`'s own constructor ({@link OUT_OF_SCOPE}) — B1 converted
+ *    those boot reads to `SessionStore.open()`. The constructor is still
+ *    scanned so a new eager read fails here rather than as shipping.
  *  - {@link REGISTRATIONS} — repository members that issue no statement, named
  *    one by one with the reason rather than inferred, so a member that grows a
  *    query falls back into the report.
@@ -126,9 +127,9 @@ const CLASSIFICATION: Classification = {
     ],
   ]),
   /**
-   * `SessionStore`'s own constructor is the boot step the flip (B1) converts to
-   * `SessionStore.open()`, and store.ts is the coordinator's file. Reported
-   * separately so it is visible rather than filtered away.
+   * `SessionStore`'s own constructor was the boot step the flip (B1) converted
+   * to `SessionStore.open()`, and store.ts is the coordinator's file. Reported
+   * separately so a new constructor read is visible rather than filtered away.
    */
   outOfScope: ['apps/server/src/store.ts'],
   roots: ['apps/server/src/'],
@@ -483,7 +484,7 @@ function main(): void {
   console.log('# Store calls that run when a constructor or getter runs (apps/server/src)')
   console.log(`\n## Shipping code — must be empty (${shipping.length})`)
   console.log(shipping.length ? render(shipping) : '(none)')
-  console.log(`\n## SessionStore's own boot, converted by the flip [B1] (${boot.length})`)
+  console.log(`\n## SessionStore's own boot, converted to open() by the flip [B1] (${boot.length})`)
   console.log(boot.length ? render(boot) : '(none)')
   console.log(`\n## Listener registrations, no statement issued (${registrations.length})`)
   console.log(

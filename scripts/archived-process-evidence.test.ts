@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import ts from 'typescript'
+
+// Vitest's project root is the repository, but `bun run --cwd scripts test`
+// leaves process.cwd() at scripts/. Evidence files live at the repo root.
+const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
 // Load only the archived proc function: importing a drive runs paid agents.
 // The AST keeps this test on the actual driver code without executing its entrypoint.
@@ -23,12 +29,18 @@ function procFromDriver(path: string, present: boolean) {
 for (const issue of ['pod-2987', 'pod-3028']) {
   describe(`${issue} archived process evidence`, () => {
     it('does not resolve a missing executable link', () => {
-      const { proc, readlink } = procFromDriver(`docs/evidence/${issue}/drive.ts`, false)
+      const { proc, readlink } = procFromDriver(
+        join(repoRoot, `docs/evidence/${issue}/drive.ts`),
+        false,
+      )
       expect(proc(123)?.exe).toBe('')
       expect(readlink).not.toHaveBeenCalledWith('/proc/123/exe')
     })
     it('records an existing executable link', () => {
-      const { proc, readlink } = procFromDriver(`docs/evidence/${issue}/drive.ts`, true)
+      const { proc, readlink } = procFromDriver(
+        join(repoRoot, `docs/evidence/${issue}/drive.ts`),
+        true,
+      )
       expect(proc(123)?.exe).toBe('/bin/agent')
       expect(readlink).toHaveBeenCalledWith('/proc/123/exe')
     })

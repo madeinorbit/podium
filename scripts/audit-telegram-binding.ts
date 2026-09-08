@@ -165,7 +165,11 @@ export function methodBody(source: string, signature: string): string | undefine
 }
 
 export function inboundUngated(source: string, file = SERVICE): Finding[] {
-  const body = methodBody(source, 'private onInbound(')
+  // The method became `private async onInbound(` when the inbound path flipped
+  // to await the binding read. The probes still plant the sync spelling, so
+  // both signatures are the same entry point.
+  const body =
+    methodBody(source, 'private async onInbound(') ?? methodBody(source, 'private onInbound(')
   if (body === undefined) {
     // NOT a pass. A vanished entry point is not an entry point with a gate — the
     // check would otherwise report a serene zero for a renamed method.
