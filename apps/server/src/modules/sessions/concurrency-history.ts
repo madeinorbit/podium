@@ -102,6 +102,7 @@ export function buildAgentConcurrencyHistory(
 /** Durable recorder + read model for the shell's fleet-concurrency skyline. */
 export class AgentConcurrencyHistory {
   private lastRecordedCount: number | undefined
+  private recording: { count: number } | undefined
   private readonly unsubscribe: () => void
 
   constructor(
@@ -133,7 +134,9 @@ export class AgentConcurrencyHistory {
 
   async capture(): Promise<number> {
     const count = workingAgentCount(this.deps.sessions(), this.deps.now())
-    if (count === this.lastRecordedCount) return count
+    if (count === (this.recording?.count ?? this.lastRecordedCount)) return count
+    const recording = { count }
+    this.recording = recording
     try {
       await this.deps.events.appendEvent({
         ts: new Date(this.deps.now()).toISOString(),
@@ -145,6 +148,8 @@ export class AgentConcurrencyHistory {
     } catch {
       // The status strip is observational. A full/read-only event store must
       // never interfere with the agent-state transition it is observing.
+    } finally {
+      if (this.recording === recording) this.recording = undefined
     }
     return count
   }
