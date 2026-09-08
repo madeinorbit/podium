@@ -543,12 +543,12 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     })
     // A resurrect only respawns a session it can resume; without the ref it
     // reports ok and sends the daemon nothing.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'abc-123' },
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -603,7 +603,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -654,7 +654,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -695,7 +695,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
 
     const send: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => send.push(m))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
     // The session comes back LIVE — the bind is still proof the agent is there.
     expect(session.status).toBe('live')
@@ -714,7 +714,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     watcher.sent.length = 0
 
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bareBind(sessionId),
       // A daemon that DID apply something at bind — a resize it was holding for
       // this session — reports it, and that is a report like any other.
@@ -739,7 +739,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     const { reg, sessionId, session } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
     const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(SessionMeta.safeParse(row).success).toBe(true)
@@ -766,7 +766,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     expect(session.geometryState()).toBe('unknown')
 
     daemon.length = 0
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
     expect(session.geometryState()).toBe('unknown')
 
     // The first viewer to ask is what makes it current again.
@@ -778,7 +778,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     expect(resizesTo(daemon)).toEqual([{ cols: 150, rows: 50 }])
     expect(session.geometryState()).toBe('unknown')
 
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'geometryApplied',
       sessionId,
       geometry: { cols: 150, rows: 50 },
