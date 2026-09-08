@@ -40,9 +40,9 @@ const LAKE_LINES = [
 ].join('\n')
 
 describe('SessionRegistry lake-fallback transcript reads', () => {
-  const cleanups: (() => void)[] = []
-  afterEach(() => {
-    for (const fn of cleanups.splice(0)) fn()
+  const cleanups: (() => Promise<void>)[] = []
+  afterEach(async () => {
+    for (const fn of cleanups.splice(0)) await fn()
   })
 
   async function setup() {
@@ -73,7 +73,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: nativeId },
@@ -327,7 +327,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-unmirrored' },
