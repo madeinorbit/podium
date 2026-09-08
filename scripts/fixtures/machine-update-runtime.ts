@@ -38,6 +38,7 @@ import {
   UPDATE_OPERATION_KIND,
   updateOperationKind,
   type UpdateOperationContext,
+  type UpdateReality,
 } from '../../apps/server/src/modules/updates/operation'
 import { UpdatesService } from '../../apps/server/src/modules/updates/service'
 import { decideReconciliation } from '../../apps/server/src/modules/updates/reconciler'
@@ -225,7 +226,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       concurrency: 3,
       fleetChannel: () => 'dev',
     })
-    if (policy.published) updates.setTarget('dev', policy.published)
+    if (policy.published) await updates.setTarget('dev', policy.published)
     const context = (): UpdateOperationContext => ({
       updates,
       channel: 'dev',
@@ -331,7 +332,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             services: body.services,
           }
           for (const status of body.statuses ?? []) {
-            updates.onStatus(asMachineId(body.id), status)
+            await updates.onStatus(asMachineId(body.id), status)
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
@@ -346,7 +347,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             })
             event('reconnect-decision', { machineId: body.id, verdict })
             if (verdict.converge)
-              updates.authorizeMachine(asMachineId(body.id), {
+              await updates.authorizeMachine(asMachineId(body.id), {
                 initiator: { kind: 'operator-apply' },
                 eligibility: 'fixture persisted exact approval reconnect',
               })
@@ -354,12 +355,12 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           if (engine && body.id === 'coordinator' && !adopted) {
             adopted = true
             await engine.adoptOnBoot(
-              () => ({
+              async () => ({
                 appVersion: version,
                 servedWebDigest: undefined,
-                machineDirectory: updates.fleet(),
+                machineDirectory: await updates.fleet(),
                 now: Date.now(),
-              }),
+              } satisfies UpdateReality),
               context,
             )
           }
@@ -374,7 +375,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         }
         if (req.url === '/publish') {
           policy.published = body
-          updates.setTarget('dev', body)
+          await updates.setTarget('dev', body)
         } else if (req.url === '/approve') {
           if (policy.published?.version !== body.version)
             throw new Error('target changed before approval')
@@ -383,7 +384,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
           for (const machine of body.machines.filter(
             (machine: string) => machine !== 'coordinator',
           ))
-            updates.authorizeMachine(asMachineId(machine), {
+            await updates.authorizeMachine(asMachineId(machine), {
               initiator: { kind: 'operator-apply' },
               eligibility: 'fixture explicit operator approval',
             })
@@ -396,7 +397,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             return
           }
         } else if (req.url === '/fleet') {
-          res.end(JSON.stringify({ fleet: updates.fleet(), policy, identities: fleet }))
+          res.end(JSON.stringify({ fleet: await updates.fleet(), policy, identities: fleet }))
           return
         } else {
           res.writeHead(404).end()

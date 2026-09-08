@@ -763,11 +763,16 @@ exec "$CANARY_REAL_CLI" "$@"
         discard: async () => {},
         restart: async () => 'handover-pending' as const,
       }
+      const statusReports: Promise<void>[] = []
+      const reportStatus = (message: Parameters<typeof updates.onStatus>[1]) => {
+        statusReports.push(updates.onStatus(machineId, message))
+      }
       await new MachineUpdateExecutor({
         runtimeDir,
         adapter,
-        report: (message) => updates.onStatus(machineId, message),
+        report: reportStatus,
       }).accept(grants[0]!)
+      await Promise.all(statusReports.splice(0))
       expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
       const env = instanceEnv(spec, {
         PODIUM_HOME: installDir,
@@ -808,7 +813,7 @@ exec "$CANARY_REAL_CLI" "$@"
         expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
         for (let i = 0; i < 5; i++) {
           expect((await updates.fleet())[0]?.state).toBe('restarting')
-          updates.tick()
+          await updates.tick()
           expect(grants).toHaveLength(1)
           await Bun.sleep(50)
         }
@@ -824,8 +829,10 @@ exec "$CANARY_REAL_CLI" "$@"
           new MachineUpdateExecutor({
             runtimeDir,
             adapter: { ...adapter, runningVersion: () => '9.9.9' },
-            report: (message) => updates.onStatus(machineId, message),
+            report: reportStatus,
           }).replay()
+          // replay is synchronous; its status consumer persists asynchronously.
+          await Promise.all(statusReports.splice(0))
           expect((await updates.fleet())[0]?.state).toBe('current')
           expect(grants).toHaveLength(2)
         } else {
@@ -835,7 +842,7 @@ exec "$CANARY_REAL_CLI" "$@"
           )
           expect(readMachineUpdateJournal(runtimeDir)?.phase).toBe('restarting')
           expect((await updates.fleet())[0]?.state).toBe('restarting')
-          updates.tick()
+          await updates.tick()
           expect(grants).toHaveLength(1)
         }
         expect((await version(unrelated))?.instanceId).toBe('default')

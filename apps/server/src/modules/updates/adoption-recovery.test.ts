@@ -10,7 +10,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
-import { UPDATE_OPERATION_KIND, UPDATE_STEP_MACHINES } from './operation'
+import { UPDATE_OPERATION_KIND, UPDATE_STEP_MACHINES, type UpdateReality } from './operation'
 import { updateOperationContext } from './trpc'
 
 const host = asMachineId('coordinator')
@@ -137,7 +137,7 @@ describe('production adoption restores supervised execution proof', () => {
           servedWebDigest: undefined,
           machineDirectory: await boot.modules.updates.fleet(),
           now: Date.now(),
-        }),
+        } satisfies UpdateReality),
         () => h.context(ids),
       )
       await boot.modules.operations.engine.whenSettled(id)
@@ -207,7 +207,7 @@ describe('production adoption restores supervised execution proof', () => {
           const boot = await h.reboot()
           await boot.modules.operations.engine.adoptOnBoot(
             async () => ({ appVersion: target.version, servedWebDigest: undefined,
-              machineDirectory: await boot.modules.updates.fleet(), now: Date.now() }),
+              machineDirectory: await boot.modules.updates.fleet(), now: Date.now() } satisfies UpdateReality),
             () => h.context(['a', 'b']),
           )
         }

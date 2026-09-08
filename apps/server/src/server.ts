@@ -1,3 +1,4 @@
+import type { UpdateReality } from './modules/updates/operation'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -1062,7 +1063,7 @@ export async function startServer(
   const serverMoveCrash = serverMoveFaultHook()
   if (!recoveryOnly)
     await registry.modules.operations.engine.adoptOnBoot(
-      (row) => {
+      async (row) => {
         if (row.kind === 'server-move') {
           const details = row.operation?.details
           const targetMachineId =
@@ -1086,10 +1087,10 @@ export async function startServer(
             () => servedWebSourceDigest(desktopWebDir()),
             () => servedWebIdentity(phoneWebDir()),
           )?.(),
-          machineDirectory: registry.modules.updates.fleet(),
+          machineDirectory: await registry.modules.updates.fleet(),
           ...(parentReport ? { parentReport } : {}),
           now: Date.now(),
-        }
+        } satisfies UpdateReality
       },
 
       (row) => {
