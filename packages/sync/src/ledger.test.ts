@@ -216,23 +216,31 @@ describe('Ledger', () => {
     const calls: string[] = []
     let monotonicMs = 0
     let batches = 0
+    let firstDeleteStarted!: () => void
+    const firstDelete = new Promise<void>((resolve) => { firstDeleteStarted = resolve })
+    let releaseDelete!: () => void
+    const deleteBarrier = new Promise<void>((resolve) => { releaseDelete = resolve })
     const repo = new Proxy(inner, {
       get(target, prop, receiver) {
         if (prop === 'planChangePrune') {
-          return () => {
+          return async () => {
             calls.push('plan')
             return { thresholdSeq: 201 }
           }
         }
         if (prop === 'pruneChangeBatch') {
-          return () => {
+          return async () => {
             calls.push('delete')
+            if (batches === 0) {
+              firstDeleteStarted()
+              await deleteBarrier
+            }
             monotonicMs += 13
             return batches++ === 0 ? 100 : 1
           }
         }
         if (prop === 'latestChangeStates') {
-          return () => {
+          return async () => {
             calls.push('fold')
             return []
           }
@@ -248,9 +256,14 @@ describe('Ledger', () => {
       monotonicNow: () => monotonicMs,
     }).then(() => new Ledger({ repo, now: Date.now, transact: passthrough }))
 
-    // Planning and one bounded delete happen synchronously; the 13ms slice then
-    // yields. Folding must remain behind the readiness promise.
-    expect(calls).toEqual(['plan', 'delete'])
+    // The async delete is in flight: folding must stay behind readiness,
+    // regardless of how many microtasks planning and deletion require.
+    await firstDelete
+    try {
+      expect(calls).toEqual(['plan', 'delete'])
+    } finally {
+      releaseDelete()
+    }
     await ready
     expect(calls).toEqual(['plan', 'delete', 'delete', 'fold'])
   })
