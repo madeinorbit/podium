@@ -75,12 +75,12 @@ function scanResult(
 function makeService(overrides: Partial<ConstructorParameters<typeof MachineRepoDiscovery>[0]>) {
   const added: Array<{ path: string; machineId: string; originUrl?: string }> = []
   const svc = new MachineRepoDiscovery({
-    listRepos: () => [],
-    addRepo: (path, machineId, originUrl) => {
+    listRepos: async () => [],
+    addRepo: async (path, machineId, originUrl) => {
       added.push({ path, machineId, ...(originUrl ? { originUrl } : {}) })
     },
     scanRepos: async () => scanResult([]),
-    machineName: (id) => `name:${id}`,
+    machineName: async (id) => `name:${id}`,
     localMachineId: asMachineId('local'),
     ...overrides,
   })
@@ -98,7 +98,7 @@ describe('MachineRepoDiscovery.scan', () => {
         ])
       return scanResult([{ path: '/Users/mike/src/other/sidecar' }])
     })
-    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+    const { svc, added } = makeService({ listRepos: async () => rows, scanRepos })
 
     const result = await svc.scan(asMachineId('mac'), { deep: false })
 
@@ -153,7 +153,7 @@ describe('MachineRepoDiscovery.scan', () => {
           { path: '/Users/mike/src/podium/.worktrees/x', kind: 'worktree' },
         ]),
     )
-    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+    const { svc, added } = makeService({ listRepos: async () => rows, scanRepos })
 
     const result = await svc.scan(asMachineId('mac'), { deep: false })
 
@@ -174,7 +174,7 @@ describe('MachineRepoDiscovery.scan', () => {
           { path: '/Users/mike/bak_podium', originUrl: 'git@github.com:o/podium.git' },
         ]),
     )
-    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+    const { svc, added } = makeService({ listRepos: async () => rows, scanRepos })
 
     const result = await svc.scan(asMachineId('mac'), { deep: false })
 
@@ -191,7 +191,7 @@ describe('MachineRepoDiscovery.scan', () => {
       async (): Promise<ScanReposResult> =>
         scanResult([{ path: '/Users/mike/bak_podium', originUrl: 'git@github.com:o/podium.git' }]),
     )
-    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+    const { svc, added } = makeService({ listRepos: async () => rows, scanRepos })
 
     const result = await svc.scan(asMachineId('mac'), { deep: false })
 
@@ -206,16 +206,18 @@ describe('MachineRepoDiscovery.scan', () => {
     const gate = new Promise<ScanReposResult>((resolve) => {
       resolveScan = resolve
     })
+    const scanRepos = vi.fn(async () => gate)
     const { svc } = makeService({
-      listRepos: () => [row('hub', '/home/u/src/x')],
-      scanRepos: () => gate,
+      listRepos: async () => [row('hub', '/home/u/src/x')],
+      scanRepos,
     })
 
     const first = svc.scan(asMachineId('mac'), { deep: false })
     const second = svc.scan(asMachineId('mac'), { deep: false })
-    expect(second).toBe(first)
     resolveScan(scanResult([]))
-    const result = await first
+    const [result, coalesced] = await Promise.all([first, second])
+    expect(coalesced).toBe(result)
+    expect(scanRepos).toHaveBeenCalledTimes(1)
     expect(svc.lastResult(asMachineId('mac'))).toBe(result)
   })
 
@@ -233,7 +235,7 @@ describe('MachineRepoDiscovery.scan', () => {
         return scanResult([])
       },
     )
-    const { svc } = makeService({ listRepos: () => [], scanRepos })
+    const { svc } = makeService({ listRepos: async () => [], scanRepos })
 
     const result = await svc.scan(asMachineId('mac'), {
       deep: false,
@@ -251,16 +253,21 @@ describe('MachineRepoDiscovery.scan', () => {
     const gate = new Promise<ScanReposResult>((r) => {
       resolveScan = r
     })
-    const { svc } = makeService({ listRepos: () => [], scanRepos: () => gate })
+    const scanRepos = vi.fn(async () => gate)
+    const { svc } = makeService({ listRepos: async () => [], scanRepos })
 
     const a = svc.scan(asMachineId('mac'), { deep: false, atPath: '/a' })
     const b = svc.scan(asMachineId('mac'), { deep: false, atPath: '/b' })
-    expect(b).not.toBe(a) // different folders → independent scans, not a shared result
     resolveScan(scanResult([]))
-    await Promise.all([a, b])
+    const [first, second] = await Promise.all([a, b])
+    expect(second).not.toBe(first)
+    expect(scanRepos.mock.calls).toEqual([
+      [['/a'], { includeHome: false, maxDepth: 6 }, 'mac'],
+      [['/b'], { includeHome: false, maxDepth: 6 }, 'mac'],
+    ])
   })
 
-  it('never fires the connect trigger for the local machine and throttles repeats', () => {
+  it('never fires the connect trigger for the local machine and throttles repeats', async () => {
     vi.useFakeTimers()
     try {
       const scanRepos = vi.fn(
@@ -271,22 +278,22 @@ describe('MachineRepoDiscovery.scan', () => {
         ): Promise<ScanReposResult> => scanResult([]),
       )
       const { svc } = makeService({
-        listRepos: () => [row('hub', '/home/u/src/x')],
+        listRepos: async () => [row('hub', '/home/u/src/x')],
         scanRepos,
         now: () => Date.now(),
       })
 
       svc.onMachineConnected(asMachineId('local'))
-      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(scanRepos).not.toHaveBeenCalled()
 
       svc.onMachineConnected(asMachineId('mac'))
       svc.onMachineConnected(asMachineId('mac')) // reconnect burst — throttled
-      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(scanRepos.mock.calls.filter((c) => c[2] === 'mac').length).toBeGreaterThanOrEqual(1)
       const callsAfterFirst = scanRepos.mock.calls.length
       svc.onMachineConnected(asMachineId('mac'))
-      vi.advanceTimersByTime(10_000)
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(scanRepos.mock.calls.length).toBe(callsAfterFirst)
     } finally {
       vi.useRealTimers()
@@ -319,18 +326,18 @@ describe('moved-repo heal (POD-1498)', () => {
     const removed: Array<{ path: string; machineId: string }> = []
     const added: Array<{ path: string; machineId: string; originUrl?: string }> = []
     const svc = new MachineRepoDiscovery({
-      listRepos: () => rows,
-      addRepo: (path, machineId, originUrl) => {
+      listRepos: async () => rows,
+      addRepo: async (path, machineId, originUrl) => {
         added.push({ path, machineId, ...(originUrl ? { originUrl } : {}) })
       },
-      removeRepo: (path, machineId) => {
+      removeRepo: async (path, machineId) => {
         removed.push({ path, machineId })
         const i = rows.findIndex((r) => r.path === path && r.machineId === machineId)
         if (i >= 0) rows.splice(i, 1)
       },
       ...(opts.pathExists ? { pathExists: opts.pathExists } : {}),
       scanRepos: async () => scanResult(opts.found ?? [{ path: NEW, originUrl: ORIGIN }]),
-      machineName: (id) => `name:${id}`,
+      machineName: async (id) => `name:${id}`,
       localMachineId: asMachineId('local'),
     })
     return { svc, added, removed, rows }
@@ -399,13 +406,13 @@ describe('moved-repo heal (POD-1498)', () => {
     const rows = [row('vmi', OLD, ORIGIN)]
     const removed: Array<{ path: string }> = []
     const svc = new MachineRepoDiscovery({
-      listRepos: () => rows,
-      addRepo: () => {},
-      removeRepo: (path) => {
+      listRepos: async () => rows,
+      addRepo: async () => {},
+      removeRepo: async (path) => {
         removed.push({ path })
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
-      machineName: (id) => `name:${id}`,
+      machineName: async (id) => `name:${id}`,
       localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
@@ -416,15 +423,15 @@ describe('moved-repo heal (POD-1498)', () => {
     const probed: string[] = []
     const rows = [row('vmi', NEW, ORIGIN)]
     const svc = new MachineRepoDiscovery({
-      listRepos: () => rows,
-      addRepo: () => {},
-      removeRepo: () => {},
+      listRepos: async () => rows,
+      addRepo: async () => {},
+      removeRepo: async () => {},
       pathExists: async (path) => {
         probed.push(path)
         return true
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
-      machineName: (id) => `name:${id}`,
+      machineName: async (id) => `name:${id}`,
       localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
