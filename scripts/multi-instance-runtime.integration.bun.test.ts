@@ -631,6 +631,66 @@ describe('long instance durable sockets', () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  it('reports a rejected source CLI boot with a nonzero exit and its reason', async () => {
+    const spec = makeSpec('blue', 'rejected-source-boot')
+    await seedNamedState(spec)
+    writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+    const db = openDatabase(join(spec.stateDir, 'podium.db'))
+    try {
+      db.prepare("UPDATE machines SET id = 'local'").run()
+    } finally {
+      db.close()
+    }
+    const result = await runCli(spec, ['server', '--takeover'], { PODIUM_ADOPT_STATE: '1' })
+    expect(result.stderr).toContain('retired machine sentinels')
+    expect(result.stderr).toContain('machines.id')
+    expect(result.code, result.stderr).toBe(1)
+  })
+
+  it('boots a healthy source CLI server and exits zero on graceful shutdown', async () => {
+    const spec = makeSpec('blue', 'healthy-source-boot')
+    await seedNamedState(spec)
+    writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+    const child = spawn(
+      process.execPath,
+      ['--conditions=@podium/source', CLI, '--instance', spec.id, 'server', '--takeover'],
+      {
+        cwd: ROOT,
+        env: instanceEnv(spec, { PODIUM_ADOPT_STATE: '1' }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    let output = ''
+    child.stdout?.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    const exited = new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', resolve)
+    })
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 70_000)
+    try {
+      await waitUntil(async () => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          throw new Error(`healthy source boot exited before readiness: ${output}`)
+        }
+        return (await version(spec))?.instanceId === 'blue' && output.includes('podium server up')
+      }, 'healthy source CLI server')
+      // The source launcher installs its shutdown handlers after announcing boot.
+      // Allow that startup continuation to run before delivering the signal.
+      await Bun.sleep(100)
+      child.kill('SIGTERM')
+      expect(await exited, output).toBe(0)
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      await exited
+      clearTimeout(timeout)
+    }
+  }, 90_000)
+
   it('dispatches supervisor lifecycle and progress through the production gateway', async () => {
     const spec = makeSpec('blue', 'machine-events')
     const child = Bun.spawn(

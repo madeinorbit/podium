@@ -62,4 +62,13 @@ async function runEntry(): Promise<void> {
   await main()
 }
 
-if (import.meta.main) void runEntry()
+if (import.meta.main) {
+  try {
+    await runEntry()
+  } catch (error) {
+    // Boot rejection is fatal even after the runtime installs its surviving
+    // unhandled-rejection handler. Supervisors must see a failed launch.
+    console.error(error)
+    process.exit(1)
+  }
+}
