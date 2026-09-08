@@ -160,7 +160,7 @@ try {
   const reconnected = await connect()
   await until(() => reconnected.grants().length === 1, 'settled approval catch-up grant')
   assert.deepEqual(reconnected.grants()[0]?.target, target)
-  assert.equal(operations.engine.active('lifecycle'), undefined)
+  assert.equal(await operations.engine.active('lifecycle'), undefined)
   reconnected.socket.send(
     JSON.stringify({
       type: 'updateStatus',
