@@ -199,7 +199,7 @@ describe('flag-on delivery: the window is open until the driver answers (R3)', (
     expect(h.pushes).toHaveLength(1)
     expect(await receipts(h)).toEqual([])
 
-    expect(h.settleReceipts()).toBe(1)
+    expect(await h.settleReceipts()).toBe(1)
     expect(await receipts(h)).toMatchObject([{ messageId: r.id, outcome: 'accepted' }])
   })
 
@@ -219,7 +219,7 @@ describe('flag-on delivery: the window is open until the driver answers (R3)', (
     await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
     expect((await h.svc.message(r.id))!.status).toBe('delivered')
 
-    h.settleReceipts()
+    await h.settleReceipts()
     // LATE EVIDENCE ABOUT A CLOSED QUESTION. The receipt is recorded for the
     // ledger's benefit, but a delivered row must never walk backwards because
     // the driver could not prove what the transcript already showed.
