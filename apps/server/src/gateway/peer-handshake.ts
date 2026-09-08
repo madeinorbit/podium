@@ -307,13 +307,23 @@ const asLegacyFrame = (raw: string): DaemonHandshake | null => {
  * same as saying the build is unknown. An older daemon reconnecting must not
  * erase what a newer one already reported, so absence is a no-op.
  */
-export function recordHelloBuild(
+export async function recordHelloBuild(
   store: {
-    setMachineBuild: (id: MachineId, build: PeerBuild, caps: string[], at: string) => void
+    setMachineBuild: (
+      id: MachineId,
+      build: PeerBuild,
+      caps: string[],
+      at: string,
+    ) => Promise<void>
   },
   machineId: MachineId,
   hello: { build: PeerBuild | undefined; caps: string[]; at: string },
-): void {
+): Promise<void> {
   if (!hello.build) return
-  store.setMachineBuild(machineId, hello.build, hello.caps, hello.at)
+  // AWAITED, and the port says Promise<void> rather than void. setMachineBuild is
+  // async now, and a `=> void` slot accepts a promise without complaint, so this
+  // was dropping the build write. Two places downstream state the ordering as a
+  // fact -- reconciler.ts and relay.ts both say "recordHelloBuild precedes
+  // attach" -- and that was only true of the CALL, not of the write.
+  await store.setMachineBuild(machineId, hello.build, hello.caps, hello.at)
 }

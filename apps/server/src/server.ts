@@ -1946,7 +1946,7 @@ export async function startServer(
           DEPLOYMENT,
         )
         if (!registry.recoveryOnly) {
-          recordHelloBuild(registry.modules.machines, outcome.machineId, {
+          await recordHelloBuild(registry.modules.machines, outcome.machineId, {
             build: outcome.build,
             caps: outcome.offeredCaps,
             at: new Date().toISOString(),

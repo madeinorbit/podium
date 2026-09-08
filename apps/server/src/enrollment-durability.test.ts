@@ -153,7 +153,11 @@ describe('server host enrollment provenance (POD-2467)', () => {
 
   it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', async () => {
     const source = makeWorld(dir)
-    const paired = pairRemote((await source).machines, {
+    // AWAITED BEFORE THE READ. pairRemote appends the enrollment; reading
+    // nextSerial while it is still in flight captures the serial from BEFORE the
+    // pairing, so the later assertion that promotion did not advance it compares
+    // against the wrong baseline and sees 2 where it wants 1.
+    const paired = await pairRemote((await source).machines, {
       machineId: PROMOTED_HOST,
       ownerUserId: OTHER,
     })

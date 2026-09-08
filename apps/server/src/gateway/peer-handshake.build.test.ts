@@ -44,7 +44,7 @@ describe('build report on hello accept', () => {
       tokenHash: 'token-hash',
       ownerUserId: asUserId('user:sole'),
     })
-    recordHelloBuild(store.machines, asMachineId('m1'), {
+    await recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2', installKind: 'installed' },
       caps: ['update.delivery.feed'],
       at: '2026-08-04T00:00:00.000Z',
@@ -61,12 +61,12 @@ describe('build report on hello accept', () => {
       tokenHash: 'token-hash',
       ownerUserId: asUserId('user:sole'),
     })
-    recordHelloBuild(store.machines, asMachineId('m1'), {
+    await recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2' },
       caps: [],
       at: '2026-08-04T00:00:00.000Z',
     })
-    recordHelloBuild(store.machines, asMachineId('m1'), {
+    await recordHelloBuild(store.machines, asMachineId('m1'), {
       build: undefined,
       caps: [],
       at: '2026-08-04T01:00:00.000Z',
