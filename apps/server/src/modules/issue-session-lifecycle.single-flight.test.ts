@@ -42,16 +42,26 @@ describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', ()
     try {
       const h = await harness()
       let reentered = false
+      let armed = false
       h.setOnList(() => {
-        if (reentered) return
+        if (!armed || reentered) return
         reentered = true
         // Fire the interval again from inside the pass.
         vi.advanceTimersByTime(CLOSED_ISSUE_SWEEP_INTERVAL_MS)
       })
 
-      vi.advanceTimersByTime(CLOSED_ISSUE_SWEEP_INTERVAL_MS)
+      // SETTLE THE STARTUP PASS FIRST. The interval is armed from that pass's
+      // own completion rather than from boot, so re-entering while it is still
+      // in flight would have no interval to fire and this test would pass
+      // vacuously. The startup pass itself runs before the spy is installed, so
+      // it contributes no calls.
+      await vi.advanceTimersByTimeAsync(0)
+      armed = true
+
+      await vi.advanceTimersByTimeAsync(CLOSED_ISSUE_SWEEP_INTERVAL_MS)
 
       expect(reentered).toBe(true)
+      // One periodic pass; the re-entrant tick inside it was skipped.
       expect(h.calls()).toBe(1)
       h.done()
     } finally {
