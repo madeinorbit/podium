@@ -102,6 +102,18 @@ async function bootstrapped(
   await h.replica.settled()
 }
 
+/** Hold the authority reply while a test inspects the in-flight heal. */
+function holdHeal(authority: FakeAuthority): () => void {
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const changesSince = authority.changesSince.bind(authority)
+  vi.spyOn(authority, 'changesSince').mockImplementation(async (cursor) => {
+    await barrier
+    return changesSince(cursor)
+  })
+  return release
+}
+
 const session = (
   seq: number,
   id: string,
@@ -276,11 +288,13 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     await bootstrapped(h, 10, [])
     h.authority.changesSinceQueue = [deltaFrame(10, 14, [session(12, 's1', 'healed')])]
 
+    const releaseHeal = holdHeal(h.authority)
     const outcome = await h.replica.receive(deltaFrame(13, 14, [session(14, 's2', 'late')]))
 
     expect(outcome.rowId).toBe('D7-1-GAP')
     expect(outcome.rung).toBe(1)
     expect(h.replica.cursor?.seq).toBe(10) // NOT advanced
+    releaseHeal()
     await h.replica.settled()
     expect(h.authority.changesSinceCalls).toEqual([cursorAt(10)])
     expect(h.replica.cursor?.seq).toBe(14)
@@ -550,28 +564,28 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
    * drop-the-outbox bug is reachable by a colleague clicking share. Proven here
    * per rung rather than assumed for one of them.
    */
-  const rungs: { name: string; rung: number; drive: (h: Harness) => void }[] = [
+  const rungs: { name: string; rung: number; drive: (h: Harness) => Promise<unknown> }[] = [
     {
       name: 'rescope (authz — Amendment 1 D14.4)',
       rung: 2,
-      drive: (h) => void h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH }),
+      drive: (h) => h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH }),
     },
     {
       name: 'resync-required (backpressure — D9)',
       rung: 2,
       drive: (h) =>
-        void h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH }),
+        h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH }),
     },
     {
       name: 'epoch mismatch (rung 4)',
       rung: 4,
       drive: (h) =>
-        void h.replica.receive(deltaFrame(10, 11, [session(11, 'x', 'y')], { epoch: 'epoch-2' })),
+        h.replica.receive(deltaFrame(10, 11, [session(11, 'x', 'y')], { epoch: 'epoch-2' })),
     },
     {
       name: 'malformed frame (rung 3)',
       rung: 3,
-      drive: (h) => void h.replica.receive(deltaFrame(10, 14, [session(99, 'x', 'y')])),
+      drive: (h) => h.replica.receive(deltaFrame(10, 14, [session(99, 'x', 'y')])),
     },
     {
       name: 'local corruption (rung 5)',
@@ -586,7 +600,7 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
     {
       name: 'replica schema version bump (rung 6)',
       rung: 6,
-      drive: (h) => void h.replica.replicaSchemaChanged(),
+      drive: async (h) => h.replica.replicaSchemaChanged(),
     },
   ]
 
@@ -608,7 +622,7 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
       })
       h.authority.slice = { snapshotSeq: 77, rows: [session(70, 'fresh', 'new')] }
 
-      drive(h)
+      await drive(h)
       await h.replica.settled()
 
       expect(h.replica.posture).toBe('live')
@@ -2156,9 +2170,11 @@ describe('every declared ADR route is driven, not merely declared', () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.authority.changesSinceQueue = [deltaFrame(10, 12, [session(12, 's', 'v')])]
+    const releaseHeal = holdHeal(a.authority)
     await a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
     expect(a.replica.posture).toBe('healing')
     a.store.setCorrupt(true)
+    releaseHeal()
     await a.replica.settled().catch(() => undefined)
     expect(corruptFrom(a.replica)).toEqual(['healing'])
 
@@ -2194,10 +2210,12 @@ describe('every declared ADR route is driven, not merely declared', () => {
     // circuit the walk and the covered frame behind it would never be classified.
     // That is exactly what the previous fixture did, which is why the row this
     // test is named for never fired.
+    const releaseHeal = holdHeal(h.authority)
     await h.replica.receive(deltaFrame(12, 15, [session(15, 'x', 'y')]))
     expect(h.replica.posture).toBe('healing')
     expect((await h.replica.receive(deltaFrame(15, 18, []))).rowId).toBe('D6-BUFFER')
 
+    releaseHeal()
     await h.replica.settled()
 
     // Both were at or below the healed cursor, so both are dropped rather than
