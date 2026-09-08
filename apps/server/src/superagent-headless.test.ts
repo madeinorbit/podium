@@ -48,7 +48,7 @@ async function harness() {
   const turnAcks: TurnAck[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'headlessTurnRequest') turnReqs.push(m)
     if (m.type === 'headlessBind') bindReqs.push(m)
     if (m.type === 'headlessTurnAck') turnAcks.push(m)
@@ -383,7 +383,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    expect(() => h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).not.toThrow()
+    await expect(h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).resolves.toBeUndefined()
     // The thread is usable again immediately — the whole point of the hatch.
     await expect(
       h.sa.sendTurn({
@@ -1010,9 +1010,9 @@ describe('openInTerminal + one-writer lock', () => {
     })
     await h.sa.interruptTurn({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') })
     expect(h.interrupts).toEqual([podiumSessionId])
-    expect(() =>
+    await expect(
       h.sa.interruptTurn({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('btw_none') }),
-    ).toThrow(/unknown thread/)
+    ).rejects.toThrow(/unknown thread/)
   })
 })
 
@@ -1022,14 +1022,20 @@ describe('boot reconciliation for headless sessions', () => {
     const stalled = h.sa as unknown as {
       composeContext: () => Promise<undefined>
     }
-    stalled.composeContext = () => new Promise(() => {})
+    let preparationStarted!: () => void
+    const preparing = new Promise<void>((resolve) => { preparationStarted = resolve })
+    stalled.composeContext = () => {
+      preparationStarted()
+      return new Promise(() => {})
+    }
 
-    void await h.sa.sendTurn({
+    void h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
       threadId: asThreadId('global'),
       text: 'accepted before preparation',
       focus: { view: 'issues' },
     })
+    await preparing
     expect(await h.registry.sessionStore.superagent.listQueuedInputs()).toMatchObject([
       {
         threadId: asThreadId('global'),
@@ -1043,7 +1049,7 @@ describe('boot reconciliation for headless sessions', () => {
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -1065,22 +1071,28 @@ describe('boot reconciliation for headless sessions', () => {
     const stalled = h.sa as unknown as {
       composeContext: () => Promise<undefined>
     }
-    stalled.composeContext = () => new Promise(() => {})
+    let preparationStarted!: () => void
+    const preparing = new Promise<void>((resolve) => { preparationStarted = resolve })
+    stalled.composeContext = () => {
+      preparationStarted()
+      return new Promise(() => {})
+    }
 
-    void await h.sa.sendTurn({
+    void h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
       threadId: asThreadId('global'),
       text: 'run on grok',
       agentKind: 'grok',
       model: 'grok-4.5',
     })
+    await preparing
     expect((await h.registry.sessionStore.superagent.listQueuedInputs())[0]?.agentKind).toBe('grok')
 
     const store = h.registry.sessionStore
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -1111,7 +1123,7 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
-    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
     })
@@ -1175,7 +1187,7 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []
-    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
+    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
       if (m.type === 'headlessBind') {
         binds.push(m)
         queueMicrotask(() =>
