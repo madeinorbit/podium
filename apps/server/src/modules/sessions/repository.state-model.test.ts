@@ -356,3 +356,99 @@ describe('driver columns participate in draft commits', () => {
     },
   )
 })
+
+describe('two successful overlapping writes of different fields [POD-3720]', () => {
+  /**
+   * Sibling operations, not a nested-in-span writer. Both `write()` calls cut
+   * their drafts before either commit returns, which is the lost-update the
+   * whole-state draft still permits after POD-3330 and POD-3717: each caller
+   * awaits its own persist, and two awaits still interleave.
+   */
+  function overlapFixture() {
+    const session = makeSession()
+    const sessions = new Map([[session.sessionId, session]])
+    const upserted: { id: string; title: string | null; name: string | null }[] = []
+    let hold = false
+    const waiting: Array<() => void> = []
+    const repo = new SessionRepository({
+      sessions,
+      store: {
+        sessions: {
+          upsertSession: (row: { id: string; title: string | null; name: string | null }) =>
+            upserted.push({ id: row.id, title: row.title, name: row.name }),
+        },
+      },
+      ledger: {
+        commit: async ({ write }: { write: () => Promise<void> }) => {
+          if (hold) await new Promise<void>((resolve) => waiting.push(resolve))
+          await write()
+          return { changes: [] }
+        },
+        capture: () => [],
+      },
+      view: {
+        wire: (s: Session, _p: unknown, _m: unknown, d: { title: string; name: string } = s) => ({
+          sessionId: s.sessionId,
+          title: d.title,
+          name: d.name,
+        }),
+      },
+      now: () => Date.now(),
+      broadcastSessions: vi.fn(),
+      flushBroadcasts: vi.fn(),
+      runScheduledBroadcast: vi.fn(),
+      listSessions: vi.fn(async () => []),
+    } as never)
+    return {
+      repo,
+      session,
+      upserted,
+      holdNextCommits() {
+        hold = true
+      },
+      releaseCommits() {
+        hold = false
+        for (const resolve of waiting) resolve()
+        waiting.length = 0
+      },
+    }
+  }
+
+  it('keeps both fields when two write() calls overlap on one session', async () => {
+    const f = overlapFixture()
+    await f.repo.persist(f.session)
+    f.holdNextCommits()
+
+    const first = f.repo.write(f.session, (draft) => {
+      draft.name = 'A name'
+    })
+    const second = f.repo.write(f.session, (draft) => {
+      draft.title = 'B title'
+    })
+    f.releaseCommits()
+    await Promise.all([first, second])
+
+    expect(f.session.name, "the first write's field is still on the session").toBe('A name')
+    expect(f.session.title, "the second write's field is still on the session").toBe('B title')
+  })
+
+  it('keeps both fields when two persistDrafts overlap on already-cut drafts', async () => {
+    // persistDraft-direct: both drafts are cut from the same live state, then
+    // persisted. A write() lease that recuts inside the lock does not cover
+    // this; the stale whole-state draft has to overlay only what it changed.
+    const f = overlapFixture()
+    await f.repo.persist(f.session)
+    const firstDraft = f.repo.draft(f.session)
+    firstDraft.name = 'A name'
+    const secondDraft = f.repo.draft(f.session)
+    secondDraft.title = 'B title'
+    f.holdNextCommits()
+    const first = f.repo.persistDraft(f.session, firstDraft)
+    const second = f.repo.persistDraft(f.session, secondDraft)
+    f.releaseCommits()
+    await Promise.all([first, second])
+
+    expect(f.session.name, "the first draft's field is still on the session").toBe('A name')
+    expect(f.session.title, "the second draft's field is still on the session").toBe('B title')
+  })
+})
