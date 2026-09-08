@@ -88,7 +88,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
    * POD-2213/POD-2239. Three tokens, three states of knowledge, and the second
    * time this epic shipped an arm on one side only.
    */
-  it('classifies all three schema refusals from their own constructors', () => {
+  it('classifies all three schema refusals from their own constructors', async () => {
     const advanced = refuseSchemaRegression({
       applied: ['0042_add_operations'],
       targetDefines: ['0001_init'],
@@ -101,7 +101,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
       currentVersion: '0.1.7',
       targetVersion: '0.1.3',
     })
-    const unreadable = createSchemaGate({
+    const unreadable = await createSchemaGate({
       readApplied: () => {
         throw new Error('SQLITE_BUSY: database is locked')
       },
@@ -122,8 +122,8 @@ describe('every refusal a daemon can produce is classified by the shared table',
    * family below it in the table is built to catch exactly that shape. Driven
    * through the real gate so the ordering is proved on a real sentence.
    */
-  it('classifies an unreadable ledger by its token, not by the errno it quotes', () => {
-    const detail = createSchemaGate({
+  it('classifies an unreadable ledger by its token, not by the errno it quotes', async () => {
+    const detail = await createSchemaGate({
       readApplied: () => {
         throw new Error('ETIMEDOUT waiting for the database lock')
       },

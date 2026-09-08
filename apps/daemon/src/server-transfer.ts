@@ -31,9 +31,16 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { configPath, stateDir } from '@podium/runtime/config'
+import {
+  candidateValidationCapability,
+  configPath,
+  stateDir,
+} from '@podium/runtime/config'
 import { validatePublicUrl } from '@podium/runtime/setup'
-import { openDatabase } from '@podium/runtime/sqlite'
+import {
+  SqliteCandidateError,
+  validateSqliteCandidate,
+} from '@podium/runtime/sqlite-candidate'
 import {
   applyTargetServerPromotion,
   establishTargetMachineId,
@@ -398,6 +405,12 @@ export async function writeFully(
 }
 
 async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
+  if (candidateValidationCapability() === 'not-applicable') {
+    fail(
+      'refused',
+      'candidate-file validation is not applicable on this backend; moving a hosted tenant is a connection-string change',
+    )
+  }
   const dbEntry = meta.manifest.files.find((entry) => entry.path === 'podium.db')
   const ledgerEntry = meta.manifest.files.find((entry) => entry.path === 'enrollment.ledger')
   if (!dbEntry || !ledgerEntry)
@@ -441,44 +454,28 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
   if (enrolledAt === 0 || revokedAt >= enrolledAt)
     fail('identity-mismatch', 'target machine has no active enrollment in the candidate ledger')
 
-  let db: ReturnType<typeof openDatabase> | undefined
   try {
-    db = openDatabase(stagePath(meta.transferId, dbEntry.path), { readOnly: true })
-    const integrity = db.prepare('PRAGMA integrity_check').get() as
-      | { integrity_check?: string }
-      | undefined
-    if (integrity?.integrity_check !== 'ok')
-      fail('candidate-invalid', 'candidate database failed integrity_check')
-    const target = db.prepare('SELECT id FROM machines WHERE id = ?').get(meta.targetMachineId)
-    if (!target) fail('identity-mismatch', 'target machine is absent from the candidate database')
-    const feed = db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get() as
-      | { feed_id?: string; epoch?: string }
-      | undefined
-    if (!feed?.feed_id || !feed.epoch)
-      fail('candidate-invalid', 'candidate database has no feed identity')
-    const schema = db
-      .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
-      .get() as { name?: string } | undefined
-    if (!schema?.name) fail('candidate-invalid', 'candidate database has no schema ledger')
-    if (feed.feed_id !== meta.manifest.sourceFeedId || feed.epoch !== meta.manifest.sourceFeedEpoch)
-      fail('identity-mismatch', 'candidate feed identity does not match transfer manifest')
-    if (schema.name !== meta.manifest.schemaVersion)
-      fail('candidate-invalid', 'candidate schema does not match transfer manifest')
+    const proof = validateSqliteCandidate({
+      databasePath: stagePath(meta.transferId, dbEntry.path),
+      targetMachineId: meta.targetMachineId,
+      expectedFeedId: meta.manifest.sourceFeedId,
+      expectedFeedEpoch: meta.manifest.sourceFeedEpoch,
+      expectedSchemaVersion: meta.manifest.schemaVersion,
+    })
     return {
       operationId: meta.operationId,
       transferId: meta.transferId,
       manifestDigest: meta.manifestDigest,
       targetMachineId: meta.targetMachineId,
-      feedId: feed.feed_id,
-      feedEpoch: feed.epoch,
-      schemaVersion: schema.name,
+      feedId: proof.feedId,
+      feedEpoch: proof.feedEpoch,
+      schemaVersion: proof.schemaVersion,
       buildVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
     }
   } catch (error) {
     if (error instanceof ServerTransferError) throw error
+    if (error instanceof SqliteCandidateError) fail(error.code, error.message)
     throw new ServerTransferError('candidate-invalid', 'candidate database schema is not supported')
-  } finally {
-    db?.close()
   }
 }
 

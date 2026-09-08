@@ -10,6 +10,7 @@
       "import": "./src/index.ts"
     },
     "./sqlite": "./src/sqlite/index.ts",
+    "./sqlite-candidate": "./src/sqlite-candidate.ts",
     "./config": "./src/config.ts",
     "./instance": "./src/instance.ts",
     "./abduco-socket": "./src/abduco-socket.ts",
@@ -30,6 +31,7 @@
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",
+    "./libsql": "./src/libsql.ts",
     "./logging": "./src/logging.ts",
     "./log-forward": "./src/log-forward.ts",
     "./process-safety": "./src/process-safety.ts",
@@ -70,6 +72,8 @@
     "vitest": "5.0.0-beta.6"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "@libsql/core": "^0.18.0",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",

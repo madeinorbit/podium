@@ -72,13 +72,15 @@ export function refuseSchemaRegression(input: {
 
 /** Bind the pure refusal to a fresh read of this instance's migration ledger. */
 export function createSchemaGate(deps: {
-  readApplied: () => readonly string[] | undefined
+  readApplied: () => readonly string[] | undefined | Promise<readonly string[] | undefined>
   currentVersion: string
-}): (target: { version: string; schema?: { migrations: string[] } }) => string | undefined {
-  return (target) => {
+}): (
+  target: { version: string; schema?: { migrations: string[] } },
+) => string | undefined | Promise<string | undefined> {
+  return async (target) => {
     let applied: readonly string[] | undefined
     try {
-      applied = deps.readApplied()
+      applied = await Promise.resolve(deps.readApplied())
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       return (

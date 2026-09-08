@@ -2,6 +2,7 @@ import { UpdateChannel } from '@podium/model'
 import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { z } from 'zod'
+import type { QueryClient } from '../../store/executor'
 
 const RecoveryState = z.object({
   projectedCurrent: z.boolean().optional(),
@@ -42,7 +43,38 @@ const RecoverySnapshot = z.object({
 export type UpdateRecoverySnapshot = z.infer<typeof RecoverySnapshot>
 export interface UpdateRecoveryPersistence {
   read(): UpdateRecoverySnapshot | undefined
-  write(snapshot: UpdateRecoverySnapshot): void
+  write(snapshot: UpdateRecoverySnapshot): void | Promise<void>
+}
+
+function parseRecovery(row: { value: string } | undefined): UpdateRecoverySnapshot | undefined {
+  return row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
+}
+
+/** QueryClient adapter so a Turso-backed store can persist the same checkpoint. */
+export function updateRecoveryFromQueryClient(client: QueryClient): UpdateRecoveryPersistence & {
+  hydrate(): Promise<void>
+} {
+  let cache: UpdateRecoverySnapshot | undefined
+  return {
+    async hydrate() {
+      cache = parseRecovery(
+        (await client.get('SELECT value FROM meta WHERE key = ?', 'updates.execution.v1')) as
+          | { value: string }
+          | undefined,
+      )
+    },
+    read: () => cache,
+    write(snapshot) {
+      cache = snapshot
+      return client
+        .run(
+          'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+          'updates.execution.v1',
+          JSON.stringify(snapshot),
+        )
+        .then(() => undefined)
+    },
+  }
 }
 
 /** One atomic coordinator checkpoint in the existing database. No constructor
@@ -55,7 +87,7 @@ export class UpdateRecoveryStore implements UpdateRecoveryPersistence {
     const row = this.db
       .prepare('SELECT value FROM meta WHERE key = ?')
       .get('updates.execution.v1') as { value: string } | undefined
-    return row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
+    return parseRecovery(row)
   }
 
   write(snapshot: UpdateRecoverySnapshot): void {

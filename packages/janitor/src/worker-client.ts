@@ -17,6 +17,8 @@ export interface JanitorWorkerStartOptions {
   serverUrl: string
   token: string
   dbPath?: string
+  databaseUrl?: string
+  readAuthToken?: string
   tickMs?: number
 }
 

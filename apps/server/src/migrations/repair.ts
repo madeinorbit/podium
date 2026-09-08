@@ -110,6 +110,49 @@ export function applySchemaRepairs(db: SqlDatabase): string[] {
   return repaired
 }
 
+/** The execute surface the remote migrator uses for the same named-column repairs. */
+export interface SchemaRepairSession {
+  execute(
+    sql: string,
+    args?: readonly (string | number | bigint | null)[],
+  ): Promise<{ rows: readonly Record<string, unknown>[] }>
+}
+
+export async function applySchemaRepairsOnSession(session: SchemaRepairSession): Promise<string[]> {
+  const ledger = await session.execute(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    ['__drizzle_migrations'],
+  )
+  if (ledger.rows[0] === undefined) return []
+  const appliedRows = await session.execute(
+    'SELECT name FROM __drizzle_migrations WHERE name IS NOT NULL',
+  )
+  const applied = new Set(
+    appliedRows.rows
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === 'string'),
+  )
+  const repaired: string[] = []
+  for (const required of REQUIRED_COLUMNS) {
+    if (!applied.has(required.addedBy)) continue
+    const table = await session.execute(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      [required.table],
+    )
+    if (table.rows[0] === undefined) continue
+    const info = await session.execute(`PRAGMA table_info(${required.table})`)
+    const columns = new Set(
+      info.rows
+        .map((row) => row.name)
+        .filter((name): name is string => typeof name === 'string'),
+    )
+    if (columns.has(required.column)) continue
+    await session.execute(required.ddl)
+    repaired.push(`${required.table}.${required.column}`)
+  }
+  return repaired
+}
+
 /** The recorded reason for a repair, for the boot log. Empty when unknown. */
 export function repairReason(id: string): string {
   return REQUIRED_COLUMNS.find((r) => `${r.table}.${r.column}` === id)?.why ?? ''

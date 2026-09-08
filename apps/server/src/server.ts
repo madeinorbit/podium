@@ -92,6 +92,7 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { registerMintSessionRoute } from './mint-session-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -1034,6 +1035,7 @@ export async function startServer(
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
       hostMachineId,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
+      snapshotCapability: registry.sessionStore.durability.capabilities.snapshot,
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
       prepareVerifiedDatabaseSnapshot: async (from, target) =>
@@ -1288,6 +1290,10 @@ export async function startServer(
       ? c.text('ok')
       : c.text('resolving update targets', 503),
   )
+  registerMintSessionRoute(app, {
+    authenticateSecret: (secret) => bootstrapToken.length > 0 && secret === bootstrapToken,
+    store,
+  })
   app.use('*', async (c, next) => {
     if (!serverMoveDataPlaneDeferred || c.req.path === '/health') return next()
     return c.json({ error: 'server_not_ready', readiness: readiness() }, 503)

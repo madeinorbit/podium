@@ -39,30 +39,24 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
+import { resolveDatabaseBackend, stateDir } from '@podium/runtime/config'
+import { createLibsqlClient } from '@podium/runtime/libsql'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
-import { backupDatabase } from './migrations/backup'
-import { latestAppliedMigration } from './migrations/index'
-import {
-  type SnapshotVerification,
-  SnapshotVerifier,
-  type SnapshotVerifierDeps,
-} from './migrations/snapshot-verifier'
-import {
-  checkpointStore,
-  configureStoreConnection,
-  migrateStoreConnection,
-  setStoreTransferFence,
-} from './migrations/store-lifecycle'
+import { type SnapshotVerification, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
+import { configureLibsqlConnection, runLibsqlMigrations } from './migrations/libsql'
+import { configureStoreConnection, migrateStoreConnection } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
-import { UpdateRecoveryStore } from './modules/updates/recovery-store'
+import {
+  type UpdateRecoveryPersistence,
+  UpdateRecoveryStore,
+  updateRecoveryFromQueryClient,
+} from './modules/updates/recovery-store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -70,7 +64,13 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import {
+  createBunSqliteDurability,
+  createTursoDurability,
+  type DurabilityPort,
+} from './store/durability'
+import {
   createBunStoreExecutor,
+  createLibsqlStoreExecutor,
   type QueryClient,
   type RootStoreExecutor,
   type WatchdogOptions,
@@ -115,7 +115,7 @@ export function defaultDbPath(): string {
 }
 
 export class SessionStore {
-  private readonly db: SqlDatabase
+  private readonly db: SqlDatabase | undefined
   /**
    * WHAT THE REPOSITORY SET IS BOUND TO [POD-3254, spec §3.1].
    *
@@ -145,8 +145,14 @@ export class SessionStore {
    * than being named by each writer in turn. See `store/table-writes.ts`.
    */
   readonly tableWrites = new TableWrites()
-  /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
-  private readonly snapshotVerifier: SnapshotVerifier
+  /**
+   * File-level backup, snapshot, checkpoint and transfer [POD-3270].
+   *
+   * bun:sqlite today; Turso leaves backup/snapshot platform-managed and rejects
+   * the fence and candidate-file validation. Callers branch on
+   * `durability.capabilities`, never on a driver name.
+   */
+  readonly durability: DurabilityPort
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
@@ -212,7 +218,8 @@ export class SessionStore {
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
-  readonly updateRecovery: UpdateRecoveryStore
+  readonly updateRecovery: UpdateRecoveryPersistence
+  private readonly recoveryHydrate?: () => Promise<void>
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
@@ -256,7 +263,19 @@ export class SessionStore {
         log.error('transaction watchdog sink failed', { error: String(error) }),
     },
   ): Promise<SessionStore> {
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
+    const backend = resolveDatabaseBackend()
+    if (backend.kind === 'turso') {
+      return await SessionStore.openTurso(backend, hostMachineId, options, watchdog)
+    }
+    return await SessionStore.openSqlite(path, hostMachineId, options, watchdog)
+  }
+
+  private static async openSqlite(
+    path: string,
+    hostMachineId: MachineId,
+    options: SnapshotVerifierDeps & { queryOnly?: boolean },
+    watchdog: WatchdogOptions,
+  ): Promise<SessionStore> {
     let database = await openStoreDatabase(path)
     let executor = createBunStoreExecutor({
       database,
@@ -292,20 +311,75 @@ export class SessionStore {
     }
   }
 
-  private constructor(
-    private readonly path: string,
+  private static async openTurso(
+    backend: { url: string; authToken: string; readAuthToken?: string },
     hostMachineId: MachineId,
     options: SnapshotVerifierDeps & { queryOnly?: boolean },
-    database: SqlDatabase,
+    watchdog: WatchdogOptions,
+  ): Promise<SessionStore> {
+    const client = createLibsqlClient({ url: backend.url, authToken: backend.authToken })
+    const reader = createLibsqlClient({
+      url: backend.url,
+      authToken: backend.readAuthToken ?? backend.authToken,
+    })
+    const executor = createLibsqlStoreExecutor({
+      client,
+      reader,
+      startOpen: true,
+      watchdog,
+      effectSink: (error, label) =>
+        log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
+    })
+    try {
+      await configureLibsqlConnection(client)
+      const applied = await runLibsqlMigrations(client)
+      if (applied.length > 0) log.info('applied migrations', { applied })
+      await configureLibsqlConnection(client)
+      const store = new SessionStore(backend.url, hostMachineId, options, undefined, executor)
+      await store.initialize()
+      return store
+    } catch (error) {
+      await executor.close()
+      throw error
+    }
+  }
+
+  private constructor(
+    path: string,
+    hostMachineId: MachineId,
+    options: SnapshotVerifierDeps & { queryOnly?: boolean },
+    database: SqlDatabase | undefined,
     executor: RootStoreExecutor<QueryClient>,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.snapshotVerifier = new SnapshotVerifier(path, options)
     this.db = database
     this.executor = executor
+    this.durability =
+      database === undefined
+        ? createTursoDurability({
+            latestMigrationName: async () => {
+              const row = (await executor.drizzle.get(
+                `SELECT name FROM __drizzle_migrations WHERE name IS NOT NULL ORDER BY name DESC LIMIT 1`,
+              )) as { name?: unknown } | undefined
+              return typeof row?.name === 'string' && row.name.length > 0 ? row.name : undefined
+            },
+            feedIdentity: async () => {
+              const row = (await executor.drizzle.get(
+                `SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1`,
+              )) as { feed_id?: string; epoch?: string } | undefined
+              if (!row?.feed_id || !row.epoch) return undefined
+              return { feedId: row.feed_id, epoch: row.epoch }
+            },
+          })
+        : createBunSqliteDurability({
+            database,
+            path,
+            executor,
+            snapshotVerifierDeps: options,
+          })
 
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
@@ -382,8 +456,13 @@ export class SessionStore {
     // permanently undefined and the compiler could not say so. relay.ts hands it
     // to UpdatesService as the `recovery` port, so update recovery was silently
     // disabled: no snapshot written, none restored across a coordinator restart.
-    // UpdateRecoveryStore was never converted and still takes the raw handle.
-    this.updateRecovery = new UpdateRecoveryStore(this.db)
+    if (this.db === undefined) {
+      const recovery = updateRecoveryFromQueryClient(this.executor.drizzle)
+      this.updateRecovery = recovery
+      this.recoveryHydrate = () => recovery.hydrate()
+    } else {
+      this.updateRecovery = new UpdateRecoveryStore(this.db)
+    }
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
   }
@@ -414,6 +493,7 @@ export class SessionStore {
     // the facade constructor, for the same reason the identity refusals do:
     // ahead of every reader, so no in-memory `Session` can be holding the stale
     // pointer when it is cleared.
+    if (this.recoveryHydrate) await this.recoveryHydrate()
     await this.refuseLegacyIdentities()
     await this.backfillLegacyWorktreeMachines()
     this.searchIndexEnabledValue = isFeatureEnabled(
@@ -519,18 +599,12 @@ export class SessionStore {
 
   /** The exact newest migration identity the transfer target will verify. */
   async schemaVersionForTransfer(): Promise<string> {
-    return await this.executor.exclusive(async () => {
-      const name = latestAppliedMigration(this.db)
-      if (name === undefined) throw new Error('database migration identity is unavailable')
-      return name
-    })
+    return await this.durability.schemaVersion()
   }
 
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
   async checkpointForTransfer(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      await checkpointStore(session)
-    })
+    await this.durability.checkpoint()
   }
 
   /**
@@ -541,26 +615,7 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<string | undefined> {
-    return await this.executor.exclusive(async () =>
-      this.stageUpdateSnapshot(fromVersion, targetVersion),
-    )
-  }
-
-  private stageUpdateSnapshot(fromVersion: string, targetVersion: string): string | undefined {
-    if (this.path === ':memory:') return undefined
-    const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
-    const snapshot = backupDatabase(
-      this.db,
-      this.path,
-      `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
-      undefined,
-      undefined,
-      () => this.snapshotVerifier.verifiedFallbackPath(),
-    )
-    // Staged, not proved. The record is published before anything can await the
-    // proof so a crash in between is legible as "staged and never verified".
-    if (snapshot) this.snapshotVerifier.recordStaged(snapshot, randomUUID())
-    return snapshot
+    return await this.durability.snapshot(fromVersion, targetVersion)
   }
 
   /**
@@ -576,23 +631,7 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<SnapshotVerification> {
-    const staged = await this.snapshotBeforeUpdate(fromVersion, targetVersion)
-    if (!staged) {
-      return {
-        ok: false,
-        code: 'no-snapshotable-file',
-        detail: 'the database has no snapshotable file',
-        durationMs: 0,
-      }
-    }
-    let expectedSchemaVersion: string | undefined
-    try {
-      expectedSchemaVersion = await this.schemaVersionForTransfer()
-    } catch {
-      // A store with no migration identity still gets a quick_check proof; the
-      // schema comparison is the part that is skipped, not the verification.
-    }
-    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+    return await this.durability.verifiedSnapshot(fromVersion, targetVersion)
   }
 
   /**
@@ -608,8 +647,7 @@ export class SessionStore {
    * {@link discoverDatabaseSnapshots} is what changes that, at boot.
    */
   latestDatabaseSnapshot(): string | undefined {
-    if (this.path === ':memory:') return undefined
-    return this.snapshotVerifier.verifiedFallbackPath()
+    return this.durability.latestSnapshot()
   }
 
   /**
@@ -623,33 +661,22 @@ export class SessionStore {
    * Returns whether a background verification was started.
    */
   discoverDatabaseSnapshots(): boolean {
-    if (this.path === ':memory:') return false
-    return this.snapshotVerifier.discoverAndQueue()
+    return this.durability.discoverSnapshots()
   }
-
-  private transferFenceHeld = false
 
   /** Synchronous write guard for activity callbacks sharing this connection. */
   get transferFenceActive(): boolean {
-    return this.transferFenceHeld
+    return this.durability.transferFenceActive
   }
 
   /** In-process fence only: mint-session remains a separate writer until E.5. */
   async beginTransferFence(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      if (this.transferFenceHeld) throw new Error('transfer fence is already held')
-      await setStoreTransferFence(session, true)
-      this.transferFenceHeld = true
-    })
+    await this.durability.beginTransferFence()
   }
 
   /** Reopen SQLite writes after a confirmed pre-promotion abort. */
   async endTransferFence(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      if (!this.transferFenceHeld) return
-      await setStoreTransferFence(session, false)
-      this.transferFenceHeld = false
-    })
+    await this.durability.endTransferFence()
   }
 
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
@@ -680,7 +707,7 @@ export class SessionStore {
     // scan cannot outlive the database (rule 67). This is persist ordering, not
     // exclusive-lane membership — the proof never held exclusive.
     for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
-    const verifierClosed = this.snapshotVerifier.close()
+    const verifierClosed = this.durability.close()
     await this.executor.close(async () => {
       try {
         await persist?.()

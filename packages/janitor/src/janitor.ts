@@ -51,8 +51,40 @@ import {
   worktreeGcRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
+import { createLibsqlClient, type InValue } from '@podium/runtime/libsql'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
+
+/** Async query surface so the same readers run on bun:sqlite and libsql. */
+export interface JanitorSql {
+  get(sql: string, ...params: unknown[]): Promise<unknown>
+  all(sql: string, ...params: unknown[]): Promise<unknown[]>
+  close(): void | Promise<void>
+}
+
+export function janitorSqlFromSqlite(db: SqlDatabase): JanitorSql {
+  return {
+    get: async (sql, ...params) => db.prepare(sql).get(...(params as never[])),
+    all: async (sql, ...params) => db.prepare(sql).all(...(params as never[])) as unknown[],
+    close: () => db.close(),
+  }
+}
+
+export function janitorSqlFromLibsql(client: ReturnType<typeof createLibsqlClient>): JanitorSql {
+  return {
+    async get(sql, ...params) {
+      const result = await client.execute({ sql, args: params as InValue[] })
+      return result.rows[0]
+    },
+    async all(sql, ...params) {
+      const result = await client.execute({ sql, args: params as InValue[] })
+      return result.rows as unknown[]
+    },
+    close() {
+      client.close()
+    },
+  }
+}
 
 const log = createLogger('janitor')
 
@@ -605,7 +637,7 @@ export class JanitorService {
 
 /** Read-only WAL candidate reader; never infers live session/runtime truth. */
 export class MessageExpiryReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
   async read(input: ExpiryReadInput): Promise<ExpiryObservation[]> {
     const candidates: ExpiryObservation[] = []
@@ -614,7 +646,7 @@ export class MessageExpiryReader {
     let implicitDone = false
     let explicitDone = false
     let nextSource: 'implicit' | 'explicit' = 'implicit'
-    await runTimeBudgetedJob(() => {
+    await runTimeBudgetedJob(async () => {
       const remaining = input.limit - candidates.length
       if (remaining <= 0 || (implicitDone && explicitDone)) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, remaining)
@@ -629,8 +661,8 @@ export class MessageExpiryReader {
       nextSource = source === 'implicit' ? 'explicit' : 'implicit'
       const rows =
         source === 'implicit'
-          ? this.readImplicitPage(input.waitImplicitCutoff, pageSize, implicitCursor)
-          : this.readExplicitPage(input.now, pageSize, explicitCursor)
+          ? await this.readImplicitPage(input.waitImplicitCutoff, pageSize, implicitCursor)
+          : await this.readExplicitPage(input.now, pageSize, explicitCursor)
       for (const row of rows) {
         candidates.push(
           MessageExpiryObservation.parse({
@@ -660,65 +692,68 @@ export class MessageExpiryReader {
     return candidates
   }
 
-  private readImplicitPage(
+  private async readImplicitPage(
     cutoff: string,
     limit: number,
     cursor?: { createdAt: string; id: string },
-  ): Record<string, unknown>[] {
+  ): Promise<Record<string, unknown>[]> {
     const params: Array<string | number> = [cutoff]
     const after = cursor ? 'AND (created_at, id) > (?, ?)' : ''
     if (cursor) params.push(cursor.createdAt, cursor.id)
     params.push(limit)
-    return this.db
-      .prepare(
-        `SELECT id, status, lifecycle, created_at, expires_at
+    return (await this.db.all(
+      `SELECT id, status, lifecycle, created_at, expires_at
          FROM messages INDEXED BY idx_messages_expiry_implicit
          WHERE status = 'queued' AND lifecycle = 'wait' AND expires_at IS NULL
            AND created_at <= ? ${after}
          ORDER BY created_at ASC, id ASC
          LIMIT ?`,
-      )
-      .all(...params) as Record<string, unknown>[]
+      ...params,
+    )) as Record<string, unknown>[]
   }
 
-  private readExplicitPage(
+  private async readExplicitPage(
     now: string,
     limit: number,
     cursor?: { expiresAt: string; id: string },
-  ): Record<string, unknown>[] {
+  ): Promise<Record<string, unknown>[]> {
     const params: Array<string | number> = [now]
     const after = cursor ? 'AND (expires_at, id) > (?, ?)' : ''
     if (cursor) params.push(cursor.expiresAt, cursor.id)
     params.push(limit)
-    return this.db
-      .prepare(
-        `SELECT id, status, lifecycle, created_at, expires_at
+    return (await this.db.all(
+      `SELECT id, status, lifecycle, created_at, expires_at
          FROM messages INDEXED BY idx_messages_expiry_explicit
          WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ? ${after}
          ORDER BY expires_at ASC, id ASC
          LIMIT ?`,
-      )
-      .all(...params) as Record<string, unknown>[]
+      ...params,
+    )) as Record<string, unknown>[]
   }
 }
 
 /** Plan event-log prune batches from durable WAL facts under the time-budget helper. */
 export class EventLogPrunePlanner {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
   async plan(input: EventLogPrunePlanInput): Promise<EventLogPruneObservation[]> {
     const cutoff = new Date(input.nowMs - input.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
-    const cap = this.db
-      .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
-      .get(input.maxRows) as { id: number } | undefined
+    const cap = (await this.db.get(
+      'SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?',
+      input.maxRows,
+    )) as { id: number } | undefined
     const capThroughId = cap?.id ?? 0
-    const head = this.db
-      .prepare(`SELECT MIN(id) AS m FROM podium_events WHERE ts < ? OR id <= ?`)
-      .get(cutoff, capThroughId) as { m: number | null }
+    const head = (await this.db.get(
+      `SELECT MIN(id) AS m FROM podium_events WHERE ts < ? OR id <= ?`,
+      cutoff,
+      capThroughId,
+    )) as { m: number | null }
     if (head.m == null) return []
-    const eligible = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM podium_events WHERE ts < ? OR id <= ?`)
-      .get(cutoff, capThroughId) as { n: number }
+    const eligible = (await this.db.get(
+      `SELECT COUNT(*) AS n FROM podium_events WHERE ts < ? OR id <= ?`,
+      cutoff,
+      capThroughId,
+    )) as { n: number }
     if (eligible.n <= 0) return []
     const batchCount = Math.ceil(eligible.n / input.batchSize)
     const batches: EventLogPruneObservation[] = []
@@ -744,26 +779,28 @@ export class EventLogPrunePlanner {
 
 /** Plan change-log prune batches from durable WAL facts. */
 export class ChangeLogPrunePlanner {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
   async plan(input: ChangeLogPrunePlanInput): Promise<ChangeLogPruneObservation[]> {
     const maxSeq = (
-      this.db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM changes').get() as { m: number }
+      (await this.db.get('SELECT COALESCE(MAX(seq), 0) AS m FROM changes')) as { m: number }
     ).m
     const rowCapSeq = maxSeq - input.keepRows
-    const aged = this.db
-      .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
-      .get(input.nowMs - input.maxAgeMs) as { seq: number | null }
+    const aged = (await this.db.get(
+      'SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?',
+      input.nowMs - input.maxAgeMs,
+    )) as { seq: number | null }
     const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
     if (thresholdSeq <= 0) return []
     const minSeq = (
-      this.db.prepare('SELECT MIN(seq) AS m FROM changes WHERE seq <= ?').get(thresholdSeq) as {
-        m: number | null
-      }
+      (await this.db.get(
+        'SELECT MIN(seq) AS m FROM changes WHERE seq <= ?',
+        thresholdSeq,
+      )) as { m: number | null }
     ).m
     if (minSeq == null) return []
     const eligible = (
-      this.db.prepare('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?').get(thresholdSeq) as {
+      (await this.db.get('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?', thresholdSeq)) as {
         n: number
       }
     ).n
@@ -790,20 +827,22 @@ export class ChangeLogPrunePlanner {
 
 /** Plan maintenance_commands retention batches. */
 export class MaintenanceCommandsPrunePlanner {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
   async plan(
     input: MaintenanceCommandsPrunePlanInput,
   ): Promise<MaintenanceCommandsPruneObservation[]> {
     const cutoffAppliedAt = new Date(input.nowMs - input.maxAgeMs).toISOString()
-    const head = this.db
-      .prepare('SELECT MIN(rowid) AS m FROM maintenance_commands WHERE applied_at < ?')
-      .get(cutoffAppliedAt) as { m: number | null }
+    const head = (await this.db.get(
+      'SELECT MIN(rowid) AS m FROM maintenance_commands WHERE applied_at < ?',
+      cutoffAppliedAt,
+    )) as { m: number | null }
     if (head.m == null) return []
     const eligible = (
-      this.db
-        .prepare('SELECT COUNT(*) AS n FROM maintenance_commands WHERE applied_at < ?')
-        .get(cutoffAppliedAt) as { n: number }
+      (await this.db.get(
+        'SELECT COUNT(*) AS n FROM maintenance_commands WHERE applied_at < ?',
+        cutoffAppliedAt,
+      )) as { n: number }
     ).n
     if (eligible <= 0) return []
     const batchCount = Math.ceil(eligible / input.batchSize)
@@ -877,17 +916,16 @@ const ARCHIVE_VIEWER: UserId = FIRST_ADMIN_USER_ID
 /** Durable read + stopped session candidates [spec:SP-6144]. */
 export class SessionAutoArchiveReader {
   constructor(
-    private readonly db: SqlDatabase,
+    private readonly db: JanitorSql,
     private readonly viewer: UserId = ARCHIVE_VIEWER,
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
-    return this.db
-      .prepare(
-        // INNER JOIN, not LEFT: no row in `session_user_state` for this viewer
-        // means they have never read the session, which is exactly the case the
-        // old `s.read_at IS NOT NULL` excluded.
-        `SELECT s.id, s.issue_id, s.stopped_at, sus.read_at, s.archived
+    const rows = (await this.db.all(
+      // INNER JOIN, not LEFT: no row in `session_user_state` for this viewer
+      // means they have never read the session, which is exactly the case the
+      // old `s.read_at IS NOT NULL` excluded.
+      `SELECT s.id, s.issue_id, s.stopped_at, sus.read_at, s.archived
          FROM sessions s
          JOIN session_user_state sus ON sus.session_id = s.id AND sus.user_id = ?
          LEFT JOIN issues i ON i.id = s.issue_id
@@ -900,12 +938,15 @@ export class SessionAutoArchiveReader {
            AND (s.issue_id IS NULL OR i.parent_id IS NULL)
          ORDER BY sus.read_at ASC, s.id ASC
          LIMIT ?`,
-      )
-      .all(this.viewer, input.cutoffReadAt, input.cutoffReadAt, input.limit)
-      .map((row: any) => ({
-        sessionId: asSessionId(row.id),
-        issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
-        stoppedAt: row.stopped_at,
+      this.viewer,
+      input.cutoffReadAt,
+      input.cutoffReadAt,
+      input.limit,
+    )) as Array<Record<string, unknown>>
+    return rows.map((row) => ({
+        sessionId: asSessionId(String(row.id)),
+        issueId: row.issue_id === null || row.issue_id === undefined ? null : asIssueId(String(row.issue_id)),
+        stoppedAt: String(row.stopped_at),
         // The reader, not the timestamp (POD-1229): the server re-derives this
         // viewer's read state authoritatively and refuses an observation that
         // names anyone else. `sus.read_at` still drives the candidate query and
@@ -918,7 +959,7 @@ export class SessionAutoArchiveReader {
 
 export class IssueAutoArchiveReader {
   constructor(
-    private readonly db: SqlDatabase,
+    private readonly db: JanitorSql,
     private readonly viewer: UserId = ARCHIVE_VIEWER,
   ) {}
 
@@ -926,7 +967,7 @@ export class IssueAutoArchiveReader {
     const candidates: IssueAutoArchiveObservation[] = []
     let cursor: { readAt: string; id: string } | undefined
     let done = false
-    await runTimeBudgetedJob(() => {
+    await runTimeBudgetedJob(async () => {
       if (done || candidates.length >= input.limit) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
       const params: Array<string | number> = [this.viewer, input.cutoffReadAt]
@@ -938,9 +979,8 @@ export class IssueAutoArchiveReader {
       const after = cursor ? 'AND (ius.read_at, i.id) > (?, ?)' : ''
       if (cursor) params.push(cursor.readAt, cursor.id)
       params.push(pageSize)
-      const rows = this.db
-        .prepare(
-          `SELECT i.id, i.stage, i.closed_reason, ius.read_at, i.archived, i.deleted_at
+      const rows = (await this.db.all(
+        `SELECT i.id, i.stage, i.closed_reason, ius.read_at, i.archived, i.deleted_at
            FROM issues i
            JOIN issue_user_state ius ON ius.issue_id = i.id AND ius.user_id = ?
            WHERE i.archived = 0
@@ -952,8 +992,8 @@ export class IssueAutoArchiveReader {
              ${after}
            ORDER BY ius.read_at ASC, i.id ASC
            LIMIT ?`,
-        )
-        .all(...params) as Array<{
+        ...params,
+      )) as Array<{
         id: string
         stage: string
         closed_reason: string | null
@@ -1000,22 +1040,21 @@ export class IssueAutoArchiveReader {
  * the live registry at apply time, and that read is the one that decides.
  */
 export class WorktreeGcReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
   async read(input: WorktreeGcReadInput): Promise<WorktreeGcObservation[]> {
     const candidates: WorktreeGcObservation[] = []
     let cursor: { closedAt: string; id: string } | undefined
     let done = false
-    await runTimeBudgetedJob(() => {
+    await runTimeBudgetedJob(async () => {
       if (done || candidates.length >= input.limit) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
       const params: Array<string | number> = [input.cutoffClosedAt]
       const after = cursor ? 'AND (i.closed_at, i.id) > (?, ?)' : ''
       if (cursor) params.push(cursor.closedAt, cursor.id)
       params.push(pageSize)
-      const rows = this.db
-        .prepare(
-          `SELECT i.id, i.worktree_path, i.stage, i.closed_reason, i.closed_at
+      const rows = (await this.db.all(
+        `SELECT i.id, i.worktree_path, i.stage, i.closed_reason, i.closed_at
            FROM issues i
            WHERE i.worktree_path IS NOT NULL
              AND i.deleted_at IS NULL
@@ -1030,8 +1069,8 @@ export class WorktreeGcReader {
              ${after}
            ORDER BY i.closed_at ASC, i.id ASC
            LIMIT ?`,
-        )
-        .all(...params) as Array<{
+        ...params,
+      )) as Array<{
         id: string
         worktree_path: string
         stage: string
@@ -1061,18 +1100,18 @@ export class WorktreeGcReader {
 
 /** Due automations from durable schedule state (overlap revalidated at apply). */
 export class AutomationDueReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
-  read(nowIso: string): AutomationFireObservation[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, enabled, schedule_kind, cron, next_run_at
+  async read(nowIso: string): Promise<AutomationFireObservation[]> {
+    const rows = (await this.db.all(
+      `SELECT id, enabled, schedule_kind, cron, next_run_at
          FROM automations
          WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
          ORDER BY next_run_at ASC, id ASC
          LIMIT ?`,
-      )
-      .all(nowIso, CANDIDATE_LIMIT) as Array<{
+      nowIso,
+      CANDIDATE_LIMIT,
+    )) as Array<{
       id: string
       enabled: number
       schedule_kind: 'cron' | 'once'
@@ -1092,13 +1131,13 @@ export class AutomationDueReader {
 
 /** Steward poll window from durable cursor + event log head. */
 export class StewardPollReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
-  read(): StewardPollObservation | null {
-    const raw = this.db.prepare("SELECT value FROM steward_state WHERE key = 'cursor'").get() as
+  async read(): Promise<StewardPollObservation | null> {
+    const raw = (await this.db.get("SELECT value FROM steward_state WHERE key = 'cursor'")) as
       | { value: string }
       | undefined
-    const max = this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM podium_events').get() as {
+    const max = (await this.db.get('SELECT COALESCE(MAX(id), 0) AS m FROM podium_events')) as {
       m: number
     }
     if (max.m <= 0) return null
@@ -1120,17 +1159,17 @@ export class StewardPollReader {
  * Server revalidates that lastSeenAt still matches at apply.
  */
 export class ConnectScanReader {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: JanitorSql) {}
 
-  read(_nowIso: string, localMachineId = 'local'): ConnectScanObservation[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, last_seen_at FROM machines
+  async read(_nowIso: string, localMachineId = 'local'): Promise<ConnectScanObservation[]> {
+    const rows = (await this.db.all(
+      `SELECT id, last_seen_at FROM machines
          WHERE id != ?
          ORDER BY last_seen_at DESC, id ASC
          LIMIT ?`,
-      )
-      .all(localMachineId, CANDIDATE_LIMIT) as Array<{ id: string; last_seen_at: string }>
+      localMachineId,
+      CANDIDATE_LIMIT,
+    )) as Array<{ id: string; last_seen_at: string }>
     return rows.map((row) => ({
       machineId: asMachineId(row.id),
       lastSeenAt: row.last_seen_at,
@@ -1224,6 +1263,8 @@ export async function startJanitor(options: {
   serverUrl: string
   token: string
   dbPath?: string
+  databaseUrl?: string
+  readAuthToken?: string
   tickMs?: number
   /**
    * What a MID-RUN compatibility refusal means for this host process.
@@ -1247,9 +1288,21 @@ export async function startJanitor(options: {
     undefined,
     shutdown.signal,
   )
-  const db = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), { readOnly: true })
-  db.exec('PRAGMA query_only = ON')
-  db.exec('PRAGMA busy_timeout = 1000')
+  const db = options.databaseUrl
+    ? janitorSqlFromLibsql(
+        createLibsqlClient({
+          url: options.databaseUrl,
+          ...(options.readAuthToken !== undefined ? { authToken: options.readAuthToken } : {}),
+        }),
+      )
+    : (() => {
+        const handle = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), {
+          readOnly: true,
+        })
+        handle.exec('PRAGMA query_only = ON')
+        handle.exec('PRAGMA busy_timeout = 1000')
+        return janitorSqlFromSqlite(handle)
+      })()
   const expiryReader = new MessageExpiryReader(db)
   const eventPlanner = new EventLogPrunePlanner(db)
   const changePlanner = new ChangeLogPrunePlanner(db)

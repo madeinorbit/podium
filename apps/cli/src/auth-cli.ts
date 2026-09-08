@@ -18,7 +18,7 @@
 import {
   BREAK_GLASS_LABEL,
   listSessions,
-  mintBreakGlassSession,
+  mintOperatorSession,
   revokeSessionsByLabel,
   saveCachedSessionToken,
   sessionTokenPath,
@@ -72,9 +72,9 @@ function flagValue(argv: string[], name: string): string | undefined {
   return value
 }
 
-function mintSession(argv: string[], io: AuthCliIo): void {
+async function mintSession(argv: string[], io: AuthCliIo): Promise<void> {
   const ttl = flagValue(argv, 'ttl')
-  const minted = mintBreakGlassSession(ttl ? { ttlMs: parseTtl(ttl) } : {})
+  const minted = await mintOperatorSession(ttl ? { ttlMs: parseTtl(ttl) } : {})
   io.print(minted.token)
   if (argv.includes('--print-only')) {
     io.printErr(`Not cached (--print-only). Expires ${minted.expiresAt}.`)

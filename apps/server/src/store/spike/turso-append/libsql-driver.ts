@@ -24,7 +24,7 @@
  * and will remove it, so nothing here relies on it.
  */
 
-import type { Client, InValue, ResultSet, Transaction } from '@libsql/client/web'
+import type { Client, InValue, ResultSet, Transaction } from '@podium/runtime/libsql'
 import type {
   DriverLimits,
   DriverSession,

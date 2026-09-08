@@ -83,6 +83,9 @@
  * | PODIUM_TLS_KEY_FILE           | — (env-only)            | apps/server `tlsFromEnv()`; pairs with the cert file   |
  * | PODIUM_TLS_CERT_FILE          | — (env-only)            | apps/server `tlsFromEnv()`; pairs with the key file    |
  * | PODIUM_DB_PATH                | — (env-only)            | apps/server migrations/restore.ts (`--db` default)     |
+ * | PODIUM_DATABASE_URL           | config.database.url     | hosted Turso URL (`libsql://…`); never the settings blob |
+ * | PODIUM_DATABASE_AUTH_TOKEN    | config.database.authToken | hosted Turso write token; never the settings blob    |
+ * | PODIUM_DATABASE_READ_AUTH_TOKEN | config.database.readAuthToken | janitor's read-only token; never the settings blob |
  * | PODIUM_UNDER_PARENT           | — (env-only flag)       | daemon/cli parent-supervision handshake                |
  * | PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT | — (env-only, test) | apps/server local update participant     |
  * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |
@@ -98,6 +101,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
+import { normalizeLibsqlUrl } from './libsql'
 import {
   assertInstanceStateIdentity,
   defaultInstancePorts,
@@ -323,6 +327,21 @@ export const PodiumConfig = z.object({
       usage: z.enum(['on', 'off']).optional(),
       crash: z.enum(['on', 'off']).optional(),
       endpoint: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * Hosted Turso database [POD-3272]. Instance config and env only — NEVER the
+   * settings blob that round-trips to the browser, and never a LAYERED_KEYS
+   * entry that `instance.provenance` would report to the UI.
+   *
+   * Presence of `url` (or PODIUM_DATABASE_URL) selects the remote backend;
+   * absence is every self-hosted install, which keeps opening `podium.db`.
+   */
+  database: z
+    .object({
+      url: z.string().min(1),
+      authToken: z.string().min(1),
+      readAuthToken: z.string().min(1).optional(),
     })
     .optional(),
 })
@@ -1067,6 +1086,58 @@ export function resolveMode(
   env: EnvSource = process.env,
 ): PodiumMode | undefined {
   return resolveSetting('mode', config, env).value
+}
+
+/**
+ * Which database this instance opens [POD-3272].
+ *
+ * Env (PODIUM_DATABASE_URL / _AUTH_TOKEN / _READ_AUTH_TOKEN) wins over
+ * config.json. Not a LAYERED_KEYS entry: the token must never appear in
+ * `instance.provenance` or the settings blob. Absence is bun:sqlite at
+ * `podium.db`.
+ */
+export type DatabaseBackend =
+  | { readonly kind: 'sqlite' }
+  | {
+      readonly kind: 'turso'
+      readonly url: string
+      readonly authToken: string
+      readonly readAuthToken?: string
+    }
+
+export function resolveDatabaseBackend(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): DatabaseBackend {
+  const url = env.PODIUM_DATABASE_URL ?? config.database?.url
+  if (url === undefined || url.length === 0) return { kind: 'sqlite' }
+  const authToken = env.PODIUM_DATABASE_AUTH_TOKEN ?? config.database?.authToken
+  if (authToken === undefined || authToken.length === 0) {
+    throw new Error(
+      'PODIUM_DATABASE_URL is set but PODIUM_DATABASE_AUTH_TOKEN (or config.database.authToken) is missing',
+    )
+  }
+  const readAuthToken = env.PODIUM_DATABASE_READ_AUTH_TOKEN ?? config.database?.readAuthToken
+  return {
+    kind: 'turso',
+    url: normalizeLibsqlUrl(url),
+    authToken,
+    ...(readAuthToken !== undefined && readAuthToken.length > 0 ? { readAuthToken } : {}),
+  }
+}
+
+/**
+ * Callers branch on THIS, never on a driver or backend name [POD-3270 / POD-3272].
+ * File transfer of podium.db is a bun:sqlite capability; Turso moves by
+ * changing the connection string.
+ */
+export type CandidateValidationCapability = 'file' | 'not-applicable'
+
+export function candidateValidationCapability(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): CandidateValidationCapability {
+  return resolveDatabaseBackend(config, env).kind === 'sqlite' ? 'file' : 'not-applicable'
 }
 
 /**

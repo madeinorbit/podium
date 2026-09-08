@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { planConvergence, UpdateTarget } from '@podium/protocol'
-import { readAppliedMigrations } from './migration-ledger'
+import { readInstanceAppliedMigrations } from './migration-ledger'
 import { type DeliveryDeps, fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
 import { swapHeadlessBundle } from './update-install'
 import { createSchemaGate, releaseCarriesNewMigrations } from './update-schema'
@@ -58,7 +58,7 @@ export interface ParentUpdateSwapDeps {
   /** Test seam for the whole verified-delivery leg. */
   deliver?: (target: UpdateTarget, currentVersion: string) => Promise<Uint8Array>
   swap?: (bytes: Uint8Array, installDir: string) => Promise<void>
-  readApplied?: () => readonly string[] | undefined
+  readApplied?: () => readonly string[] | undefined | Promise<readonly string[] | undefined>
   readInstalledVersion?: (installDir: string) => string
 }
 
@@ -97,7 +97,7 @@ export function createParentUpdateSwap(
   const installDir = deps.installDir
   const platform = deps.platform ?? runningPlatform()
   const swap = deps.swap ?? ((bytes, dir) => swapHeadlessBundle(bytes, dir))
-  const readApplied = deps.readApplied ?? readAppliedMigrations
+  const readApplied = deps.readApplied ?? readInstanceAppliedMigrations
   const installedVersion = deps.readInstalledVersion ?? defaultInstalledVersion
   const deliver =
     deps.deliver ??
@@ -127,14 +127,13 @@ export function createParentUpdateSwap(
     const startedAt = Date.now()
     const current = installedVersion(installDir)
     let ledgerReadable = true
-    const applied = (() => {
-      try {
-        return readApplied()
-      } catch {
-        ledgerReadable = false
-        return undefined
-      }
-    })()
+    let applied: readonly string[] | undefined
+    try {
+      applied = await Promise.resolve(readApplied())
+    } catch {
+      ledgerReadable = false
+      applied = undefined
+    }
     const releaseHadMigrations = ledgerReadable
       ? releaseCarriesNewMigrations(target, applied)
       : undefined
@@ -152,7 +151,7 @@ export function createParentUpdateSwap(
       ledgerReadable,
     })
     // 1. Schema gate BEFORE the fetch — see the docblock.
-    const refusal = createSchemaGate({ readApplied, currentVersion: current })(target)
+    const refusal = await createSchemaGate({ readApplied, currentVersion: current })(target)
     if (refusal) {
       // NOTHING WAS DOWNLOADED AND NOTHING WAS WRITTEN. That is the whole point
       // of the gate being first, and it is the fact the operator most needs:

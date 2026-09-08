@@ -1317,6 +1317,7 @@ interface HarnessOptions {
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: UpdateOperationContext['requestCoordinatorRestart']
   prepareCoordinatorUpdate?: UpdateOperationContext['prepareCoordinatorUpdate']
+  snapshotCapability?: UpdateOperationContext['snapshotCapability']
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
@@ -1417,6 +1418,7 @@ async function harness(options: HarnessOptions = {}) {
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
     ...(options.hostMachineId ? { hostMachineId: options.hostMachineId } : {}),
+    ...(options.snapshotCapability ? { snapshotCapability: options.snapshotCapability } : {}),
     createDatabaseSnapshot: async (from, target) =>
       options.createDatabaseSnapshot
         ? options.createDatabaseSnapshot(from, target)
@@ -1797,6 +1799,25 @@ describe('the step runners', () => {
     })
     expect(requestDestBundle).not.toHaveBeenCalled()
     expect(h.sent).toEqual([])
+  })
+
+  it('server: platform-managed snapshot capability skips the file copy and still restarts', async () => {
+    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const restart = vi.fn()
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      snapshotCapability: 'platform-managed',
+      createDatabaseSnapshot: snapshot,
+      requestCoordinatorRestart: restart,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(restart).toHaveBeenCalled()
+    expect((await h.read()).details?.databaseSnapshotPath).toBeUndefined()
+    expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBe('running')
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {

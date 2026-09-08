@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { planConvergence, type UpdateGrantMessage } from '@podium/protocol'
 import type { MachineUpdateAdapter, PreparedUpdate } from './machine-update'
-import { readAppliedMigrations } from './migration-ledger'
+import { readInstanceAppliedMigrations } from './migration-ledger'
 import { runningPlatform } from './parent-update-swap'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
 import { BUNDLE_EXTRACT_TIMEOUT_MS, oldBundlePath } from './update-install'
@@ -37,12 +37,12 @@ export function createHeadlessMachineUpdateAdapter(deps: {
   pubkey?: string
   platform?: string
   fetch?: typeof fetch
-  readApplied?: () => readonly string[] | undefined
+  readApplied?: () => readonly string[] | undefined | Promise<readonly string[] | undefined>
   restart(grant: UpdateGrantMessage, prepared: PreparedUpdate): Promise<void | 'handover-pending'>
 }): MachineUpdateAdapter {
   const staged = `${deps.installDir}.prepared`
   const replacement = join(staged, 'headless')
-  const readApplied = deps.readApplied ?? readAppliedMigrations
+  const readApplied = deps.readApplied ?? readInstanceAppliedMigrations
   const discard = async () => {
     rmSync(staged, { recursive: true, force: true })
   }
@@ -85,11 +85,15 @@ export function createHeadlessMachineUpdateAdapter(deps: {
         throw new Error(
           `cannot take delivery: ${plan.action === 'cannot' ? plan.reason : plan.action}`,
         )
-      const refusal = createSchemaGate({ readApplied, currentVersion: deps.runningVersion })(
-        grant.target,
-      )
+      const refusal = await createSchemaGate({
+        readApplied,
+        currentVersion: deps.runningVersion,
+      })(grant.target)
       if (refusal) throw new Error(refusal)
-      const releaseHadMigrations = releaseCarriesNewMigrations(grant.target, readApplied())
+      const releaseHadMigrations = releaseCarriesNewMigrations(
+        grant.target,
+        await Promise.resolve(readApplied()),
+      )
       const artifact = await fetchArtifact(plan.asset, {
         fetch: deps.fetch ?? fetch,
         pubkey: deps.pubkey ?? PODIUM_UPDATE_PUBKEY,

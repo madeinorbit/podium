@@ -9,7 +9,9 @@ import { openTestStore } from './test-support/open-test-store'
 
 function db(store: SessionStore) {
   // @ts-expect-error private db — schema/migration assertions
-  return store.db
+  const handle = store.db
+  if (handle === undefined) throw new Error('expected a bun:sqlite handle')
+  return handle
 }
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {

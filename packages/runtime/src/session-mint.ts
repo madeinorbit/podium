@@ -44,7 +44,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { stateDir } from './config'
+import { localServerUrl, resolveDatabaseBackend, resolvePort, stateDir } from './config'
+import { readOrCreateDaemonSecret } from './local-machine'
 import { openDatabase } from './sqlite'
 
 /** Marks a session minted from local state-dir access, so `podium auth revoke-sessions`
@@ -157,6 +158,45 @@ function userAccountCount(db: {
  * the discoverable path as the interim boundary on 2026-08-11. Actual containment still
  * requires separate OS users, a privileged issuance boundary, or per-user storage.
  */
+/**
+ * Mint through the running server when this instance has no local database
+ * file because it is on Turso [POD-3272].
+ */
+export async function mintBreakGlassSessionViaServer(
+  opts: MintOptions = {},
+): Promise<MintedSession> {
+  const root = opts.stateDir ?? stateDir()
+  const port = resolvePort()
+  const url = `${localServerUrl(port)}/internal/mint-session`
+  const secret = readOrCreateDaemonSecret(root)
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${secret}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(opts.ttlMs !== undefined ? { ttlMs: opts.ttlMs } : {}),
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(
+      `mint-session via server failed (${response.status}): ${body || response.statusText}`,
+    )
+  }
+  const minted = (await response.json()) as { token?: string; expiresAt?: string }
+  if (typeof minted.token !== 'string' || typeof minted.expiresAt !== 'string') {
+    throw new Error('mint-session via server returned an unusable payload')
+  }
+  return { token: minted.token, expiresAt: minted.expiresAt }
+}
+
+/** File mint on sqlite, server mint on Turso. */
+export async function mintOperatorSession(opts: MintOptions = {}): Promise<MintedSession> {
+  const backend = resolveDatabaseBackend()
+  if (backend.kind === 'turso') return await mintBreakGlassSessionViaServer(opts)
+  return mintBreakGlassSession(opts)
+}
+
 export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const root = opts.stateDir ?? stateDir()
   const path = databasePath(root)

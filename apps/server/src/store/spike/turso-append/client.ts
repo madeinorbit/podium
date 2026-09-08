@@ -17,7 +17,8 @@
  * entry.
  */
 
-import { type Client, createClient } from '@libsql/client/web'
+import { createClient } from '@libsql/client/web'
+import type { Client } from '@podium/runtime/libsql'
 import { unprefixedTableUse } from './namespace'
 
 /** A live count of HTTP requests issued by one client. */
