@@ -534,7 +534,12 @@ export class SessionRegistry {
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
     await this.modules.automations.reconcileFromStore()
-    if (!this.recoveryOnly) await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
+    if (!this.recoveryOnly) {
+      await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
+      // AFTER boot, never before: this lists issues, and the store refuses a
+      // read until the issue service has hydrated through its factory.
+      this.modules.issueSessionLifecycle.startClosedIssueSweep()
+    }
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
     if (!this.recoveryOnly) {
@@ -3196,9 +3201,11 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
     if (!recoveryOnly) {
-      // issues.boot runs in `hydrate`, awaited: it is async now and this
-      // constructor cannot await it. Its recovery-only guard travelled with it.
-      issueSessionLifecycle.startClosedIssueSweep()
+      // issues.boot AND the closed-issue sweep both run in `hydrate` now. They
+      // are ORDERED: the sweep lists issues, and the issue store refuses a read
+      // before its factory has hydrated it. dev/mw ran boot then sweep here;
+      // moving only boot left the sweep reading an uninitialised store and
+      // warning on every cold start (POD-3684).
       shipping.start()
       void shipping
         .reconcile()
