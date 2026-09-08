@@ -69,8 +69,8 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
           return []
         })
 
-      vi.advanceTimersByTime(REAP_MS)
-      vi.advanceTimersByTime(REAP_MS)
+      await vi.advanceTimersByTimeAsync(REAP_MS)
+      await vi.advanceTimersByTimeAsync(REAP_MS)
 
       expect(calls).toBe(2)
       spy.mockRestore()
