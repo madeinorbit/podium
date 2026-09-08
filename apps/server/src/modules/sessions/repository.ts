@@ -88,8 +88,8 @@ export interface SessionRepositoryPorts {
    *  socket — see `MachineService.daemonSupports` (POD-3239). */
   machineSupports(machineId: MachineId, cap: string): boolean
   broadcastSessions(): void
-  flushBroadcasts(): void
-  runScheduledBroadcast(): void
+  flushBroadcasts(): Promise<void>
+  runScheduledBroadcast(): Promise<void>
   listSessions(): SessionMeta[]
   now(): number
   appliedMutationMaxAgeMs: number
@@ -283,10 +283,10 @@ export class SessionRepository {
 
   scheduleVolatileSessionCapture(delayMs = 0): void {
     if (this.volatileSessionCaptureTimer) return
-    this.volatileSessionCaptureTimer = setTimeout(() => {
+    this.volatileSessionCaptureTimer = setTimeout(async () => {
       this.volatileSessionCaptureTimer = null
       try {
-        this.ports.runScheduledBroadcast()
+        await this.ports.runScheduledBroadcast()
       } catch (err) {
         log.warn('volatile session capture failed', { err })
       }

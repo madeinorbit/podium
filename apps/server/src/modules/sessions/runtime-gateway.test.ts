@@ -277,7 +277,7 @@ describe('the event sink', () => {
   it('fans out to subscribers and lets them leave', async () => {
     const { gateway } = makeGateway()
     const seen: string[] = []
-    const stop = gateway.onEvent((_sessionId, event) => seen.push(event.t))
+    const stop = gateway.onEvent(async (_sessionId, event) => { seen.push(event.t) })
     const event = {
       t: 'state' as const,
       change: { kind: 'activity' },

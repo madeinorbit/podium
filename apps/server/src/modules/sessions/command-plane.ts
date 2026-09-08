@@ -159,23 +159,23 @@ export interface SessionCommandDeps {
       createdByActor: string
       createdByOnBehalfOf: import('@podium/model').UserId
     },
-  ): { id: IssueId } | Promise<{ id: IssueId }>
+  ): Promise<{ id: IssueId }>
   /** Persist user uploads on the draft issue before its agent can run prime. */
   attachDraftArtifacts(
     issueId: IssueId,
     artifacts: readonly DraftIssueArtifactInput[],
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
-  discardUnlaunchedDraft(issueId: IssueId): boolean | Promise<boolean>
+  discardUnlaunchedDraft(issueId: IssueId): Promise<boolean>
   issueOwner(
     issueId: IssueId,
-  ): import('@podium/model').UserId | undefined | Promise<import('@podium/model').UserId | undefined>
+  ): Promise<import('@podium/model').UserId | undefined>
   /** The runtime-contract staging leg for live sessions. */
   stageAttachment(input: {
     sessionId: SessionId
     source: { bytes: Uint8Array; filename: string; mediaType: string }
   }): Promise<RuntimeAttachmentRef | Refusal>
-  runtimeContractActive(sessionId: SessionId): boolean | Promise<boolean>
+  runtimeContractActive(sessionId: SessionId): Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps

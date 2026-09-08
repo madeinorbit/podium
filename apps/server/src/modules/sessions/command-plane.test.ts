@@ -40,7 +40,7 @@ import {
   spawnedByFor,
 } from './command-plane'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
-import type { SessionVisibility } from './session-access'
+import { asyncSessionIssueAccess, type SessionVisibility } from './session-access'
 
 afterEach(() => disposeOracles())
 
@@ -100,7 +100,7 @@ async function ctxFor(
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
     stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
-    runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
+    runtimeContractActive: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
     // principal's own capability, through the real gate. Substituting the
@@ -125,10 +125,10 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
-    issueOwner: () => undefined,
+    issueOwner: async () => undefined,
     access: {
       listSessions: async () => await modules.sessions.listSessions(),
-      issues: modules.issues,
+      issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     rpc: () => modules.rpc,

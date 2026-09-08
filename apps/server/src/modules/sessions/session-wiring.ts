@@ -242,13 +242,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // the port's own comment for why the two-parameter form was unsafe.
     sessionOwner: ({ sessionId, memo }) => ownership.sessionOwner(sessionId, memo),
     primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
-    persistSession: (sessionId, additionalWrite) => {
+    persistSession: async (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
       if (session) return bag.repository.persist(session, additionalWrite)
     },
-    writeSession: (sessionId, mutate) => {
+    writeSession: async (sessionId, mutate) => {
       const session = bag.sessions.get(sessionId)
-      if (session) bag.repository.write(session, mutate)
+      if (session) await bag.repository.write(session, mutate)
     },
     mutateSession: (sessionId, mutate) => {
       return bag.mutateSessionMeta(sessionId, (draft: SessionDurableState) => mutate(draft))
@@ -261,9 +261,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     onNativeViewReleased: (sessionId) => bag.inbox?.drain(sessionId),
-    onArchived: (sessionId) => {
+    onArchived: async (sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
-      bag.parkArchivedSession(sessionId)
+      await bag.parkArchivedSession(sessionId)
     },
   })
   bag.view = new SessionView({
@@ -332,7 +332,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     machineSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     broadcastSessions: () => bag.broadcastSessions(),
-    soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
+    soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     setSessionDraft: (input) => bag.state.setDraft(input),
@@ -601,8 +601,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.mutateSessionView(sessionId, change, issueRelevant),
     broadcastSessions: () => bag.broadcastSessions(),
     pushPriorities: () => bag.pushPriorities(),
-    setDraft: (principal, clientId, sessionId, text) => {
-      bag
+    setDraft: async (principal, clientId, sessionId, text) => {
+      await bag
         .sessionStateEnvelope()
         .execute(
           'sessions.setDraft',
@@ -732,8 +732,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // captured. A turn event that arrives before the aggregate exists is
     // dropped, which cannot happen — nothing can spawn a session before the
     // server is serving.
-    turn: (input) => bag.interactionTurn?.(input),
-    interaction: (input) => bag.interactionResolved?.(input),
+    turn: async (input) => { await bag.interactionTurn?.(input) },
+    interaction: async (input) => { await bag.interactionResolved?.(input) },
     state: ({ sessionId, change, at, draft }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return undefined
@@ -750,7 +750,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     stateChanged: async ({ sessionId, prev, next }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return
-      bag.autoContinue.onStateChange(sessionId, next)
+      await bag.autoContinue.onStateChange(sessionId, next)
       bag.broadcastToClients({
         type: 'sessionAgentStateChanged',
         sessionId,
@@ -763,7 +763,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       await inbox.stateChanged({ sessionId, prev, next })
       if (prev?.phase === 'needs_user' || prev?.phase === 'errored') {
         if (next.phase !== 'needs_user' && next.phase !== 'errored') {
-          bag.state.clearAllSnoozes(sessionId)
+          await bag.state.clearAllSnoozes(sessionId)
         }
       }
     },
@@ -782,13 +782,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // Complete runtime items are the shared terminal-to-transcript bridge. Capture
   // them at the accepted-event seam so live chat and restart hydration agree.
   // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
-  bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) => {
+  bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
     const item = runtimeTranscriptItemFromEvent(event)
     if (!item) return
     const session = bag.sessions.get(sessionId)
     if (!session) return
     if (session.terminal.applyRuntimeDelta([item])) {
-      bag.repository.persist(session)
+      await bag.repository.persist(session)
       bag.broadcastSessions()
     }
   })
@@ -816,8 +816,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       publish: (sessionId, frame) => bag.sessions.get(sessionId)?.terminal.applyTurnPreview(frame),
       now: () => bag.now(),
     })
-    bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) =>
-      previews.record(sessionId, event),
+    bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
+      previews.record(sessionId, event)
+    },
     )
     bag.turnPreviews = previews
   }

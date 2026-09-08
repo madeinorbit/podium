@@ -80,9 +80,9 @@ function ports(over: {
   const session = 'session' in over ? over.session : makeSession()
   return {
     getSession: () => session,
-    listRepos: () => over.repos ?? [repo()],
-    listMachines: () => over.machines ?? [onlineTarget()],
-    issueMeta: () => over.issue,
+    listRepos: async () => over.repos ?? [repo()],
+    listMachines: async () => over.machines ?? [onlineTarget()],
+    issueMeta: async () => over.issue,
   }
 }
 

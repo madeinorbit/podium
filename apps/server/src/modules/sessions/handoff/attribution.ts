@@ -71,15 +71,15 @@ export type ExportedIdentity = ReturnType<typeof exportedIdentity>
  * or the source owns the session afterwards. Calling it from the coordinator
  * once the transfer returned would move that failure outside the arbitration.
  */
-export function recordHandoff(
+export async function recordHandoff(
   ports: Pick<HandoffPorts, 'recordEvent'>,
   session: Session,
   fromMachineId: MachineId,
   toMachineId: MachineId,
   caller: HandoffCaller,
-): void {
+): Promise<void> {
   const attribution = exportedIdentity(caller).exportedBy
-  ports.recordEvent({
+  await ports.recordEvent({
     ts: new Date().toISOString(),
     kind: 'session.handoff',
     subject: session.sessionId,

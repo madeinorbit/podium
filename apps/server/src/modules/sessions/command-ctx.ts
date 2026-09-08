@@ -20,6 +20,7 @@ import {
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
+import { asyncSessionIssueAccess } from './session-access'
 import {
   SessionCommandCtx,
   type SessionCommandDeps,
@@ -122,7 +123,7 @@ export async function sessionCommandCtx(
     access: {
       listSessions: async () => await sessions.listSessions(),
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
-      issues,
+      issues: asyncSessionIssueAccess(issues),
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
     rpc: () => modules.rpc,

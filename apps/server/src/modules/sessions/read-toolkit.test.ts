@@ -36,7 +36,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
   const watermarks = new Map<string, string>()
   const reads: { anchor?: string; direction: string }[] = []
   const toolkit = new SessionReadToolkit({
-    listSessions: () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
+    listSessions: async () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
     issues: ({
         resolveRef: (ref: string) => {
           if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id

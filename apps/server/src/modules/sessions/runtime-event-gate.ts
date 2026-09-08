@@ -103,7 +103,7 @@ export interface RuntimeEventGatePorts {
     ev: TurnEvent
     /** EVENT time, not observe time — the ask is stamped when the turn failed. */
     at: string
-  }): void | Promise<void>
+  }): Promise<void>
   /**
    * THE DRIVER'S OWN INTERACTION RESOLUTIONS (POD-2414).
    *
@@ -115,7 +115,7 @@ export interface RuntimeEventGatePorts {
    *
    * Awaited on the same terms as {@link turn}.
    */
-  interaction?(input: { sessionId: SessionId; ev: InteractionEvent }): void | Promise<void>
+  interaction?(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void>
   board(
     event:
       | { kind: 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
@@ -126,7 +126,7 @@ export interface RuntimeEventGatePorts {
           commits?: string[]
           touched?: string[]
         },
-  ): void | Promise<void>
+  ): Promise<void>
   now(): number
 }
 

@@ -67,21 +67,33 @@ export const everythingVisible: SessionVisibility = () => true
 
 export interface SessionAccessDeps {
   /** Live sessions, as the wire lists them. */
-  listSessions(): SessionTargetRow[] | Promise<SessionTargetRow[]>
+  listSessions(): Promise<SessionTargetRow[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via the list-and-find fallback below, just slower. */
   sessionById?(
     sessionId: SessionId,
-  ): SessionTargetRow | undefined | Promise<SessionTargetRow | undefined>
+  ): Promise<SessionTargetRow | undefined>
   /** Issue index for the subtree gate, and cwd → issue derivation. */
   /** `issueForCwd` is `string | null` on IssueService and `undefined` on the
    *  narrow test fixtures; both spellings mean "no issue owns this cwd". */
   issues: IssueAccessIndex & {
-    issueForCwd(cwd: string): string | null | undefined | Promise<string | null | undefined>
+    issueForCwd(cwd: string): Promise<string | null | undefined>
   }
   visibility?: SessionVisibility
+}
+
+/** Lift the synchronous issue index at the composition boundary. */
+export function asyncSessionIssueAccess(
+  issues: IssueAccessIndex & { issueForCwd(cwd: string): string | null | undefined },
+): SessionAccessDeps['issues'] {
+  return {
+    has: (id) => issues.has(id),
+    ancestorIds: (id) => issues.ancestorIds(id),
+    ...(issues.ownedTarget ? { ownedTarget: issues.ownedTarget.bind(issues) } : {}),
+    issueForCwd: async (cwd) => issues.issueForCwd(cwd),
+  }
 }
 
 export type SessionTarget =

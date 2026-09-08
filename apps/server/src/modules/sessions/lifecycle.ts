@@ -341,7 +341,7 @@ export class SessionLifecycle {
     sessionId: SessionId
     ev: TurnEvent
     at: string
-  }) => void | Promise<void>
+  }) => Promise<void>
   /**
    * THE RESOLUTION SINK (POD-2414), late-bound like its two siblings.
    *
@@ -353,7 +353,7 @@ export class SessionLifecycle {
   interactionResolved?: (msg: {
     sessionId: SessionId
     ev: InteractionEvent
-  }) => void | Promise<void>
+  }) => Promise<void>
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
@@ -628,8 +628,8 @@ export class SessionLifecycle {
   setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {
     return this.sessionMetaOps.setArchived(...args)
   }
-  private parkArchivedSession(sessionId: SessionId): void {
-    this.sessionTeardown.parkArchivedSession(sessionId)
+  private parkArchivedSession(sessionId: SessionId): Promise<void> {
+    return this.sessionTeardown.parkArchivedSession(sessionId)
   }
   tryAutoArchiveStoppedObserved(...args: any[]): any {
     return (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args)
@@ -705,7 +705,7 @@ export class SessionLifecycle {
     return await this.terminalProof.proofStatus(sessionId)
   }
   /** Age-backstop park for a session quiet past its deadline [POD-1884]. */
-  parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+  parkStaleSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
     return this.sessionTeardown.parkStaleSession(input)
   }
   /** Park a live session: kill process, keep row/transcript/resume ref. */
@@ -717,7 +717,7 @@ export class SessionLifecycle {
   }
 
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
-  parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+  parkShellSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
     return this.sessionTeardown.parkShellSession(input.sessionId)
   }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */

@@ -82,7 +82,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   })
 
   const toolkit = new SessionReadToolkit({
-    listSessions: () => [meta as SessionMeta],
+    listSessions: async () => [meta as SessionMeta],
     issues: ({
         resolveRef: async () => ISSUE.id,
         getMeta: async () => ISSUE,
