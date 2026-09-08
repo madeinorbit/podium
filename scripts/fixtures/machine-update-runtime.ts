@@ -254,7 +254,9 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         return verifier!.verify(path, schema.name)
       },
       recordOperationDetails: async (operationId, patch) => {
-        await engine!.recordDetails(operationId, patch)
+        // Match production: the machines runner also writes wave rounds here
+        // while holding the operation chain, so queueing would wait for itself.
+        await engine!.recordDetailsLocked(operationId, patch)
         if (patch.coordinatorSnapshotGrantId)
           event('snapshot-receipt', {
             operationId,
