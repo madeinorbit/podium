@@ -146,6 +146,27 @@ describe('GET /files/asset', () => {
     expect(allowsRoot).toHaveBeenCalledWith('/', 'machine-2')
     expect(readAsset).not.toHaveBeenCalled()
   })
+  it('rejects an unregistered worktree root after asynchronous authorization denies it', async () => {
+    const readAsset = vi.fn(async () => ({
+      ok: true,
+      dataBase64: Buffer.from('PRIVATE').toString('base64'),
+      contentType: 'text/plain',
+    }))
+    // The real registry is asynchronous: a Promise resolving to false must not
+    // be treated as a truthy permission grant when the route forgets to await it.
+    const allowsRoot = vi.fn(async () => false)
+    const app = new Hono()
+    registerAssetRoute(app, { allowsRoot, readAsset })
+
+    const res = await app.request(
+      '/files/asset?root=%2F&machineId=machine-2&path=%2Fetc%2Fpasswd',
+    )
+
+    expect(res.status).toBe(403)
+    expect(await res.text()).toBe('forbidden')
+    expect(allowsRoot).toHaveBeenCalledWith('/', 'machine-2')
+    expect(readAsset).not.toHaveBeenCalled()
+  })
   it('collapses .. in the root BEFORE authorizing it, so a crafted prefix cannot escape', async () => {
     // The registry prefix-matches lexically, exactly like the real one: a root that
     // textually starts with a registered root is allowed. Without collapsing `..`
