@@ -211,7 +211,7 @@ export class SessionStore {
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
-  readonly updateRecovery!: UpdateRecoveryStore
+  readonly updateRecovery: UpdateRecoveryStore
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
@@ -376,6 +376,13 @@ export class SessionStore {
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
+    // RESTORED. dev/mw constructed this here and the merge kept only the
+    // declaration, which carried a definite-assignment `!` -- so the field was
+    // permanently undefined and the compiler could not say so. relay.ts hands it
+    // to UpdatesService as the `recovery` port, so update recovery was silently
+    // disabled: no snapshot written, none restored across a coordinator restart.
+    // UpdateRecoveryStore was never converted and still takes the raw handle.
+    this.updateRecovery = new UpdateRecoveryStore(this.db)
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
   }
