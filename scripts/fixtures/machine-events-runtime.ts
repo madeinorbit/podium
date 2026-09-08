@@ -152,7 +152,7 @@ try {
   updates.setTarget('dev', target)
   const offlineOperation = await start()
   assert.equal((await registry.sessionStore.operations.get(offlineOperation))?.state, 'done')
-  assert.deepEqual(registry.sessionStore.operations.approvedTarget('dev'), target)
+  assert.deepEqual(await registry.sessionStore.operations.approvedTarget('dev'), target)
   assert.deepEqual(registry.modules.updatesReconciler?.pending(), [])
 
   // No fixture call to onMachineConnected/onOperationSettled/onFleetChanged:
