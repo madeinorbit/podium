@@ -1245,6 +1245,14 @@ describe('SessionRegistry', () => {
     })
     const read = vi.spyOn(reg.modules.machines, 'ownershipRows').mockReturnValue(pendingRows)
     const attached = reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    // LET THE PENDING ATTACH REACH THE OWNERSHIP READ. attachDaemon awaits
+    // machines.attach first -- that is what writes the machine's daemon component,
+    // and the capability guards read that row -- so it suspends before reaching
+    // the read this test is about. The invariant being tested is unchanged and is
+    // asserted below: no reattach is sent until the rows are released, and the
+    // binding it eventually carries names the owner. Only the assumption that the
+    // read happens in the same synchronous turn had to go.
+    await new Promise((resolve) => setImmediate(resolve))
     expect(read).toHaveBeenCalled()
     expect(daemon.some((m) => m.type === 'reattach')).toBe(false)
     release(rows)
@@ -1882,19 +1890,23 @@ describe('SessionRegistry', () => {
     const spy = vi.spyOn(store.sessions, 'upsertSession')
 
     await store.beginTransferFence()
-    expect(() =>
+    // AWAITED. Both are async, so a sync not.toThrow() observes the callback
+    // returning a promise and nothing else -- the input was never routed and the
+    // flush never ran, so the dirty bit asserted below was still the one cleared
+    // above. resolves.not.toThrow is the form that actually watches the work.
+    await expect(
       reg.clientGateway.routeClientFrame(cid, {
         type: 'input',
         sessionId,
         data: Buffer.from('ls\r').toString('base64'),
       }),
-    ).not.toThrow()
-    expect(() => reg.modules.sessions.flushActivity()).not.toThrow()
+    ).resolves.not.toThrow()
+    await expect(reg.modules.sessions.flushActivity()).resolves.not.toThrow()
     expect(spy).not.toHaveBeenCalled()
     expect(session.terminal.activityDirty).toBe(true)
 
     await store.endTransferFence()
-    reg.modules.sessions.flushActivity()
+    await reg.modules.sessions.flushActivity()
     expect(spy).toHaveBeenCalledTimes(1)
     expect(session.terminal.activityDirty).toBe(false)
     session.terminal.stopOutput()
@@ -3626,12 +3638,12 @@ describe('hibernation', () => {
         agentKind: 'shell',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       vi.advanceTimersByTime(2 * 60_000)
       const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
 
       await store.beginTransferFence()
-      expect(() =>
+      await expect(
         reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'inventoryReport',
           machineId: reg.sessionStore.hostMachineId,
@@ -3643,8 +3655,8 @@ describe('hibernation', () => {
             tools: [],
           },
         }),
-      ).not.toThrow()
-      expect(() =>
+      ).resolves.not.toThrow()
+      await expect(
         reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'hostMetrics',
           hostname: 'box',
@@ -3656,7 +3668,7 @@ describe('hibernation', () => {
             swapFreeBytes: 0,
           },
         }),
-      ).not.toThrow()
+      ).resolves.not.toThrow()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
       expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
