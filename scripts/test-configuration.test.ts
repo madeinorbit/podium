@@ -345,6 +345,31 @@ describe('test lane configuration', () => {
     expect(config(normalizedWirePackageConfig).test?.maxWorkers).toBe(1)
   })
 
+  it('assigns every ordinary server test to a shard or explicit integration lane [POD-3716]', () => {
+    // Scan independently of unit exclusions: deriving this census from the unit
+    // config would hide exactly the files that accidentally run in no lane.
+    const files = readdirSync(new URL('../apps/server/src/', import.meta.url), {
+      recursive: true,
+    })
+      .map(String)
+      .filter((file) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file))
+      .filter((file) => !/(?:\.integration\.|e2e)/.test(file))
+      .map((file) => `apps/server/src/${file.replaceAll('\\', '/')}`)
+    const manifest = JSON.parse(
+      readFileSync(new URL('../apps/server/test-shards.json', import.meta.url), 'utf8'),
+    ) as { shards: { testFiles: string[] }[] }
+    // Real server/socket tests may deliberately live outside the fast shards,
+    // but must be named in the integration roster, not merely excluded from units.
+    const owned = new Set([
+      ...manifest.shards.flatMap((shard) => shard.testFiles),
+      ...(config(integrationConfig).test?.include ?? []),
+    ])
+    expect(
+      files.filter((file) => !owned.has(file)).sort(),
+      'server tests without a lane',
+    ).toEqual([])
+  })
+
   it('keeps every server shard on the shared hermetic setup [POD-520]', () => {
     // The split turned one server lane into five. Each is a separate Vitest invocation, so
     // each can lose the hardening on its own: the env scrubber that keeps a suite off the
