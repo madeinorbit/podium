@@ -89,12 +89,12 @@ function agedClock(): { now: () => number; advance: (ms: number) => void } {
  * that follows is the one this file is about — a dedup replay — rather than a
  * measurement of how long a fresh CLI takes to mount a composer.
  */
-function goIdle(
+async function goIdle(
   o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: string,
   clock: ReturnType<typeof agedClock>,
-): void {
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+): Promise<void> {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -102,7 +102,7 @@ function goIdle(
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -273,7 +273,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     const clock = agedClock()
     const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goIdle(o, sessionId, clock)
+    await goIdle(o, sessionId, clock)
     o.daemon.length = 0
 
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
@@ -308,7 +308,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     const clock = agedClock()
     const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goIdle(o, sessionId, clock)
+    await goIdle(o, sessionId, clock)
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
@@ -366,7 +366,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     const clock = agedClock()
     const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goIdle(o, sessionId, clock)
+    await goIdle(o, sessionId, clock)
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'only once', mutationId: 'm-send' })
