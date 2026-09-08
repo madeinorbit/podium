@@ -101,8 +101,8 @@ async function regWithRevocableMachineGrant() {
     onBehalfOf: COLLEAGUE,
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  reg.gateway.attachDaemon(SHARED_MACHINE, () => {})
-  reg.gateway.routeDaemonFrame(SHARED_MACHINE, {
+  await reg.gateway.attachDaemon(SHARED_MACHINE, () => {})
+  await reg.gateway.routeDaemonFrame(SHARED_MACHINE, {
     type: 'inventoryReport',
     machineId: SHARED_MACHINE,
     inventory: {
@@ -121,6 +121,8 @@ async function regWithRevocableMachineGrant() {
   const revokeAfterFirstGrantRead = () => {
     vi.spyOn(reg.modules.machines, 'grantsForMachine').mockImplementation(async (machineId) => {
       const snapshot = await liveGrants(machineId)
+      // The ownership snapshot also reads the host machine; count this resource only.
+      if (machineId !== SHARED_MACHINE) return snapshot
       grantReads += 1
       if (grantReads === 1) {
         await store.grants.remove('machine', SHARED_MACHINE, FIRST_ADMIN_USER_ID, 'use')
@@ -162,21 +164,21 @@ describe('rule 46 grant snapshots at relay composition', () => {
     const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
     revokeAfterFirstGrantRead()
 
-    expect(() =>
+    await expect(
       reg.modules.nativeLogin.start({
         harness: 'codex',
         ownerUserId: FIRST_ADMIN_USER_ID,
       }),
-    ).not.toThrow()
+    ).resolves.toBeDefined()
     expect(grantReads()).toBe(1)
 
-    expect(() =>
+    await expect(
       reg.modules.nativeLogin.start({
         harness: 'claude-code',
         machineId: SHARED_MACHINE,
         ownerUserId: FIRST_ADMIN_USER_ID,
       }),
-    ).toThrow('you do not have access to start login on this machine')
+    ).rejects.toThrow('you do not have access to start login on this machine')
     expect(grantReads()).toBe(2)
   })
 })
@@ -221,7 +223,7 @@ describe('multi-daemon routing', () => {
         machineId: asMachineId('m2'),
       })
 
-      reg.gateway.routeDaemonFrame('m2', {
+      await reg.gateway.routeDaemonFrame('m2', {
         type: 'sessionCwd',
         sessionId,
         cwd: '/repo/.worktrees/remote-adoption',
@@ -230,7 +232,7 @@ describe('multi-daemon routing', () => {
         repoRoot: '/repo',
       })
 
-      expect(await reg.modules.issues.get(issue.id)).toMatchObject({
+      await expect.poll(() => reg.modules.issues.get(issue.id)).toMatchObject({
         worktreePath: '/repo/.worktrees/remote-adoption',
         branch: 'issue/remote-adoption',
         machineId: 'm2',
@@ -249,7 +251,7 @@ describe('multi-daemon routing', () => {
     })
     m1.length = 0
 
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-a' },
@@ -280,7 +282,7 @@ describe('multi-daemon routing', () => {
     m1.length = 0
     m2.length = 0
 
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'foreign-thread' },
@@ -305,13 +307,14 @@ describe('multi-daemon routing', () => {
     const logs = captureLogs()
 
     const browse = reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
+    await expect.poll(() => m1.some((msg) => msg.type === 'browseDirsRequest')).toBe(true)
     const request = m1.find((msg) => msg.type === 'browseDirsRequest')
     expect(request, 'the browse must have been sent to m1').toBeDefined()
     expect(m2.filter((msg) => msg.type === 'browseDirsRequest')).toHaveLength(0)
     const requestId = (request as { requestId: string }).requestId
 
     // m2 answers a request it was never sent, quoting m1's id.
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'browseDirsResult',
       requestId,
       listing: {
@@ -329,7 +332,7 @@ describe('multi-daemon routing', () => {
 
     // …and the caller is still waiting: m1's own answer is what settles it, so
     // the drop neither leaked m2's listing nor consumed the request.
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'browseDirsResult',
       requestId,
       listing: {
@@ -363,7 +366,7 @@ describe('multi-daemon routing', () => {
       machineId: asMachineId('m2'),
     })).sessionId
     // mark both live as a bind would
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'bind',
       sessionId: a,
       cmd: 'x',
@@ -371,7 +374,7 @@ describe('multi-daemon routing', () => {
       agentKind: 'shell',
       geometry: { cols: 80, rows: 24 },
     })
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'bind',
       sessionId: b,
       cmd: 'x',
@@ -397,7 +400,7 @@ describe('multi-daemon routing', () => {
         true,
       )
 
-      vi.advanceTimersByTime(30_001)
+      await vi.advanceTimersByTimeAsync(30_001)
       const after = await reg.modules.machines.listMachines()
       expect(after.find((m) => m.id === 'm1')?.online).toBe(false)
       expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
@@ -423,13 +426,13 @@ describe('multi-daemon routing', () => {
     const { reg } = await regWithTwoDaemons()
     const sent: import('@podium/protocol').ServerMessage[] = []
     attachTestClient(reg.clientGateway, (m) => sent.push(m))
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'hostMetrics',
       hostname: 'one',
       sampledAt: '2026-06-11T00:00:00.000Z',
       memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'hostMetrics',
       hostname: 'two',
       sampledAt: '2026-06-11T00:00:00.000Z',
@@ -688,7 +691,7 @@ describe('session handoff orchestration', () => {
       TEST_CALLER,
     )
 
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/source/repo/.worktrees/stale',
@@ -699,7 +702,7 @@ describe('session handoff orchestration', () => {
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x' },
     ])
 
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/target/repo/.worktrees/x/apps/web',
@@ -770,7 +773,7 @@ describe('session handoff orchestration', () => {
     const { reg, source, sessionId, issueId } = await handoffRegistry({ withIssue: true })
     // The old daemon restamped only the session after rollback; kind=none does not
     // adopt the stale location onto the issue, so its real worktree survives.
-    reg.gateway.routeDaemonFrame('m1', {
+    await reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/old-machine/repo',

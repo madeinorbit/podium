@@ -37,8 +37,8 @@ describe('bind-storm regression', () => {
       ownerUserId: asUserId('user:sole'),
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    registry.gateway.attachDaemon('m1', () => {})
-    registry.gateway.attachDaemon('m2', () => {})
+    await registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {
       await registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
@@ -54,15 +54,16 @@ describe('bind-storm regression', () => {
       bound.push({ sessionId, cwd, machineId })
     }
     // Settle setup: run any coalesced broadcast so the storm below starts clean.
-    registry.modules.sessions.flushBroadcasts()
+    await registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
-    registry.clientGateway.routeClientFrame(clientId, {
+    await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
+    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
     inbox.length = 0
     return { registry, store, bound, inbox }
   }
@@ -79,8 +80,12 @@ describe('bind-storm regression', () => {
     const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
-    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
-    registry.modules.sessions.flushBroadcasts()
+    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
+    await registry.modules.sessions.flushBroadcasts()
+
+    await expect.poll(() => new Set(sessionChanges(inbox)
+      .filter((change) => (change.value as SessionMeta).status === 'live')
+      .map((change) => change.entityId)).size).toBe(50)
 
     // (c) Pipeline runs ≪ bind count: leading run + one coalesced trailing flush.
     const pipelineRuns = inbox.filter((m) => m.type === 'feedDelta').length
@@ -113,7 +118,7 @@ describe('bind-storm regression', () => {
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
     const { registry, bound, inbox } = await makeStorm({ sessions: 3, issues: 1 })
-    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
+    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
     const changes = sessionChanges(inbox)
@@ -125,11 +130,11 @@ describe('bind-storm regression', () => {
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', async () => {
     const { registry, bound, inbox } = await makeStorm({ sessions: 2, issues: 0 })
-    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
-    registry.modules.sessions.flushBroadcasts()
+    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
+    await registry.modules.sessions.flushBroadcasts()
     await registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')
-    registry.modules.sessions.flushBroadcasts()
-    expect(
+    await registry.modules.sessions.flushBroadcasts()
+    await expect.poll(() =>
       sessionChanges(inbox).findLast((change) => (change.value as SessionMeta).machineId === 'm1')
         ?.value,
     ).toMatchObject({ machineName: 'renamed-one' })

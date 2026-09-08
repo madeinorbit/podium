@@ -50,16 +50,16 @@ describe('SessionRegistry model catalog wiring', () => {
     await first.modules.settings.refreshModelCatalog(machineId)
     await first.dispose()
 
-    // Second "boot" (same DB): the catalog is served from persistence immediately —
-    // get() returns it with no additional probe on the fresh registry.
+    // Second boot hydrates persistence in the background without another probe.
     const probe2 = vi.fn(async () => ({}))
     const second = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       modelProbe: probe2,
     })
-    expect((await second.modules.settings.getModelCatalog(machineId)).byAgent.grok?.[0]?.value).toBe(
+    await expect.poll(async () => (await second.modules.settings.getModelCatalog(machineId)).byAgent.grok?.[0]?.value).toBe(
       'grok-build',
     )
+    expect(probe2).not.toHaveBeenCalled()
     await second.dispose()
   })
 
@@ -112,12 +112,13 @@ describe('SessionRegistry model catalog wiring', () => {
       instanceId: 'default',
       modelProbe: probe2,
     })
-    expect((await second.modules.settings.getModelCatalog(host)).byAgent.grok?.[0]?.value).toBe(
+    await expect.poll(async () => (await second.modules.settings.getModelCatalog(host)).byAgent.grok?.[0]?.value).toBe(
       'host-model',
     )
-    expect(
-      (await second.modules.settings.getModelCatalog(asMachineId(other))).byAgent.grok?.[0]?.value,
+    await expect.poll(
+      async () => (await second.modules.settings.getModelCatalog(asMachineId(other))).byAgent.grok?.[0]?.value,
     ).toBe('other-model')
+    expect(probe2).not.toHaveBeenCalled()
     await second.dispose()
   })
 })

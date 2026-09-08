@@ -34,10 +34,10 @@ export const READY_CEILING_MS = 15_000
  * before the first step, so a caller whose fixture has ALREADY driven the clock
  * past the window (`settle`) does not advance one step it did not ask for.
  */
-export const advanceUntil = (done: () => boolean, what: string): void => {
+export const advanceUntil = async (done: () => boolean, what: string): Promise<void> => {
   if (done()) return
   for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
-    vi.advanceTimersByTime(READY_STEP_MS)
+    await vi.advanceTimersByTimeAsync(READY_STEP_MS)
     if (done()) return
   }
   throw new Error(`the readiness window closed before ${what}`)
@@ -50,9 +50,9 @@ export const advanceUntil = (done: () => boolean, what: string): void => {
  * the POD-152 property these tests exist for, and asserting it is the reason
  * this steps rather than jumping.
  */
-export const advanceToComposerReady = (typedCount: () => number): void => {
+export const advanceToComposerReady = async (typedCount: () => number): Promise<void> => {
   const before = typedCount()
-  advanceUntil(() => typedCount() > before, 'the queued row reached the PTY')
+  await advanceUntil(() => typedCount() > before, 'the queued row reached the PTY')
 }
 
 /**
@@ -69,8 +69,8 @@ export const advanceToComposerReady = (typedCount: () => number): void => {
  * synchronous shape as much as on this one. One millisecond tells them apart: a
  * zero-delay CR has already landed, a deferred one has not.
  */
-export const expectSubmitStillDeferred = (read: () => string[], paste: string): void => {
+export const expectSubmitStillDeferred = async (read: () => string[], paste: string): Promise<void> => {
   expect(read()).toEqual([paste])
-  vi.advanceTimersByTime(1)
+  await vi.advanceTimersByTimeAsync(1)
   expect(read()).toEqual([paste])
 }

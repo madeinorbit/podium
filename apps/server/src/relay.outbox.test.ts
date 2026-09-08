@@ -63,8 +63,8 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 /** live claude session with a resume ref, parked via hibernate. */
 async function hibernatedSession(reg: SessionRegistry): Promise<string> {
   const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'abc-123' },
@@ -75,16 +75,16 @@ async function hibernatedSession(reg: SessionRegistry): Promise<string> {
 
 /** Drive the readiness engine to 'settled' after a bind: harness output followed
  * by the runtime-state observation that proves a resumed process is ready. */
-function settle(reg: SessionRegistry, sessionId: string): void {
+async function settle(reg: SessionRegistry, sessionId: string): Promise<void> {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId: asSessionId(sessionId),
       seq: seq++,
       data: 'eA==',
     })
-    vi.advanceTimersByTime(200)
+    await vi.advanceTimersByTimeAsync(200)
   }
   // A resumed CLI is ready when its harness reports state for THIS process, not
   // merely when its boot paint goes quiet (POD-1100). The real harness reports
@@ -92,7 +92,7 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   // this fixture exercises the delivery path rather than the silent-CLI grace
   // period.
   const observedAt = new Date().toISOString()
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: {
@@ -102,7 +102,7 @@ function settle(reg: SessionRegistry, sessionId: string): void {
       stateObservedAt: observedAt,
     },
   })
-  vi.advanceTimersByTime(1400)
+  await vi.advanceTimersByTimeAsync(1400)
 }
 
 /**
@@ -143,8 +143,8 @@ function settle(reg: SessionRegistry, sessionId: string): void {
  * arrives. Every "delivered" assertion below is asserted after it, and the
  * "still queued" assertions before it are what say the hold is real.
  */
-function confirmUserTurn(reg: SessionRegistry, sessionId: string, text: string): void {
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+async function confirmUserTurn(reg: SessionRegistry, sessionId: string, text: string): Promise<void> {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'transcriptDelta',
     sessionId: asSessionId(sessionId),
     items: [{ id: `turn-${text}`, role: 'user' as const, text, cursor: `c-${text}` }],
@@ -164,7 +164,7 @@ const advanceUntilSettled = async (
 ): Promise<void> => {
   if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
   for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
-    vi.advanceTimersByTime(READY_STEP_MS)
+    await vi.advanceTimersByTimeAsync(READY_STEP_MS)
     await Promise.resolve()
     if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
   }
@@ -177,7 +177,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
 
       const source = (await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -188,8 +188,8 @@ describe('queueText (durable outbox sends)', () => {
         cwd: '/target',
         spawnedBy: `session:${source}`,
       })).sessionId
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: target,
         resume: { kind: 'claude-session', value: 'revocation-proof' },
@@ -215,19 +215,19 @@ describe('queueText (durable outbox sends)', () => {
         })),
       ).toEqual({ ok: true, queued: true })
 
-      // User lifecycle writes intentionally have no repository API yet.
-      // @ts-expect-error test-only revocation through SessionStore's private connection
-      reg.sessionStore.db
-        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
-        .run('2026-08-01T00:00:00.000Z', FIRST_ADMIN_USER_ID)
-
       await vi.waitFor(() =>
         expect(daemon).toContainEqual(
           expect.objectContaining({ type: 'spawn', sessionId: target }),
         ),
       )
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
-      settle(reg, target)
+      // User lifecycle writes intentionally have no repository API yet.
+      // @ts-expect-error test-only revocation through SessionStore's private connection
+      await reg.sessionStore.db
+        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+        .run('2026-08-01T00:00:00.000Z', FIRST_ADMIN_USER_ID)
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
+      await settle(reg, target)
 
       expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
       expect(await reg.sessionStore.sync.listQueuedMessages(target)).toEqual([])
@@ -244,7 +244,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
 
@@ -255,6 +255,7 @@ describe('queueText (durable outbox sends)', () => {
         queued: true,
       })
 
+      await vi.advanceTimersByTimeAsync(0)
       // The wake follows async worktree/instruction preparation.
       await vi.waitFor(() =>
         expect(daemon).toContainEqual(
@@ -270,11 +271,11 @@ describe('queueText (durable outbox sends)', () => {
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      settle(reg, sessionId)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await settle(reg, sessionId)
       // `settle` above already ran the clock past the readiness window, so this
       // steps zero times — it is here to state the dependency, not to wait.
-      advanceUntil(
+      await advanceUntil(
         () => pastesContaining(daemon, 'wake-up-msg').length === 1,
         'the queued row reached the PTY',
       )
@@ -287,8 +288,8 @@ describe('queueText (durable outbox sends)', () => {
       expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(1)
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
-      confirmUserTurn(reg, sessionId, 'wake-up-msg')
-      advanceUntilSettled(reg, sessionId, 'wake-up-msg')
+      await confirmUserTurn(reg, sessionId, 'wake-up-msg')
+      await advanceUntilSettled(reg, sessionId, 'wake-up-msg')
 
       // Delivered: the count leaves the meta and the durable row is gone.
       expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBeUndefined()
@@ -306,9 +307,9 @@ describe('queueText (durable outbox sends)', () => {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
       const storeA = await openTestStore(file, TEST_MACHINE)
       const regA = await SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
-      regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
+      await regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
       const sessionId = await hibernatedSession(regA)
-      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       expect(
         (await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),
@@ -316,22 +317,24 @@ describe('queueText (durable outbox sends)', () => {
           mutationId: asMutationId('restart-wake'),
         })),
       ).toEqual({ ok: true, queued: true })
-      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
         type: 'agentExit',
         sessionId: asSessionId(sessionId),
         code: 137,
       })
+      await vi.advanceTimersByTimeAsync(0)
       await regA.dispose()
+      await storeA.close()
 
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
       expect(
         (await regB.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
 
-      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
         type: 'reattachFailed',
         sessionId: asSessionId(sessionId),
         reason: 'process gone',
@@ -340,8 +343,8 @@ describe('queueText (durable outbox sends)', () => {
         expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1),
       )
 
-      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId: asSessionId(sessionId),
         state: {
@@ -350,10 +353,10 @@ describe('queueText (durable outbox sends)', () => {
           nativeSubagentCount: 0,
         },
       })
-      settle(regB, sessionId)
+      await settle(regB, sessionId)
       expect(pastesContaining(daemon, 'wake')).toHaveLength(1)
-      confirmUserTurn(regB, sessionId, 'wake')
-      advanceUntilSettled(regB, sessionId, 'wake')
+      await confirmUserTurn(regB, sessionId, 'wake')
+      await advanceUntilSettled(regB, sessionId, 'wake')
       expect(await storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       await regB.dispose()
     } finally {
@@ -367,7 +370,7 @@ describe('queueText (durable outbox sends)', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
@@ -400,8 +403,8 @@ describe('queueText (durable outbox sends)', () => {
       )
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      settle(reg, sessionId)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await settle(reg, sessionId)
 
       expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
         '\x1b[200~continue-night-work\x1b[201~',
@@ -427,13 +430,13 @@ describe('queueText (durable outbox sends)', () => {
   it('refuses a parked agent with no resume ref and queues NOTHING', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 1,
@@ -457,7 +460,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = await openTestStore(file, TEST_MACHINE)
       const regA = await SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       const daemonA: ControlMessage[] = []
-      regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
+      await regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
       const sessionId = await hibernatedSession(regA)
       expect(
         (await regA.modules.sessions.queueText({
@@ -471,6 +474,7 @@ describe('queueText (durable outbox sends)', () => {
 
       await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(0)
       await regA.dispose()
       await storeA.close()
 
@@ -483,18 +487,19 @@ describe('queueText (durable outbox sends)', () => {
       ).toBe(1)
 
       const daemonB: ControlMessage[] = []
-      regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
-      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       // The resumed harness reports runtime state once rehydrated; terminal quiet
       // alone is no longer a readiness signal after a wake.
-      settle(regB, sessionId)
+      await settle(regB, sessionId)
+      await advanceUntil(() => pastesContaining(daemonB, 'survive-restart').length === 1, 'the restored row reached the PTY')
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       // Typed by the NEW process, and still held by it: a row that crossed a
       // restart is confirmed from the transcript like any other.
       expect(await queuedRows(regB, sessionId)).toHaveLength(1)
 
-      confirmUserTurn(regB, sessionId, 'survive-restart')
-      advanceUntilSettled(regB, sessionId, 'survive-restart')
+      await confirmUserTurn(regB, sessionId, 'survive-restart')
+      await advanceUntilSettled(regB, sessionId, 'survive-restart')
       expect(await regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       expect(
         (await regB.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
@@ -515,12 +520,12 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       await reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
       await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
@@ -529,7 +534,7 @@ describe('queueText (durable outbox sends)', () => {
       // Silent TUI → the readiness window falls back to its ceiling and the head
       // is typed. Stepped, not jumped: the old `advanceTimersByTime(6_400)` wrote
       // down a constant POD-2836 is about to move.
-      advanceToComposerReady(() => pastesContaining(daemon, 'first-msg').length)
+      await advanceToComposerReady(() => pastesContaining(daemon, 'first-msg').length)
       expect(pastesContaining(daemon, 'first-msg')).toHaveLength(1)
       // ...and the second is not fused onto the same tick. It cannot even be
       // ATTEMPTED yet: the head is typed but unconfirmed, so both rows are still
@@ -537,7 +542,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
       expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(2)
 
-      confirmUserTurn(reg, sessionId, 'first-msg')
+      await confirmUserTurn(reg, sessionId, 'first-msg')
       // Settle the head, and stop on the step that settles it — inside the
       // spacing gap, which is the only place the gap can be observed.
       await advanceUntilSettled(reg, sessionId, 'first-msg')
@@ -547,9 +552,9 @@ describe('queueText (durable outbox sends)', () => {
       // of a zero spacing. A zero-spacing `deliverNext` has already landed by
       // the +1ms mark; a spaced one has not.
       expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      vi.advanceTimersByTime(1)
+      await vi.advanceTimersByTimeAsync(1)
       expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      advanceUntil(
+      await advanceUntil(
         () => pastesContaining(daemon, 'second-msg').length === 1,
         'the second row reached the PTY',
       )
@@ -569,7 +574,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -577,18 +582,18 @@ describe('queueText (durable outbox sends)', () => {
       })
       await reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
 
-      vi.advanceTimersByTime(26_000)
+      await vi.advanceTimersByTimeAsync(26_000)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
       // The attempt gave up but the ROWS REMAIN — nothing was dropped.
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
       expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and types after settle.
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      settle(reg, sessionId)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await settle(reg, sessionId)
       // `settle` above already ran the clock past the readiness window, so this
       // steps zero times — it is here to state the dependency, not to wait.
-      advanceUntil(
+      await advanceUntil(
         () => pastesContaining(daemon, 'patient-msg').length === 1,
         'the queued row reached the PTY',
       )
@@ -598,7 +603,7 @@ describe('queueText (durable outbox sends)', () => {
       // until the transcript witnesses it.
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
-      confirmUserTurn(reg, sessionId, 'patient-msg')
+      await confirmUserTurn(reg, sessionId, 'patient-msg')
       await advanceUntilSettled(reg, sessionId, 'patient-msg')
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
@@ -609,26 +614,29 @@ describe('queueText (durable outbox sends)', () => {
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = await hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
-    reg.clientGateway.routeClientFrame(clientId, {
+    await reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
     })
+    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
     const before = inbox.length
 
     await reg.modules.sessions.queueText({
       sessionId: asSessionId(sessionId),
       text: 'queued-while-parked',
     })
-    reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
+    await reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
+    await expect.poll(() => inbox.slice(before).flatMap((m) => m.type === 'feedDelta' ? m.changes : [])
+      .some((c) => c.entity === 'session' && (c.value as SessionMeta).queuedMessageCount === 1)).toBe(true)
     const changes = inbox.slice(before).flatMap((message) => {
       if (message.type === 'metadataDelta') return message.changes
       if (message.type !== 'feedDelta') return []
@@ -645,7 +653,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('clears an existing snooze when a message is queued (fresh user intent)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = await hibernatedSession(reg)
     await reg.modules.sessions.setSnooze({
       userId: asUserId(SOLE_USER_ID),
@@ -730,12 +738,12 @@ describe('framework idempotency (modules.mutations)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       const send = async () =>
         await reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', async () =>
@@ -749,15 +757,15 @@ describe('framework idempotency (modules.mutations)', () => {
       expect(await send()).toEqual({ ok: true, queued: true })
       expect(await send()).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
       // Nothing is typed into a composer that has not proven it is mounted.
-      vi.advanceTimersByTime(100)
+      await vi.advanceTimersByTimeAsync(100)
       expect(decodedInputs(daemon)).toEqual([])
 
-      advanceToComposerReady(() => pastesContaining(daemon, 'only-once').length)
+      await advanceToComposerReady(() => pastesContaining(daemon, 'only-once').length)
       // Flush the deferred submit CR. This file does not PIN that delay — with
       // `SUBMIT_CR_DELAY_MS = 0` all 12 checks here stay green (measured,
       // POD-2842). `expectSubmitStillDeferred` in `relay.test.ts` is what pins
       // it; the assertion below is about how MANY frames, not about when.
-      vi.advanceTimersByTime(200)
+      await vi.advanceTimersByTimeAsync(200)
 
       expect(pastesContaining(daemon, 'only-once')).toHaveLength(1)
       // One paste + one CR — nothing else went to the PTY. THIS is the assertion
