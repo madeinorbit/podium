@@ -996,7 +996,24 @@ export class OperationEngine {
     const operation = row.operation
     if (!operation) return null
     const def = this.deps.registry.get(operation.kind)
-    if (!def?.projectSealed || !this.hasPersistedHandoff(operation)) return operation
+    // NO PROJECTION TO APPLY: serve the STORED BYTES, not the reparse.
+    //
+    // `row.operation` has been through parseOperation, which drops any field
+    // this binary does not know about. That is the wrong answer for the endpoint
+    // this feeds: the web bundle is swapped during the very operation it renders,
+    // so the two ends are guaranteed to be different builds, and a newer server's
+    // field has to survive the round trip (P8). Our side served
+    // JSON.parse(row.payload) directly; dev/mw introduced this projection and
+    // served its parsed result. The merge took the projection and lost the
+    // byte-preservation, so keep both: raw bytes when nothing projects, the
+    // projected operation when something does.
+    if (!def?.projectSealed || !this.hasPersistedHandoff(operation)) {
+      try {
+        return JSON.parse(row.payload) as Operation
+      } catch {
+        return operation
+      }
+    }
     const handoff = this.handoffs.get(operation.id)
     return def.projectSealed(operation, {
       inFlightDrive: handoff?.phase === 'sealed' || handoff?.phase === 'reclaiming',

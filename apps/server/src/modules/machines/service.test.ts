@@ -257,7 +257,7 @@ describe('MachinesService supervisor presence', () => {
     const bootFence = recoveryOnly
       ? vi.spyOn(store, 'transferFenceActive', 'get').mockReturnValue(false)
       : undefined
-    const before = store.machines.getMachine(MACHINE)
+    const before = await store.machines.getMachine(MACHINE)
     try {
       await svc.attach(MACHINE, daemon.send, ['recovery-cap'])
       await svc.attachSupervisor(MACHINE, old, build, ['update.delivery.feed'])
