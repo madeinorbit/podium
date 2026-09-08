@@ -84,8 +84,8 @@ export interface MessageMailboxDeps {
   >
   issues: Pick<IssueService, 'resolveRef' | 'has'>
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
-  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
-  sessionById?(sessionId: SessionId): SessionMeta | undefined | Promise<SessionMeta | undefined>
+  listSessions(): Promise<SessionMeta[]>
+  sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
   now(): string
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or

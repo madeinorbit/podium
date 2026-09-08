@@ -73,16 +73,14 @@ export interface SessionTeardownPorts {
   daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
   listSessions(): Promise<SessionMeta[]>
-  setArchived(input: { sessionId: SessionId; archived: boolean }): void | Promise<void>
-  rearmUnread(sessionId: SessionId): void
+  setArchived(input: { sessionId: SessionId; archived: boolean }): Promise<void>
+  rearmUnread(sessionId: SessionId): Promise<void>
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
   /** Snapshot tail for auto-archive parent-issue check. */
-  snapshotTail():
-    | { issues: { id: string; parentId?: string | null }[] }
-    | Promise<{ issues: { id: string; parentId?: string | null }[] }>
+  snapshotTail(): Promise<{ issues: { id: string; parentId?: string | null }[] }>
 }
 
 export class SessionTeardown {
@@ -98,7 +96,7 @@ export class SessionTeardown {
    * archiving a working session, and that confirmed intent is "stop it".
    * Unarchiving does NOT resurrect; that stays an explicit resume.
    */
-  parkArchivedSession(sessionId: SessionId): void {
+  async parkArchivedSession(sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     const running =
@@ -114,7 +112,7 @@ export class SessionTeardown {
       // until the row says so. Assigning them onto the live session first — which
       // is what this did — published a stopped session to every reader before the
       // commit, and left it stopped if the commit failed.
-    this.ports.repository.write(session, (draft) => {
+    await this.ports.repository.write(session, (draft) => {
       if (session.agentKind !== 'shell' && !draft.resume) {
         draft.status = 'exited'
         draft.exitCode = draft.exitCode ?? 0
@@ -135,7 +133,7 @@ export class SessionTeardown {
    * stays an explicit stop; auto free would yank a checkout under other work
    * that merely shares the path.
    */
-  parkShellSession(sessionId: SessionId): { ok: boolean; reason?: string } {
+  async parkShellSession(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.agentKind !== 'shell') {
@@ -147,8 +145,8 @@ export class SessionTeardown {
       session.status === 'reconnecting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
-    this.ports.rearmUnread(sessionId)
-    this.ports.repository.write(session, (draft) => {
+    await this.ports.rearmUnread(sessionId)
+    await this.ports.repository.write(session, (draft) => {
       draft.status = 'hibernated'
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
@@ -175,7 +173,7 @@ export class SessionTeardown {
    * NOT one, but it also must not resurface days-old sessions as unread, so
    * `readAt` is likewise untouched.
    */
-  parkStaleSession({ sessionId }: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+  async parkStaleSession({ sessionId }: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     const running =
@@ -184,7 +182,7 @@ export class SessionTeardown {
       session.status === 'reconnecting'
     if (!running) return { ok: false, reason: 'not running' }
     this.ports.autoContinue.onSessionGone(sessionId)
-    this.ports.repository.write(session, (draft) => {
+    await this.ports.repository.write(session, (draft) => {
       if (session.agentKind !== 'shell' && !draft.resume) {
         draft.status = 'exited'
         draft.exitCode = draft.exitCode ?? 0
@@ -316,7 +314,7 @@ export class SessionTeardown {
     // ref — stop still parks them as exited so they stay inspectable.
     if (wasRunning) {
       this.ports.autoContinue.onSessionGone(input.sessionId)
-      this.ports.rearmUnread(input.sessionId)
+      await this.ports.rearmUnread(input.sessionId)
       await this.ports.repository.write(
         session,
         (draft) => {

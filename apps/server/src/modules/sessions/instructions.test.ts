@@ -5,22 +5,22 @@ import { SessionInstructionRegistry } from './instructions'
 describe('SessionInstructionRegistry', () => {
   it('collects attributed contributions and commits provider side effects once', async () => {
     const registry = new SessionInstructionRegistry()
-    const firstCommit = vi.fn()
-    const secondCommit = vi.fn()
+    const firstCommit = vi.fn(async () => {})
+    const secondCommit = vi.fn(async () => {})
     registry.register({
       source: 'podium:issues',
-      prepare: (context) => ({
+      prepare: async (context) => ({
         content: `issue context for ${context.sessionId}`,
         afterSpawn: firstCommit,
       }),
     })
     registry.register({
       source: 'podium:empty',
-      prepare: () => ({ content: '   ' }),
+      prepare: async () => ({ content: '   ' }),
     })
     registry.register({
       source: 'podium:workflow',
-      prepare: () => ({ content: '  follow the workflow  ', afterSpawn: secondCommit }),
+      prepare: async () => ({ content: '  follow the workflow  ', afterSpawn: secondCommit }),
     })
 
     const prepared = await registry.prepare({
@@ -44,11 +44,11 @@ describe('SessionInstructionRegistry', () => {
 
   it('rejects duplicate or blank provider sources', () => {
     const registry = new SessionInstructionRegistry()
-    registry.register({ source: 'podium:workflow', prepare: () => null })
-    expect(() => registry.register({ source: 'podium:workflow', prepare: () => null })).toThrow(
+    registry.register({ source: 'podium:workflow', prepare: async () => null })
+    expect(() => registry.register({ source: 'podium:workflow', prepare: async () => null })).toThrow(
       'duplicate session instruction provider',
     )
-    expect(() => registry.register({ source: '  ', prepare: () => null })).toThrow(
+    expect(() => registry.register({ source: '  ', prepare: async () => null })).toThrow(
       'session instruction provider needs a source',
     )
   })

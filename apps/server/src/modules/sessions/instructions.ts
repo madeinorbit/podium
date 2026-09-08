@@ -16,7 +16,7 @@ export interface SessionInstructionContribution {
   content: string
   /** Runs only after the session row and spawn command exist. Providers use this
    * for side effects that must not survive a failed spawn preparation. */
-  afterSpawn?(): void | Promise<void>
+  afterSpawn?(): Promise<void>
 }
 
 export interface SessionInstructionProvider {
@@ -24,7 +24,7 @@ export interface SessionInstructionProvider {
   source: string
   prepare(
     context: SessionInstructionContext,
-  ): SessionInstructionContribution | null | Promise<SessionInstructionContribution | null>
+  ): Promise<SessionInstructionContribution | null>
 }
 
 export interface PreparedSessionInstructions {

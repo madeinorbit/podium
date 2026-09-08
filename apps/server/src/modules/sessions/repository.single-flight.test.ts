@@ -54,7 +54,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
       broadcastSessions: vi.fn(),
       flushBroadcasts: vi.fn(),
       runScheduledBroadcast: vi.fn(),
-      listSessions: vi.fn(() => []),
+      listSessions: vi.fn(async () => []),
     } as never)
     return { repo, rows, upserted }
   }

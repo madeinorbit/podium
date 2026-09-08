@@ -125,19 +125,19 @@ export interface SessionStartPorts {
   hasSession(sessionId: SessionId): boolean
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
-  defaultMachine(): MachineId | Promise<MachineId>
-  machineName(machineId: MachineId): string | Promise<string>
+  defaultMachine(): Promise<MachineId>
+  machineName(machineId: MachineId): Promise<string>
   nativeAccountIdForMachine(
     machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
-  ): AccountId | Promise<AccountId>
+  ): Promise<AccountId>
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
-  ): MachineId | Promise<MachineId>
+  ): Promise<MachineId>
   onSpawnTargetLogin?(input: {
     machineId: MachineId
     agentKind: AgentKind
@@ -149,21 +149,19 @@ export interface SessionStartPorts {
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
-  soleOwnerForCwd(cwd: string): IssueId | undefined | Promise<IssueId | undefined>
+  soleOwnerForCwd(cwd: string): Promise<IssueId | undefined>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
     agentKind: AgentKind
     issueId?: IssueId
     workflowRevisionId?: string
-  }):
-    | { instructions: AgentInstruction[]; commit(): void | Promise<void> }
-    | Promise<{ instructions: AgentInstruction[]; commit(): void | Promise<void> }>
+  }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
   sessionOwner(
     sessionId: SessionId,
-  ): { owner: UserId; grants: string[] } | undefined | Promise<{ owner: UserId; grants: string[] } | undefined>
+  ): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
-  setSessionDraft?(input: { sessionId: SessionId; text: string }): void
+  setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{
     ok: boolean
     queued?: boolean
@@ -334,7 +332,7 @@ export class SessionStart {
     })
     await preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
-      this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
+      await this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = await this.ports.queueInitialPrompt({
         sessionId: spawned.sessionId,
         text: taskPrompt,

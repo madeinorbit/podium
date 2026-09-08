@@ -322,7 +322,7 @@ export class HandoffTransfer {
       })
       if (!resumed.ok || (session.status as string) !== 'starting')
         throw new Error('target session failed to resume')
-      recordHandoff(this.ports, session, sourceMachineId, targetMachineId, caller)
+      await recordHandoff(this.ports, session, sourceMachineId, targetMachineId, caller)
       return { ok: true, newCwd: imported.newCwd }
     } catch (error) {
       // Once import returned and the live apply-time checks passed, the target

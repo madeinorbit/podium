@@ -308,8 +308,16 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = await openTestStore(file, TEST_MACHINE)
       const regA = await SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       await regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
-      const sessionId = await hibernatedSession(regA)
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      // The lost wake is admitted while the process is live, then the process
+      // dies before a wake can be reconstructed. A bare bind after hibernation
+      // does not resume a parked row (Session.markLive deliberately preserves it).
+      const { sessionId } = await regA.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(sessionId))
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value: 'abc-123' },
+      })
       expect(
         (await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),

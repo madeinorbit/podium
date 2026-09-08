@@ -213,12 +213,12 @@ export interface HandoffPorts {
   listSessions(): Promise<
     { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
   >
-  listRepos(): HandoffRepo[] | Promise<HandoffRepo[]>
-  listMachines(): HandoffMachine[] | Promise<HandoffMachine[]>
+  listRepos(): Promise<HandoffRepo[]>
+  listMachines(): Promise<HandoffMachine[]>
   /** Join a freshly attached target's first current-generation inventory report. */
   waitForInventory(machineId: MachineId): Promise<void>
-  issueMeta(issueId: IssueId): HandoffIssue | undefined | Promise<HandoffIssue | undefined>
-  rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void | Promise<void>
+  issueMeta(issueId: IssueId): Promise<HandoffIssue | undefined>
+  rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): Promise<void>
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330].
    * Resolves only after the durable draft is committed and installed. */
@@ -243,7 +243,7 @@ export interface HandoffPorts {
     adoptedBinding?: SessionBindingAdoptLaunchInstruction
   }): Promise<{ ok: boolean; reason?: string }>
   /** Durable attribution record (ADR 3 D17 / ADR 9 D5 A3) — see the coordinator. */
-  recordEvent(event: { ts: string; kind: string; subject: string; payload: unknown }): void
+  recordEvent(event: { ts: string; kind: string; subject: string; payload: unknown }): Promise<void>
   /** Injected so a transfer that takes real time is testable without one. */
   sleep(ms: number): Promise<void>
 }

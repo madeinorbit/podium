@@ -73,7 +73,7 @@ import {
   messageOf,
   type Oracle,
 } from './modules/sessions/oracle-support'
-import type { SessionVisibility } from './modules/sessions/session-access'
+import { asyncSessionIssueAccess, type SessionVisibility } from './modules/sessions/session-access'
 import {
   SessionStateRegistry,
   soleHumanSessionStatePrincipal,
@@ -163,7 +163,7 @@ async function ctxFor(
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
     stageAttachment: async (input) => await modules.sessions.runtimeGateway.stageAttachment(input),
-    runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
+    runtimeContractActive: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition
     // root, exactly as `sessionCommandCtx` does it.
@@ -185,10 +185,10 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
-    issueOwner: () => undefined,
+    issueOwner: async () => undefined,
     access: {
       listSessions: async () => await modules.sessions.listSessions(),
-      issues: modules.issues,
+      issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     ownership: opts.ownership ?? (await ownershipSnapshotFromMachines(modules.machines)),

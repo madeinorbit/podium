@@ -47,7 +47,7 @@ function fixture(count: number) {
     runScheduledBroadcast,
     broadcastSessions: vi.fn(),
     flushBroadcasts: vi.fn(),
-    listSessions: vi.fn(() => []),
+    listSessions: vi.fn(async () => []),
   } as never)
   return { repo, rows, sessions, capture, wire, runScheduledBroadcast }
 }

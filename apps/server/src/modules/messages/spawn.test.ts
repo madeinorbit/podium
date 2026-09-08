@@ -137,7 +137,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
       events: store.events,
       issues: fakeIssues(),
       sessions: {
-        listSessions: () => sessions,
+        listSessions: async () => sessions,
         sendText: async () => ({ ok: true }),
         queueText: async (i) => {
           queued.push(i)

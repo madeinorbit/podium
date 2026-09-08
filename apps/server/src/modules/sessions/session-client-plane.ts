@@ -21,6 +21,8 @@ import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine
 import type { MachinesService, MachineListing } from '../machines/service'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { Session } from './session'
+import type { SessionTerminalProof } from './terminal-proof'
+import type { DaemonRpcService } from '../machines/rpc'
 
 const log = createLogger('server:sessions')
 
@@ -32,9 +34,9 @@ export interface SessionClientPlanePorts {
   machineReconciler: SessionMachineReconciler
   machines: Pick<MachinesService, 'ownershipRows' | 'grantsForMachine' | 'toMachine'>
   repository: any
-  rpc: any
+  rpc: Pick<DaemonRpcService, 'transcriptPathHint'>
   state: any
-  terminalProof: any
+  terminalProof: Pick<SessionTerminalProof, 'fence'>
 }
 
 export class SessionClientPlane {
@@ -59,6 +61,16 @@ export class SessionClientPlane {
    * Resolve the repository-backed ownership before constructing the probe.
    */
   async reattachMessageFor(session: Session, machineId: MachineId): Promise<ControlMessage> {
+    const observationLease = await this.ports.terminalProof.fence(session)
+    const transcriptHint = await this.ports.rpc.transcriptPathHint(
+      { kind: 'system', id: 'session-attach' },
+      {
+        id: session.sessionId,
+        machineId: session.machineId,
+        ...(session.resume ? { resume: session.resume } : {}),
+      },
+    )
+
     const recoveryMachineAccess =
       machineUseDecision(
         systemPrincipal('session-rebind'),
@@ -67,7 +79,6 @@ export class SessionClientPlane {
       ) === 'granted'
         ? 'allowed'
         : 'denied'
-    const observationLease = this.ports.terminalProof.fence(session)
     const requestedGeneration = observationLease?.observationGeneration ?? 1
     return {
       type: 'reattach',
@@ -108,14 +119,7 @@ export class SessionClientPlane {
       ...(session.lifecycleDriverRequest()
         ? { runtimeContract: session.lifecycleDriverRequest() }
         : {}),
-      ...(this.ports.rpc.transcriptPathHint(
-        { kind: 'system', id: 'session-attach' },
-        {
-          id: session.sessionId,
-          machineId: session.machineId,
-          ...(session.resume ? { resume: session.resume } : {}),
-        },
-      ) ?? {}),
+      ...(transcriptHint ?? {}),
       // Spawn-time floor for observer-based harnesses (codex): lets a reattached
       // observer discover a lazily-created rollout it never saw before the restart.
       ...(Number.isFinite(Date.parse(session.createdAt))

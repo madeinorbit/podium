@@ -163,7 +163,7 @@ export interface SessionRuntimeGatewayPorts {
   events: Pick<RuntimeEventGate, 'record' | 'ready' | 'recent' | 'replayBoardProjection'>
 }
 
-export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => void
+export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => Promise<void>
 
 /**
  * Fine delivery is WIRED as of POD-2293, and the two halves are named because a
@@ -341,7 +341,7 @@ export class SessionRuntimeGateway {
     )
     const result = await completion
     if (result.kind === 'accepted' || result.kind === 'fine-live-only') {
-      for (const listener of [...this.listeners]) listener(msg.sessionId, msg.event)
+      for (const listener of [...this.listeners]) await listener(msg.sessionId, msg.event)
     }
     return result
   }

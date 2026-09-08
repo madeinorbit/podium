@@ -50,7 +50,7 @@ export type {
 }
 
 export interface SessionReadToolkitDeps {
-  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+  listSessions(): Promise<SessionMeta[]>
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>

@@ -187,7 +187,7 @@ describe('archive parks the session process [POD-108]', () => {
     // sessions the proof path can never clear.
     expect(await reg.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
 
-    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
     const m = await meta(reg, sessionId)
     expect(m?.status).toBe('hibernated')
     expect(m?.stopReason).toBe('parent')
@@ -196,13 +196,13 @@ describe('archive parks the session process [POD-108]', () => {
 
     // Parking twice is a no-op the caller can see, not a second kill.
     const kills = daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId).length
-    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({
+    expect(await reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({
       ok: false,
       reason: 'not running',
     })
     expect(daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId)).toHaveLength(kills)
     expect(
-      reg.modules.sessions.parkStaleSession({ sessionId: 'ses_missing' as SessionId }),
+      await reg.modules.sessions.parkStaleSession({ sessionId: 'ses_missing' as SessionId }),
     ).toEqual({ ok: false, reason: 'unknown session' })
   })
 
@@ -214,7 +214,7 @@ describe('archive parks the session process [POD-108]', () => {
     })
     await bindLive(reg, sessionId, '/r', { resume: false })
 
-    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('exited')
     expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)

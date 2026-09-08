@@ -300,12 +300,12 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
-  listSessions: () => SessionMeta[] | Promise<SessionMeta[]>
+  listSessions: () => Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?: (sessionId: SessionId) => SessionMeta | undefined | Promise<SessionMeta | undefined>
+  sessionById?: (sessionId: SessionId) => Promise<SessionMeta | undefined>
   /** Widened to a PROMISE, not to `UserId | undefined | Promise<...>` [POD-3507,
    *  spec rule 52b]: the union form is what lets an unawaited call read as an
    *  always-truthy value at the consumer, and this one feeds a notification's

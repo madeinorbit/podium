@@ -31,8 +31,8 @@ export function findSessionById<T extends { sessionId: SessionId }>(
 
 /** Async counterpart for callers whose durable session source crossed the store boundary. */
 export interface AsyncSessionByIdPort<T extends { sessionId: SessionId }> {
-  listSessions(): T[] | Promise<T[]>
-  sessionById?(sessionId: SessionId): T | undefined | Promise<T | undefined>
+  listSessions(): Promise<T[]>
+  sessionById?(sessionId: SessionId): Promise<T | undefined>
 }
 
 export async function findSessionByIdAsync<T extends { sessionId: SessionId }>(

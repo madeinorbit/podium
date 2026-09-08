@@ -59,7 +59,7 @@ export interface SessionDaemonLifecyclePorts {
   onSessionActivity(sessionId: SessionId): void | Promise<void>
   onSessionAttention(sessionId: SessionId): void
   onSessionTurnEnd(sessionId: SessionId): void
-  emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): void
+  emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): Promise<void>
   toMachine(machineId: MachineId, message: ControlMessage): void
   now(): number
   terminalCandidateFacts(
@@ -202,7 +202,7 @@ export class SessionDaemonLifecycle {
     sessionId: SessionId,
     code: number,
     spawnedBy?: string,
-  ): void => this.ports.emitSessionExited(sessionId, code, spawnedBy)
+  ): Promise<void> => this.ports.emitSessionExited(sessionId, code, spawnedBy)
   private readonly toMachine = (machineId: MachineId, message: ControlMessage): void =>
     this.ports.toMachine(machineId, message)
   private readonly now = (): number => this.ports.now()
@@ -282,7 +282,7 @@ export class SessionDaemonLifecycle {
       if (msg.observerGeneration === undefined) {
         this.unfencedExitsAwaitingBind.add(msg.sessionId)
       }
-      this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
+      await this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
       // A send can be durably admitted in the narrow interval between the
       // child dying and this exit reaching the server. It was accepted while
       // the row still said `live`, so queueText did not request resurrection.
@@ -505,7 +505,7 @@ export class SessionDaemonLifecycle {
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
-        if (s) this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
+        if (s) await this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
         break
       }
       case 'sessionKillResult': {
@@ -538,7 +538,7 @@ export class SessionDaemonLifecycle {
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
           // lookup: the narrowed `s.status` above would defeat the compare.)
           if (this.sessions.get(msg.sessionId)?.status === 'exited') {
-            this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
+            await this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
           }
         }
         // A queued send may have committed just before the server died, losing

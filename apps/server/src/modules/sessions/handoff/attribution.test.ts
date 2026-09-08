@@ -88,13 +88,13 @@ describe('recordHandoff: the durable receipt', () => {
     const events: { ts: string; kind: string; subject: string; payload: unknown }[] = []
     return {
       events,
-      ports: { recordEvent: (event: (typeof events)[number]) => events.push(event) },
+      ports: { recordEvent: async (event: (typeof events)[number]) => { await Promise.resolve(); events.push(event) } },
     }
   }
 
-  it('names the machine pair, the actor and the human it acted for', () => {
+  it('names the machine pair, the actor and the human it acted for', async () => {
     const { events, ports } = capture()
-    recordHandoff(ports, makeSession(), SOURCE, TARGET, agentCaller())
+    await recordHandoff(ports, makeSession(), SOURCE, TARGET, agentCaller())
     expect(events).toHaveLength(1)
     const event = events[0]
     expect(event?.kind).toBe('session.handoff')
@@ -109,20 +109,20 @@ describe('recordHandoff: the durable receipt', () => {
     })
   })
 
-  it('carries the issue only when the session has one', () => {
+  it('carries the issue only when the session has one', async () => {
     const withIssue = capture()
-    recordHandoff(withIssue.ports, makeSession('iss-1'), SOURCE, TARGET, userCaller())
+    await recordHandoff(withIssue.ports, makeSession('iss-1'), SOURCE, TARGET, userCaller())
     expect(withIssue.events[0]?.payload).toMatchObject({ issueId: 'iss-1' })
 
     const without = capture()
-    recordHandoff(without.ports, makeSession(), SOURCE, TARGET, userCaller())
+    await recordHandoff(without.ports, makeSession(), SOURCE, TARGET, userCaller())
     expect(without.events[0]?.payload).not.toHaveProperty('issueId')
   })
 
-  it('the event`s human is the SAME derivation the bundle manifest is stamped from', () => {
+  it('the event`s human is the SAME derivation the bundle manifest is stamped from', async () => {
     const { events, ports } = capture()
     const caller = agentCaller()
-    recordHandoff(ports, makeSession(), SOURCE, TARGET, caller)
+    await recordHandoff(ports, makeSession(), SOURCE, TARGET, caller)
     const manifestIdentity = exportedIdentity(caller)
     expect((events[0]?.payload as { onBehalfOf: UserId }).onBehalfOf).toBe(
       manifestIdentity.exportedBy.onBehalfOf,

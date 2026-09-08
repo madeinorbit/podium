@@ -86,7 +86,7 @@ export interface SessionRevivalPorts {
     agentKind: AgentKind
     issueId?: IssueId
     existingOnly?: boolean
-  }): PreparedSessionInstructions | Promise<PreparedSessionInstructions>
+  }): Promise<PreparedSessionInstructions>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
