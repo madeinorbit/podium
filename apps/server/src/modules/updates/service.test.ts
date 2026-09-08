@@ -228,7 +228,7 @@ describe('UpdatesService', () => {
       if (verdict === 'cancel') {
         svc.withdrawAuthorization()
         await svc.releaseInFlightGrants('Canceled')
-      } else svc.onStatus(asMachineId('a'), { ...confirmed, state: verdict })
+      } else await svc.onStatus(asMachineId('a'), { ...confirmed, state: verdict })
       const boot = make(machines, { recovery })
       await boot.svc.onStatus(asMachineId('a'), { ...confirmed, grantId: undefined })
       expect((await boot.svc.fleet())[0]?.state).toBe(verdict === 'cancel' ? 'stuck' : verdict)
@@ -236,7 +236,7 @@ describe('UpdatesService', () => {
       expect((await boot.svc.fleet())[0]?.state).toBe('current')
       // Cancellation withdraws read-driven continuation; tick is an explicit
       // planning entry point and deliberately does not require authorization.
-      if (verdict !== 'cancel') boot.svc.tick()
+      if (verdict !== 'cancel') await boot.svc.tick()
       await boot.svc.fleet()
       expect(boot.send).not.toHaveBeenCalled()
     })
@@ -248,11 +248,11 @@ describe('UpdatesService', () => {
           for (const reboot of [false, true]) {
             const recovery = memoryRecovery()
             const h = await start({ recovery })
-            if (retirement === 'abandon') h.svc.abandonWait(['a'], 'Deadline expired')
+            if (retirement === 'abandon') await h.svc.abandonWait(['a'], 'Deadline expired')
             else if (retirement === 'release') {
               h.svc.withdrawAuthorization()
               await h.svc.releaseInFlightGrants('Canceled')
-            } else h.svc.onStatus(asMachineId('a'), { ...confirmed, state: retirement })
+            } else await h.svc.onStatus(asMachineId('a'), { ...confirmed, state: retirement })
             expect(recovery.read()?.grants).toEqual([])
             expect(recovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe('g1')
             const { svc, send } = reboot ? make(h.machines, { recovery }) : h
@@ -354,7 +354,7 @@ describe('UpdatesService', () => {
         'refuses observations after a retired %s checkpoint fails', async (failure) => {
           const recovery = memoryRecovery()
           const { svc, send } = await start({ recovery })
-          if (failure === 'confirmation') svc.abandonWait(['a'], 'Deadline expired')
+          if (failure === 'confirmation') await svc.abandonWait(['a'], 'Deadline expired')
           recovery.write = () => { throw new Error('disk full') }
           await expect(
             failure === 'retirement'

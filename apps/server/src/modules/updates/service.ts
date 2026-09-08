@@ -657,7 +657,12 @@ export class UpdatesService {
     }
     this.replayTerminalStatuses(channel, target.version)
     this.persistRecovery()
-    this.deps.onTargetChanged?.(channel)
+    // NO NOTIFICATION HERE. Every one of this method's three callers notifies for
+    // itself -- two through notifyTargetChangedDeferred and one with an awaited
+    // call -- so firing again here delivers the change TWICE. dev/mw notified
+    // from inside this method and did not notify at the callers; this epic does
+    // the opposite, and the merge kept both halves. Deferral and rejection
+    // handling live at the callers, which is why they own it.
     return true
   }
 
