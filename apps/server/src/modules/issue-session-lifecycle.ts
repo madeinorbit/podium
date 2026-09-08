@@ -154,7 +154,14 @@ export class IssueSessionLifecycle {
   /** Start the boot pass and the bounded periodic backstop exactly once. */
   async startClosedIssueSweep(): Promise<void> {
     if (this.closedIssueSweepTimer) return
-    void this.sweepClosedIssues('startup').catch((error) => {
+    // AWAIT THE STARTUP PASS before arming the periodic one. It used to be
+    // fire-and-forget, which was fine while this was called from a constructor
+    // that ran long before anything else touched the store. It is called from
+    // async boot now, and a startup pass still in flight when the first periodic
+    // tick fires is precisely the overlap the single-flight guard was built for
+    // (POD-3258): the guard skips the tick, correctly, and the sweep silently
+    // does not happen. Boot is the right place to wait for boot work.
+    await this.sweepClosedIssues('startup').catch((error) => {
       log.warn('closed issue startup sweep failed', { err: error })
     })
     this.closedIssueSweepTimer = setInterval(() => {

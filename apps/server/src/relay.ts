@@ -538,7 +538,7 @@ export class SessionRegistry {
       await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
       // AFTER boot, never before: this lists issues, and the store refuses a
       // read until the issue service has hydrated through its factory.
-      this.modules.issueSessionLifecycle.startClosedIssueSweep()
+      await this.modules.issueSessionLifecycle.startClosedIssueSweep()
     }
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
