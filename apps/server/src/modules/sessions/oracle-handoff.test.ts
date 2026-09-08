@@ -187,7 +187,7 @@ async function handoffFixture(
   const target: ControlMessage[] = []
   const timeline: TimelineEvent[] = []
   const release: HandoffFixture['release'] = {}
-  reg.gateway.attachDaemon('m1', (msg) => {
+  await reg.gateway.attachDaemon('m1', (msg) => {
     source.push(msg)
     timeline.push({ machine: 'm1', type: msg.type, msg })
     // POD-1409: the source models a release that takes real time, and records
@@ -297,12 +297,12 @@ async function handoffFixture(
   // A real daemon reports inventory immediately after authentication. Persisted
   // inventory belongs to the previous socket, so the fixture must not leave the
   // new connection permanently in the reconnect-probing state.
-  reg.gateway.routeDaemonFrame('m1', {
+  await reg.gateway.routeDaemonFrame('m1', {
     type: 'inventoryReport',
     machineId: asMachineId('m1'),
     inventory,
   })
-  reg.gateway.attachDaemon('m2', (msg) => {
+  await reg.gateway.attachDaemon('m2', (msg) => {
     target.push(msg)
     timeline.push({ machine: 'm2', type: msg.type, msg })
     if (msg.type === 'inventoryRequest' && opts.deferTargetInventory) {
@@ -352,7 +352,7 @@ async function handoffFixture(
       })
   })
   if (!opts.deferTargetInventory) {
-    reg.gateway.routeDaemonFrame('m2', {
+    await reg.gateway.routeDaemonFrame('m2', {
       type: 'inventoryReport',
       machineId: asMachineId('m2'),
       inventory,
@@ -1136,7 +1136,7 @@ describe('oracle: duplicate dispatch', () => {
       }),
     )
     await f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
-    f.reg.gateway.attachDaemon('m3', () => {})
+    await f.reg.gateway.attachDaemon('m3', () => {})
 
     const first = f.reg.modules.issueSessionLifecycle.handoffSession(
       {
@@ -1252,7 +1252,7 @@ describe('oracle: worktree reuse on the target', () => {
       conversationId: 'other-native-id',
       machineId: asMachineId('m2'),
     })
-    f.reg.gateway.routeDaemonFrame('m2', {
+    await f.reg.gateway.routeDaemonFrame('m2', {
       type: 'agentExit',
       sessionId: peer.sessionId,
       code: 0,
