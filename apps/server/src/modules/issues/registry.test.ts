@@ -398,14 +398,13 @@ describe('guardIssueCommand authorization matrix', () => {
       // consults, rather than a copy of it left on the handler.
       expect(ISSUE_CONTRACTS[name].policy.resource, name).toBe('issue')
       await expect(
-      guardIssueCommand(scoped, reg.issues, name, definition, insideInput),
+        guardIssueCommand(scoped, reg.issues, name, definition, insideInput),
       ).resolves.toBeUndefined()
       await expect(
-      guardIssueCommand(scoped, reg.issues, name, definition, outsideInput)).rejects.toThrow(
-        /outside your subtree/,
-      )
+        guardIssueCommand(scoped, reg.issues, name, definition, outsideInput),
+      ).rejects.toThrow(/outside your subtree/)
       await expect(
-      guardIssueCommand(
+        guardIssueCommand(
           { ...scoped, overrideScope: true },
           reg.issues,
           name,
@@ -414,9 +413,8 @@ describe('guardIssueCommand authorization matrix', () => {
         ),
       ).resolves.toBeUndefined()
       await expect(
-      guardIssueCommand(viewer, reg.issues, name, definition, insideInput)).rejects.toThrow(
-        /not allowed/,
-      )
+        guardIssueCommand(viewer, reg.issues, name, definition, insideInput),
+      ).rejects.toThrow(/not allowed/)
     }
   })
 
