@@ -226,7 +226,7 @@ export class MirrorService {
     }
     queue.push({ nativeId, path })
     // Enqueue acknowledges queued work; pause/settled own drain completion.
-    if (!this.paused) void this.drain(machineId)
+    if (!this.paused) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
   }
 
   /**
@@ -250,7 +250,7 @@ export class MirrorService {
     if (this.stopped || !this.paused) return
     this.paused = false
     for (const [machineId, queue] of this.queues) {
-      if (queue.length > 0) void this.drain(machineId)
+      if (queue.length > 0) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
     }
   }
 
@@ -269,6 +269,11 @@ export class MirrorService {
   /** Resolves when the machine's queue is idle — a test/shutdown seam, not API. */
   async settled(machineId: MachineId): Promise<void> {
     while (this.active.has(machineId)) await new Promise((r) => setTimeout(r, 5))
+  }
+
+  private reportDrainFailure(machineId: MachineId, err: unknown): void {
+    if (this.stopped) return
+    log.warn('mirror drain failed', { machineId, err })
   }
 
   private async drain(machineId: MachineId): Promise<void> {
@@ -367,7 +372,7 @@ export class MirrorService {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
-      if (restart) void this.drain(machineId)
+      if (restart) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
     }
   }
 
