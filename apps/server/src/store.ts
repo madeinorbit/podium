@@ -39,27 +39,15 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
-import { backupDatabase } from './migrations/backup'
-import { latestAppliedMigration } from './migrations/index'
-import {
-  type SnapshotVerification,
-  SnapshotVerifier,
-  type SnapshotVerifierDeps,
-} from './migrations/snapshot-verifier'
-import {
-  checkpointStore,
-  configureStoreConnection,
-  migrateStoreConnection,
-  setStoreTransferFence,
-} from './migrations/store-lifecycle'
+import { type SnapshotVerification, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
+import { configureStoreConnection, migrateStoreConnection } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
@@ -69,6 +57,10 @@ import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
+import {
+  createBunSqliteDurability,
+  type DurabilityPort,
+} from './store/durability'
 import {
   createBunStoreExecutor,
   type QueryClient,
@@ -145,8 +137,14 @@ export class SessionStore {
    * than being named by each writer in turn. See `store/table-writes.ts`.
    */
   readonly tableWrites = new TableWrites()
-  /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
-  private readonly snapshotVerifier: SnapshotVerifier
+  /**
+   * File-level backup, snapshot, checkpoint and transfer [POD-3270].
+   *
+   * bun:sqlite today; Turso leaves backup/snapshot platform-managed and rejects
+   * the fence and candidate-file validation. Callers branch on
+   * `durability.capabilities`, never on a driver name.
+   */
+  readonly durability: DurabilityPort
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
@@ -256,7 +254,6 @@ export class SessionStore {
         log.error('transaction watchdog sink failed', { error: String(error) }),
     },
   ): Promise<SessionStore> {
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     let database = await openStoreDatabase(path)
     let executor = createBunStoreExecutor({
       database,
@@ -293,7 +290,7 @@ export class SessionStore {
   }
 
   private constructor(
-    private readonly path: string,
+    path: string,
     hostMachineId: MachineId,
     options: SnapshotVerifierDeps & { queryOnly?: boolean },
     database: SqlDatabase,
@@ -303,9 +300,14 @@ export class SessionStore {
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.snapshotVerifier = new SnapshotVerifier(path, options)
     this.db = database
     this.executor = executor
+    this.durability = createBunSqliteDurability({
+      database,
+      path,
+      executor,
+      snapshotVerifierDeps: options,
+    })
 
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
@@ -519,18 +521,12 @@ export class SessionStore {
 
   /** The exact newest migration identity the transfer target will verify. */
   async schemaVersionForTransfer(): Promise<string> {
-    return await this.executor.exclusive(async () => {
-      const name = latestAppliedMigration(this.db)
-      if (name === undefined) throw new Error('database migration identity is unavailable')
-      return name
-    })
+    return await this.durability.schemaVersion()
   }
 
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
   async checkpointForTransfer(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      await checkpointStore(session)
-    })
+    await this.durability.checkpoint()
   }
 
   /**
@@ -541,26 +537,7 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<string | undefined> {
-    return await this.executor.exclusive(async () =>
-      this.stageUpdateSnapshot(fromVersion, targetVersion),
-    )
-  }
-
-  private stageUpdateSnapshot(fromVersion: string, targetVersion: string): string | undefined {
-    if (this.path === ':memory:') return undefined
-    const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
-    const snapshot = backupDatabase(
-      this.db,
-      this.path,
-      `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
-      undefined,
-      undefined,
-      () => this.snapshotVerifier.verifiedFallbackPath(),
-    )
-    // Staged, not proved. The record is published before anything can await the
-    // proof so a crash in between is legible as "staged and never verified".
-    if (snapshot) this.snapshotVerifier.recordStaged(snapshot, randomUUID())
-    return snapshot
+    return await this.durability.snapshot(fromVersion, targetVersion)
   }
 
   /**
@@ -576,23 +553,7 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<SnapshotVerification> {
-    const staged = await this.snapshotBeforeUpdate(fromVersion, targetVersion)
-    if (!staged) {
-      return {
-        ok: false,
-        code: 'no-snapshotable-file',
-        detail: 'the database has no snapshotable file',
-        durationMs: 0,
-      }
-    }
-    let expectedSchemaVersion: string | undefined
-    try {
-      expectedSchemaVersion = await this.schemaVersionForTransfer()
-    } catch {
-      // A store with no migration identity still gets a quick_check proof; the
-      // schema comparison is the part that is skipped, not the verification.
-    }
-    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+    return await this.durability.verifiedSnapshot(fromVersion, targetVersion)
   }
 
   /**
@@ -608,8 +569,7 @@ export class SessionStore {
    * {@link discoverDatabaseSnapshots} is what changes that, at boot.
    */
   latestDatabaseSnapshot(): string | undefined {
-    if (this.path === ':memory:') return undefined
-    return this.snapshotVerifier.verifiedFallbackPath()
+    return this.durability.latestSnapshot()
   }
 
   /**
@@ -623,33 +583,22 @@ export class SessionStore {
    * Returns whether a background verification was started.
    */
   discoverDatabaseSnapshots(): boolean {
-    if (this.path === ':memory:') return false
-    return this.snapshotVerifier.discoverAndQueue()
+    return this.durability.discoverSnapshots()
   }
-
-  private transferFenceHeld = false
 
   /** Synchronous write guard for activity callbacks sharing this connection. */
   get transferFenceActive(): boolean {
-    return this.transferFenceHeld
+    return this.durability.transferFenceActive
   }
 
   /** In-process fence only: mint-session remains a separate writer until E.5. */
   async beginTransferFence(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      if (this.transferFenceHeld) throw new Error('transfer fence is already held')
-      await setStoreTransferFence(session, true)
-      this.transferFenceHeld = true
-    })
+    await this.durability.beginTransferFence()
   }
 
   /** Reopen SQLite writes after a confirmed pre-promotion abort. */
   async endTransferFence(): Promise<void> {
-    await this.executor.exclusive(async (session) => {
-      if (!this.transferFenceHeld) return
-      await setStoreTransferFence(session, false)
-      this.transferFenceHeld = false
-    })
+    await this.durability.endTransferFence()
   }
 
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
@@ -680,7 +629,7 @@ export class SessionStore {
     // scan cannot outlive the database (rule 67). This is persist ordering, not
     // exclusive-lane membership — the proof never held exclusive.
     for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
-    const verifierClosed = this.snapshotVerifier.close()
+    const verifierClosed = this.durability.close()
     await this.executor.close(async () => {
       try {
         await persist?.()

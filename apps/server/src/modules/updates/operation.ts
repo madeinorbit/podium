@@ -1407,6 +1407,15 @@ export interface UpdateOperationContext {
     bundleReady: boolean
     failureDetail?: string
   }
+  /**
+   * How this backend takes a pre-update recovery point [POD-3270].
+   *
+   * Branch on this capability, never on a driver name. `'platform-managed'`
+   * means the hosted database's platform owns backup and restore, so the
+   * server-replacement step does not copy a file. Absent means `'file'`, which
+   * is today's self-hosted SQLite path.
+   */
+  snapshotCapability?: 'file' | 'platform-managed'
   /** Server-owned snapshot seam; daemon places deliberately have none. */
   createDatabaseSnapshot?: (
     fromVersion: string,
@@ -2278,9 +2287,11 @@ async function runCoordinatorReplacement(
       }),
     }
   }
+  const fileSnapshot = context.snapshotCapability !== 'platform-managed'
   if (
-    (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
-    !context.recordOperationDetails
+    fileSnapshot &&
+    ((!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
+      !context.recordOperationDetails)
   ) {
     return {
       state: 'failed',
@@ -2310,14 +2321,20 @@ async function runCoordinatorReplacement(
   let activated = false
   try {
     if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
-    if (prepared?.committed &&
-        (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
+    if (
+      fileSnapshot &&
+      prepared?.committed &&
+      (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)
+    ) {
       return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
     }
     // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
     // request path, not the restart path: a timeout, a corrupt file or an
     // identity mismatch here is a structured operation failure and the OLD
     // SERVER KEEPS RUNNING. Only a proved snapshot reaches `requestCoordinatorRestart`.
+    // On a platform-managed backend the platform owns the recovery point, so this
+    // step does not copy a file (POD-3270). The branch is the port capability,
+    // never a driver name.
     const fromVersion = details.fromVersion ?? context.appVersion()
     const snapshotFailure = (detail: string): StepOutcome => ({
       state: 'failed',
@@ -2328,7 +2345,9 @@ async function runCoordinatorReplacement(
     })
     let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
       ? details.databaseSnapshotPath : undefined
-    if (databaseSnapshotPath) {
+    if (!fileSnapshot) {
+      // Platform-managed: no file copy, no path to record.
+    } else if (databaseSnapshotPath) {
       // Adoption reuses only this exact grant's already durable verification.
     } else if (context.prepareVerifiedDatabaseSnapshot) {
       let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
@@ -2342,12 +2361,18 @@ async function runCoordinatorReplacement(
       }
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
+      if (!context.recordOperationDetails) {
+        return snapshotFailure('Database snapshot support is unavailable; the server was not restarted.')
+      }
       try {
         await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     } else if (context.createDatabaseSnapshot) {
+      if (!context.recordOperationDetails) {
+        return snapshotFailure('Database snapshot support is unavailable; the server was not restarted.')
+      }
       try {
         databaseSnapshotPath = await context.createDatabaseSnapshot(
           fromVersion,
@@ -2375,7 +2400,9 @@ async function runCoordinatorReplacement(
     }
     return {
       state: 'running',
-      detail: `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`,
+      detail: fileSnapshot
+        ? `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`
+        : 'Database snapshot is platform-managed. Restarting the server…',
     }
   } finally {
     if (prepared && heldCoordinatorUpdates.get(operation.id) === prepared) {

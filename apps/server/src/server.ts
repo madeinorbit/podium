@@ -1034,6 +1034,7 @@ export async function startServer(
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
       hostMachineId,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
+      snapshotCapability: registry.sessionStore.durability.capabilities.snapshot,
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
       prepareVerifiedDatabaseSnapshot: async (from, target) =>

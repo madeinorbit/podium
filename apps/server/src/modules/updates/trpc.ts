@@ -293,6 +293,7 @@ export function updateOperationContext(input: {
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
   prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
+  snapshotCapability?: UpdateOperationContext['snapshotCapability']
   createDatabaseSnapshot: (
     fromVersion: string,
     targetVersion: string,
@@ -327,6 +328,7 @@ export function updateOperationContext(input: {
     ...(input.prepareCoordinatorUpdate
       ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
       : {}),
+    ...(input.snapshotCapability ? { snapshotCapability: input.snapshotCapability } : {}),
     createDatabaseSnapshot: input.createDatabaseSnapshot,
     ...(input.prepareVerifiedDatabaseSnapshot
       ? { prepareVerifiedDatabaseSnapshot: input.prepareVerifiedDatabaseSnapshot }
@@ -383,6 +385,7 @@ async function contextFor(
     hostMachineId: state.store.hostMachineId,
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
+    snapshotCapability: state.store.durability.capabilities.snapshot,
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
     // The server step waits on THIS one; it stages behind the database fence and
     // proves the result in a child process (POD-3068).

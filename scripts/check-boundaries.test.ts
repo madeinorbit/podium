@@ -1226,6 +1226,7 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
       'apps/server/src/store/executor/driver.ts',
       'apps/server/src/store/executor/bun-driver.ts',
       'apps/server/src/store/executor/harness.ts',
+      'apps/server/src/store/durability/bun-sqlite.ts',
       'apps/server/src/store/widgets.test.ts',
       'apps/server/src/store/test-support/seed.ts',
     ]) {
@@ -1240,6 +1241,7 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
     for (const held of [
       'apps/server/src/store/conversations/widgets.ts',
       'apps/server/src/store/executor/widgets.ts',
+      'apps/server/src/store/durability/widgets.ts',
     ]) {
       expect(checkStoreRawHandles(held, raw)).toHaveLength(2)
     }

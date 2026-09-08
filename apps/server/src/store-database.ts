@@ -21,6 +21,8 @@
  * serve an arbitrarily old schema.
  */
 
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Opens the database backing a `SessionStore` at `path` (`:memory:` included). */
@@ -30,6 +32,7 @@ let installed: StoreDatabaseOpener | undefined
 
 /** Open the store's database — the installed test opener, or the real driver. */
 export async function openStoreDatabase(path: string): Promise<SqlDatabase> {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   return installed === undefined ? openDatabase(path) : installed(path)
 }
 

@@ -1151,6 +1151,13 @@ const SEARCH_INDEX_PORT: ReadonlySet<string> = new Set([
  * wave). If the seam's shape changes and this module goes, this line goes with
  * it.
  *
+ * `store/durability/bun-sqlite.ts` IS THE FIFTH, and it is the file-level
+ * durability port's bun:sqlite implementation (POD-3270). Backup, snapshot,
+ * `wal_checkpoint`, the transfer fence and candidate-file validation are raw
+ * handle and file work by nature; the Turso implementation beside it has none
+ * of that and stays covered. Named, not a `durability/**` glob — same reason
+ * SearchIndex is two paths.
+ *
  * `executor.ts` IS DELIBERATELY ABSENT even though it imports `SqlDatabase`
  * today. That import is `readonly legacy: SqlDatabase | undefined` — the
  * executor's legacy field, which Stage A's exit gate deletes by name (method
@@ -1163,6 +1170,7 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/bun-driver.ts',
   'apps/server/src/store/executor/harness.ts',
   'apps/server/src/store/executor/sync-drizzle.ts',
+  'apps/server/src/store/durability/bun-sqlite.ts',
   // The sync package's test harness, and the SAME case as `harness.ts` above:
   // scaffolding that opens a real database, whose filename does not end in
   // `.test.ts` so the test-directory exemption cannot see it. Verified rather

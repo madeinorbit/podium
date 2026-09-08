@@ -36,6 +36,18 @@ async function tmpDbPath(): Promise<string> {
 }
 
 describe('SessionStore repos', () => {
+  it('exposes file durability capabilities, never a driver name', async () => {
+    const store = await openTestStore(':memory:')
+    expect(store.durability.capabilities).toEqual({
+      backup: 'file',
+      snapshot: 'file',
+      checkpoint: 'file',
+      transferFence: 'in-process',
+      candidateValidation: 'file',
+    })
+    await store.close()
+  })
+
   it('reports the newest migration recorded by a real migrated store', async () => {
     const store = await openTestStore(':memory:')
     const expected = [...DRIZZLE_MIGRATIONS]
