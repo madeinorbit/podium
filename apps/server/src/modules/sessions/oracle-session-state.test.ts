@@ -22,9 +22,9 @@ afterEach(() => disposeOracles())
 const RESUME = { kind: 'claude-session', value: 'native-fence-1' } as const
 
 /** Bind a created session as a live, idle claude-code agent with a resume ref. */
-function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: SessionId): void {
+async function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: SessionId): Promise<void> {
   const machineId = o.reg.sessionStore.hostMachineId
-  o.reg.gateway.routeDaemonFrame(machineId, {
+  await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -32,13 +32,13 @@ function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: SessionId)
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame(machineId, {
+  await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'sessionResumeRef',
     sessionId,
     resume: RESUME,
     confidence: 'exact',
   })
-  o.reg.gateway.routeDaemonFrame(machineId, {
+  await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'agentState',
     sessionId,
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -127,7 +127,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -155,7 +155,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -175,7 +175,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -206,7 +206,7 @@ describe('oracle: read state', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
     const secondId = attachTestClient(o.reg.clientGateway, (m) => second.push(m))
-    o.reg.clientGateway.routeClientFrame(secondId, {
+    await o.reg.clientGateway.routeClientFrame(secondId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
       clientId: '',
@@ -430,14 +430,14 @@ describe('oracle: composer drafts', () => {
     const author: ServerMessage[] = []
     const authorId = attachTestClient(o.reg.clientGateway, (m) => author.push(m))
     const watcher: ServerMessage[] = []
-    o.reg.clientGateway.routeClientFrame(authorId, {
+    await o.reg.clientGateway.routeClientFrame(authorId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
     const watcherId = attachTestClient(o.reg.clientGateway, (m) => watcher.push(m))
-    o.reg.clientGateway.routeClientFrame(watcherId, {
+    await o.reg.clientGateway.routeClientFrame(watcherId, {
       type: 'hello',
       wireVersion: WIRE_VERSION,
       clientId: '',
@@ -501,7 +501,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
     // the field as it lands on the wire, not the lease object in isolation.
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goLive(o, sessionId)
+    await goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
     o.daemon.length = 0
 
@@ -528,12 +528,12 @@ describe('oracle: the wake fence (POD-1472)', () => {
     // PREVIOUS process; the whole point of advancing it per wake.
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goLive(o, sessionId)
+    await goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
     o.daemon.length = 0
     await o.call.sessions.resurrect({ sessionId })
 
-    goLive(o, sessionId)
+    await goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
     await o.call.sessions.resurrect({ sessionId })
 
@@ -553,7 +553,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
     // transcript, and the user's conversation would appear to start over.
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goLive(o, sessionId)
+    await goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
     o.daemon.length = 0
 
