@@ -746,7 +746,10 @@ export async function startServer(
   }
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   if (!recoveryOnly)
-    registry.modules.machines.ensureHostMachine(
+    // AWAITED: this is the idempotent UPDATE that puts the REAL hostname and the
+    // bootstrap secret on the host row. Unawaited it raced the listMachines read
+    // twenty lines below and everything the server serves after it.
+    await registry.modules.machines.ensureHostMachine(
       hostname(),
       bootstrapToken,
       bootstrapAssignment,
@@ -766,7 +769,7 @@ export async function startServer(
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
-  if (!recoveryOnly) reportParkedUpstreamMutations(store.sync, store.events)
+  if (!recoveryOnly) await reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
@@ -2025,10 +2028,10 @@ export async function startServer(
         : refreshTargetsOnBoot({
             refresh: (channel) => registry.modules.updates.refreshTarget(channel),
           })
-    ).then(() => {
+    ).then(async () => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
-      if (!recoveryOnly) registry.modules.updatesReconciler?.onBoot()
+      if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
