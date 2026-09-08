@@ -36,6 +36,7 @@ export interface SessionProjectionEvent {
   ledgerCursor: number
 }
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
@@ -43,6 +44,32 @@ import type { SessionView } from './view'
 import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
+
+/**
+ * Overlay a whole-state draft onto live committed fields [POD-3720].
+ *
+ * Each writer still cuts a full snapshot. When two persistDrafts overlap, the
+ * later snapshot still carries the earlier writer's previous values for fields
+ * it did not touch. After the previous persist has installed, unchanged fields
+ * are taken from live so a stale draft cannot clobber them.
+ *
+ * Nested object fields (offer, agentState, resume) are compared by reference
+ * against the shallow origin `draft()` recorded. Writers replace those values
+ * rather than mutating them in place.
+ */
+function overlayChangedDurableFields(
+  origin: SessionDurableState,
+  draft: SessionDurableState,
+  live: SessionDurableState,
+): SessionDurableState {
+  const merged: SessionDurableState = { ...live, terminal: draft.terminal }
+  const assign = <K extends keyof SessionDurableState>(key: K): void => {
+    if (key === 'terminal') return
+    if (!Object.is(draft[key], origin[key])) merged[key] = draft[key]
+  }
+  for (const key of Object.keys(draft) as (keyof SessionDurableState)[]) assign(key)
+  return merged
+}
 
 interface PendingVolatileState {
   version: number
@@ -100,6 +127,17 @@ export class SessionRepository {
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<SessionId, PendingVolatileState>()
+  /**
+   * PER-SESSION WRITE TAIL [POD-3720]. Sibling persistDraft/write/persist calls
+   * on one session queue here so the later writer sees the earlier install (or,
+   * for a draft already cut, overlays onto it). Nested writes from inside a
+   * commit hook re-enter via {@link sessionWriteScope} instead of waiting on
+   * themselves.
+   */
+  private readonly sessionWriteTail = new Map<SessionId, Promise<void>>()
+  private readonly sessionWriteScope = new AsyncLocalStorage<SessionId>()
+  /** Shallow origin recorded by {@link draft}, keyed by the draft bag. */
+  private readonly draftOrigins = new WeakMap<SessionDurableState, SessionDurableState>()
   /**
    * THE COMMITTED DURABLE SNAPSHOT PER SESSION [POD-3259, spec §3.6].
    *
@@ -438,6 +476,36 @@ export class SessionRepository {
   }
 
   /**
+   * Queue one session's durable writes so a sibling cannot cut or persist
+   * against a snapshot the previous sibling has not yet installed [POD-3720].
+   * Re-entrant for the same session: a nested write from inside a commit hook
+   * (the state-model fixture, and any additionalWrite that itself persists)
+   * proceeds immediately rather than waiting on its own tail.
+   */
+  private enqueueSessionWrite<T>(sessionId: SessionId, fn: () => Promise<T>): Promise<T> {
+    if (this.sessionWriteScope.getStore() === sessionId) return fn()
+    const prev = this.sessionWriteTail.get(sessionId) ?? Promise.resolve()
+    const run = prev.then(
+      () => this.sessionWriteScope.run(sessionId, fn),
+      () => this.sessionWriteScope.run(sessionId, fn),
+    )
+    this.sessionWriteTail.set(
+      sessionId,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    )
+    return run
+  }
+
+  private resolvePersistedDraft(session: Session, draft: SessionDurableState): SessionDurableState {
+    const origin = this.draftOrigins.get(draft)
+    if (!origin) return draft
+    return overlayChangedDurableFields(origin, draft, session.captureDurableState())
+  }
+
+  /**
    * THE session write seam ([spec:SP-3fe2] #256): every persist commits the
    * row write and its declared session change through the write-seam Ledger —
    * one transact span, so "the row changed" and "the change log says so"
@@ -466,7 +534,13 @@ export class SessionRepository {
     // instead, so that its change is never on the shared object before it is
     // committed. Same body, same commit tail — the difference is only where the
     // fields being written came from.
-    await this.persistDraft(session, session.captureDurableState(), additionalWrite)
+    //
+    // Capture INSIDE the per-session queue [POD-3720]: a persist that sampled
+    // live state before a sibling write installed would restate the previous
+    // snapshot and clobber it.
+    await this.enqueueSessionWrite(session.sessionId, () =>
+      this.persistDraftUnlocked(session, session.captureDurableState(), additionalWrite),
+    )
   }
 
   /**
@@ -478,9 +552,14 @@ export class SessionRepository {
    * this writer's uncommitted fields off the shared object and make them
    * durable. Cut it, mutate it, persist it, and do not let it outlive a
    * suspension it will be persisted after (spec rule 26).
+   *
+   * The shallow origin recorded here is what {@link persistDraft} uses to tell
+   * a field this writer changed from one it merely copied [POD-3720].
    */
   draft(session: Session): SessionDurableState {
-    return session.captureDurableState()
+    const draft = session.captureDurableState()
+    this.draftOrigins.set(draft, { ...draft })
+    return draft
   }
 
   /**
@@ -491,15 +570,20 @@ export class SessionRepository {
    * had). Nothing it assigns reaches the live `Session` until the commit
    * returns, so a reader in the window sees only committed state and a failed
    * commit has nothing to undo.
+   *
+   * Cut, mutate and persist share one per-session turn [POD-3720] so a sibling
+   * `write` sees this install rather than the snapshot it was cut from.
    */
   async write(
     session: Session,
     mutate: (draft: SessionDurableState) => void | (() => void | Promise<void>),
     additionalWrite: () => void | Promise<void> = async () => {},
   ): Promise<void> {
-    const draft = this.draft(session)
-    const extra = mutate(draft)
-    await this.persistDraft(session, draft, extra ?? additionalWrite)
+    await this.enqueueSessionWrite(session.sessionId, async () => {
+      const draft = this.draft(session)
+      const extra = mutate(draft)
+      await this.persistDraftUnlocked(session, draft, extra ?? additionalWrite)
+    })
   }
 
   /** {@link write} for a draft the caller already holds. */
@@ -508,28 +592,47 @@ export class SessionRepository {
     draft: SessionDurableState,
     additionalWrite: () => void | Promise<void> = async () => {},
   ): Promise<void> {
+    await this.enqueueSessionWrite(session.sessionId, () =>
+      this.persistDraftUnlocked(session, draft, additionalWrite),
+    )
+  }
+
+  /** {@link persistDraft} once this session's write turn is held. */
+  private async persistDraftUnlocked(
+    session: Session,
+    draft: SessionDurableState,
+    additionalWrite: () => void | Promise<void> = async () => {},
+  ): Promise<void> {
     const pending = this.pendingVolatileSessions.get(session.sessionId)
-    // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330]. The row and
-    // the declared change are projected from it rather than from the live
-    // object, so the write describes what its caller asked for and nothing a
-    // concurrent writer left on the shared session. It also becomes the
-    // committed baseline once the commit returns: re-reading the live object
-    // afterwards would bake whatever changed DURING the write into the baseline,
-    // and the next rollback would restore a state no commit ever saw.
+    // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330], overlayed
+    // onto live for fields it did not change [POD-3720]. The row and the
+    // declared change are projected from that resolved bag rather than from
+    // the live object, so the write describes what its caller asked for and
+    // nothing a concurrent writer left on the shared session — and also
+    // nothing a concurrent writer committed that this draft merely copied.
+    // It becomes the committed baseline once the commit returns: re-reading
+    // the live object afterwards would bake whatever changed DURING the write
+    // into the baseline, and the next rollback would restore a state no commit
+    // ever saw.
     const installedVersion = this.volatileSessionMutationVersion
+    let toPersist = draft
     let changes: MetadataChange[]
     try {
       const committed = await this.ports.ledger.commit({
         write: async () => {
           await additionalWrite()
-          await this.store.sessions.upsertSession(session.toRow(draft))
+          // AFTER additionalWrite: D-txn sites assign into `draft` inside the
+          // span. AFTER the previous sibling has installed, because this body
+          // runs on the per-session turn [POD-3720].
+          toPersist = this.resolvePersistedDraft(session, draft)
+          await this.store.sessions.upsertSession(session.toRow(toPersist))
         },
         changes: async () => [
           {
             entity: 'session',
             id: session.sessionId,
             op: 'upsert',
-            value: await this.view.wire(session, undefined, undefined, draft),
+            value: await this.view.wire(session, undefined, undefined, toPersist),
           },
         ],
       })
@@ -566,10 +669,10 @@ export class SessionRepository {
     // draft — which is exactly what assigning onto the live object did before.
     const raced = this.pendingVolatileSessions.get(session.sessionId)
     session.installDurableState(
-      draft,
+      toPersist,
       raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,
     )
-    this.commitDurableBaseline(session.sessionId, draft)
+    this.commitDurableBaseline(session.sessionId, toPersist)
     this.publishSessionProjection(changes)
   }
 
