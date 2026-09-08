@@ -238,8 +238,17 @@ export async function prepareDaemonFrame(
   raw: string,
 ): Promise<PreparedDaemonFrame> {
   let request: MachineAuthenticationInput | undefined
+  // verifyOnly and source travel WITH the deps. They are what makes a
+  // recovery-only handshake read-only and what tells the directory which plane
+  // this connection is; dropping them here silently reinstated the row-touching
+  // write on the recovery path and lost supervisor attribution entirely.
+  const carried = {
+    ...(prepared.deps.verifyOnly ? { verifyOnly: true as const } : {}),
+    ...(prepared.deps.source ? { source: prepared.deps.source } : {}),
+  }
   const probe = createResolvedDaemonAcceptor({
     connectionId: prepared.deps.connectionId,
+    ...carried,
     machines: {
       hostMachineId: prepared.deps.machines.hostMachineId,
       authenticateDaemon(frame) {
@@ -254,9 +263,14 @@ export async function prepareDaemonFrame(
     return probed.kind === 'rejected' ? { acceptor: probe, outcome: probed } : { outcome: probed }
   }
 
-  const result = await prepared.deps.machines.authenticateDaemon(requested)
+  // PASS THE OPTIONS. verifyOnly is enforced INSIDE the service's
+  // authenticateDaemon, not by the directory that wraps it, so calling the
+  // authenticator bare performs the row touch this flag exists to prevent -- and
+  // a recovery-only handshake, which holds a QUERY-ONLY database, must not write.
+  const result = await prepared.deps.machines.authenticateDaemon(requested, carried)
   const acceptor = createResolvedDaemonAcceptor({
     connectionId: prepared.deps.connectionId,
+    ...carried,
     machines: resolvedMachineAuthenticator(prepared.deps.machines, requested, result),
   })
   return {
