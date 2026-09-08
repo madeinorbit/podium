@@ -81,8 +81,8 @@ function answerUploads(
 }
 
 /** A live idle claude-code session the seance can address. */
-function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string, cwd = '/p'): void {
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+async function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string, cwd = '/p'): Promise<void> {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -90,7 +90,7 @@ function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: strin
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -101,7 +101,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   it(`${MUST_NOT_CHANGE}: an unanswered ask returns the bounded-wait shape — answered:false, the question id, and a live status snapshot`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    liveSession(o, sessionId)
+    await liveSession(o, sessionId)
 
     const result = (await o.call.sessions.ask({
       sessionId,
@@ -121,7 +121,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   it(`${MUST_NOT_CHANGE}: ask is a MESSAGE — it lands in the ledger as a question addressed to the target`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    liveSession(o, sessionId)
+    await liveSession(o, sessionId)
 
     const result = (await o.call.sessions.ask({
       sessionId,
@@ -149,7 +149,7 @@ describe('oracle: sessions.ask (the seance)', () => {
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
     })
-    liveSession(o, target.sessionId, '/r/.worktrees/a')
+    await liveSession(o, target.sessionId, '/r/.worktrees/a')
 
     // Start the seance WITHOUT awaiting: the answer has to arrive DURING the
     // bounded wait, which is the half a timeoutSeconds:0 test can never reach.
@@ -210,7 +210,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   it(`${MUST_NOT_CHANGE}: ask carries NO mutationId — a repeated ask asks again, and nothing is recorded to dedupe against`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    liveSession(o, sessionId)
+    await liveSession(o, sessionId)
 
     const first = (await o.call.sessions.ask({
       sessionId,
