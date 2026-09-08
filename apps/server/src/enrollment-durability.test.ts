@@ -114,7 +114,7 @@ function hostWorld(stateDir: string, store: SessionStore, hostMachineId = store.
     store,
     hostMachineId,
     enrollment,
-    userExists: (id) => store.users.get(id) !== undefined,
+    userExists: async (id) => (await store.users.get(id)) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
     machinesForPrincipal: async () => [],
@@ -130,6 +130,24 @@ describe('server host enrollment provenance (POD-2467)', () => {
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('host recovery quarantines an enrollment whose recorded owner is missing', async () => {
+    const source = await makeWorld(dir)
+    const paired = await pairRemote(source.machines, { machineId: PROMOTED_HOST, ownerUserId: OTHER })
+    const store = await openTestStore(':memory:')
+    const host = hostWorld(dir, store, PROMOTED_HOST)
+    try {
+      expect(await store.users.get(OTHER)).toBeUndefined()
+      expect((await hello(host.machines, PROMOTED_HOST, paired.token)).ok).toBe(true)
+      expect((await store.machines.getMachine(PROMOTED_HOST))?.ownerUserId).toBeNull()
+      const ownership = await ownershipSnapshotFromMachines(host.machines)
+      expect(await checkMachineUse(userCommandPrincipal(OWNER, 'admin'), PROMOTED_HOST, ownership))
+        .toBe('unauthorized')
+    } finally {
+      await store.close()
+      await source.store.close()
+    }
   })
 
   it('enrolls the original host without treating an arbitrary machine row as proof', async () => {
@@ -186,7 +204,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
       hostMachineId: ORIGINAL_HOST,
       pairing,
       enrollment: openEnrollmentLedger(dir),
-      userExists: (id) => store.users.get(id) !== undefined,
+      userExists: async (id) => (await store.users.get(id)) !== undefined,
       sessionsChangedForMachine: () => {},
       clients: () => [],
       machinesForPrincipal: async () => [],

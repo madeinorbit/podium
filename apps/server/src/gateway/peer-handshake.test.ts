@@ -108,6 +108,7 @@ interface EnrollmentHandshakeWorldOptions {
   readonly queryOnly?: boolean
   readonly row?: boolean
   readonly revoked?: boolean
+  readonly ownerUserId?: string
 }
 
 const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions = {}) => {
@@ -122,7 +123,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     id: 'enroll-remote',
     machineId,
     serial: 1,
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: asUserId(options.ownerUserId ?? 'user:sole'),
     at: '2026-08-18T00:00:00.000Z',
   })
   if (options.revoked) {
@@ -155,7 +156,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     hostMachineId,
     pairing,
     enrollment,
-    userExists: (id) => store.users.get(id) !== undefined,
+    userExists: async (id) => (await store.users.get(id)) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
     machinesForPrincipal: async () => [],
@@ -608,6 +609,18 @@ describe('recovery-only daemon handshake verification', () => {
     try {
       expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe('rejected')
       expect(touch).not.toHaveBeenCalled()
+    } finally {
+      await world.store.close()
+    }
+  })
+
+  it('recovered peer with a missing ledger owner is quarantined', async () => {
+    const world = await enrollmentHandshakeWorld({ queryOnly: false, row: false, ownerUserId: 'user:deleted' })
+    try {
+      expect(await world.store.users.get(asUserId('user:deleted'))).toBeUndefined()
+      expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind)
+        .toBe('established')
+      expect((await world.store.machines.getMachine(world.machineId))?.ownerUserId).toBeNull()
     } finally {
       await world.store.close()
     }
