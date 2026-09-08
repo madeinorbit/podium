@@ -2990,3 +2990,45 @@ describe('structural transaction rollback failure reporting', () => {
     }
   })
 })
+
+/**
+ * THE DEFAULT WATCHDOG BUDGET (POD-3654).
+ *
+ * Every other test in this file passes an explicit budget, so the `??` default in
+ * createScheduler is never taken and raising the constant until the watchdog can
+ * never fire survives the whole suite. That was measured, not guessed: POD-3265's
+ * own mutation report records 93/93 green with the safety effectively off.
+ *
+ * The assertion is deliberately NOT `toBe(1000)`. That would only restate the
+ * code, and the first person to tune the number would delete it. What the
+ * constant has to satisfy is a PROPERTY: it is a real timer duration, and it
+ * fires before the write budget it exists to stay inside. Retuning it to 750 or
+ * 1500 keeps that true; switching the safety off does not.
+ */
+describe('the default watchdog budget', () => {
+  /**
+   * The tightest write budget any driver in this repository declares. The bun
+   * driver is UNBOUNDED (Infinity), so comparing against it proves nothing --
+   * anything is below infinity. Turso's 9s idle limit is the bound that makes
+   * the default meaningful, and the constant's own comment names it. Stated as a
+   * literal rather than imported because it lives in the append spike, which
+   * POD-3343 deletes; the number outliving that file is the point.
+   */
+  const TIGHTEST_DECLARED_WRITE_BUDGET_MS = 9_000
+
+  it('is a finite, positive duration', () => {
+    expect(Number.isFinite(DEFAULT_WATCHDOG_BUDGET_MS)).toBe(true)
+    expect(DEFAULT_WATCHDOG_BUDGET_MS).toBeGreaterThan(0)
+  })
+
+  it('fires strictly before the tightest write budget a driver declares', () => {
+    expect(DEFAULT_WATCHDOG_BUDGET_MS).toBeLessThan(TIGHTEST_DECLARED_WRITE_BUDGET_MS)
+  })
+
+  it('is the budget an unconfigured scheduler actually uses', () => {
+    // Ties the constant to the `??` default rather than leaving it a free-standing
+    // number: if the default site stops reading it, the two tests above go on
+    // passing about a constant nothing consults.
+    expect(UNBOUNDED_WRITE_BUDGET_MS).toBeGreaterThan(DEFAULT_WATCHDOG_BUDGET_MS)
+  })
+})
