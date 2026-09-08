@@ -158,9 +158,10 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(hubNames).toEqual([
       'machines.adopt',
       'machines.applyUpdate',
-      // dev/mw renamed machines.transferServer to machines.moveServer. The list
-      // is compared after .sort(), so the new name belongs HERE, not in the slot
-      // the old one occupied at the end.
+      // dev/mw renamed this procedure to machines.moveServer. The list is
+      // compared after .sort(), so the new name belongs HERE, not in the slot
+      // its predecessor occupied at the end. (The old name is deliberately not
+      // written out: public-cutover.test.ts forbids that term repo-wide.)
       'machines.moveServer',
       'machines.pairingCode',
       'machines.rename',
