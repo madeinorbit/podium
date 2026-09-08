@@ -1221,10 +1221,18 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
  */
 const TRANSACTION_OPENERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/bun-driver.ts',
+  'apps/server/src/store/executor/libsql-driver.ts',
   'apps/server/src/store/spike/turso-append/libsql-driver.ts',
   'apps/server/src/store/spike/turso-append/run-proofs.ts',
   'packages/sync/src/adapters/sqlite/test-support.ts',
 ])
+
+/**
+ * Only `@libsql/client/web` is pure JavaScript. The default entry loads the
+ * native `libsql` package and must not enter the shipped binary (spec §3.7,
+ * POD-3251 gate 1).
+ */
+const LIBSQL_NATIVE_ENTRY = /^@libsql\/client(?:$|\/(?!web(?:\/|$)))/
 
 /** The runtime's SQLite shim: the raw handle, by any subpath spelling. */
 const RUNTIME_SQLITE_SPECIFIER = /^@podium\/runtime\/sqlite(?:\/|$)/
@@ -2101,6 +2109,24 @@ export function checkStoreRawHandles(
  * and a rule that fired on the text of its own test would have to be written
  * around rather than written.
  */
+export function checkLibsqlClientEntry(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/') && !file.startsWith('packages/') && !file.startsWith('scripts/')) {
+    return []
+  }
+  if (isTestFile(file)) return []
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    if (!LIBSQL_NATIVE_ENTRY.test(ref.specifier)) continue
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: 'libsql-web-entry',
+      message: `${file}: '${ref.specifier}' pulls the native libsql loader into the bundle. Import '@libsql/client/web' — the only pure-JavaScript entry (POD-3221 spec §3.7, POD-3251 gate 1).`,
+    })
+  }
+  return violations
+}
+
 export function checkDrizzleTransaction(file: string, source: string): Violation[] {
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (TRANSACTION_OPENERS.has(file)) return []
@@ -2563,6 +2589,7 @@ export function checkFile(file: string, source: string): Violation[] {
     ...checkAsyncBooleanPredicate(file, source),
     ...checkSequentialPromiseCombinator(file, source),
     ...checkDrizzleTransaction(file, source),
+    ...checkLibsqlClientEntry(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
     ...checkCacheTableAnnouncement(file, source),

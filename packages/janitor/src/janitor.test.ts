@@ -18,6 +18,7 @@ import {
   EventLogPrunePlanner,
   handleTickError,
   JanitorService,
+  janitorSqlFromSqlite,
   MaintenanceCompatibilityError,
   MessageExpiryReader,
   WorktreeGcReader,
@@ -269,7 +270,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
         '2026-07-19T00:00:00.000Z',
       )
 
-      const reader = new MessageExpiryReader(db)
+      const reader = new MessageExpiryReader(janitorSqlFromSqlite(db))
       const prepare = vi.spyOn(db, 'prepare')
       const rows = await reader.read({
         now: '2026-07-18T00:00:00.000Z',
@@ -445,7 +446,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       for (let i = 0; i < 5; i++) {
         insert.run('2026-06-01T00:00:00.000Z', 'old', `s${i}`, '{}')
       }
-      const planner = new EventLogPrunePlanner(db)
+      const planner = new EventLogPrunePlanner(janitorSqlFromSqlite(db))
       const batches = await planner.plan({
         maxAgeDays: 14,
         maxRows: 50_000,
@@ -476,9 +477,9 @@ describe('JanitorService [spec:SP-c29e]', () => {
         `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run('remote', 'r', 'r', 't', '2026-07-18T00:00:00.000Z', '2026-07-18T00:00:00.000Z')
-      const reader = new ConnectScanReader(db)
+      const reader = new ConnectScanReader(janitorSqlFromSqlite(db))
       // Recovered 6 minutes later — still a candidate (lastSeenAt is durable handshake fact).
-      const candidates = reader.read('2026-07-18T00:06:00.000Z', 'local')
+      const candidates = await reader.read('2026-07-18T00:06:00.000Z', 'local')
       expect(candidates).toEqual([
         { machineId: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
       ])
@@ -506,7 +507,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       for (let i = 0; i < 250; i++) {
         insert.run('issue', `i${i}`, 'upsert', '{}', aged)
       }
-      const planner = new ChangeLogPrunePlanner(db)
+      const planner = new ChangeLogPrunePlanner(janitorSqlFromSqlite(db))
       const first = await planner.plan({
         keepRows: 0,
         maxAgeMs: 1,
@@ -592,7 +593,7 @@ describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
           full.deleted_at ?? null,
         )
       }, db)
-      return await new WorktreeGcReader(db).read({
+      return await new WorktreeGcReader(janitorSqlFromSqlite(db)).read({
         cutoffClosedAt: CUTOFF,
         mode: 'propose',
         afterDays: 14,

@@ -42,15 +42,21 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
+import { resolveDatabaseBackend, stateDir } from '@podium/runtime/config'
+import { createLibsqlClient } from '@podium/runtime/libsql'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { type SnapshotVerification, type SnapshotVerifierDeps } from './migrations/snapshot-verifier'
+import { configureLibsqlConnection, runLibsqlMigrations } from './migrations/libsql'
 import { configureStoreConnection, migrateStoreConnection } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
-import { UpdateRecoveryStore } from './modules/updates/recovery-store'
+import {
+  type UpdateRecoveryPersistence,
+  UpdateRecoveryStore,
+  updateRecoveryFromQueryClient,
+} from './modules/updates/recovery-store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -59,10 +65,12 @@ import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import {
   createBunSqliteDurability,
+  createTursoDurability,
   type DurabilityPort,
 } from './store/durability'
 import {
   createBunStoreExecutor,
+  createLibsqlStoreExecutor,
   type QueryClient,
   type RootStoreExecutor,
   type WatchdogOptions,
@@ -107,7 +115,7 @@ export function defaultDbPath(): string {
 }
 
 export class SessionStore {
-  private readonly db: SqlDatabase
+  private readonly db: SqlDatabase | undefined
   /**
    * WHAT THE REPOSITORY SET IS BOUND TO [POD-3254, spec §3.1].
    *
@@ -210,7 +218,8 @@ export class SessionStore {
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
-  readonly updateRecovery: UpdateRecoveryStore
+  readonly updateRecovery: UpdateRecoveryPersistence
+  private readonly recoveryHydrate?: () => Promise<void>
   readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
@@ -254,6 +263,19 @@ export class SessionStore {
         log.error('transaction watchdog sink failed', { error: String(error) }),
     },
   ): Promise<SessionStore> {
+    const backend = resolveDatabaseBackend()
+    if (backend.kind === 'turso') {
+      return await SessionStore.openTurso(backend, hostMachineId, options, watchdog)
+    }
+    return await SessionStore.openSqlite(path, hostMachineId, options, watchdog)
+  }
+
+  private static async openSqlite(
+    path: string,
+    hostMachineId: MachineId,
+    options: SnapshotVerifierDeps & { queryOnly?: boolean },
+    watchdog: WatchdogOptions,
+  ): Promise<SessionStore> {
     let database = await openStoreDatabase(path)
     let executor = createBunStoreExecutor({
       database,
@@ -289,11 +311,44 @@ export class SessionStore {
     }
   }
 
+  private static async openTurso(
+    backend: { url: string; authToken: string; readAuthToken?: string },
+    hostMachineId: MachineId,
+    options: SnapshotVerifierDeps & { queryOnly?: boolean },
+    watchdog: WatchdogOptions,
+  ): Promise<SessionStore> {
+    const client = createLibsqlClient({ url: backend.url, authToken: backend.authToken })
+    const reader = createLibsqlClient({
+      url: backend.url,
+      authToken: backend.readAuthToken ?? backend.authToken,
+    })
+    const executor = createLibsqlStoreExecutor({
+      client,
+      reader,
+      startOpen: true,
+      watchdog,
+      effectSink: (error, label) =>
+        log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
+    })
+    try {
+      await configureLibsqlConnection(client)
+      const applied = await runLibsqlMigrations(client)
+      if (applied.length > 0) log.info('applied migrations', { applied })
+      await configureLibsqlConnection(client)
+      const store = new SessionStore(backend.url, hostMachineId, options, undefined, executor)
+      await store.initialize()
+      return store
+    } catch (error) {
+      await executor.close()
+      throw error
+    }
+  }
+
   private constructor(
     path: string,
     hostMachineId: MachineId,
     options: SnapshotVerifierDeps & { queryOnly?: boolean },
-    database: SqlDatabase,
+    database: SqlDatabase | undefined,
     executor: RootStoreExecutor<QueryClient>,
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
@@ -302,12 +357,29 @@ export class SessionStore {
     this.hostMachineId = asMachineId(hostMachineId)
     this.db = database
     this.executor = executor
-    this.durability = createBunSqliteDurability({
-      database,
-      path,
-      executor,
-      snapshotVerifierDeps: options,
-    })
+    this.durability =
+      database === undefined
+        ? createTursoDurability({
+            latestMigrationName: async () => {
+              const row = (await executor.drizzle.get(
+                `SELECT name FROM __drizzle_migrations WHERE name IS NOT NULL ORDER BY name DESC LIMIT 1`,
+              )) as { name?: unknown } | undefined
+              return typeof row?.name === 'string' && row.name.length > 0 ? row.name : undefined
+            },
+            feedIdentity: async () => {
+              const row = (await executor.drizzle.get(
+                `SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1`,
+              )) as { feed_id?: string; epoch?: string } | undefined
+              if (!row?.feed_id || !row.epoch) return undefined
+              return { feedId: row.feed_id, epoch: row.epoch }
+            },
+          })
+        : createBunSqliteDurability({
+            database,
+            path,
+            executor,
+            snapshotVerifierDeps: options,
+          })
 
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
@@ -384,8 +456,13 @@ export class SessionStore {
     // permanently undefined and the compiler could not say so. relay.ts hands it
     // to UpdatesService as the `recovery` port, so update recovery was silently
     // disabled: no snapshot written, none restored across a coordinator restart.
-    // UpdateRecoveryStore was never converted and still takes the raw handle.
-    this.updateRecovery = new UpdateRecoveryStore(this.db)
+    if (this.db === undefined) {
+      const recovery = updateRecoveryFromQueryClient(this.executor.drizzle)
+      this.updateRecovery = recovery
+      this.recoveryHydrate = () => recovery.hydrate()
+    } else {
+      this.updateRecovery = new UpdateRecoveryStore(this.db)
+    }
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
   }
@@ -416,6 +493,7 @@ export class SessionStore {
     // the facade constructor, for the same reason the identity refusals do:
     // ahead of every reader, so no in-memory `Session` can be holding the stale
     // pointer when it is cleared.
+    if (this.recoveryHydrate) await this.recoveryHydrate()
     await this.refuseLegacyIdentities()
     await this.backfillLegacyWorktreeMachines()
     this.searchIndexEnabledValue = isFeatureEnabled(

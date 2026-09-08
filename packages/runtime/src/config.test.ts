@@ -23,6 +23,7 @@ import {
   resolveAgentRelayPort,
   resolveAllowedOrigins,
   resolveAppUrl,
+  resolveDatabaseBackend,
   resolveDevArtifactOrigin,
   resolveFeatureOverrides,
   resolveHookPort,
@@ -262,6 +263,35 @@ describe('layered resolvers (#251): env → config.json → default', () => {
       }),
     ).toEqual({ a: true, b: false })
   })
+  it('resolveDatabaseBackend: env wins, tokens never default, absence is sqlite', () => {
+    expect(resolveDatabaseBackend({}, {})).toEqual({ kind: 'sqlite' })
+    expect(
+      resolveDatabaseBackend(
+        { database: { url: 'libsql://from-file.example', authToken: 'file-token' } },
+        { PODIUM_DATABASE_URL: 'turso://from-env.example', PODIUM_DATABASE_AUTH_TOKEN: 'env-token' },
+      ),
+    ).toEqual({
+      kind: 'turso',
+      url: 'libsql://from-env.example',
+      authToken: 'env-token',
+    })
+    expect(() =>
+      resolveDatabaseBackend({}, { PODIUM_DATABASE_URL: 'libsql://missing-token.example' }),
+    ).toThrow(/AUTH_TOKEN/)
+  })
+
+  it('PodiumConfig stores database credentials and LAYERED_KEYS does not name them', () => {
+    saveConfig({
+      mode: 'server',
+      database: { url: 'libsql://hosted.example', authToken: 'secret-token' },
+    })
+    expect(loadConfig().database).toEqual({
+      url: 'libsql://hosted.example',
+      authToken: 'secret-token',
+    })
+    expect(LAYERED_KEYS).not.toContain('database')
+  })
+
   it('PodiumConfig accepts features record and round-trips via save/load', () => {
     saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
     expect(loadConfig().features).toEqual({ 'sample-experiment': true, other: false })

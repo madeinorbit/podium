@@ -19,6 +19,17 @@ export {
   createBunStoreExecutor,
 } from './bun-driver'
 export {
+  classifyLibsqlFailure,
+  createLibsqlDriver,
+  createLibsqlStoreExecutor,
+  LIBSQL_LANES,
+  type LibsqlDriverOptions,
+  type LibsqlStoreExecutorOptions,
+  TURSO_BUSY_RETRY,
+  TURSO_WRITE_BUDGET_MS,
+  unwrapCause,
+} from './libsql-driver'
+export {
   assertAddressable,
   currentScope,
   type InFlight,

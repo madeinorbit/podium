@@ -36,8 +36,12 @@ export interface GrantApplyDeps {
     target: UpdateGrantMessage['target'],
     publisherPubkey?: string,
   ): Promise<{ releaseHadMigrations?: boolean }>
-  refuse?(target: UpdateGrantMessage['target']): string | undefined
-  releaseHadMigrations?(target: UpdateGrantMessage['target']): boolean | undefined
+  refuse?(
+    target: UpdateGrantMessage['target'],
+  ): string | undefined | Promise<string | undefined>
+  releaseHadMigrations?(
+    target: UpdateGrantMessage['target'],
+  ): boolean | undefined | Promise<boolean | undefined>
   writePending(grant: PendingGrant): void
   restart(expectedVersion: string, handover: { releaseHadMigrations?: boolean }): void
   report(status: UpdateStatusMessage): void
@@ -152,7 +156,7 @@ export async function applyGrant(
       report(deps, grant, 'rejected', current, reason)
       return
     }
-    const refusal = deps.refuse?.(grant.target)
+    const refusal = await Promise.resolve(deps.refuse?.(grant.target))
     if (refusal) {
       deps.log?.('update grant refused by this machine', {
         grantId: grant.grantId,
@@ -254,7 +258,8 @@ export async function applyGrant(
     // belongs to the successor, which is why the total is stated HERE.
     phase('update restarting into successor', { totalMs: sinceMs() })
     const releaseHadMigrations =
-      parentResult?.releaseHadMigrations ?? deps.releaseHadMigrations?.(grant.target)
+      parentResult?.releaseHadMigrations ??
+      (await Promise.resolve(deps.releaseHadMigrations?.(grant.target)))
     deps.restart(
       grant.target.version,
       releaseHadMigrations === undefined ? {} : { releaseHadMigrations },

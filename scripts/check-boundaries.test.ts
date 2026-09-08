@@ -16,6 +16,7 @@ import {
   checkFlipUndeleted,
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
+  checkLibsqlClientEntry,
   checkManifestFile,
   checkPlaneLeakAll,
   checkPrincipalFree,
@@ -1395,10 +1396,26 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
     ).toEqual([])
   })
 
+  it('flags the native @libsql/client entry and allows /web', () => {
+    expect(
+      checkLibsqlClientEntry(
+        'apps/server/src/store/executor/libsql-driver.ts',
+        `import { createClient } from '@libsql/client'\n`,
+      ).map((v) => v.rule),
+    ).toEqual(['libsql-web-entry'])
+    expect(
+      checkLibsqlClientEntry(
+        'apps/server/src/store/executor/libsql-driver.ts',
+        `import { createClient } from '@libsql/client/web'\n`,
+      ),
+    ).toEqual([])
+  })
+
   it('does NOT flag a DRIVER, which is the port’s implementation (spec §6 rule 22)', () => {
     // POD-3342: the rule was flagging the one site that must make the call.
     for (const driver of [
       'apps/server/src/store/executor/bun-driver.ts',
+      'apps/server/src/store/executor/libsql-driver.ts',
       'apps/server/src/store/spike/turso-append/libsql-driver.ts',
       'apps/server/src/store/spike/turso-append/run-proofs.ts',
       'packages/sync/src/adapters/sqlite/test-support.ts',

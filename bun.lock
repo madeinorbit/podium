@@ -148,6 +148,7 @@
       "dependencies": {
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
+        "@libsql/client": "^0.18.0",
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
@@ -167,7 +168,6 @@
         "zod": "^3.24.0",
       },
       "devDependencies": {
-        "@libsql/client": "^0.18.0",
         "@types/ws": "^8.5.13",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
@@ -420,6 +420,7 @@
       "name": "@podium/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@libsql/client": "^0.18.0",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",

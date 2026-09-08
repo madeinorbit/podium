@@ -463,7 +463,12 @@ export class UpdatesService {
     const bytes = JSON.stringify(snapshot)
     if (bytes === this.savedRecovery) return
     try {
-      this.deps.recovery.write(snapshot)
+      const written = this.deps.recovery.write(snapshot)
+      if (written !== undefined && typeof (written as Promise<void>).then === 'function') {
+        void (written as Promise<void>).catch((error) => {
+          this.persistenceFailure = error instanceof Error ? error : new Error(String(error))
+        })
+      }
       this.savedRecovery = bytes
     } catch (error) {
       // A caught storage error must not leave usable but uncommitted proof in

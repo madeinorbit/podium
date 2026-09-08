@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@hono/node-server": "^1.13.7",
     "@hono/trpc-server": "^0.3.4",
     "@podium/commands": "workspace:*",
@@ -40,7 +41,6 @@
     "test:unsharded": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:unsharded -- bash -c \"bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts\""
   },
   "devDependencies": {
-    "@libsql/client": "^0.18.0",
     "@types/ws": "^8.5.13",
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"

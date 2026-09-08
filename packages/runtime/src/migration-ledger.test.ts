@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   canonicalMigrationName,
   instanceDatabasePath,
+  isAbsentTursoDatabaseError,
   readAppliedMigrations,
+  readInstanceAppliedMigrations,
 } from './migration-ledger'
 import { openDatabase } from './sqlite'
 
@@ -67,6 +69,23 @@ describe('canonicalMigrationName', () => {
 
   it('leaves every other name exactly as it is', () => {
     expect(canonicalMigrationName('20260715135845_baseline')).toBe('20260715135845_baseline')
+  })
+})
+
+describe('isAbsentTursoDatabaseError', () => {
+  it('treats a missing database as absence and a network failure as not', () => {
+    expect(isAbsentTursoDatabaseError(new Error('database does not exist'))).toBe(true)
+    expect(isAbsentTursoDatabaseError(new Error('HTTP 404'))).toBe(true)
+    expect(isAbsentTursoDatabaseError(new Error('fetch failed'))).toBe(false)
+    expect(isAbsentTursoDatabaseError(new Error('UNAUTHORIZED'))).toBe(false)
+  })
+})
+
+describe('readInstanceAppliedMigrations', () => {
+  it('on sqlite still answers undefined for a missing file and creates nothing', async () => {
+    const path = join(scratch(), 'podium.db')
+    expect(await readInstanceAppliedMigrations({ kind: 'sqlite' }, path)).toBeUndefined()
+    expect(existsSync(path)).toBe(false)
   })
 })
 

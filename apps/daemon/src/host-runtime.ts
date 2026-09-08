@@ -33,7 +33,7 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
+import { readInstanceAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import {
@@ -680,7 +680,7 @@ export async function createDaemonHostRuntime(args: {
    * migrations — and never at boot, where the answer would already be stale.
    */
   const schemaGate = createSchemaGate({
-    readApplied: () => readAppliedMigrations(),
+    readApplied: () => readInstanceAppliedMigrations(),
     currentVersion: build.appVersion ?? 'dev',
   })
 
@@ -723,10 +723,10 @@ export async function createDaemonHostRuntime(args: {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
       return swapHeadlessBundle(bytes, installDir)
     },
-    refuse: (target) => convergenceRefusal ?? schemaGate(target),
-    releaseHadMigrations: (target) => {
+    refuse: async (target) => convergenceRefusal ?? (await schemaGate(target)),
+    releaseHadMigrations: async (target) => {
       try {
-        return releaseCarriesNewMigrations(target, readAppliedMigrations())
+        return releaseCarriesNewMigrations(target, await readInstanceAppliedMigrations())
       } catch {
         // The gate immediately above already refuses an unreadable ledger.
         // Preserve unknown if the second read races with a filesystem failure.

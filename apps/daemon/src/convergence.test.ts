@@ -388,25 +388,25 @@ describe('createSchemaGate', () => {
       ...(migrations ? { schema: { migrations } } : {}),
     }) as never
 
-  it('lets a target through when this machine can open it', () => {
+  it('lets a target through when this machine can open it', async () => {
     const gate = createSchemaGate({
       readApplied: () => ['20260715135845_baseline'],
       currentVersion: '0.1.4',
     })
-    expect(gate(targetAt('0.1.3', ['20260715135845_baseline']))).toBeUndefined()
+    expect(await gate(targetAt('0.1.3', ['20260715135845_baseline']))).toBeUndefined()
   })
 
-  it('refuses a target this machine database has outgrown', () => {
+  it('refuses a target this machine database has outgrown', async () => {
     const gate = createSchemaGate({
       readApplied: () => ['20260715135845_baseline', '20260816092917_operations-table'],
       currentVersion: 'dev+03a2892',
     })
-    expect(gate(targetAt('0.1.3', ['20260715135845_baseline']))).toContain(
+    expect(await gate(targetAt('0.1.3', ['20260715135845_baseline']))).toContain(
       'cannot converge: schema-advanced',
     )
   })
 
-  it('refuses rather than guesses when the ledger cannot be read', () => {
+  it('refuses rather than guesses when the ledger cannot be read', async () => {
     // Fail CLOSED. An unreadable ledger is not "no database" — reading it as
     // one would let through exactly the swap this gate exists to stop.
     const gate = createSchemaGate({
@@ -415,7 +415,7 @@ describe('createSchemaGate', () => {
       },
       currentVersion: 'dev+03a2892',
     })
-    const refusal = gate(targetAt('0.1.3', ['20260715135845_baseline']))
+    const refusal = await gate(targetAt('0.1.3', ['20260715135845_baseline']))
     expect(refusal).toContain('cannot converge: schema-unreadable')
     expect(refusal).toContain('database is locked')
   })

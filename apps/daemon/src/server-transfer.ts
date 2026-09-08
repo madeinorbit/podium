@@ -31,7 +31,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { configPath, stateDir } from '@podium/runtime/config'
+import { configPath, resolveDatabaseBackend, stateDir } from '@podium/runtime/config'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
@@ -398,6 +398,12 @@ export async function writeFully(
 }
 
 async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
+  if (resolveDatabaseBackend().kind === 'turso') {
+    fail(
+      'refused',
+      'candidate-file validation is not applicable on a Turso backend; moving a hosted tenant is a connection-string change',
+    )
+  }
   const dbEntry = meta.manifest.files.find((entry) => entry.path === 'podium.db')
   const ledgerEntry = meta.manifest.files.find((entry) => entry.path === 'enrollment.ledger')
   if (!dbEntry || !ledgerEntry)

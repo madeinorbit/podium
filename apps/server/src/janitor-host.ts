@@ -20,7 +20,7 @@
  * the same package rather than a redesign.
  */
 import { startJanitorWorker } from '@podium/janitor/worker-client'
-import { localServerUrl } from '@podium/runtime/config'
+import { localServerUrl, resolveDatabaseBackend } from '@podium/runtime/config'
 import { readOrCreateDaemonSecret } from '@podium/runtime/local-machine'
 
 export type JanitorComponentState = 'running' | 'degraded' | 'stopped'
@@ -37,6 +37,9 @@ export interface JanitorHost {
 export type StartJanitorWorkerFn = (opts: {
   serverUrl: string
   token: string
+  dbPath?: string
+  databaseUrl?: string
+  readAuthToken?: string
 }) => Promise<JanitorHost>
 
 export interface JanitorHostDeps {
@@ -61,8 +64,20 @@ export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHo
   const serverUrl = deps.serverUrl ?? localServerUrl(deps.port)
   const token = deps.token ?? readOrCreateDaemonSecret()
   const start = deps.start ?? startJanitorWorker
+  const backend = resolveDatabaseBackend()
   try {
-    return await start({ serverUrl, token })
+    return await start({
+      serverUrl,
+      token,
+      ...(backend.kind === 'turso'
+        ? {
+            databaseUrl: backend.url,
+            ...(backend.readAuthToken !== undefined
+              ? { readAuthToken: backend.readAuthToken }
+              : { readAuthToken: backend.authToken }),
+          }
+        : {}),
+    })
   } catch (error) {
     const reason = (error as Error).message
     return {

@@ -15,7 +15,8 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { stateDir } from './config'
+import { type DatabaseBackend, resolveDatabaseBackend, stateDir } from './config'
+import { createLibsqlClient } from './libsql'
 import { openDatabase } from './sqlite'
 
 /** drizzle's own migrations ledger, the table the server's migrator writes. */
@@ -68,4 +69,67 @@ export function readAppliedMigrations(path: string = instanceDatabasePath()): st
   } finally {
     db.close()
   }
+}
+
+/**
+ * Whether a remote error means THERE IS NO DATABASE, vs a failure to ask.
+ *
+ * The daemon's downgrade guard treats `undefined` as "this machine owns no
+ * database, rollback is always safe". A network blip or an auth failure must
+ * NOT look like that — it would silently disarm the guard. Only an error that
+ * says the database itself is not provisioned is absence.
+ */
+export function isAbsentTursoDatabaseError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not found|does not exist|404|no such database|could not find database/i.test(message)
+}
+
+/**
+ * The migration names a REMOTE database has applied.
+ *
+ * `undefined` means the database is not provisioned. An empty list means it
+ * exists and has applied nothing. A throw means we could not tell — the
+ * caller must not treat that as absence.
+ */
+export async function readAppliedMigrationsRemote(options: {
+  url: string
+  authToken: string
+}): Promise<string[] | undefined> {
+  const client = createLibsqlClient(options)
+  try {
+    const present = await client.execute({
+      sql: `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      args: [LEDGER],
+    })
+    if (present.rows[0] === undefined) return []
+    const rows = await client.execute(`SELECT name FROM ${LEDGER} WHERE name IS NOT NULL`)
+    return rows.rows
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === 'string')
+  } catch (error) {
+    if (isAbsentTursoDatabaseError(error)) return undefined
+    throw error
+  } finally {
+    client.close()
+  }
+}
+
+/**
+ * What THIS INSTANCE's database has applied, answering through the backend
+ * the instance is configured for.
+ *
+ * On sqlite this is the file-stat distinction (`undefined` = no podium.db).
+ * On Turso there is no path to stat: no URL is absence, a connected empty
+ * database is `[]`, and a transport/auth failure throws so the downgrade
+ * guard cannot mistake an outage for "no database here".
+ */
+export async function readInstanceAppliedMigrations(
+  backend: DatabaseBackend = resolveDatabaseBackend(),
+  sqlitePath: string = instanceDatabasePath(),
+): Promise<string[] | undefined> {
+  if (backend.kind === 'sqlite') return readAppliedMigrations(sqlitePath)
+  return await readAppliedMigrationsRemote({
+    url: backend.url,
+    authToken: backend.authToken,
+  })
 }
