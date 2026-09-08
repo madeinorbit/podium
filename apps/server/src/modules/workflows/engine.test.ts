@@ -605,13 +605,19 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       // Drizzle wraps the SQLite error; the unique index must remain the cause.
-      await expect(h.service.create(
-        {
-          name: 'Same name', description: '', scope: 'task', scopeRef: 'issue-1',
-          instructions: '', steps: [],
-        },
-        operator,
-      )).rejects.toHaveProperty('cause.message', expect.stringMatching(/UNIQUE constraint failed/i))
+      await expect(
+        h.service.create(
+          {
+            name: 'Same name',
+            description: '',
+            scope: 'task',
+            scopeRef: 'issue-1',
+            instructions: '',
+            steps: [],
+          },
+          operator,
+        ),
+      ).rejects.toHaveProperty('cause.message', expect.stringMatching(/UNIQUE constraint failed/i))
     })
 
     it('input validation: duplicate step ids are rejected at the schema, not the service', async () => {
@@ -3346,7 +3352,8 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      await expect(dispatchWorkflowRpc(
+      await expect(
+        dispatchWorkflowRpc(
           h.service,
           operator,
           'publish',
@@ -3354,7 +3361,8 @@ describe('POD-730 workflow mutation characterization', () => {
           'outbox',
         ),
       ).rejects.toThrow('workflows.publish is not available over the outbox transport')
-      await expect(dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'outbox'),
+      await expect(
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'outbox'),
       ).rejects.toThrow('workflows.get is not available over the outbox transport')
       // The counterfactual: the SAME calls on a declared transport go through,
       // so the refusal above is about the transport and not about the call.
