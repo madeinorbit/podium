@@ -127,7 +127,7 @@ describe('oracle: who ended this session', () => {
   it(`${NO_PERSON}: archive's park records stopReason 'parent' — again a cause, not an actor`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -148,7 +148,7 @@ describe('oracle: who typed into this session', () => {
   it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -156,7 +156,7 @@ describe('oracle: who typed into this session', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -164,13 +164,14 @@ describe('oracle: who typed into this session', () => {
     o.daemon.length = 0
 
     await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] })
-    await o.call.sessions.sendText({ sessionId, text: 'via the substrate' })
+    const sending = o.call.sessions.sendText({ sessionId, text: 'via the substrate' })
 
     // A fresh Claude bind intentionally holds chat sends until the TUI has
     // painted and settled. That readiness policy is orthogonal to this oracle;
     // cross its boundary, then snapshot the exact input sequence before the
     // later submit-verification carriage return can add another frame.
     paintOracleTui(o, sessionId)
+    await sending
     let origins: (string | undefined)[] = []
     await waitFor(
       () => {
