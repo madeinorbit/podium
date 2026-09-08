@@ -130,6 +130,7 @@ export class SessionStore {
    * now use the same scheduler as repository work.
    */
   private readonly executor: RootStoreExecutor<QueryClient>
+  private readonly publicationIdleSubscriptions = new Set<() => void>()
   /** The synchronous query capability, handed to converted repositories. */
   private readonly queries: RootStoreExecutor<QueryClient>['queries']
   /**
@@ -663,7 +664,19 @@ export class SessionStore {
     return await this.executor.transact(async () => fn())
   }
 
+  /** Subscribe to publication idle; release explicitly or when this store closes. */
+  onPublicationIdle(listener: () => void): () => void {
+    const stop = this.executor.scheduler.onIdle(listener)
+    const unsubscribe = () => {
+      if (!this.publicationIdleSubscriptions.delete(unsubscribe)) return
+      stop()
+    }
+    this.publicationIdleSubscriptions.add(unsubscribe)
+    return unsubscribe
+  }
+
   async close(persist?: () => Promise<void>): Promise<void> {
+    for (const unsubscribe of this.publicationIdleSubscriptions) unsubscribe()
     const verifierClosed = this.snapshotVerifier.close()
     await this.executor.close(async () => {
       try {

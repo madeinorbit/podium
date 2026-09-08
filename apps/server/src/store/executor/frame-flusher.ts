@@ -17,7 +17,7 @@
 import type { Scheduler } from './scheduler'
 
 export interface FrameFlusherOptions<T> {
-  scheduler: Scheduler
+  scheduler: Pick<Scheduler, 'onIdle'>
   /** One frame. Called once per flush, with everything buffered since the last. */
   flush: (batch: readonly T[]) => void
   /** Flush early once this many items are buffered. 0 disables the bound. */

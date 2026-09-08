@@ -293,11 +293,16 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
   })
 
   it('coalesces fifty async appends before automatic publication', async () => {
-    const { serving, appended } = pipedFunnel()
+    let idle!: () => void
+    const { serving, appended } = pipedFunnel((listener) => {
+      idle = listener
+      return () => {}
+    })
     for (let seq = 1; seq <= 50; seq++) {
       appended([up(seq, 'session', `s${seq}`)])
       await Promise.resolve()
     }
+    idle()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(serving.published).toHaveLength(1)
     expect(serving.rows().map((row) => row.seq)).toEqual(

@@ -148,6 +148,7 @@ import type {
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { runAtRoot } from '../store/executor/context'
+import { createFrameFlusher } from '../store/executor/frame-flusher'
 import { withReadScope } from '../store/executor/read-scope'
 import { perf } from '../modules/perf/registry'
 import { traceFeedPeer } from './feed-peer-trace'
@@ -211,27 +212,20 @@ export interface FeedPeer extends EdgePeer {
 export type OnPublicationIdle = (listener: () => void) => () => void
 
 /**
- * Hold an async burst until scheduler idle, then allow the caller's next
- * continuation to finish before framing. A microtask runs between commits;
- * an immediate idle flush also splits sequential boot reconciles. The deadline
- * bounds publication latency when work keeps the scheduler busy indefinitely.
- * Without a store scheduler (kernel-only fixtures), use the next event-loop turn.
- * The returned cancellation also removes the idle listener after an explicit flush.
+ * Reuse the bounded store flusher for one pending publication. Defer idle one
+ * turn so sequential boot continuations can join the same batch. Without the
+ * optional store hook, retain the existing microtask behavior.
  */
 export function scheduleFeedFlush(
   flush: () => void | Promise<void>,
   onIdle?: OnPublicationIdle,
 ): () => void {
   let cancelled = false
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-  let deadline: ReturnType<typeof setTimeout> | undefined
-  let unsubscribe: (() => void) | undefined
+  let stop: (() => void) | undefined
   const cancel = () => {
     if (cancelled) return
     cancelled = true
-    if (idleTimer !== undefined) clearTimeout(idleTimer)
-    if (deadline !== undefined) clearTimeout(deadline)
-    unsubscribe?.()
+    stop?.()
   }
   const run = () => {
     if (cancelled) return
@@ -244,18 +238,30 @@ export function scheduleFeedFlush(
       log.warn('coalesced feed publication failed', { err })
     }
   }
-  const idle = () => {
-    if (cancelled || idleTimer !== undefined) return
-    idleTimer = setTimeout(run, 0)
-    idleTimer.unref?.()
+  if (!onIdle) {
+    queueMicrotask(run)
+    return cancel
   }
-  if (onIdle) {
-    unsubscribe = onIdle(idle)
-    deadline = setTimeout(run, 50)
-    deadline.unref?.()
-  } else {
-    idle()
-  }
+  const flusher = createFrameFlusher<undefined>({
+    scheduler: {
+      onIdle(listener) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const unsubscribe = onIdle(() => {
+          if (timer !== undefined) return
+          timer = setTimeout(listener, 0)
+          timer.unref?.()
+        })
+        return () => {
+          if (timer !== undefined) clearTimeout(timer)
+          unsubscribe()
+        }
+      },
+    },
+    flush: run,
+    maxDelayMs: 50,
+  })
+  stop = () => flusher.stop()
+  flusher.publish(undefined)
   return cancel
 }
 

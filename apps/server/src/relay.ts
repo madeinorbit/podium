@@ -1006,6 +1006,7 @@ export class SessionRegistry {
       now: this.now,
     })
     const feedServing = new FeedServing({
+      onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       authority: ledger.authority,
       onBootstrapReadStart: feedVisibility.beginBootstrapRead,
       onBootstrapReadEnd: (principal) => feedVisibility.finishBootstrapRead(principal),
@@ -1027,6 +1028,7 @@ export class SessionRegistry {
       diagnostics: () => [...conversationDiagnostics.current],
     })
     const funnel = new WriteFunnel({
+      onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
       // two over one store would each keep their own dedup baseline and their
