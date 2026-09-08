@@ -16,6 +16,7 @@
  *   POST /scan                          → RepoRegistry.scanReposAll()
  */
 import { createServer } from 'node:http'
+import { handoffControl } from './iso-handoff-control'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -128,59 +129,22 @@ const daemon = await startDaemon({
 
 const mods = server.registry.modules
 
-async function readBody(req: import('node:http').IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
-  const raw = Buffer.concat(chunks).toString('utf8')
-  return raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-}
-
-const control = createServer((req, res) => {
-  void (async () => {
-    try {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-      let result: unknown
-      if (req.method === 'GET' && url.pathname === '/state') {
-        result = {
-          machines: mods.machines.listMachines(),
-          sessions: mods.sessions.listSessions(),
-          repos: store.repos.listRepos(),
-        }
-      } else if (req.method === 'POST' && url.pathname === '/spawn') {
-        const body = await readBody(req)
-        result = mods.sessions.createSession({
-          agentKind: 'claude-code',
-          machineId: readOrCreateLocalMachineId(),
-          ...(body as { cwd: string; title?: string }),
-        })
-      } else if (req.method === 'POST' && url.pathname === '/send') {
-        const body = await readBody(req)
-        result = mods.sessions.sendText(body as { sessionId: string; text: string })
-      } else if (req.method === 'POST' && url.pathname === '/handoff') {
-        const body = await readBody(req)
-        // The caller is passed EXPLICITLY, as the tRPC procedure does (POD-642):
-        // this loopback control API stands in for the operator's browser, so the
-        // two-machine scenario exercises the same principal seam production does
-        // rather than the service's compatibility default. `use` on both machines
-        // is resolved from this capability.
-        result = await mods.sessions.handoffSession(
-          body as { sessionId: string; machineId: string },
-          { capability: OPERATOR },
-        )
-      } else if (req.method === 'POST' && url.pathname === '/scan') {
-        result = await repoRegistry.scanReposAll()
-      } else {
-        res.writeHead(404).end('not found')
-        return
-      }
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(result))
-    } catch (error) {
-      res.writeHead(500, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
-    }
-  })()
-})
+const control = createServer(handoffControl({
+  listMachines: () => mods.machines.listMachines(),
+  listSessions: () => mods.sessions.listSessions(),
+  listRepos: () => store.repos.listRepos(),
+  createSession: (body) => mods.sessions.createSession({
+    agentKind: 'claude-code',
+    machineId: readOrCreateLocalMachineId(),
+    ...(body as { cwd: string; title?: string }),
+  }),
+  sendText: (body) => mods.sessions.sendText(body as { sessionId: string; text: string }),
+  // Match the tRPC operator principal seam on both participating machines.
+  handoffSession: (body) => mods.sessions.handoffSession(
+    body as { sessionId: string; machineId: string }, { capability: OPERATOR },
+  ),
+  scanRepos: () => repoRegistry.scanReposAll(),
+}))
 control.listen(CONTROL_PORT, '127.0.0.1')
 
 console.log(
