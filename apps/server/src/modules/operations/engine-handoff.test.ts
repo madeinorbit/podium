@@ -64,8 +64,18 @@ function kind(
 const step = (operation: Operation | null | undefined, id: string) =>
   (operation?.steps ?? []).find((candidate) => candidate.id === id)
 
+/**
+ * Let the engine's in-flight drive run to completion.
+ *
+ * A MACROTASK YIELD, not a count of microtask turns. `await Promise.resolve()`
+ * advances a promise chain by exactly ONE link, so "100 turns" is really an
+ * assertion that the drive contains fewer than a hundred awaits -- and sealing
+ * now performs a durable write, which is a chain whose length is the executor's
+ * business, not this helper's. Draining the whole microtask queue each round
+ * makes the number of links irrelevant.
+ */
 const drain = async () => {
-  for (let index = 0; index < 100; index++) await Promise.resolve()
+  for (let index = 0; index < 50; index++) await new Promise((r) => setImmediate(r))
 }
 
 describe('coordinator handoff', () => {

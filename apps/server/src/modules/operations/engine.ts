@@ -2054,7 +2054,12 @@ export class OperationEngine {
 
   private async announce(operationId: string, previousState: string | undefined): Promise<void> {
     const row = await this.deps.store.get(operationId)
-    if (row) this.deps.onChanged?.(row, previousState)
+    // AWAITED. The port is `void | Promise<void>`, and an observer that does
+    // durable work -- the fleet bridge does, and so does the test that asserts
+    // "what an observer reads must already be what the database holds" -- had
+    // its body running AFTER announce returned. Awaiting is safe for a
+    // synchronous observer, whose undefined return awaits to undefined.
+    if (row) await this.deps.onChanged?.(row, previousState)
   }
 
   private now(): number {
