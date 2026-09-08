@@ -1072,7 +1072,10 @@ export class OperationEngine {
           })
         : { settled: true }
       if (options.settleAsk) {
-        this.persist(
+        // AWAITED before the drive below: this removes the settled ask from
+        // the operation, and driveLocked re-reads the row. Dropped, the drive
+        // could still see the ask it was told had been settled.
+        await this.persist(
           this.persistable({
             ...current.operation,
             awaiting: (current.operation.awaiting ?? []).filter((ask) => ask.id !== actionId),
@@ -1287,7 +1290,7 @@ export class OperationEngine {
       const current = (await this.deps.store.get(operationId))?.operation
       if (!current || isTerminalOperationState(current.state)) return
       if (outcome.state === 'handed-off') {
-        this.completeHandoff(current, step.id)
+        await this.completeHandoff(current, step.id)
         return
       }
       const handoff = this.handoffs.get(operationId)
@@ -1457,10 +1460,13 @@ export class OperationEngine {
     return next
   }
 
-  private completeHandoff(operation: Operation, stepId: string): void {
+  private async completeHandoff(operation: Operation, stepId: string): Promise<void> {
     const handoff = this.handoffs.get(operation.id)
     if (!handoff) {
-      this.fail(operation, stepId, {
+      // AWAITED. `fail` is async, so dropping it left the operation RUNNING:
+      // the unsealed-handoff refusal was decided and never persisted, and
+      // whenSettled returned with the row still in flight.
+      await this.fail(operation, stepId, {
         code: HANDOFF_UNSEALED_ERROR_CODE,
         message: 'This operation attempted a handoff before its state was sealed.',
       })
@@ -1999,7 +2005,7 @@ export class OperationEngine {
     const after = (await this.deps.store.get(operationId))?.operation
     if (!after || isTerminalOperationState(after.state)) return
     if (outcome.state === 'handed-off') {
-      this.completeHandoff(after, step.id)
+      await this.completeHandoff(after, step.id)
       return
     }
     const handoff = this.handoffs.get(operationId)
