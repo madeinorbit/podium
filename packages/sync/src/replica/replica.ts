@@ -477,7 +477,7 @@ export class Replica {
     // multi-region commit belongs to a unit of work this class does not own
     // (POD-1158). Tracking it on `inflight` is what makes `settled()` cover it, and
     // what makes a refused commit surface there rather than vanish.
-    const { row, done } = await this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+    const { row, done } = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
     this.run(() => done)
     return this.outcome(row, from)
   }
@@ -487,10 +487,10 @@ export class Replica {
    * the cursor is never ahead of the data it claims. Returns the transition row
    * that best describes what the frame carried.
    */
-  private async commitChanges(
+  private commitChanges(
     changes: readonly ChangeEnvelope[],
     nextCursor: Cursor,
-  ): Promise<{ readonly row: string; readonly done: Promise<void> }> {
+  ): { readonly row: string; readonly done: Promise<void> } {
     // Classified BEFORE the commit, from the pre-frame exit state — the same inputs
     // `emitApplied` classifies from, through the same function, so the row this
     // returns and the row the emission reports cannot drift. That matters because a
@@ -530,7 +530,7 @@ export class Replica {
    * is updated by the CALLER, strictly after this returns, so no observer can see
    * uncommitted state and an abort leaves nothing to undo.
    */
-  private async commitRegions(
+  private commitRegions(
     retirements: readonly RetirementIntent[],
     write: (span?: SyncSpan) => void,
     adopt: () => void,
@@ -556,7 +556,7 @@ export class Replica {
     // MULTI-REGION. The boundary belongs to the unit of work, never to this class.
     // Guaranteed present: the constructor refuses an overlay without one.
     const unitOfWork = this.unitOfWork as SyncUnitOfWork
-    return await unitOfWork.transact(async (span) => {
+    return unitOfWork.transact(async (span) => {
         // The ASYNC enrolment first, and AWAITED. This is the line POD-1158 exists
         // for: a durable outbox store cannot enrol synchronously, and `transact`'s
         // body is the one place allowed to await. Doing it before the cache write also
@@ -723,7 +723,7 @@ export class Replica {
         return
       }
 
-      const healed = await this.commitChanges(reply.changes, { ...cursor, seq: reply.seq })
+      const healed = this.commitChanges(reply.changes, { ...cursor, seq: reply.seq })
       await healed.done
       this.note(healed.row)
       this.note('D7-1-HEALED')
@@ -783,7 +783,7 @@ export class Replica {
         this.startHeal()
         return
       }
-      const applied = await this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+      const applied = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
       // A rejection leaves the frame at the head of the buffer, so the heal or the
       // re-bootstrap that follows still has it — and still has its retirements.
       await applied.done
