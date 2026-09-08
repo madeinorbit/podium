@@ -226,7 +226,7 @@ export function makeAgentRelayDispatch(
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
-      return specs.has(proc) ? (await specs.invoke(proc, input) as Promise<unknown>) : undefined
+      return specs.has(proc) ? await specs.invoke(proc, input) : NO_SUCH_PROCEDURE
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
