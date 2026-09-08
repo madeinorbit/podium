@@ -34,8 +34,8 @@ export interface SessionClientControlPorts {
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
   pushPriorities(): void
-  setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): void
-  editDraft(message: DraftEditMessage, clientId: string): void
+  setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): Promise<void>
+  editDraft(message: DraftEditMessage, clientId: string): Promise<void>
   /**
    * Session ownership + grants (from store). Undefined ⇒ session does not exist
    * (or is invisible — same answer per the consistent-error rule).
@@ -314,10 +314,10 @@ export class SessionClientControl {
         break
       }
       case 'setSessionDraft':
-        this.ports.setDraft(principal, id, message.sessionId, message.text)
+        await this.ports.setDraft(principal, id, message.sessionId, message.text)
         break
       case 'draftEdit':
-        this.ports.editDraft(message, id)
+        await this.ports.editDraft(message, id)
         break
       case 'sessionOpenUrlCallback':
         await this.ports.browserOpen.submitCallback(client, message)

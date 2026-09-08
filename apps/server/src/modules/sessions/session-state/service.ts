@@ -147,14 +147,14 @@ export interface SessionStatePorts {
   /** Persist one session and an optional satellite-row write atomically. The
    *  session's own durable fields are UNCHANGED by this write — one that changes
    *  them goes through {@link writeSession} or {@link mutateSession}. */
-  readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void | Promise<void>) => void | Promise<void>
+  readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void | Promise<void>) => Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
    *  no funnel span and no broadcast of its own. */
-  readonly writeSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void
+  readonly writeSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => Promise<void>
   /** Shared session-field mutation through the host's canonical metadata seam
    *  — the funnel span and the broadcast that makes it visible. */
-  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void | Promise<void>
+  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => Promise<void>
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
@@ -166,7 +166,7 @@ export interface SessionStatePorts {
   readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
   /** Lifecycle owns process parking and issue cleanup after archive. */
-  readonly onArchived: (sessionId: SessionId) => void
+  readonly onArchived: (sessionId: SessionId) => Promise<void>
 }
 
 export type SessionStateReadResult<T> =
@@ -184,6 +184,7 @@ export class SessionStateService {
   >()
 
   private readonly draftDocs = new Map<SessionId, DraftDoc>()
+  private readonly draftEdits = new Map<SessionId, { tail: Promise<void>; cancelled: boolean }>()
   private readonly draftTimes = new Map<SessionId, string>()
   private readonly draftDocWriteTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftInjectTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
@@ -211,6 +212,8 @@ export class SessionStateService {
    * it, and nothing has to know whether it was written before or after.
    */
   async loadFromStore(): Promise<void> {
+    for (const queue of this.draftEdits.values()) queue.cancelled = true
+    this.draftEdits.clear()
     this.draftDocs.clear()
     this.draftTimes.clear()
     for (const [rawSessionId, updatedAt] of Object.entries(
@@ -265,6 +268,9 @@ export class SessionStateService {
   }
 
   removeSession(sessionId: SessionId): void {
+    const queue = this.draftEdits.get(sessionId)
+    if (queue) queue.cancelled = true
+    this.draftEdits.delete(sessionId)
     this.draftDocs.delete(sessionId)
     this.draftTimes.delete(sessionId)
     this.lastPriority.delete(sessionId)
@@ -490,7 +496,7 @@ export class SessionStateService {
     await this.ports.mutateSession(sessionId, (draft) => {
       draft.archived = archived
     })
-    if (archived) this.ports.onArchived(sessionId)
+    if (archived) await this.ports.onArchived(sessionId)
   }
 
   async setWorkState(sessionId: SessionId, workState: WorkState | null): Promise<void> {
@@ -564,10 +570,9 @@ export class SessionStateService {
    * one arbitration rather than beside it.
    */
   async setDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): Promise<void> {
-    const current = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
     await this.applyVersionedEdit(
       input.sessionId,
-      { baseRev: current.rev, text: input.text, origin: fromClientId ?? 'seed' },
+      { text: input.text, origin: fromClientId ?? 'seed' },
       fromClientId,
     )
   }
@@ -585,8 +590,7 @@ export class SessionStateService {
   async handleNativeDraft(sessionId: SessionId, text: string): Promise<void> {
     if (!this.draftSyncEnabled_) return
     if (Date.now() < (this.draftSendSuppressUntil.get(sessionId) ?? 0)) return
-    const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
-    await this.applyVersionedEdit(sessionId, { baseRev: current.rev, text, origin: 'native' }, undefined)
+    await this.applyVersionedEdit(sessionId, { text, origin: 'native' }, undefined)
   }
 
   suppressNativeDraft(sessionId: SessionId): void {
@@ -631,14 +635,38 @@ export class SessionStateService {
     }
   }
 
-  private async applyVersionedEdit(
+  private applyVersionedEdit(
     sessionId: SessionId,
-    edit: { baseRev: number; text: string; origin: string },
+    edit: { baseRev?: number; text: string; origin: string },
+    fromClientId?: string,
+  ): Promise<void> {
+    // The DRAFT-tag commit suspends. Serialize the complete edit so a later
+    // clear cannot overtake that commit and leave the older tag installed.
+    let queue = this.draftEdits.get(sessionId)
+    if (!queue) {
+      queue = { tail: Promise.resolve(), cancelled: false }
+      this.draftEdits.set(sessionId, queue)
+    }
+    const currentQueue = queue
+    const operation = currentQueue.tail.catch(() => {}).then(async () => {
+      if (!currentQueue.cancelled) await this.commitVersionedEdit(sessionId, edit, fromClientId)
+    })
+    currentQueue.tail = operation
+    return operation.finally(() => {
+      if (this.draftEdits.get(sessionId) === currentQueue && currentQueue.tail === operation) {
+        this.draftEdits.delete(sessionId)
+      }
+    })
+  }
+
+  private async commitVersionedEdit(
+    sessionId: SessionId,
+    edit: { baseRev?: number; text: string; origin: string },
     fromClientId?: string,
   ): Promise<void> {
     const current = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
     const result = applyDraftEdit(current, {
-      baseRev: edit.baseRev,
+      baseRev: edit.baseRev ?? current.rev,
       text: edit.text,
       origin: edit.origin,
       at: new Date().toISOString(),
@@ -661,13 +689,14 @@ export class SessionStateService {
     // live assignment with no window to be captured in.
     if (draftNonemptyChanged) {
       try {
-        this.ports.writeSession(sessionId, (draft) => {
+        await this.ports.writeSession(sessionId, (draft) => {
           draft.draftUpdatedAt = editedAt
         })
       } catch (error) {
         log.warn('failed to persist the DRAFT tag', { err: error, sessionId })
       }
     } else if (session) session.draftUpdatedAt = editedAt
+    if (this.draftDocs.get(sessionId) !== doc) return
     // TO EVERY CLIENT, THE SENDER INCLUDED (POD-2045).
     //
     // The sender is not being told what it typed — it already knows that. It is
