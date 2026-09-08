@@ -346,7 +346,7 @@ describe('session-steering tool belt (issue #62)', () => {
   async function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const inputs: string[] = []
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
@@ -381,7 +381,7 @@ describe('session-steering tool belt (issue #62)', () => {
         cwd: '/w',
       })
       if (live)
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'bind',
           sessionId,
           cmd: 'claude',
@@ -590,7 +590,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('hibernate_session parks a live session with a resume ref', async () => {
     const h = await harness()
     const sessionId = await h.spawn(true)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
