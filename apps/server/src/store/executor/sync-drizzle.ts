@@ -51,9 +51,40 @@ export function currentTransaction(): StoreDrizzle | undefined {
   return transactionScope.getStore() as StoreDrizzle | undefined
 }
 
+/**
+ * BOTH SHAPES AT ONCE, because drizzle's remote callback cannot tell us which is
+ * wanted. A builder read (`select()...all()`) decodes POSITIONALLY through
+ * drizzle's field mapper, while a raw read (`db.all(sql\`…\`)`) has no fields and
+ * hands whatever we return straight to the caller, which reads it BY NAME. Both
+ * arrive at this callback as method 'all' -- rc.4's sqlite-proxy session maps its
+ * `values` primitive onto 'all' too -- so there is no flag to branch on.
+ *
+ * The previous implementation was Object.values(), which is correct for the
+ * builder path and silently destroys the names for the raw one: every field read
+ * back undefined, so conversation and transcript SEARCH returned nothing and
+ * MemorySearchService dropped every row for want of a machineId (POD-3680).
+ *
+ * A Proxy over the values array satisfies both: indices and array methods hit the
+ * array, and anything else falls through to the original named row. Array.isArray
+ * and spreading still see an array, which is what drizzle's mapper needs.
+ *
+ * One known shadow: a column literally named `length`, or a numeric name, is
+ * taken by the array. No column in this schema is either.
+ */
 function proxyRowValues(row: unknown): unknown[] {
   if (Array.isArray(row)) return row
-  if (row !== null && typeof row === 'object') return Object.values(row)
+  if (row !== null && typeof row === 'object') {
+    const named = row as Record<string, unknown>
+    const values = Object.values(named)
+    return new Proxy(values, {
+      get: (target, prop, receiver) =>
+        !Reflect.has(target, prop) && typeof prop === 'string' && prop in named
+          ? named[prop]
+          : Reflect.get(target, prop, receiver),
+      has: (target, prop) =>
+        Reflect.has(target, prop) || (typeof prop === 'string' && prop in named),
+    })
+  }
   return [row]
 }
 
