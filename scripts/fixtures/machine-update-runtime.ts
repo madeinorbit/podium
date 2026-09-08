@@ -254,8 +254,9 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         return verifier!.verify(path, schema.name)
       },
       recordOperationDetails: async (operationId, patch) => {
-        // Match production: the machines runner also writes wave rounds here
-        // while holding the operation chain, so queueing would wait for itself.
+        // OperationEngine.recordDetailsLocked: "Such a caller must NOT queue: it
+        // would be waiting for itself." This runner context also writes wave
+        // rounds while holding the chain; match production updateOperationContext.
         await engine!.recordDetailsLocked(operationId, patch)
         if (patch.coordinatorSnapshotGrantId)
           event('snapshot-receipt', {
