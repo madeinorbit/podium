@@ -38,6 +38,7 @@ function fakeRpc(
   const operations: string[] = []
   const manifests = new Map<string, ServerTransferManifest>()
   const chunks = new Map<string, Map<number, Buffer>>()
+  const endpoints = new Map<string, { publicUrl: string; port: number }>()
   let firstChunk = true
   let promotion:
     | {
@@ -53,6 +54,7 @@ function fakeRpc(
     serverTransferPrepare: vi.fn(async (input, targetMachineId) => {
       operations.push(`prepare:${input.transferId}`)
       manifests.set(input.transferId, input.manifest)
+      endpoints.set(input.transferId, { publicUrl: input.publicUrl, port: input.port })
       chunks.set(input.transferId, new Map())
       return {
         ok: true as const,
@@ -188,8 +190,8 @@ function fakeRpc(
           state: 'validated' as const,
           transferId: statusInput.transferId,
           manifestDigest: manifest.digest,
-          publicUrl: 'https://target.example.test',
-          port: 443,
+          publicUrl: endpoints.get(manifest.transferId)!.publicUrl,
+          port: endpoints.get(manifest.transferId)!.port,
           sourceConnected: true,
         }
       }
@@ -461,16 +463,20 @@ describe('ServerTransferService final-fence flow', () => {
     expect(afterCommitted).toHaveBeenCalledOnce()
   })
 
-  it('replays the same idempotent promotion after a dropped request', async () => {
+  it.each([
+    { publicUrl: 'https://podium.example.com', port: 443 },
+    { publicUrl: 'https://other.example.test:8443', port: 8443 },
+  ])('replays the same idempotent promotion after a dropped request ($publicUrl)', async (endpoint) => {
     const fake = fakeRpc({ promote: 'throw-before-once' })
     const demoteSource = vi.fn()
     const service = makeService(fake.rpc, { demoteSource })
 
-    const first = await service.transfer(input, allow)
+    const replayInput = { ...input, ...endpoint }
+    const first = await service.transfer(replayInput, allow)
     expect(first.state).toBe('commit-uncertain')
     expect(demoteSource).not.toHaveBeenCalled()
 
-    const second = await service.transfer(input, allow)
+    const second = await service.transfer(replayInput, allow)
     expect(second).toMatchObject({ ok: true, state: 'committed' })
     expect(fake.rpc.serverTransferPromote).toHaveBeenCalledTimes(2)
     const promoteCalls = vi.mocked(fake.rpc.serverTransferPromote).mock.calls
