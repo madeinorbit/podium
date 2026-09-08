@@ -1805,7 +1805,10 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
     // A host absent at plan time belongs to the later server step. Holding it
     // here prevents auto-ticks on attach from racing that step's snapshot.
     if ((step.places ?? []).some((place) => place.id === hostId)) {
-      context.updates.handleCoordinatorUpdate(hostId, {
+      // AWAITED: handleCoordinatorUpdate awaits handler.active before it can
+      // dispatch a pending grant, so dropping it lets this step run on past the
+      // registration it just made. Same shape as the serverRunner branch.
+      await context.updates.handleCoordinatorUpdate(hostId, {
         active: async () =>
           !canceledCoordinatorUpdates.has(operation.id) &&
           (await context.stepActive?.(operation.id, step.id)) !== false &&
