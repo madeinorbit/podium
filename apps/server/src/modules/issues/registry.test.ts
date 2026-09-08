@@ -495,7 +495,7 @@ describe('Shipping command boundary', () => {
       deleteIssue: () => undefined,
       restoreIssue: () => undefined,
       mutations: registry.modules.mutations,
-      listSessions: () => [],
+      listSessions: async () => [],
       repoPaths: () => ['/r'],
       inferRepoFromPath: () => undefined,
     })

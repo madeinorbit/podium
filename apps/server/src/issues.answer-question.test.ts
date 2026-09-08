@@ -67,7 +67,7 @@ async function harness(
       { getAppliedMutation: () => undefined, recordAppliedMutation: () => {} },
       () => 0,
     ),
-    listSessions: () => [],
+    listSessions: async () => [],
     repoPaths: () => ['/r'],
     inferRepoFromPath: () => undefined,
     ...(answerSessionQuestion ? { answerSessionQuestion } : {}),

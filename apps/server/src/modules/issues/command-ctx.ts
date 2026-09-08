@@ -84,14 +84,14 @@ export interface IssueCommandDeps {
    */
   mutations: MutationLedgerPort
   /** Session list — subscription source checks resolve session→issue through it. */
-  listSessions(): SessionMeta[] | Promise<SessionMeta[]>
+  listSessions(): Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test
    *  fixtures that satisfy this interface with `listSessions` alone stay
    *  correct via {@link findSessionByIdAsync}'s fallback, just slower. */
   sessionById?(
     sessionId: SessionId,
-  ): SessionMeta | undefined | Promise<SessionMeta | undefined>
+  ): Promise<SessionMeta | undefined>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
