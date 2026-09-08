@@ -366,7 +366,7 @@ describe('failure is silent and free', () => {
       env: {},
       loadConfig: () => config,
       fetch: (async () => {
-        throw new Error('ENOTFOUND pulse.meetpodium.com/v1/u')
+        throw new Error('ENOTFOUND pulse.podium.do/v1/u')
       }) as unknown as typeof globalThis.fetch,
     })
     emitter.recordSession('claude-code')
