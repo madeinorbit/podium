@@ -34,7 +34,7 @@ describe('the sync adapter query port', () => {
     ).toEqual({ feed_id: 'feed-1', epoch: 'epoch-1' })
   })
 
-  it('runs its statements inside a span the CALLER opened, as a savepoint', () => {
+  it('runs its statements inside a span the CALLER opened, as a savepoint', async () => {
     // The property the port's `createOrJoinTransaction` exists for:
     // `SessionStore.transact`
     // wraps an `appendChanges`, and the inner span must degrade to a savepoint
@@ -45,13 +45,13 @@ describe('the sync adapter query port', () => {
     const queries = createTestSyncQueries(db)
     const repo = new SyncRepository(queries, testSyncServerTables)
 
-    expect(() =>
+    await expect(
       queries.createOrJoinTransaction(async () => {
         await repo.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1)
         expect(await repo.maxChangeSeq()).toBe(1)
         throw new Error("roll the caller's span back")
       }),
-    ).toThrow("roll the caller's span back")
+    ).rejects.toThrow("roll the caller's span back")
 
     expect(db.prepare('SELECT COUNT(*) AS n FROM changes').get()).toEqual({ n: 0 })
   })
