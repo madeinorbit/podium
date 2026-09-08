@@ -2,7 +2,7 @@ import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
-import { runAtRoot } from '../store/executor/context'
+import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { EventBus } from './bus'
@@ -35,6 +35,8 @@ async function makeFunnel() {
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
+    postCommit: afterCommit,
+    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
   // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
   const funnel = new WriteFunnel({
@@ -382,25 +384,27 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     // one — [N+1, N] — and a delta client's cursor would jump past N without
     // healing. Pipe-first makes arrival order equal append order.
     const { funnel, bus, serving, ledger } = await makeFunnel()
+    let innerCommit: Promise<unknown> | undefined
+    let rowsAtBusEmit: string[] = []
     let reentered = false
-    let inner: Promise<unknown> | undefined
     bus.on('oplog.appended', () => {
       if (reentered) return
       reentered = true
-      // A subscriber starts independent work; it must not inherit the outer
-      // transaction or abandon an async nested savepoint inside it.
-      inner = runAtRoot(() => ledger.commit({
+      funnel.flushDeltas()
+      rowsAtBusEmit = serving.rows().map((change) => change.entityId)
+      innerCommit = ledger.commit({
         write: async () => {},
         changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
-      }))
+      })
     })
     await ledger.commit({
       write: async () => {},
       changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
     })
-    await inner
+    await innerCommit
     funnel.flushDeltas()
     const emitted = serving.rows()
+    expect(rowsAtBusEmit).toEqual(['outer'])
     expect(emitted.map((c) => c.entityId)).toEqual(['outer', 'inner'])
     // Strict seq order with no gaps — exactly what the client gap rule requires.
     const seqs = emitted.map((c) => c.seq)

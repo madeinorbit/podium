@@ -418,6 +418,10 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const paused = new Promise<void>((r) => {
       release = r
     })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     let stewardCalls = 0
     service = new MaintenanceService(
       store,
@@ -432,6 +436,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         leaseTtlMs: 90_000,
         stewardTick: async () => {
           stewardCalls += 1
+          entered()
           await paused
         },
       },
@@ -448,6 +453,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       observed,
     }
     const flight = service.apply(command)
+    await started
     // Expire gen_a and hand the fence to gen_b while the tick is mid-flight.
     nowMs += 91_000
     const lease2 = await handshake('gen_b')

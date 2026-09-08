@@ -195,7 +195,7 @@ async function harness(
     now: () => clock.getTime(),
     transact: async (fn) => await store.transact(fn),
   })
-  const createSession = vi.fn((_input: { cwd: string }) => {
+  const createSession = vi.fn(async (_input: { cwd: string }) => {
     if (opts.spawnThrows) throw new Error('no daemon for that machine')
     n += 1
     return { sessionId: asSessionId(`sess_${n}`) }
@@ -758,7 +758,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const h = await harness({ spawnThrows: true })
     const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
-    expect(() => h.service.tick()).not.toThrow()
+    await h.service.tick()
     const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'error', sessionId: null })
     expect(run!.detail).toContain('no daemon')
