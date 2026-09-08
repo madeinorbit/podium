@@ -356,12 +356,14 @@ describe('UpdatesService', () => {
           const { svc, send } = await start({ recovery })
           if (failure === 'confirmation') svc.abandonWait(['a'], 'Deadline expired')
           recovery.write = () => { throw new Error('disk full') }
-          expect(() => failure === 'retirement'
-            ? svc.abandonWait(['a'], 'Deadline expired')
-            : svc.onStatus(asMachineId('a'), confirmed)).toThrow('disk full')
-          expect(() => svc.fleet()).toThrow('disk full')
-          expect(() => svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toThrow('disk full')
-          expect(() => svc.tick()).toThrow('disk full')
+          await expect(
+            failure === 'retirement'
+              ? svc.abandonWait(['a'], 'Deadline expired')
+              : svc.onStatus(asMachineId('a'), confirmed),
+          ).rejects.toThrow('disk full')
+          await expect(svc.fleet()).rejects.toThrow('disk full')
+          await expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).rejects.toThrow('disk full')
+          await expect(svc.tick()).rejects.toThrow('disk full')
           expect(recovery.read()?.machines[0]?.[1].state).toBe(
             failure === 'retirement' ? 'granted' : 'stuck',
           )
@@ -370,7 +372,7 @@ describe('UpdatesService', () => {
       )
     })
 
-    it('refuses dispatch when the authority checkpoint fails, including subsequent calls', () => {
+    it('refuses dispatch when the authority checkpoint fails, including subsequent calls', async () => {
       const recovery = memoryRecovery()
       const { svc, send } = make(
         [m('a', { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] })],
@@ -384,9 +386,9 @@ describe('UpdatesService', () => {
       recovery.write = () => {
         throw new Error('disk full')
       }
-      expect(() => svc.authorize()).toThrow('disk full')
-      expect(() => svc.tick()).toThrow('disk full')
-      expect(() => svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toThrow('disk full')
+      await expect(svc.authorize()).rejects.toThrow('disk full')
+      await expect(svc.tick()).rejects.toThrow('disk full')
+      await expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).rejects.toThrow('disk full')
       expect(send).not.toHaveBeenCalled()
     })
 
@@ -396,10 +398,10 @@ describe('UpdatesService', () => {
       recovery.write = () => {
         throw new Error('disk full')
       }
-      expect(() => svc.onStatus(asMachineId('a'), confirmed)).toThrow('disk full')
-      expect(() => svc.fleet()).toThrow('disk full')
-      expect(() => svc.tick()).toThrow('disk full')
-      expect(() => svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toThrow('disk full')
+      await expect(svc.onStatus(asMachineId('a'), confirmed)).rejects.toThrow('disk full')
+      await expect(svc.fleet()).rejects.toThrow('disk full')
+      await expect(svc.tick()).rejects.toThrow('disk full')
+      await expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).rejects.toThrow('disk full')
       expect(recovery.read()?.machines[0]?.[1].state).toBe('granted')
       expect(send).toHaveBeenCalledTimes(1)
     })

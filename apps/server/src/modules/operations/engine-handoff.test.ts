@@ -112,7 +112,7 @@ describe('coordinator handoff', () => {
     await engine.settleAsk('op_1', 'anything')
     expect(await engine.cancel('op_1')).toEqual({ canceled: false, refused: 'handed-off' })
     expect((await store.get('op_1'))?.payload).toBe(bytes)
-    expect(() => engine.sealForHandoff('op_1', 'first')).toThrow(/already sealed/)
+    await expect(engine.sealForHandoff('op_1', 'first')).rejects.toThrow(/already sealed/)
   })
 
   it('fails a handed-off outcome that has no durable seal', async () => {
