@@ -103,7 +103,8 @@ describe('production adoption restores supervised execution proof', () => {
     const h = await fixture()
     try {
       const ids = count === 1 ? ['a'] : ['a', 'b']
-      for (const id of ids) h.add(id)
+      // Planning must observe completed enrollment and supervisor attachment.
+      for (const id of ids) await h.add(id)
       await h.add('already-healthy', target.version)
       h.registry.modules.updates.setTarget('dev', target)
       const started = await h.registry.modules.operations.engine.start(
@@ -131,10 +132,10 @@ describe('production adoption restores supervised execution proof', () => {
       // server.ts ordering: adoption consumes updates.fleet() BEFORE transports
       // attach, then builds the production context for the resumed runner.
       await boot.modules.operations.engine.adoptOnBoot(
-        () => ({
+        async () => ({
           appVersion: target.version,
           servedWebDigest: undefined,
-          machineDirectory: boot.modules.updates.fleet(),
+          machineDirectory: await boot.modules.updates.fleet(),
           now: Date.now(),
         }),
         () => h.context(ids),
@@ -184,7 +185,7 @@ describe('production adoption restores supervised execution proof', () => {
     async (reboot) => {
       const h = await fixture()
       try {
-        for (const machine of ['a', 'b']) h.add(machine)
+        for (const machine of ['a', 'b']) await h.add(machine)
         const updates = h.registry.modules.updates
         updates.setTarget('dev', target)
         const started = await h.registry.modules.operations.engine.start(
@@ -205,8 +206,8 @@ describe('production adoption restores supervised execution proof', () => {
         if (reboot) {
           const boot = await h.reboot()
           await boot.modules.operations.engine.adoptOnBoot(
-            () => ({ appVersion: target.version, servedWebDigest: undefined,
-              machineDirectory: boot.modules.updates.fleet(), now: Date.now() }),
+            async () => ({ appVersion: target.version, servedWebDigest: undefined,
+              machineDirectory: await boot.modules.updates.fleet(), now: Date.now() }),
             () => h.context(['a', 'b']),
           )
         }

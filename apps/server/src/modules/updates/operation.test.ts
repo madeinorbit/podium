@@ -4653,7 +4653,7 @@ describe('coordinator snapshot activation boundary', () => {
         f.releasePreparation.resolve()
         await f.snapshotting.promise
         if (failure === 'verification') f.failSnapshot()
-        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetails').mockImplementation(() => { throw new Error('snapshot receipt disk full') })
+        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => { throw new Error('snapshot receipt disk full') })
         if (failure === 'transfer') f.transfer()
         if (failure === 'approval') f.supersede()
         if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
