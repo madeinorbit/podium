@@ -204,10 +204,10 @@ export interface MailHarness {
   receiptsSeen: { via: string; sessionId: SessionId; receipt: TurnReceipt }[]
   /** Release the receipts held by `receipts.defer`, returning how many fired —
    *  the verification window closing, with no wall-clock sleep. */
-  settleReceipts(): number
+  settleReceipts(): Promise<number>
   /** Re-deliver every receipt that already fired — the at-least-once replay,
    *  returning how many. */
-  replayReceipts(): number
+  replayReceipts(): Promise<number>
   /** Wake-spawn createSession calls (the spawn-on-wake seam). */
   wakeSpawns: Record<string, unknown>[]
   /** Gate spawnAgent calls (the direct `podium agent spawn` seam). */
@@ -290,12 +290,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   // THE RECEIPT SEAM. Built only when a variant asks for it, so an unconfigured
   // harness has no `receiptSend` to find and delivery takes the legacy branch.
   const receiptsSeen: { via: string; sessionId: SessionId; receipt: TurnReceipt }[] = []
-  const held: (() => void)[] = []
+  const held: (() => Promise<void>)[] = []
   /** Receipts that have actually been delivered — the replay set. */
-  const fired: (() => void)[] = []
+  const fired: (() => Promise<void>)[] = []
   const receiptOpts = opts?.receipts
   const legacyOf = { now: 'sendText', queue: 'queueText', interrupt: 'interruptText' } as const
-  const receiptSend: NonNullable<MessageDeliveryDeps['sessions']['receiptSend']> = (
+  const receiptSend: NonNullable<MessageDeliveryDeps['sessions']['receiptSend']> = async (
     via,
     input,
     onReceipt,
@@ -314,14 +314,14 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       provenBy: 'hook',
       at: now(),
     }
-    const fire = () => {
+    const fire = async () => {
       receiptsSeen.push({ via, sessionId: input.sessionId, receipt })
-      onReceipt(receipt)
+      await onReceipt(receipt)
     }
     if (receiptOpts?.defer) held.push(fire)
     else {
       fired.push(fire)
-      fire()
+      await fire()
     }
     return legacy
   }
@@ -437,11 +437,11 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     receiptsSeen,
     /** Release the receipts held by `receipts.defer` — the verification window
      *  closing, with no wall-clock sleep. */
-    settleReceipts: () => {
+    settleReceipts: async () => {
       const pending = held.splice(0, held.length)
       for (const fire of pending) {
         fired.push(fire)
-        fire()
+        await fire()
       }
       return pending.length
     },
@@ -450,8 +450,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
      *  that has to show a consumer is idempotent under it [POD-2298]. Only
      *  receipts that actually fired replay; one still held by `defer` has not
      *  happened yet and `settleReceipts` is what makes it happen. */
-    replayReceipts: () => {
-      for (const fire of [...fired]) fire()
+    replayReceipts: async () => {
+      for (const fire of [...fired]) await fire()
       return fired.length
     },
     wakeSpawns,
