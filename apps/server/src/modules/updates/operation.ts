@@ -2330,7 +2330,7 @@ async function runCoordinatorReplacement(
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
       try {
-        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
+        await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
@@ -2341,7 +2341,7 @@ async function runCoordinatorReplacement(
           details.target.version,
         )
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
-        context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
+        await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
         return snapshotFailure(error instanceof Error ? error.message : String(error))
       }

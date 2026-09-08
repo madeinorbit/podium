@@ -529,7 +529,7 @@ export class ServerTransferService {
         record = await this.prepareEndpointHandoff(record, initialManifest)
         // The final snapshot must carry a claim hash for every browser connected
         // to the old origin. Mint while the source store is still writable.
-        this.deps.endpointHandoff?.prepareClientRelocations(record.operationId)
+        await this.deps.endpointHandoff?.prepareClientRelocations(record.operationId)
         await authorization.reauthorize('fence')
         await hooks.beforeFence?.(record)
         await hooks.crash?.('after-seal')
@@ -676,7 +676,7 @@ export class ServerTransferService {
         }
 
         await this.resumeEndpointHandoff(record)
-        this.deps.endpointHandoff?.cancelClientRelocations(record.operationId)
+        await this.deps.endpointHandoff?.cancelClientRelocations(record.operationId)
         let cleanup: { result: 'cleaned' | 'pending'; detail?: string } = { result: 'cleaned' }
         if (prepared) {
           try {

@@ -268,8 +268,8 @@ export interface ServerEndpointHandoff {
   ): Promise<{ ok: boolean; error?: string }>
   resumeMachine(transferId: string, machineId: MachineId): Promise<{ ok: boolean; error?: string }>
   /** Mint short-lived browser claims while their hashes can still enter the final snapshot. */
-  prepareClientRelocations(operationId: string): void
-  cancelClientRelocations(operationId: string): void
+  prepareClientRelocations(operationId: string): Promise<void>
+  cancelClientRelocations(operationId: string): Promise<void>
   relocateClients(input: { transferId: string; publicUrl: string; operationId: string }): void
 }
 

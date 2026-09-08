@@ -52,7 +52,7 @@ export function updateOperationObserver(
     // `done` operation has nothing in flight to end — and if a late machine
     // is still converging, it is converging successfully.
     if (row.state !== 'done') {
-      updatesService.releaseInFlightGrants(
+      await updatesService.releaseInFlightGrants(
         row.state === 'canceled'
           ? 'The update was canceled while this machine was updating.'
           : undefined,
@@ -63,6 +63,6 @@ export function updateOperationObserver(
     // cleans up after itself without a human pressing Try again (§3.6).
     // AFTER the release above, so the sweep sees machines whose grants have
     // just stopped being believed rather than refusing them as in-flight.
-    if (channel && target) reconciler()?.onOperationSettled(channel, target, row.state)
+    if (channel && target) await reconciler()?.onOperationSettled(channel, target, row.state)
   }
 }

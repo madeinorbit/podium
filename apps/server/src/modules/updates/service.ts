@@ -1602,7 +1602,12 @@ export class UpdatesService {
   }> {
     this.assertPersistence()
     const channelsReadyToContinue = new Set<UpdateChannel>()
-    const fleet: WaveMachine[] = (await this.deps.machines()).map((machine) => {
+    // Promise.all, because three guards in this body read ASYNC predicates.
+    // As a sync map they were `!promise`, which is always false: the supervisor
+    // execution fence and the canary-health fence below could never fire.
+    // Order is preserved, which is what WaveMachine[] requires.
+    const fleet: WaveMachine[] = await Promise.all(
+      (await this.deps.machines()).map(async (machine) => {
       const channel = this.channelOf(machine)
       const targetVersion = this.target(channel)?.version
       const state = this.machineStates.get(machine.id)
@@ -1619,11 +1624,13 @@ export class UpdatesService {
       const awaitingSupervisorExecution =
         (machine.presenceSource === 'supervisor' || currentState?.requiresExecutionConfirmation) &&
         currentState !== undefined &&
-        (currentState.state !== 'current' || !this.executionMatchesTarget(machine.id, channel))
+        (currentState.state !== 'current' ||
+          !(await this.executionMatchesTarget(machine.id, channel)))
       const retired = this.retiredGrants.get(machine.id)
       if (
-        (pending && !this.grantMatchesTarget(pending, channel, this.target(channel))) ||
-        (retired && !this.retiredGrantMatchesTarget(retired, channel, this.target(channel)))
+        (pending && !(await this.grantMatchesTarget(pending, channel, this.target(channel)))) ||
+        (retired &&
+          !(await this.retiredGrantMatchesTarget(retired, channel, this.target(channel))))
       ) {
         this.rollout(channel).canaryHealthy = false
       }
@@ -1663,7 +1670,8 @@ export class UpdatesService {
         ...(currentState.percent !== undefined ? { percent: currentState.percent } : {}),
         ...(currentState.phaseDetail ? { phaseDetail: currentState.phaseDetail } : {}),
       }
-    })
+      }),
+    )
 
     this.persistRecovery()
     return { machines: fleet, continuing: channelsReadyToContinue }
@@ -1795,7 +1803,7 @@ export class UpdatesService {
     const state = this.machineStates.get(machineId)
     if (state?.channel !== channel) return !state?.requiresExecutionConfirmation
     if (machine.presenceSource !== 'supervisor' && !state.requiresExecutionConfirmation) return true
-    return state.state === 'current' && this.executionMatchesTarget(machineId, channel)
+    return state.state === 'current' && (await this.executionMatchesTarget(machineId, channel))
   }
 
   /**

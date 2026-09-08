@@ -534,7 +534,7 @@ export class SessionRegistry {
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
     await this.modules.automations.reconcileFromStore()
-    await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
+    if (!this.recoveryOnly) await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
     if (!this.recoveryOnly) {
@@ -1226,13 +1226,13 @@ export class SessionRegistry {
             ? { ok: true }
             : { ok: false, error: result.error ?? 'endpoint resume was refused' }
         },
-        prepareClientRelocations: (operationId) => {
+        prepareClientRelocations: async (operationId) => {
           const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
           const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
           for (const client of clientRegistry.values()) {
             if (claims.has(client.id)) continue
             const token = randomBytes(32).toString('base64url')
-            this.store.auth.createClientSession(
+            await this.store.auth.createClientSession(
               hashToken(token),
               client.principal.user,
               expiresAt,
@@ -1242,10 +1242,13 @@ export class SessionRegistry {
           }
           clientRelocationClaims.set(operationId, claims)
         },
-        cancelClientRelocations: (operationId) => {
+        cancelClientRelocations: async (operationId) => {
           const claims = clientRelocationClaims.get(operationId)
           if (!claims) return
-          for (const token of claims.values()) this.store.auth.deleteClientSession(hashToken(token))
+          // AWAITED: these rows ARE the claim credentials. Dropping the promise
+          // deletes the local map while the sessions stay valid in the database.
+          for (const token of claims.values())
+            await this.store.auth.deleteClientSession(hashToken(token))
           clientRelocationClaims.delete(operationId)
         },
         relocateClients: (input) => {
@@ -3193,7 +3196,8 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
     if (!recoveryOnly) {
-      issues.boot(systemPrincipal('boot-reconcile'))
+      // issues.boot runs in `hydrate`, awaited: it is async now and this
+      // constructor cannot await it. Its recovery-only guard travelled with it.
       issueSessionLifecycle.startClosedIssueSweep()
       shipping.start()
       void shipping
@@ -3313,7 +3317,10 @@ export class SessionRegistry {
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => {
-      if (!recoveryOnly) messagesSvc.sweep()
+      if (!recoveryOnly)
+        void messagesSvc.sweep().catch((err: unknown) => {
+          log.warn('message delivery sweep failed', { err })
+        })
     }, DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
@@ -3321,14 +3328,20 @@ export class SessionRegistry {
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
     this.queuedInputSweep = setInterval(() => {
-      if (!recoveryOnly) sessionsSvc.inbox.sweepQueuedInputs()
+      if (!recoveryOnly)
+        void sessionsSvc.inbox.sweepQueuedInputs().catch((err: unknown) => {
+          log.warn('queued input sweep failed', { err })
+        })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
     this.approvalStallSweep = setInterval(() => {
-      if (!recoveryOnly) approvals.sweepStalledExecutions()
+      if (!recoveryOnly)
+        void approvals.sweepStalledExecutions().catch((err: unknown) => {
+          log.warn('approval stall sweep failed', { err })
+        })
     }, APPROVAL_STALL_SWEEP_MS)
     this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both

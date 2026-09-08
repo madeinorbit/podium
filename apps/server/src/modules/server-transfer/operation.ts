@@ -327,8 +327,8 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
   }
   context.run = run
 
-  const recordDetails = (record: TransferRecord) => {
-    context.engine.recordDetails(operation.id, {
+  const recordDetails = async (record: TransferRecord) => {
+    await context.engine.recordDetails(operation.id, {
       transferId: record.transferId,
       manifestDigest: record.manifest?.digest,
       bytesCopied: record.bytesCopied,
@@ -342,7 +342,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
     canceled: () => run.canceled,
     ...(context.crash ? { crash: context.crash } : {}),
     onRecord: (record) => {
-      recordDetails(record)
+      void recordDetails(record)
       if (run.currentPhase === 'stage') {
         void context.engine.recordProgress(operation.id, 'stage', {
           state: 'running',
@@ -353,7 +353,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
     },
     onPhase: (phase, state, record) => {
       run.currentPhase = phase
-      recordDetails(record)
+      void recordDetails(record)
       void context.engine.recordProgress(operation.id, phase, {
         state,
         ...(phase === 'stage'
@@ -374,7 +374,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
       })
     },
     beforeFence: async (record) => {
-      recordDetails(record)
+      await recordDetails(record)
       sealReady.resolve(record)
       await continueAfterSeal.promise
     },
@@ -471,7 +471,7 @@ export function serverMoveOperationKind(
             }
           }
           const record = await run.sealReady.promise
-          context.engine.sealForHandoff(operation.id, 'fence', {
+          await context.engine.sealForHandoff(operation.id, 'fence', {
             step: { detail: 'pausing' },
             detailsPatch: {
               transferId: record.transferId,
