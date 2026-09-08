@@ -75,13 +75,13 @@ const rowTitle = async (store: SessionStore, id: string): Promise<string | null 
 describe('the session durable baseline waits for the outermost commit (POD-3361)', () => {
   it('drops a baseline the enclosing span rolled back', async () => {
     const f = await fixture()
-    f.repo.persist(f.session) // no span open: 'committed title' installs at once
+    await f.repo.persist(f.session) // no span open: 'committed title' installs at once
 
     f.session.title = 'rolled back'
-    await expect(f.store.transact(() => {
+    await expect(f.store.transact(async () => {
         // A NESTED persist: the ledger's span degrades to a savepoint and
         // releases when this returns.
-        f.repo.persist(f.session)
+        await f.repo.persist(f.session)
         // …and the enclosing span fails afterwards.
         throw new Error('enclosing span failed')
       }),
@@ -99,32 +99,32 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     // baseline kept the rolled-back draft, the live session is restored to a
     // state no commit ever saw — and the next successful persist writes it back.
     const f = await fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     f.session.title = 'rolled back'
-    await expect(f.store.transact(() => {
-        f.repo.persist(f.session)
+    await expect(f.store.transact(async () => {
+        await f.repo.persist(f.session)
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
     f.session.title = 'doomed'
-    expect(() =>
-      f.repo.persist(f.session, () => {
+    await expect(
+      f.repo.persist(f.session, async () => {
         throw new Error('write failed')
       }),
-    ).toThrow('write failed')
+    ).rejects.toThrow('write failed')
 
     expect(f.session.title).toBe('committed title')
   })
 
   it('still installs the baseline when the enclosing span commits', async () => {
     const f = await fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
     f.session.title = 'kept'
-    await f.store.transact(() => {
-      f.repo.persist(f.session)
+    await f.store.transact(async () => {
+      await f.repo.persist(f.session)
     })
 
     expect(await rowTitle(f.store, 'fold-1')).toBe('kept')
@@ -140,18 +140,18 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     // still commit, so the next persist would write the stale title back over
     // it. The staged layer keeps that reader seeing what it sees today.
     const f = await fixture()
-    f.repo.persist(f.session)
+    await f.repo.persist(f.session)
 
-    await f.store.transact(() => {
+    await f.store.transact(async () => {
       f.session.title = 'first nested write'
-      f.repo.persist(f.session)
+      await f.repo.persist(f.session)
 
       f.session.title = 'doomed'
-      expect(() =>
-        f.repo.persist(f.session, () => {
+      await expect(
+        f.repo.persist(f.session, async () => {
           throw new Error('write failed')
         }),
-      ).toThrow('write failed')
+      ).rejects.toThrow('write failed')
 
       // The span's own earlier write, not the state from before the span.
       expect(f.session.title).toBe('first nested write')
