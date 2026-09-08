@@ -543,7 +543,9 @@
         "$TURBO_ROOT$/packages/**",
         "$TURBO_ROOT$/services/**",
         "$TURBO_ROOT$/tests/**",
-        "$TURBO_ROOT$/docs/TELEMETRY.md"
+        "$TURBO_ROOT$/docs/TELEMETRY.md",
+        "$TURBO_ROOT$/docs/evidence/pod-2987/drive.ts",
+        "$TURBO_ROOT$/docs/evidence/pod-3028/drive.ts"
       ],
       "outputs": []
     }

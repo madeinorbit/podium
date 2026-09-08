@@ -65,7 +65,7 @@ function proc(pid: number): SafeProcess | undefined {
     return {
       pid,
       ppid: Number(fields[1]) || null,
-      exe: Bun.file(`/proc/${pid}/exe`).exists() ? readlink(`/proc/${pid}/exe`) : '',
+      exe: existsSync(`/proc/${pid}/exe`) ? readlink(`/proc/${pid}/exe`) : '',
       cwd: readlink(`/proc/${pid}/cwd`),
       cmdline: readFileSync(`/proc/${pid}/cmdline`, 'utf8')
         .split('\0')
