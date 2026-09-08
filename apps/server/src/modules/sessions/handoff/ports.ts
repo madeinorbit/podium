@@ -221,7 +221,7 @@ export interface HandoffPorts {
   rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void | Promise<void>
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  write(session: Session, mutate: (draft: SessionDurableState) => void): Promise<void>
   mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): void
   broadcastSessions(): void
   /** Cancel any armed auto-continue for a session that is about to stop. */
