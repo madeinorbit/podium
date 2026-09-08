@@ -219,9 +219,9 @@ describe('server host enrollment provenance (POD-2467)', () => {
     })
     const host = hostWorld(dir, store, ORIGINAL_HOST)
 
-    expect(() => host.machines.ensureHostMachine('trusted.local', 'trusted-secret')).toThrow(
-      'enrollment is revoked',
-    )
+    await expect(
+      host.machines.ensureHostMachine('trusted.local', 'trusted-secret'),
+    ).rejects.toThrow('enrollment is revoked')
     expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
     expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'forged-secret')).toBe(true)
     expect(await store.machines.getMachineByToken(ORIGINAL_HOST, 'trusted-secret')).toBe(false)
