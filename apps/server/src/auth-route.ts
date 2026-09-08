@@ -209,7 +209,7 @@ export function clientAuthGuard(opts: {
   trustedProxyHops?: number
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
-  const loginRequired = opts.loginRequired ?? (() => Boolean(opts.users?.hasPerUserCredentials()))
+  const loginRequired = opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return await next()
     if (!(await loginRequired())) return await next()
@@ -314,7 +314,7 @@ export interface AuthRouteOptions {
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
   const store = opts.store
   const users = opts.users
-  const loginRequired = opts.loginRequired ?? (() => Boolean(users?.hasPerUserCredentials()))
+  const loginRequired = opts.loginRequired ?? (async () => Boolean(await users?.hasPerUserCredentials()))
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
   const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
