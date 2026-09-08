@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { UpdateGrantMessage, type UpdateStatusMessage } from '@podium/protocol'
+import { UpdateGrantMessage, type UpdateStatusMessage, type UpdateTarget } from '@podium/protocol'
 import { z } from 'zod'
 
 export const MachineUpdatePhase = z.enum([
@@ -78,8 +78,14 @@ const terminal = (phase: MachineUpdatePhase) =>
   ['current', 'rejected', 'stuck', 'canceled'].includes(phase)
 const committed = (phase: MachineUpdatePhase) => ['activating', 'restarting'].includes(phase)
 
+export type UpdateFingerprintInput =
+  | string
+  | UpdateTarget
+  | UpdateGrantMessage
+  | { target: UpdateTarget; repair: boolean }
+
 /** Stable identity includes URLs, signatures, schema and trust, not just VERSION. */
-export function updateFingerprint(value: unknown): string {
+export function updateFingerprint(value: UpdateFingerprintInput): string {
   const canonical = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(canonical)
     if (input && typeof input === 'object')

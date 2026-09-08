@@ -396,11 +396,12 @@ export class UpdatesService {
 
   async coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): Promise<boolean> {
     const pending = this.pendingGrants.get(machineId)
-    return pending !== undefined && (await this.coordinatorUpdateApproved(pending.channel, grant.target)) &&
-      pending?.grantId === grant.grantId &&
-      pending.targetFingerprint === updateFingerprint(grant.target) &&
-      this.target(pending.channel) !== undefined &&
-      updateFingerprint(this.target(pending.channel)) === pending.targetFingerprint
+    if (pending === undefined ||
+      !(await this.coordinatorUpdateApproved(pending.channel, grant.target)) ||
+      pending.grantId !== grant.grantId ||
+      pending.targetFingerprint !== updateFingerprint(grant.target)) return false
+    const target = this.target(pending.channel)
+    return target !== undefined && updateFingerprint(target) === pending.targetFingerprint
   }
 
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()

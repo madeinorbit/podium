@@ -990,7 +990,7 @@ exec "$CANARY_REAL_CLI" "$@"
     // the daemon handshake/convergence callback and all health probes are real.
     // Same-version handover deliberately does not test download or binary swap.
     const grant = {
-      type: 'updateGrant',
+      type: 'updateGrant' as const,
       grantId: randomUUID(),
       issuedAt: Date.now(),
       target: { version: '9.9.9', critical: false, artifacts: {} },
