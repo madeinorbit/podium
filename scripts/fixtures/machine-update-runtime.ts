@@ -345,7 +345,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               target: policy.published,
               approvedTargetVersion: policy.approved?.version,
               approvedTarget: policy.approved,
-              operationActive: engine?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+              operationActive: (await engine?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
               attempts: 0,
             })
             event('reconnect-decision', { machineId: body.id, verdict })
