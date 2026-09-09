@@ -30,6 +30,7 @@ import {
   isStepFinished,
   nextStep,
   restartPlaceClocks,
+  stalledSilenceMessage,
   withPersistenceFacts,
 } from './transitions'
 
@@ -1938,7 +1939,14 @@ export class OperationEngine {
           message:
             breach.kind === 'total'
               ? `This step ran out of time after ${Math.round(breach.elapsedMs / 1000)}s.`
-              : `No progress for ${Math.round(breach.silentMs / 1000)}s. Podium retried once.`,
+              : stalledSilenceMessage({
+                  // EVERY window, not the last one. Each retry restarted the
+                  // clock, so `breach` alone under-reports the wait by exactly
+                  // the silence that earned the retry (POD-3769).
+                  silentMs: (step.stalledMs ?? 0) + breach.silentMs,
+                  attempts: stalls + 1,
+                  operationMs: now - (operation.startedAt ?? operation.createdAt ?? now),
+                }),
         },
       )
       return
@@ -1959,6 +1967,9 @@ export class OperationEngine {
       this.applyPatch(operation, step.id, { state: 'stalled' }, now, (s) => ({
         ...s,
         stalls: stalls + 1,
+        // Bank this window before the retry restarts the clock — it is the only
+        // moment the silence just served is still measurable (POD-3769).
+        stalledMs: (s.stalledMs ?? 0) + breach.silentMs,
         lastProgressAt: step.lastProgressAt,
       })),
       now,

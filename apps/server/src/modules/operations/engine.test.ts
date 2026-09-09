@@ -510,6 +510,10 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
     expect(row?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
     expect(step(row?.operation, 'first')?.state).toBe('failed')
     expect(ensure).toHaveBeenCalledTimes(2)
+    // Both windows, not the last one: the user sat through 1000 + 1000 (POD-3769).
+    expect(step(row?.operation, 'first')?.stalledMs).toBe(1000)
+    expect(row?.operation?.error?.message).toContain(`${(1000 + 1000) / 1000}s`)
+    expect(row?.operation?.error?.message).toContain('2 attempts')
   })
 
   it('lets progress push the deadline out', async () => {

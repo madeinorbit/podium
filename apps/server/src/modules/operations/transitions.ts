@@ -213,3 +213,56 @@ export function deadlineBreach(
   }
   return { kind: 'none', silentMs, elapsedMs, places: [] }
 }
+
+/**
+ * THE SENTENCE A SILENCE STALL FAILS WITH (POD-3769).
+ *
+ * A step that stalls is retried once, and the retry gets its OWN window — so a
+ * step that stalls twice has been silent for twice the budget, and the breach
+ * the engine holds at failure time can only see the last of those windows. Read
+ * on its own, "No progress for 420s" told a user who had watched for fourteen
+ * minutes that Podium gave up after seven.
+ *
+ * So the total is the sum of every window, the attempt count is spelled out so
+ * the number cannot be misread as one wait, and the operation's own age is
+ * there to be checked against the clock the user was actually watching.
+ */
+export function stalledSilenceMessage(input: {
+  /** Total silence across every attempt of the step, in milliseconds. */
+  silentMs: number
+  /** How many attempts that silence is spread across — 1 before any retry. */
+  attempts: number
+  /** How long the whole operation has been running, in milliseconds. */
+  operationMs: number
+}): string {
+  const running = ` (operation running ${clockDuration(input.operationMs)})`
+  if (input.attempts <= 1) {
+    return `No progress for ${wholeSeconds(input.silentMs)}${running}.`
+  }
+  return (
+    `No progress for ${wholeSeconds(input.silentMs)} across ${input.attempts} attempts` +
+    `, and Podium's one retry is spent${running}.`
+  )
+}
+
+/** "420s" — the unit the silence budget itself is expressed in. */
+function wholeSeconds(ms: number): string {
+  return `${wholeSecondsIn(ms)}s`
+}
+
+/**
+ * Elapsed time is FLOORED, never rounded: a duration is only ever claimed once
+ * it has actually passed, so the sentence never reads a second ahead of the
+ * clock the user was watching.
+ */
+function wholeSecondsIn(ms: number): number {
+  return Math.max(0, Math.floor(ms / 1000))
+}
+
+/** "16m43s" — long waits read as a clock, not as four digits of seconds. */
+function clockDuration(ms: number): string {
+  const total = wholeSecondsIn(ms)
+  const minutes = Math.floor(total / 60)
+  if (minutes === 0) return `${total}s`
+  return `${minutes}m${String(total % 60).padStart(2, '0')}s`
+}
