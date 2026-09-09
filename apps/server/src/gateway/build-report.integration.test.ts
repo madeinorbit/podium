@@ -94,8 +94,17 @@ describe('machine build report over a live daemon socket', () => {
    * long that takes on the day it runs.
    */
   function serverObserves(event: 'machine.connected' | 'machine.disconnected'): Promise<void> {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
+      // NAMES the missing event rather than leaving the harness to report a bare
+      // "test timed out" on whichever await happened to hang. Never part of the
+      // passing path — the event lands in single-digit milliseconds — so this is
+      // a deadline on a regression, not a wait for the event.
+      const deadline = setTimeout(() => {
+        dispose()
+        reject(new Error(`the server never observed ${event}`))
+      }, 10_000)
       const dispose = server.registry.bus.on(event, () => {
+        clearTimeout(deadline)
         dispose()
         resolve()
       })
