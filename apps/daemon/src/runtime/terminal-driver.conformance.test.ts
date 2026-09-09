@@ -59,8 +59,8 @@ import {
  * THE HARDEST PROFILE ON PURPOSE. It is the one that has to reach `unverified`
  * honestly, uses the raw first-turn path, and has at-least-once interactions,
  * so it exercises the terminal family's permitted failures and staging decline.
- * A Claude profile would pass
- * more of the corpus for a reason that says nothing about the family.
+ * Explicit profile overrides also exercise hook-source fixtures without
+ * changing this default family's conformance target.
  */
 const PROFILE: TerminalHarnessProfile = {
   driverId: 'generic-pty',
@@ -89,8 +89,8 @@ interface VirtualTimer {
 
 /** One fixture world plus the driver runtime standing on it. */
 /**
- * THE ONE HARNESS FACT THIS FILE VARIES, and it is a fact about the HARNESS
- * rather than about the driver: whether this CLI writes a handoff transcript
+ * A profile override selects the harness facts, including interaction source.
+ * The focused archive cases also vary whether the CLI writes a handoff transcript
  * somewhere the daemon can locate and copy.
  *
  * `archivable: false` — the default and the hardest profile — makes
@@ -101,6 +101,7 @@ interface VirtualTimer {
  * `describe` at the bottom of this file.
  */
 interface WorldOptions {
+  profile?: TerminalHarnessProfile
   archivable?: boolean
 }
 
@@ -108,7 +109,8 @@ function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   profile: TerminalHarnessProfile
 } {
-  const profile: TerminalHarnessProfile = { ...PROFILE, archivable: options.archivable ?? false }
+  const baseProfile = options.profile ?? PROFILE
+  const profile: TerminalHarnessProfile = { ...baseProfile, archivable: options.archivable ?? baseProfile.archivable }
   let runtime: TerminalRuntime | undefined
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -449,10 +451,9 @@ function makeWorld(options: WorldOptions = {}): {
         sessionId,
         ...(typeof spec === 'string' ? defaultAskFor(spec) : spec),
         askedAt: iso(),
-        // The classifier is what sees a menu on a screen; it is the family's
-        // source wherever there is no hook channel, and it is why the identity
-        // below is best-effort.
-        source: 'screen-classifier',
+        // Match the profile's declared source so hook-backed drivers actually
+        // receive the injected ask (POD-3741 Finding 4).
+        source: profile.hookAnchoredAccept ? 'hook' : 'screen-classifier',
         answerable: 'keystroke-emulated',
       }
       runtime?.control.askInteraction(sessionId, interaction)
@@ -623,5 +624,24 @@ describe('generic-pty on a harness that DOES declare a handoff transcript', () =
     // reachable here, and it does not read one.
     await assertArchiveHonoursItsDeclaration(session, driver, null)
     world.target.reset()
+  })
+})
+
+
+describe('terminal conformance interaction sources', () => {
+  it.each([false, true])('injects the profile source (hookAnchoredAccept=%s)', async (hookAnchoredAccept) => {
+    const world = makeWorld({ profile: {
+      ...PROFILE, driverId: hookAnchoredAccept ? 'claude-pty' : 'generic-pty', hookAnchoredAccept,
+    } })
+    try {
+      const { driver, control } = world.target.createDriver()
+      const session = await driver.create(world.target.spec())
+      const id = control.askInteraction(session.binding.sessionId, 'permission')
+      expect(await session.interactions()).toEqual([expect.objectContaining({
+        id, source: hookAnchoredAccept ? 'hook' : 'screen-classifier',
+      })])
+    } finally {
+      world.target.reset()
+    }
   })
 })

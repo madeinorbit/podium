@@ -133,14 +133,12 @@ export const permits = (family: DriverFamily, failure: PermittedFailure): boolea
  * MEASURED HERE: `claude-sdk` exposes `interrupt()` and resumable turns, but no
  * in-flight steer verb; its conformance target therefore reports a visible queue
  * downgrade. ABSENT ON PURPOSE: `codex-app-server` has `turn/steer` and must
- * declare it; `claude-pty` almost certainly belongs here on the same argument as
- * `generic-pty`, but no target runs it under the corpus today and a driver id
- * nobody has watched go green is a claim, not a measurement. Adding one is a
- * one-line edit — the requirement is only that it be a DELIBERATE one, made next
- * to the argument it has to join.
+ * declare it. POD-3741 measured claude-pty declining native steer: the hooked
+ * terminal still has no in-flight append verb, just like generic-pty.
  */
 export const NO_NATIVE_STEER_DRIVERS = [
   'generic-pty',
+  'claude-pty',
   // The Agent SDK exposes interrupt-and-resend/queueing, not an in-flight steer verb.
   'claude-sdk',
   'opencode-server',

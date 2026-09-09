@@ -171,6 +171,7 @@ describe('the permitted-failures table', () => {
     }
     expect([...NO_NATIVE_STEER_DRIVERS]).toEqual([
       'generic-pty',
+      'claude-pty',
       'claude-sdk',
       'opencode-server',
       'grok-acp',

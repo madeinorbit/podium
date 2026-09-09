@@ -39,6 +39,7 @@ import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import { SessionActivityHistory } from './activity-history'
 import { AgentConcurrencyHistory } from './concurrency-history'
+import { contractDeliveryRequested } from './contract-delivery'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
@@ -505,47 +506,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
     nativeViewActive,
-    /**
-     * THE DRAIN'S NO-PTY FACT (POD-2291): this session is behind the runtime
-     * contract, and no manifest declares its bound driver TERMINAL-family.
-     *
-     * `runtimeContract` alone carries the timing guarantee. It is assigned in
-     * exactly one place — the `bind` case in `daemon-lifecycle.ts`, one line
-     * after `markLive` — so a `starting` session answers false and stays
-     * queued until bind says what it became, which is exactly when the drain
-     * runs. The second half is what keeps TERMINAL-driver sessions, which are
-     * behind the contract too, on their PTY drain.
-     *
-     * WHY THE DRIVER TEST IS NEGATIVE (POD-2327). It used to ask
-     * `driverIdIsServerFamily`, and an id no manifest claims answers false
-     * there — so a NEWER DAEMON binding a driver this server has never heard
-     * of (a renamed or brand-new server driver, an embedded one) landed on the
-     * PTY path, where the daemon finds no bridge, logs a warning, discards the
-     * bytes, and this side confirms the row. That is the POD-2291 vanish,
-     * reached through a version-skew door. Only a manifest-declared TERMINAL
-     * driver has a terminal; every other answer — server, embedded, unknown —
-     * means no PTY.
-     *
-     * AND NO DRIVER ID AT ALL IS ALSO NOT TERMINAL (POD-2327 review round).
-     * The first fix still guarded on `driverId !== undefined`, which opened the
-     * REVERSE skew door: an OLDER daemon — one new enough to drive the contract
-     * but predating the `driverId` field on `bind` (the W4/POD-2290 window) —
-     * binds `runtimeContract` with no driver at all, and the guard sent it down
-     * the PTY path to the same vanish. The empty string below reaches no
-     * manifest, so a missing id lands in the same "unknown" bucket every other
-     * unrecognized id does; `session.ts`'s `toMeta` spells it the same way.
-     *
-     * THE TWO WRONG ANSWERS ARE NOT SYMMETRIC, which is what makes "unknown"
-     * and "absent" safe to fold in here. Guess "no PTY" for a driver that has
-     * one and the row still delivers: terminal drivers are behind the same
-     * contract (`sessionIsBehindContract` is true for every runtime binding),
-     * so `contractDeliver` reaches the terminal driver's own injection path.
-     * Even against a daemon with no handler for the frame, the worst case is
-     * the RPC window closing as `unverified`, which leaves the row VISIBLY
-     * QUEUED. Guess "PTY" for a driver that has none and the bytes are gone.
-     * Fail toward keep-queued.
-     */
-    serverDriven,
+    // The bind frame owns runtimeContract. This rollout only changes delivery;
+    // native renderer ownership above remains the separate no-PTY fact.
+    contractDelivery: contractDeliveryRequested,
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
@@ -560,9 +523,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         delivery: 'when-ready',
         principal: input.principal,
       }),
-    // THE STOP BUTTON'S HALF OF THE SAME FACT (POD-2792). `serverDriven` says
-    // there is no PTY; this is what a session with no PTY is interrupted
-    // through. Late-bound for the same reason `contractDeliver` is.
+    // Stop follows the same contract delivery route, including headed sessions.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
     // Late-bound for the same reason the two above it are.
     contractConfigure: (input) => bag.runtimeGateway.configure(input),

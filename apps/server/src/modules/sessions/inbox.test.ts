@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { loadConfig } from '@podium/runtime/config'
+import { contractDeliveryRequested } from './contract-delivery'
 import {
   type Attribution,
   actorAgent,
@@ -57,7 +62,7 @@ function harness(
     transcriptAvailable?: boolean
     stateObservedAt?: string
     /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
-    serverDriven?: boolean
+    contractDelivery?: boolean | ((session: Session) => boolean)
     /** Exact live runtime binding facts reported by the daemon bind. */
     runtimeContract?: boolean
     driverId?: string
@@ -254,8 +259,8 @@ function harness(
     setSessionDraft,
     draftText: () => draft,
     resurrect,
-    ...(options.serverDriven !== undefined
-      ? { serverDriven: () => options.serverDriven === true }
+    ...(options.contractDelivery !== undefined
+      ? { contractDelivery: (session: Session) => typeof options.contractDelivery === 'function' ? options.contractDelivery(session) : options.contractDelivery === true }
       : {}),
     ...(options.contractConfigure
       ? {
@@ -431,7 +436,7 @@ describe('SessionInbox persistence completion', () => {
 
   it('waits for model persistence before broadcasting or returning', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractConfigure: { ok: true, effective: 'next-turn' } })
+    const h = harness({ contractDelivery: true, contractConfigure: { ok: true, effective: 'next-turn' } })
     const pending = barrier()
     h.persistDraft.mockImplementationOnce(() => pending.promise)
     let finished = false
@@ -447,7 +452,7 @@ describe('SessionInbox persistence completion', () => {
   })
 
   it('returns a model persistence rejection to the caller', async () => {
-    const h = harness({ serverDriven: true, contractConfigure: { ok: true, effective: 'next-turn' } })
+    const h = harness({ contractDelivery: true, contractConfigure: { ok: true, effective: 'next-turn' } })
     const error = new Error('model commit failed')
     h.persistDraft.mockRejectedValueOnce(error)
     await expect(h.inbox.configureSession({ sessionId: SID, model: 'new-model' })).rejects.toBe(error)
@@ -687,7 +692,7 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void
     const pending = new Promise<import('./inbox').InboxAuthorizationDecision>((done) => { resolve = done })
-    const h = harness({ serverDriven: true, contractReceipts: [], authorizeAtDrain: () => pending })
+    const h = harness({ contractDelivery: true, contractReceipts: [], authorizeAtDrain: () => pending })
     await h.inbox.queueText({ sessionId: SID, text: 'authorized later', principal: agentPrincipal() })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.rows).toHaveLength(1)
@@ -920,7 +925,7 @@ describe('SessionInbox authorization and identity', () => {
     try {
       const h = harness({
         agentKind: 'grok',
-        serverDriven: true,
+        contractDelivery: true,
         runtimeContract: true,
         driverId: 'grok-acp',
       })
@@ -950,7 +955,7 @@ describe('SessionInbox authorization and identity', () => {
     const exactGrok = () =>
       harness({
         agentKind: 'grok',
-        serverDriven: true,
+        contractDelivery: true,
         runtimeContract: true,
         driverId: 'grok-acp',
       })
@@ -999,7 +1004,7 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({
       ...identity,
-      serverDriven: identity.runtimeContract,
+      contractDelivery: identity.runtimeContract,
       nativeView: true,
     })
     await h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
@@ -1518,7 +1523,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({
       agentKind: 'opencode',
       phase: 'working',
-      serverDriven: true,
+      contractDelivery: true,
       contractInterrupt: { ok: true },
     })
 
@@ -1536,7 +1541,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({
       agentKind: 'codex',
       phase: 'idle',
-      serverDriven: true,
+      contractDelivery: true,
       contractInterrupt: { ok: true },
     })
 
@@ -1553,7 +1558,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({
       agentKind: 'opencode',
       phase: 'working',
-      serverDriven: true,
+      contractDelivery: true,
       contractInterrupt: { reason: 'not_running', detail: 'no machine' },
     })
 
@@ -1569,7 +1574,7 @@ describe('SessionInbox authorization and identity', () => {
   it('refuses a server-family stop it has no runtime connection to deliver', async () => {
     // The port ABSENT — a server-family session on a server that cannot reach
     // the daemon. Confirming here is the same lie by a different route.
-    const h = harness({ agentKind: 'opencode', phase: 'working', serverDriven: true })
+    const h = harness({ agentKind: 'opencode', phase: 'working', contractDelivery: true })
 
     const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
@@ -1590,7 +1595,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({
       agentKind: 'opencode',
       phase: 'working',
-      serverDriven: true,
+      contractDelivery: true,
       contractInterrupt: { ok: true },
     })
 
@@ -2600,7 +2605,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('delivers a queued row through the contract and never as PTY bytes', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractReceipts: [] })
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
 
     expect(await queueOne(h, 'srv-1', 'msg_srv_1')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
@@ -2624,7 +2629,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   })
   it('parks a durable row while native terminal control is declared', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, nativeView: true, contractReceipts: [] })
+    const h = harness({ contractDelivery: true, nativeView: true, contractReceipts: [] })
 
     expect(await queueOne(h, 'srv-native', 'msg_srv_native')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
@@ -2649,7 +2654,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
     vi.useFakeTimers()
     const h = harness({
-      serverDriven: true,
+      contractDelivery: true,
       contractReceipts: [
         { outcome: 'refused', refusal: { reason: 'not_running', detail: 'daemon gone' } },
       ],
@@ -2670,7 +2675,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({
       agentKind: 'grok',
-      serverDriven: true,
+      contractDelivery: true,
       runtimeContract: true,
       driverId: 'grok-acp',
       contractPending: true,
@@ -2720,7 +2725,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('forwards during a busy turn without any server readiness polling', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractReceipts: [], phase: 'working' })
+    const h = harness({ contractDelivery: true, contractReceipts: [], phase: 'working' })
     await queueOne(h, 'srv-3', 'msg_srv_3')
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
@@ -2735,7 +2740,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('does not poll or settle after a busy refusal', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }] })
+    const h = harness({ contractDelivery: true, contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }] })
     await queueOne(h, 'srv-4', 'msg_srv_4')
     await vi.advanceTimersByTimeAsync(30000)
     await h.inbox.drain(SID)
@@ -2749,7 +2754,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     let authorize!: (decision: { ok: true }) => void
     const permission = new Promise<{ ok: true }>((resolve) => { authorize = resolve })
-    const h = harness({ serverDriven: true, contractReceipts: [], authorizeAtDrain: () => permission })
+    const h = harness({ contractDelivery: true, contractReceipts: [], authorizeAtDrain: () => permission })
     await queueOne(h, 'held-during-admission')
     h.setNativeView(true)
     authorize({ ok: true })
@@ -2764,7 +2769,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('forwards the next row without waiting for the first RPC reply', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractPending: true })
+    const h = harness({ contractDelivery: true, contractPending: true })
     await queueOne(h, 'first')
     await queueOne(h, 'second')
     await vi.advanceTimersByTimeAsync(0)
@@ -2776,7 +2781,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('cancels by row id without double-decrementing when the event beats the reply', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractReceipts: [] })
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
     await queueOne(h, 'cancel-row', 'cancel-source')
     await queueOne(h, 'keep-row', 'keep-source')
     await vi.advanceTimersByTimeAsync(0)
@@ -2792,7 +2797,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('settles failed and dropped outcomes visibly by durable row identity', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true, contractReceipts: [] })
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
     await queueOne(h, 'failed', 'source-failed')
     await queueOne(h, 'dropped', 'source-dropped')
     await vi.advanceTimersByTimeAsync(0)
@@ -2812,7 +2817,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     // would delete a row nobody delivered: the original vanish, back through
     // a different door.
     const h = harness({
-      serverDriven: true,
+      contractDelivery: true,
       contractReceipts: [
         {
           outcome: 'unverified',
@@ -2836,7 +2841,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('leaves the row queued when no contract port is wired, rather than typing into the void', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true })
+    const h = harness({ contractDelivery: true })
 
     expect(await queueOne(h, 'srv-5', 'msg_srv_5')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(30_000)
@@ -2848,7 +2853,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
   it('refuses a direct typeText toward a server-family session', async () => {
     vi.useFakeTimers()
-    const h = harness({ serverDriven: true })
+    const h = harness({ contractDelivery: true })
 
     expect(await h.inbox.sendText({ sessionId: SID, text: 'typed at nothing' })).toEqual({ ok: false })
     expect(h.sent).toEqual([])
@@ -2988,7 +2993,7 @@ describe('configureSession', () => {
   it('records the requested model only AFTER the driver granted the change', async () => {
     const h = harness({
       agentKind: 'codex',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
@@ -3008,7 +3013,7 @@ describe('configureSession', () => {
   it('records NOTHING when the driver refused, and reports the typed reason', async () => {
     const h = harness({
       agentKind: 'codex',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { reason: 'invalid_value', detail: 'that is not a codex effort' },
     })
 
@@ -3027,7 +3032,7 @@ describe('configureSession', () => {
   it('STORES and ANNOUNCES a granted change, not just the in-memory field', async () => {
     const h = harness({
       agentKind: 'codex',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
@@ -3049,7 +3054,7 @@ describe('configureSession', () => {
   it('does NOT store or announce when the session was already on that value', async () => {
     const h = harness({
       agentKind: 'codex',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { ok: true, effective: 'next-turn' },
       requestedModelChanged: false,
     })
@@ -3069,7 +3074,7 @@ describe('configureSession', () => {
   it('stores NOTHING when the driver refused', async () => {
     const h = harness({
       agentKind: 'codex',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { reason: 'unsupported', detail: 'a TUI reads its model from argv' },
     })
 
@@ -3082,7 +3087,7 @@ describe('configureSession', () => {
   })
 
   it('REFUSES when this server has no runtime connection, rather than confirming', async () => {
-    const h = harness({ agentKind: 'codex', serverDriven: true })
+    const h = harness({ agentKind: 'codex', contractDelivery: true })
 
     const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })
 
@@ -3096,7 +3101,7 @@ describe('configureSession', () => {
     const h = harness({
       agentKind: 'codex',
       status: 'exited',
-      serverDriven: true,
+      contractDelivery: true,
       contractConfigure: { ok: true, effective: 'next-turn' },
     })
 
@@ -3209,5 +3214,133 @@ describe('async ownership at attention delivery', () => {
     } else {
       expect(h.attentionStateChanged).not.toHaveBeenCalled()
     }
+  })
+})
+
+
+describe('headed contract delivery rollout', () => {
+  it('flips the actual config file off/on/off without recreating the inbox', async () => {
+    vi.useFakeTimers()
+    const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-switch-'))
+    const path = join(dir, 'config.json')
+    const flip = (enabled: boolean) => writeFileSync(path, JSON.stringify({
+      features: { 'daemon-headed-delivery': enabled },
+    }))
+    try {
+      const h = harness({
+        agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
+        contractDelivery: (session) => contractDeliveryRequested(session, loadConfig(path)),
+        contractReceipts: [], contractInterrupt: { ok: true },
+      })
+      const send = (id: string) => h.inbox.queueText({ sessionId: SID, text: id, mutationId: asMutationId(id) })
+      flip(false)
+      await send('legacy-before')
+      await vi.advanceTimersByTimeAsync(6_500)
+      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
+      expect(h.contractCalls).toEqual([])
+      h.landTurn('legacy-before')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(h.rows).toHaveLength(0)
+
+      flip(true)
+      await send('daemon-owned')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'daemon-owned' })])
+      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
+
+      flip(false)
+      await send('legacy-after')
+      await vi.advanceTimersByTimeAsync(1_000)
+      // Rollback stops new daemon admission, but cannot replay its in-flight row.
+      expect(h.contractCalls).toHaveLength(1)
+      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
+      await h.inbox.deliveryOutcome(SID, { rowId: 'daemon-owned', outcome: 'delivered' })
+      await vi.advanceTimersByTimeAsync(6_500)
+      expect(typedTexts(h.sent)).toEqual(['legacy-before', 'legacy-after'])
+      expect(h.contractCalls).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves an already typed legacy batch with its owner when enabled', async () => {
+    vi.useFakeTimers()
+    let enabled = false
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
+      contractDelivery: () => enabled, contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'legacy in flight', mutationId: asMutationId('legacy-flight') })
+    await vi.advanceTimersByTimeAsync(6_500)
+    expect(typedTexts(h.sent)).toEqual(['legacy in flight'])
+    enabled = true
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toEqual([])
+    h.landTurn('legacy in flight')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.rows).toHaveLength(0)
+  })
+
+  it('releases rollback custody only after daemon cancellation succeeds', async () => {
+    vi.useFakeTimers()
+    let enabled = true
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
+      contractDelivery: () => enabled, contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'cancel me', mutationId: asMutationId('cancel-owned'),
+      sourceMessageId: 'mail-cancel' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    enabled = false
+    h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
+    expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(false)
+    expect(h.rows).toHaveLength(1)
+    expect(h.sent).toEqual([])
+    expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(true)
+    expect(h.contractCancel).toHaveBeenCalledTimes(2)
+    await h.inbox.queueText({ sessionId: SID, text: 'after cancel', mutationId: asMutationId('after-cancel') })
+    await vi.advanceTimersByTimeAsync(6_500)
+    expect(typedTexts(h.sent)).toEqual(['after cancel'])
+    expect(h.contractCalls).toHaveLength(1)
+  })
+
+  it.each(['generic-pty', 'codex-app-server'])('routes a fresh bind after starting on the legacy queue: %s', async (driverId) => {
+    vi.useFakeTimers()
+    const h = harness({ status: 'starting', agentKind: 'codex',
+      contractDelivery: (session) => contractDeliveryRequested(session, { features: { 'daemon-headed-delivery': true } }),
+      contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'first bound prompt', mutationId: asMutationId('fresh-bind') })
+    await vi.advanceTimersByTimeAsync(400)
+    h.session.runtimeContract = true
+    h.session.driverId = driverId
+    h.setStatus('live')
+    h.inbox.markSessionBound(SID)
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'fresh-bind' })])
+    expect(h.sent).toEqual([])
+  })
+
+  it.each([false, true])('keeps legacy bindings on the old path when switch=%s', (enabled) => {
+    expect(contractDeliveryRequested({ runtimeContract: false, driverId: 'generic-pty' },
+      { features: { 'daemon-headed-delivery': enabled } })).toBe(false)
+  })
+
+  it.each(['codex-app-server', 'claude-sdk', 'unknown-driver', undefined])(
+    'never rolls a no-PTY binding back to terminal input: %s', (driverId) => {
+      expect(contractDeliveryRequested({ runtimeContract: true, driverId },
+        { features: { 'daemon-headed-delivery': false } })).toBe(true)
+    })
+
+  it('ships headed delivery dark independently of runtime-drivers', () => {
+    expect(contractDeliveryRequested({ runtimeContract: true, driverId: 'claude-pty' }, {})).toBe(false)
+    expect(contractDeliveryRequested({ runtimeContract: true, driverId: 'claude-pty' },
+      { features: { 'runtime-drivers': true } })).toBe(false)
+  })
+
+  it('sends headed interrupts through the contract when enabled', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working', runtimeContract: true, driverId: 'generic-pty',
+      contractDelivery: (session) => contractDeliveryRequested(session, { features: { 'daemon-headed-delivery': true } }),
+      contractInterrupt: { ok: true } })
+    expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({ ok: true, requested: 'protocol' })
+    expect(h.contractInterrupts).toEqual([SID])
+    expect(h.sent).toEqual([])
   })
 })

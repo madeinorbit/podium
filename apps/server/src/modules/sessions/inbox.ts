@@ -40,7 +40,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import type { HarnessComposerReadiness, HarnessInterrupt } from '../../harness-manifest'
+import { driverFamilyForId, type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -353,33 +353,10 @@ export interface SessionInboxDeps {
    */
   nativeViewActive?(sessionId: SessionId): boolean
 
-  /**
-   * Is this session driven by a runtime driver with NO PTY bridge behind it
-   * (POD-2291)?
-   *
-   * The drain below branches on it because typing at such a session is not
-   * merely suboptimal, it is a guaranteed silent loss: the daemon's `input`
-   * handler resolves the PTY bridge by session id, finds none, and discards the
-   * bytes with no error — while this side reports the row applied. The fact is
-   * read off the bind-reported contract flag, so it is only ever true for a
-   * LIVE session; a `starting` one stays on the queue until bind says which
-   * family it became.
-   *
-   * Production answers it by ruling a terminal driver IN rather than a server
-   * driver OUT, so a driver id this build's manifests do not know — or a bind
-   * that carries no driver id at all — still takes the contract path
-   * (POD-2327). See `session-wiring.ts` for why that asymmetry is the safe one.
-   */
-  serverDriven?(session: Session): boolean
-  /**
-   * Deliver one queued row through the runtime contract (`when-ready`), for
-   * sessions {@link serverDriven} says have no PTY to type into.
-   *
-   * The receipt is the driver's own answer, not a prediction. Optional only as
-   * a fixture affordance: production always wires it, and a server-driven
-   * session without it leaves rows visibly queued rather than typing them into
-   * the void.
-   */
+  /** Bind-reported contract delivery, including headed sessions when the hot
+   * rollout switch is enabled. Legacy bindings always keep the server path. */
+  contractDelivery?(session: Session): boolean
+  /** Cancel a daemon-owned queued row before deleting its durable intent. */
   contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
   contractDeliver?(input: {
     sessionId: SessionId
@@ -390,7 +367,7 @@ export interface SessionInboxDeps {
   }): Promise<TurnReceipt>
   /**
    * REQUEST an interrupt through the runtime contract, for sessions
-   * {@link serverDriven} says have no PTY to type an abort key into.
+   * {@link contractDelivery} routes through the daemon.
    *
    * The answer is the DRIVER's, and it says the request was accepted or names
    * the reason it was not — it never says the turn stopped. The fence is a
@@ -700,6 +677,7 @@ export class SessionInbox {
     this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
+    this.legacyDeliveryBatches.delete(session)
     this.unobservedServerBinds.add(sessionId)
     this.inputReadySessions.delete(session)
     this.boundAtMs.set(session, this.deps.now())
@@ -761,7 +739,7 @@ export class SessionInbox {
    * branch is the path that carries it (POD-2291).
    */
   private readinessQueueRefusal(session: Session): { ok: false } | undefined {
-    if (this.deps.serverDriven?.(session) === true) return undefined
+    if (this.routesThroughContract(session) === true) return undefined
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase === 'needs_user') return { ok: false }
     return undefined
@@ -823,7 +801,7 @@ export class SessionInbox {
     if (
       !session ||
       (session.status !== 'live' && session.status !== 'starting') ||
-      this.deps.serverDriven?.(session) === true ||
+      this.routesThroughContract(session) === true ||
       session.agentState?.phase === 'needs_user'
     )
       return { ok: false }
@@ -918,7 +896,7 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
-    if (this.deps.serverDriven?.(session) === true) {
+    if (this.routesThroughContract(session) === true) {
       const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       if (cancelled && session.agentState?.phase !== 'working') return { ok: true, requested: 'retraction' }
       if (session.agentState?.phase !== 'working') {
@@ -1090,12 +1068,13 @@ export class SessionInbox {
       }
       return verification
     }
-    if (this.deps.serverDriven?.(session)) {
+    if (this.routesThroughContract(session)) {
       const result = await this.deps.contractCancel?.(sessionId, head.id)
       if (!result || !('ok' in result)) return false
     }
     const deletion: Promise<void> = this.deps.queue.delete(head.id)
     await deletion
+    this.forwardedRows.get(sessionId)?.ids.delete(head.id)
     const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = remaining.length
@@ -1135,6 +1114,10 @@ export class SessionInbox {
   }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
+    // A completed legacy batch does not pin the next enqueue to its old route.
+    if (session.queuedMessageCount === 0 && !this.activeDrains.has(session.sessionId)) {
+      this.legacyDeliveryBatches.delete(session)
+    }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
     if (blockedReason) return { ok: false, reason: blockedReason }
     const parked = session.status === 'hibernated' || session.status === 'exited'
@@ -1238,12 +1221,13 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) {
-      if (this.deps.serverDriven?.(session)) {
+      if (this.routesThroughContract(session)) {
         const result = await this.deps.contractCancel?.(sessionId, row.id)
         if (!result || !('ok' in result)) return false
       }
       const deletion: Promise<void> = this.deps.queue.delete(row.id)
       await deletion
+      this.forwardedRows.get(sessionId)?.ids.delete(row.id)
     }
     const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
@@ -1322,6 +1306,25 @@ export class SessionInbox {
   private readonly forwardedRows = new Map<SessionId, { session: Session; machineId: string; ids: Set<string> }>()
   private readonly forwarding = new Map<SessionId, Promise<void>>()
 
+  private readonly legacyDeliveryBatches = new WeakSet<Session>()
+
+  /** Switching cannot transfer a row already typed or admitted by the other owner.
+   * Legacy batches finish unchanged. On rollback, daemon rows settle (or the
+   * operator cancels them) before newly queued input can use the legacy loop.
+   */
+  private routesThroughContract(session: Session): boolean {
+    if (session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal') {
+      return true
+    }
+    if (this.legacyDeliveryBatches.has(session)) {
+      if (session.queuedMessageCount > 0 || this.activeDrains.has(session.sessionId)) return false
+      this.legacyDeliveryBatches.delete(session)
+    }
+    const custody = this.forwardedRows.get(session.sessionId)
+    if (custody?.session === session && custody.machineId === session.machineId && custody.ids.size) return true
+    return this.deps.contractDelivery?.(session) === true
+  }
+
   /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
   private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
     const sessionId = session.sessionId
@@ -1337,9 +1340,18 @@ export class SessionInbox {
       const binding = forwarded
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
-        session.status === 'live' && this.deps.nativeViewActive?.(sessionId) !== true &&
+        session.status === 'live' && this.deps.contractDelivery?.(session) === true &&
+        this.deps.nativeViewActive?.(sessionId) !== true &&
         !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
       const rows = await this.deps.queue.list(sessionId)
+      // A server restart may have forgotten the active legacy batch. Its durable
+      // attempts still prove that typing began; enabling cannot replay it.
+      if (binding.ids.size === 0 && driverFamilyForId(session.driverId ?? '') === 'terminal' &&
+        rows.some((row) => row.attempts > 0)) {
+        this.legacyDeliveryBatches.add(session)
+        await this.drain(sessionId)
+        return
+      }
       for (const row of rows) {
         if (!current() || this.deps.nativeViewActive?.(sessionId) || session.status !== 'live') return
         if (binding.ids.has(row.id)) continue
@@ -1390,14 +1402,16 @@ export class SessionInbox {
       await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
     }
     await this.deps.queue.delete(row.id)
+    this.forwardedRows.get(sessionId)?.ids.delete(row.id)
     const remaining = await this.deps.queue.list(sessionId)
     await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
     this.deps.broadcast()
+    if (remaining.length) await this.drain(sessionId)
   }
 
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
     const contractSession = this.deps.getSession(sessionId)
-    if (contractSession && this.deps.serverDriven?.(contractSession)) {
+    if (contractSession && this.routesThroughContract(contractSession)) {
       if (this.deps.nativeViewActive?.(sessionId) === true) return
       void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })
@@ -1415,6 +1429,7 @@ export class SessionInbox {
     if (this.deps.getSession(sessionId) !== session || this.disposed) return
     const drainGeneration = (this.drainGenerations.get(sessionId) ?? 0) + 1
     this.drainGenerations.set(sessionId, drainGeneration)
+    this.legacyDeliveryBatches.add(session)
     this.activeDrains.add(sessionId)
     const isCurrent = (): boolean =>
       this.drainGenerations.get(sessionId) === drainGeneration && this.activeDrains.has(sessionId)
@@ -1926,7 +1941,7 @@ export class SessionInbox {
         await afterHead()
         return
       }
-      if (this.deps.serverDriven?.(current)) {
+      if (this.routesThroughContract(current)) {
         stop()
         await this.forwardContractRows(current, false)
         return
@@ -1996,7 +2011,7 @@ export class SessionInbox {
         else stop()
         return
       }
-      const serverDriven = this.deps.serverDriven?.(current) === true
+      const serverDriven = this.routesThroughContract(current) === true
       if (current.status === 'live') {
         if (serverDriven) {
           stop()
@@ -2375,7 +2390,7 @@ export class SessionInbox {
     // bytes without an error, so an ok here would be the exact lie POD-2291
     // closes. Refusing keeps the caller's row queued and visible; the drain's
     // contract branch is the path that actually delivers.
-    if (this.deps.serverDriven?.(session) === true) return { ok: false }
+    if (this.routesThroughContract(session) === true) return { ok: false }
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     const baseline = session.terminal

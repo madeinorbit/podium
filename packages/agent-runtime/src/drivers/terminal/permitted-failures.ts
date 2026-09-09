@@ -26,8 +26,7 @@ import { PERMITTED_FAILURES, type PermittedFailure } from '../../permitted-failu
  * `no-native-steer` ALSO needs the driver id (POD-2085). The family row is
  * carried by all three families and so entitles nobody; `NO_NATIVE_STEER_DRIVERS`
  * lists `generic-pty` because a TUI has no way to append into an open turn.
- * `claude-pty` is deliberately not there yet — no target runs it under the
- * corpus, and the pin is a record of what was measured, not of what is likely.
+ * It also lists `claude-pty`, measured declining steer by the POD-3741 audit.
  */
 export const TERMINAL_PERMITTED_FAILURES: readonly PermittedFailure[] = PERMITTED_FAILURES.terminal
 
