@@ -249,6 +249,41 @@ not a proof of a zero population failure rate. Missing coverage or insufficient
 traffic means **incomplete**, not pass. A stopped run remains a stopped run;
 after a fix, attach a new plan/window instead of extending away the failure.
 
+## Expected window and human choice
+
+**As of 2026-09-09, measured by the POD-3738 coordinator:** a read-only count
+of live-database session-directed messages found 283 in the preceding 24 hours
+(flatblock 183, ludovico 100). The five reported daily counts were 272, 132,
+306, 347 and 201: mean 251.6, approximately 250/day. These are message counts,
+not verified resolved, non-cancelled, cohort-attributed intents; some will not
+qualify for the soak denominator.
+
+At 250–283 messages/day, 400 qualifying intents would take 1.4–1.6 days even
+with ideal eligibility and allocation. The per-machine requirement matters:
+ludovico needs 200 across its two paths, which alone takes two days at its
+observed 100/day before accounting for an uneven path split. **Budget roughly
+two to four days of continuous ON observation**, possibly longer if a cohort
+is quiet or messages do not qualify. This is a planning expectation, not a
+completion promise. At the observed counts, the full sample would not finish
+in 24 hours; the 24-hour minimum and all existing thresholds remain unchanged.
+
+The human has two alternatives; neither is selected by this analysis:
+
+| Alternative | Expected cost | Claim supported and limitation |
+|---|---|---|
+| A. Run the registered four-cohort soak | At least 400 qualifying intents; plan approximately 2–4 days, extending until every cohort reaches 100 and all other criteria hold. | Sustained legacy-versus-headed-contract delivery evidence on both machines, plus the move and rollback drills. This is the current acceptance plan. |
+| B. Explicitly narrow to two cohorts on the busier machine, flatblock at this snapshot; use ludovico for the move drill | At least 200 qualifying intents. At 183/day, the ideal sample lower bound is about 1.1 days; plan roughly 1–2 days, possibly longer with path imbalance. Keep the 24-hour minimum and the other safety criteria. | Sustained comparative delivery evidence only on flatblock. The move drill can witness the tested transfers, but does not establish a sustained ludovico failure rate, legacy/contract parity there, or the full four-cohort claim. |
+
+Option B halves the sample requirement and may roughly halve the planning
+window; it does **not** guarantee half the elapsed time because the incoming
+traffic also narrows to one machine. Historical aggregate counts cannot predict
+the slower path cohort's completion. B requires an explicit human decision and
+a revised recorded claim/acceptance plan before ON; it cannot retroactively
+convert an undersampled four-cohort run into a pass or silently satisfy the
+existing POD-3744 removal gate. POD-3738 presents this decision to the human.
+No traffic is manufactured to fill either sample, and no live action follows
+from adding this analysis.
+
 ## Machine-move redelivery drill
 
 Run on a human-designated headed contract soak session with a unique test
