@@ -76,7 +76,9 @@ if (mode === "orphan") {
     });
   });
   p.unref();
-  p.disconnect?.();
+  // Deliberately NOT p.disconnect(): a polite close is a different event from a
+  // supervisor dying, and it is the dying case a handover has to survive. Exiting
+  // here drops the parent's end the way a crash would.
   process.stdout.write(
     `EXPERIMENT_RESULT ${JSON.stringify({ mode, childSpoke: seen, childPid: p.pid })}\n`,
   );
