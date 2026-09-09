@@ -1160,6 +1160,23 @@ async function runInProcess(
     ? configureProcessLogging({ role: plan.claimRole, mode: plan.logSinkMode })
     : undefined
 
+  // The private line to the parent that spawned us (POD-3761). Undefined for a
+  // foreground run, a test, or a shell that is not the parent — then every
+  // `lifecycle?.` below is a no-op. Opened BEFORE binding so the parent's
+  // identity and a stop that arrives mid-boot are not lost; the stop is acted
+  // on once `shutdown` exists.
+  const { connectLifecycleChannel } = await import('@podium/runtime/lifecycle-channel')
+  const { resolveInstallDir } = await import('@podium/runtime/config')
+  const lifecycle = connectLifecycleChannel({
+    role: plan.claimRole === 'daemon' || !roles.server ? 'daemon' : 'server',
+    version: process.env.PODIUM_APP_VERSION ?? 'dev',
+    digest: installedArtifactDigest(resolveInstallDir(process.env)),
+  })
+  let stopRequested: string | undefined
+  lifecycle?.onStop((reason) => {
+    stopRequested = reason
+  })
+
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
   // collide on the port or run two daemons over the same ~/.podium, then write our pidfile
@@ -1232,6 +1249,7 @@ async function runInProcess(
     localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
     recoveryOnly = server.recoveryOnly
+    if (recoveryOnly) lifecycle?.degraded('recovery-only: serving without a local daemon')
     console.log(`podium server up on ${localServerUrl(serverPort)}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
@@ -1284,6 +1302,7 @@ async function runInProcess(
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
+              lifecycle?.stopping(`blocked by the server: ${type}: ${reason}`)
               process.exit(DAEMON_BLOCKED_EXIT_CODE)
             },
           }
@@ -1291,12 +1310,20 @@ async function runInProcess(
     })
     console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
+  // Every role this process was asked for is up: say so on the line, with the
+  // port when we bound one. The parent's port probe still runs beside this
+  // until POD-3762 makes the line the gate.
+  lifecycle?.ready(roles.server ? { port: serverPort } : {})
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
   const { startWatchdog } = await import('@podium/runtime/sd-notify')
   const stopWatchdog = startWatchdog()
   let stopSupervisorWatch: (() => void) | undefined
-  const shutdown = (): void => {
+  const shutdown = (reason: string = 'signal'): void => {
+    // Last word on the line, then hang up: the parent learns this was a
+    // shutdown and why, rather than inferring it from an exit code later.
+    lifecycle?.stopping(reason)
+    lifecycle?.close()
     stopWatchdog?.()
     stopSupervisorWatch?.()
     // Drain the log sink before exiting; best-effort, never a reason to hang.
@@ -1326,7 +1353,13 @@ async function runInProcess(
   // a GUI crash or SIGKILL leaves us reparented and still holding the fixed
   // hook-ingest port, which is what breaks the NEXT launch. No-op unsupervised.
   const { watchSupervisor } = await import('@podium/runtime/supervisor')
-  stopSupervisorWatch = watchSupervisor(shutdown)
+  stopSupervisorWatch = watchSupervisor(() => shutdown('supervising shell exited'))
+  // The parent's stop on the line is the same request a SIGTERM is; so is the
+  // line closing under us, where the platform seam says that means the parent
+  // died (POSIX today; Windows waits on POD-3774).
+  lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
+  lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
+  if (stopRequested !== undefined) shutdown(`parent asked us to stop: ${stopRequested}`)
   await new Promise(() => {})
 }
 
@@ -1637,6 +1670,12 @@ export async function main(
         },
         runningIdentity: { version: appVersion, digest: runningDigest },
         supervisorGeneration,
+        // What every child is told on its line at spawn (POD-3761); the
+        // generation it carries is the incarnation number claimed above.
+        identity: () => ({
+          ...(supervisorState.machineId ? { machineId: supervisorState.machineId } : {}),
+          assignment: configuredAssignment,
+        }),
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
           PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
