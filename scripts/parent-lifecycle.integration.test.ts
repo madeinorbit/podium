@@ -426,6 +426,85 @@ describe('parent lifecycle (real processes)', () => {
   }, 60_000)
 
   /**
+   * POD-3762, on real processes. A SAME-VERSION handover is the case where every
+   * shared name lies: the port answers, on the expected version, with a
+   * connected daemon — and none of that says WHOSE stack it is. On ludovico
+   * (2026-09-09 07:08Z) the successor's gate passed in 200 ms against the
+   * outgoing server on exactly this shape.
+   *
+   * Here the successor's own server binds and serves normally but stays silent
+   * on its private line, so it is HTTP-indistinguishable from a successful
+   * handover. The control below proves that: `/version` really does answer with
+   * the expected version and a connected daemon throughout. The gate must still
+   * refuse, because no child of the successor ever proved itself.
+   */
+  it('POD-3762 — a same-version handover waits for the successor\'s OWN server, not the port', async () => {
+    const stack = await startStack({ FIXTURE_HANDOVER_TIMEOUT_MS: '8000' })
+    await until(
+      () => (stack.notifications().includes('READY=1') ? true : undefined),
+      'old parent READY',
+    )
+    const readyBefore = readFileSync(
+      join(stack.stateDir, 'run', 'supervisor-ready.json'),
+      'utf8',
+    )
+    expect(JSON.parse(readyBefore).pid, 'the outgoing parent published its own readiness').toBe(
+      stack.parentPid,
+    )
+    const before = stack.spawns('parent').length
+
+    // From here, a server this stack spawns comes up and serves, but never says
+    // so on its line. The outgoing parent's children already did.
+    writeFileSync(join(stack.stateDir, 'run', 'fixture-server-never-ready'), '')
+
+    // SAME VERSION: nothing on disk changes, so the version can distinguish
+    // nothing and only the line can.
+    expect(requestFixtureHandover(stack, { expectedVersion: '1.0.0' })).toEqual({
+      ok: true,
+      pid: stack.parentPid,
+    })
+
+    const successorPid = await until(() => {
+      const pids = stack.spawns('parent')
+      return pids.length > before ? (pids[before] as number) : undefined
+    }, 'successor parent spawned')
+    observedPids.add(successorPid)
+
+    // THE CONTROL. What the old probe looked at, while the gate is running: a
+    // server on the port, serving the expected version, daemon connected.
+    const seen = await until(async () => {
+      try {
+        const body = (await (await fetch(`http://127.0.0.1:${stack.port}/version`)).json()) as {
+          appVersion: string
+          daemonConnected: boolean
+        }
+        return body.appVersion === '1.0.0' && body.daemonConnected ? body : undefined
+      } catch {
+        return undefined
+      }
+    }, `the port to answer as a healthy 1.0.0 stack; log:\n${stack.output()}`, 20_000)
+    expect(seen).toMatchObject({ appVersion: '1.0.0', daemonConnected: true })
+
+    // And yet: the successor never published readiness, so the handover expired
+    // and the machine still belongs to the parent that was already serving it.
+    await until(
+      () => (stack.spawns('server').length > 2 ? true : undefined),
+      `the outgoing parent to resume supervision after the gate expired; log:\n${stack.output()}`,
+      30_000,
+    )
+    expect(
+      JSON.parse(readFileSync(join(stack.stateDir, 'run', 'supervisor-ready.json'), 'utf8')).pid,
+      'a successor whose own server never reported ready must not publish readiness',
+    ).toBe(stack.parentPid)
+    expect(stack.parent.exitCode, 'the outgoing parent must still be here').toBeNull()
+    expect(
+      stack.notifications().filter((n) => n.startsWith('MAINPID=')),
+      'MAINPID must never name a successor no child of which proved itself',
+    ).toEqual([])
+    expect(alive(successorPid), 'the doomed successor is killed, not left running').toBe(false)
+  }, 60_000)
+
+  /**
    * FINDING 4's other half: a successor that never becomes healthy must not
    * strand systemd's MAINPID on a dead process, must not leave `snap.phase`
    * parked in `handover_outgoing` (which disabled every restart and every

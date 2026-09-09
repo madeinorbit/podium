@@ -23,6 +23,11 @@
  *   FIXTURE_SERVER_HEALTH_DELAY_MS               — delay the connected health bit after bind
  *   FIXTURE_SERVER_READY_DELAY_MS                — bind, but delay the ready frame on the line
  *   FIXTURE_SERVER_NEVER_READY=1                 — bind and serve, but never report ready
+ *
+ * `run/fixture-<role>-never-ready` does the same as the NEVER_READY env, but is
+ * a FILE, so a test can arm it partway through a run: only roles spawned after
+ * it appears stay silent on their line. That is how a successor's children can
+ * be held back while the outgoing parent's identical children came up.
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
  *   FIXTURE_HANDOVER_TIMEOUT_MS                 — shorten the 90s successor gate
  *   FIXTURE_RELEASE_HAD_MIGRATIONS=1|0          — what the swap would have reported
@@ -119,7 +124,7 @@ function reportReady(
   lifecycle: { ready: (extra?: { port?: number }) => boolean } | undefined,
   extra: { port?: number },
 ): void {
-  if (envForRole('NEVER_READY') === '1') {
+  if (envForRole('NEVER_READY') === '1' || existsSync(join(runDir, `fixture-${role}-never-ready`))) {
     console.error(`[fixture:${role}] never reporting ready`)
     return
   }
@@ -274,6 +279,10 @@ async function runParent(): Promise<void> {
     claimRole: isSuccessor
       ? () => registerProcess('parent', { reclaimExisting: false, port }).then(() => undefined)
       : undefined,
+    // What apps/cli/src/cli.ts passes, and what makes `successorReady` real: an
+    // outgoing parent hands over only to a successor that PUBLISHED its own
+    // readiness, which a successor does only once its own health gate passed.
+    runningIdentity: { version: installedVersion() },
   })
   parent.installSignalHandlers()
   if (!isSuccessor) await registerProcess('parent', { port })
