@@ -1,0 +1,32 @@
+# POD-3774 (epic POD-3758): when a supervisor vanishes, does its child die, and
+# is it told? POD-3760 saw a windows-latest child get no 'disconnect' AND stop
+# beating, which two readings explain equally well — the IPC channel tearing the
+# child down, or the runner's job object killing every orphan. This experiment
+# adds the control arms that separate them on the same runner.
+#
+# Thin dispatch wrapper around the reusable platform-experiment harness — all it
+# decides is WHICH experiment runs, and on which two runners. workflow_dispatch
+# only resolves workflows that exist on the DEFAULT branch, so until
+# platform-experiment.yml lands on main the `push:` trigger below, scoped to this
+# spike's own branch, is what starts a run. Comment it out again once the report
+# is written, as POD-3760 and POD-3772 both did.
+name: orphan-survival-spike
+on:
+  workflow_dispatch:
+  push:
+    branches: ['issue/3774-windows-supervisor-death-signal-on-a-rea']
+
+jobs:
+  orphan-survival:
+    uses: ./.github/workflows/platform-experiment.yml
+    with:
+      experiment: orphan-survival
+      # windows-latest is the question; ubuntu-latest is the sanity control. If
+      # the POSIX plain orphans do not survive and the POSIX channelled child
+      # does not get 'disconnect', the rig is wrong and Windows is not on trial.
+      runners: >-
+        [{"runner":"ubuntu-latest","label":"linux-x64"},
+         {"runner":"windows-latest","label":"win32-x64"}]
+      # The fixtures import bun:ffi and nothing from the workspace, so the runner
+      # needs bun itself and no install.
+      install: false
