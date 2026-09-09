@@ -70,7 +70,11 @@ function freePort(): Promise<number> {
   })
 }
 
-function readNote<T = Record<string, unknown>>(root: string, role: string, event: string): T | undefined {
+function readNote<T = Record<string, unknown>>(
+  root: string,
+  role: string,
+  event: string,
+): T | undefined {
   const path = join(root, 'run', `${role}.${event}.json`)
   if (!existsSync(path)) return undefined
   try {
@@ -96,7 +100,10 @@ async function startStack(
     installDir: root,
     stateDir: root,
     generation: 42,
-    identity: () => ({ machineId: 'machine-under-test', assignment: { server: true, agentExecution: true } }),
+    identity: () => ({
+      machineId: 'machine-under-test',
+      assignment: { server: true, agentExecution: true },
+    }),
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
@@ -108,8 +115,16 @@ async function startStack(
       ...extraEnv,
     },
     // The port probe stays in service until POD-3762; here it simply agrees.
-    probeHealth: async () => ({ serverRunning: true, serverVersion: '9.9.9', daemonConnected: true }),
-    probeDaemonHealth: async () => ({ connected: true, appVersion: '9.9.9', convergedVersion: null }),
+    probeHealth: async () => ({
+      serverRunning: true,
+      serverVersion: '9.9.9',
+      daemonConnected: true,
+    }),
+    probeDaemonHealth: async () => ({
+      connected: true,
+      appVersion: '9.9.9',
+      convergedVersion: null,
+    }),
     probeServerReady: async () => true,
     notify: () => {},
     exit: () => {},
@@ -125,7 +140,7 @@ async function startStack(
 }
 
 describe('the lifecycle line between a real parent and its real children', () => {
-  it('carries ready with the child\'s own pid, version, digest and port, and identity the other way', async () => {
+  it("carries ready with the child's own pid, version, digest and port, and identity the other way", async () => {
     const { parent, root, port } = await startStack()
     const server = await until(() => parent.lifecycle('server')?.ready, 'server ready')
     const daemon = await until(() => parent.lifecycle('daemon')?.ready, 'daemon ready')
@@ -200,7 +215,12 @@ describe('the lifecycle line between a real parent and its real children', () =>
   it('a grandchild cannot see the line — and the probe can see one when it is there', async () => {
     const { root } = await startStack({ FIXTURE_PROBE_GRANDCHILD: '1' }, ['server'])
     const seen = await until(
-      () => readNote<{ ordinary: Record<string, unknown>; control: Record<string, unknown> }>(root, 'server', 'grandchildren'),
+      () =>
+        readNote<{ ordinary: Record<string, unknown>; control: Record<string, unknown> }>(
+          root,
+          'server',
+          'grandchildren',
+        ),
       'grandchild probe',
     )
     // Descriptor 3 in an ordinary grandchild is whatever the runtime opened

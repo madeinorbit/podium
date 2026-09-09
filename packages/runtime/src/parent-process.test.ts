@@ -18,8 +18,8 @@ import { configureProcessLogging } from './logging'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
-  PARENT_HANDOVER_EXPECTED_VERSION_ENV,
   PARENT_HANDOVER_DEADLINE_ENV,
+  PARENT_HANDOVER_EXPECTED_VERSION_ENV,
   PARENT_HAS_SERVER_ENV,
   PARENT_POST_UPDATE_ENV,
   PARENT_RELEASE_MIGRATIONS_ENV,
@@ -1543,13 +1543,18 @@ class ChannelChild extends FakeChild {
 }
 
 describe('ParentProcess lifecycle channel (POD-3761)', () => {
-  function channelParent(opts: {
-    children?: Array<'server' | 'daemon'>
-    identity?: () => { generation?: number; machineId?: string }
-    generation?: number
-  } = {}) {
-    const spawned: Array<{ role: string; child: ChannelChild; options: Parameters<SpawnChildFn>[2] }> =
-      []
+  function channelParent(
+    opts: {
+      children?: Array<'server' | 'daemon'>
+      identity?: () => { generation?: number; machineId?: string }
+      generation?: number
+    } = {},
+  ) {
+    const spawned: Array<{
+      role: string
+      child: ChannelChild
+      options: Parameters<SpawnChildFn>[2]
+    }> = []
     let nextPid = 300
     const parent = track(
       new ParentProcess({
@@ -1609,7 +1614,7 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('records what a child reports on its line in the snapshot', async () => {
     const { parent, spawned } = channelParent({ children: ['server'] })
     await parent.start()
-    const server = spawned[0]!.child
+    const server = spawned[0]?.child as ChannelChild
     expect(parent.lifecycle('server')).toEqual({ channel: 'open' })
     server.deliver({
       podium: 'podium-lifecycle/1',
@@ -1631,7 +1636,7 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('asks a retired child to stop on its line before signalling it', async () => {
     const { parent, spawned } = channelParent()
     await parent.start()
-    const daemon = spawned.find((s) => s.role === 'daemon')!.child
+    const daemon = spawned.find((s) => s.role === 'daemon')?.child as ChannelChild
     await parent.reconcileTopology(['server'], 'none')
     expect(daemon.sent[1]).toMatchObject({ type: 'stop' })
     expect(daemon.signalsReceived).toEqual(['SIGTERM'])
@@ -1645,7 +1650,8 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
         installBinary: '/opt/podium/podium',
         children: ['server'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
-        spawn: (() => new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        spawn: (() =>
+          new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         probeHealth: async () => healthy('1.0.0'),
         notify: () => {},
         sleep: async () => {},

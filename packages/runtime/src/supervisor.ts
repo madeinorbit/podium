@@ -29,8 +29,9 @@
  * spawn in the tree, must not inherit either supervisor signal.
  * {@link unsupervisedEnv} strips both for exactly those spawns.
  */
-import { createLogger } from '@podium/logger'
+
 import { existsSync } from 'node:fs'
+import { createLogger } from '@podium/logger'
 import { withoutLifecycleChannel } from './lifecycle-channel'
 import { isAlive } from './run-registry'
 

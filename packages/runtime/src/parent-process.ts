@@ -24,7 +24,7 @@
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'

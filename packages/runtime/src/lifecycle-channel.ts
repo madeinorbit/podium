@@ -136,9 +136,10 @@ function hasChannel(peer: ChannelPeer): boolean {
 
 /** Send one frame; a closed pipe is a `false`, never a throw into the caller. */
 function trySend(peer: ChannelPeer, frame: object): boolean {
-  if (!hasChannel(peer)) return false
+  const send = peer.send
+  if (typeof send !== 'function' || peer.connected === false) return false
   try {
-    return peer.send!(frame) !== false
+    return send.call(peer, frame) !== false
   } catch {
     return false
   }
@@ -186,7 +187,10 @@ export interface AttachChildChannelOptions {
  * The parent's end of one child's line. Sends `identity` immediately — the
  * child never has to ask who spawned it — and records what the child reports.
  */
-export function attachChildChannel(peer: ChannelPeer, options: AttachChildChannelOptions): ChildChannel {
+export function attachChildChannel(
+  peer: ChannelPeer,
+  options: AttachChildChannelOptions,
+): ChildChannel {
   const now = options.now ?? Date.now
   if (!hasChannel(peer)) {
     const report: ChildLifecycleReport = { channel: 'none' }

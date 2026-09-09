@@ -39,6 +39,12 @@ class FakePeer extends EventEmitter {
   }
 }
 
+/** The client under test exists: this process's transport has a channel by construction. */
+function connected<T>(client: T | undefined): T {
+  if (client === undefined) throw new Error('expected a connected lifecycle client')
+  return client
+}
+
 /** A hand-cranked interval, so heartbeat cadence is asserted, not awaited. */
 function manualScheduler(): IntervalScheduler & { fire: () => void; intervals: number[] } {
   const callbacks: Array<() => void> = []
@@ -84,7 +90,11 @@ describe('parent end', () => {
   it('sends identity the moment it attaches, so a child never has to ask', () => {
     const peer = new FakePeer()
     attachChildChannel(peer, {
-      identity: { generation: 7, machineId: 'm-1', assignment: { server: true, agentExecution: true } },
+      identity: {
+        generation: 7,
+        machineId: 'm-1',
+        assignment: { server: true, agentExecution: true },
+      },
     })
     expect(peer.sent).toEqual([
       {
@@ -127,7 +137,14 @@ describe('parent end', () => {
 
     expect(channel.report()).toEqual({
       channel: 'open',
-      ready: { role: 'server', pid: 4242, version: '1.2.3', digest: 'abc', port: 18787, atMs: 1_000 },
+      ready: {
+        role: 'server',
+        pid: 4242,
+        version: '1.2.3',
+        digest: 'abc',
+        port: 18787,
+        atMs: 1_000,
+      },
       lastHeartbeatMs: 2_000,
       degraded: { reason: 'recovery-only', atMs: 3_000 },
       stopping: { reason: 'SIGTERM', atMs: 4_000 },
@@ -186,20 +203,27 @@ describe('child end', () => {
   it('is absent when this process has no channel — an unsupervised run', () => {
     const transport = new EventEmitter()
     expect(
-      connectLifecycleChannel({ role: 'server', version: 'dev', transport, scheduler: manualScheduler() }),
+      connectLifecycleChannel({
+        role: 'server',
+        version: 'dev',
+        transport,
+        scheduler: manualScheduler(),
+      }),
     ).toBeUndefined()
   })
 
   it('reports ready with its identity, then degraded and stopping, in the wire shape', () => {
     const transport = new FakePeer()
-    const client = connectLifecycleChannel({
-      role: 'daemon',
-      version: '1.2.3',
-      digest: 'sha',
-      pid: 77,
-      transport,
-      scheduler: manualScheduler(),
-    })!
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'daemon',
+        version: '1.2.3',
+        digest: 'sha',
+        pid: 77,
+        transport,
+        scheduler: manualScheduler(),
+      }),
+    )
     expect(client.ready({ port: 18787 })).toBe(true)
     expect(client.degraded('server unreachable')).toBe(true)
     expect(client.stopping('SIGTERM')).toBe(true)
@@ -221,24 +245,32 @@ describe('child end', () => {
   it('heartbeats on the contract cadence until closed', () => {
     const transport = new FakePeer()
     const scheduler = manualScheduler()
-    const client = connectLifecycleChannel({ role: 'server', version: 'dev', transport, scheduler })!
+    const client = connected(
+      connectLifecycleChannel({ role: 'server', version: 'dev', transport, scheduler }),
+    )
     expect(scheduler.intervals).toEqual([LIFECYCLE_HEARTBEAT_MS])
     scheduler.fire()
     scheduler.fire()
-    expect(transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat')).toHaveLength(2)
+    expect(transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat')).toHaveLength(
+      2,
+    )
     client.close()
     scheduler.fire()
-    expect(transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat')).toHaveLength(2)
+    expect(transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat')).toHaveLength(
+      2,
+    )
   })
 
   it('keeps the identity the parent sent and hands stop to the shutdown hook, with its reason', () => {
     const transport = new FakePeer()
-    const client = connectLifecycleChannel({
-      role: 'server',
-      version: 'dev',
-      transport,
-      scheduler: manualScheduler(),
-    })!
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'server',
+        version: 'dev',
+        transport,
+        scheduler: manualScheduler(),
+      }),
+    )
     const identities: unknown[] = []
     const stops: string[] = []
     client.onIdentity((identity) => identities.push(identity))
@@ -254,12 +286,14 @@ describe('child end', () => {
 
   it('a send over a dead channel reports false rather than throwing into the caller', () => {
     const transport = new FakePeer()
-    const client = connectLifecycleChannel({
-      role: 'server',
-      version: 'dev',
-      transport,
-      scheduler: manualScheduler(),
-    })!
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'server',
+        version: 'dev',
+        transport,
+        scheduler: manualScheduler(),
+      }),
+    )
     transport.connected = false
     expect(client.ready()).toBe(false)
   })
@@ -276,13 +310,15 @@ describe('child end', () => {
     it("fires onSupervisorGone once on disconnect when the seam says 'disconnect'", () => {
       const transport = new FakePeer()
       const scheduler = manualScheduler()
-      const client = connectLifecycleChannel({
-        role: 'server',
-        version: 'dev',
-        transport,
-        scheduler,
-        deathSignal: 'disconnect',
-      })!
+      const client = connected(
+        connectLifecycleChannel({
+          role: 'server',
+          version: 'dev',
+          transport,
+          scheduler,
+          deathSignal: 'disconnect',
+        }),
+      )
       let gone = 0
       client.onSupervisorGone(() => gone++)
       transport.disconnect()
@@ -290,18 +326,22 @@ describe('child end', () => {
       expect(gone).toBe(1)
       // The heartbeat has nobody to reach; it must not keep firing into a closed pipe.
       scheduler.fire()
-      expect(transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat')).toHaveLength(0)
+      expect(
+        transport.sent.filter((m) => (m as { type: string }).type === 'heartbeat'),
+      ).toHaveLength(0)
     })
 
     it("stays silent on disconnect when the seam says 'none'", () => {
       const transport = new FakePeer()
-      const client = connectLifecycleChannel({
-        role: 'server',
-        version: 'dev',
-        transport,
-        scheduler: manualScheduler(),
-        deathSignal: 'none',
-      })!
+      const client = connected(
+        connectLifecycleChannel({
+          role: 'server',
+          version: 'dev',
+          transport,
+          scheduler: manualScheduler(),
+          deathSignal: 'none',
+        }),
+      )
       let gone = 0
       client.onSupervisorGone(() => gone++)
       transport.disconnect()
