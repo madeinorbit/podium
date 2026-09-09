@@ -184,9 +184,33 @@ export const PeerBuild = z
      * standalone daemon reports.
      */
     supervised: z.boolean().optional(),
+    /**
+     * WHICH INCARNATION OF THIS MACHINE'S PARENT IS SPEAKING (POD-3752).
+     *
+     * A monotonic counter, host-local and clock-free: a successor parent gets
+     * its predecessor's number plus one across a self-handover, a plain boot
+     * takes the persisted number plus one. It is never compared across
+     * machines, and it is not authorization — the machine identity still comes
+     * from the credential. It exists because arrival order is not identity: on
+     * the coordinator the server dies between two parent incarnations, so which
+     * of them reconnects first is a backoff lottery, and the loser used to
+     * overwrite the winner's row with the version it was about to stop running.
+     *
+     * ABSENT MEANS ZERO (frozen-contract law): a parent from a build that
+     * predates the fence can still attach when nothing newer is attached, and
+     * can never displace one that is.
+     */
+    supervisorGeneration: z.number().int().nonnegative().optional(),
   })
   .passthrough()
 export type PeerBuild = z.infer<typeof PeerBuild>
+
+/**
+ * The incarnation this hello speaks for. One reader, so "absent means zero"
+ * cannot drift between the two sides of the fence.
+ */
+export const supervisorGenerationOf = (build: PeerBuild | undefined): number =>
+  build?.supervisorGeneration ?? 0
 
 /**
  * Delivery methods offered through the additive capability surface.

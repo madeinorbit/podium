@@ -49,7 +49,19 @@ export interface SupervisorState {
   token?: string
   updatePubkey?: string
   assignment?: MachineServiceAssignment
+  /**
+   * WHICH INCARNATION OF THIS MACHINE'S PARENT LAST RAN (POD-3752). Persisted
+   * so the counter survives a reboot; see {@link claimSupervisorGeneration}.
+   */
+  generation?: number
 }
+
+/**
+ * The number a predecessor hands its successor across a self-handover. The
+ * predecessor knows its own incarnation in memory, which is the one thing a
+ * successor booting from a shared file cannot be sure of.
+ */
+export const PARENT_GENERATION_ENV = 'PODIUM_PARENT_GENERATION'
 
 function parseState(raw: unknown): SupervisorState | null {
   if (!raw || typeof raw !== 'object') return null
@@ -61,6 +73,9 @@ function parseState(raw: unknown): SupervisorState | null {
     ...(typeof value.token === 'string' ? { token: value.token } : {}),
     ...(typeof value.updatePubkey === 'string' ? { updatePubkey: value.updatePubkey } : {}),
     ...(assignment.success ? { assignment: assignment.data } : {}),
+    ...(typeof value.generation === 'number' && Number.isSafeInteger(value.generation)
+      ? { generation: value.generation }
+      : {}),
   }
 }
 
@@ -88,6 +103,29 @@ export function loadSupervisorState(dir: string): SupervisorState {
   const imported = legacy ?? { machineId: readOrCreateLocalMachineId(dir) }
   saveSupervisorState(dir, imported)
   return imported
+}
+
+/**
+ * Claim this process's incarnation number and persist it.
+ *
+ * MONOTONIC AND CLOCK-FREE, host-local, never compared across machines. Two
+ * inputs, and the higher wins: the number a predecessor handed us across a
+ * handover, and one past whatever the last incarnation persisted. Either alone
+ * would do in the ordinary case — a predecessor persists its own number before
+ * it spawns anyone — and keeping both means neither a stale file nor a missing
+ * env can hand out a number that has already been used. Junk in the env is
+ * ignored rather than trusted: a number that can go backwards is not a fence.
+ */
+export function claimSupervisorGeneration(
+  state: SupervisorState,
+  dir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const inherited = Number(env[PARENT_GENERATION_ENV])
+  const successor = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0
+  state.generation = Math.max(successor, (state.generation ?? 0) + 1)
+  saveSupervisorState(dir, state)
+  return state.generation
 }
 
 export function fallbackAssignment(

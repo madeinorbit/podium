@@ -39,6 +39,7 @@ import {
   type MachineSupervisorControlMessage,
   MachineSupervisorMessage,
   type PeerHelloReply,
+  supervisorGenerationOf,
 } from '@podium/protocol'
 import {
   type ControlMessage,
@@ -472,6 +473,25 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         return
       }
       if (outcome.kind !== 'established') return
+      // POD-3752: a parent incarnation this machine has already replaced does
+      // not get to establish. Refused BEFORE the reply, so no frame of its is
+      // ever admitted: an outgoing parent still sends `updateStatus`, and one
+      // accepted from the wrong incarnation is execution proof for a grant the
+      // successor is running. Closed WITHOUT a rejection frame, because the
+      // refusal is temporary by design — the successor may still abort, and the
+      // predecessor has to be dialling when it does. A close is what every
+      // dialer, including one built before this fence existed, already retries.
+      const machines = registry.modules.machines
+      if (machines.supervisorSuperseded(outcome.machineId, outcome.build ?? {})) {
+        log.warn('refused a superseded supervisor hello', {
+          machine: outcome.machineId,
+          generation: supervisorGenerationOf(outcome.build),
+          attached: machines.attachedSupervisorGeneration(outcome.machineId),
+          appVersion: outcome.build?.appVersion,
+        })
+        ws.terminate()
+        return
+      }
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded

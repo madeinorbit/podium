@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  claimSupervisorGeneration,
   createMachineSupervisorConnection,
   effectiveAssignment,
   fallbackAssignment,
@@ -20,6 +21,7 @@ import {
   prepareTransferAssignment,
   saveSupervisorState,
   targetTransferRecovery,
+  PARENT_GENERATION_ENV,
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
 import { loadConfig, saveConfig } from './config'
@@ -165,6 +167,128 @@ describe('supervisor service assignment', () => {
         agentExecutionLockout: false,
       }),
     ).toEqual({ server: false, agentExecution: false })
+  })
+})
+
+describe('supervisor incarnation number', () => {
+  it('counts up from the persisted number on every plain boot', () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+
+    expect(claimSupervisorGeneration(state, dir, {})).toBe(1)
+    expect(JSON.parse(readFileSync(join(dir, 'supervisor.json'), 'utf8')).generation).toBe(1)
+    // A second boot reads what the first one left behind.
+    expect(claimSupervisorGeneration(loadSupervisorState(dir), dir, {})).toBe(2)
+    expect(claimSupervisorGeneration(loadSupervisorState(dir), dir, {})).toBe(3)
+  })
+
+  it('takes the number its predecessor handed it across a handover', () => {
+    const dir = stateDir()
+    claimSupervisorGeneration(loadSupervisorState(dir), dir, {})
+
+    const successor = claimSupervisorGeneration(loadSupervisorState(dir), dir, {
+      [PARENT_GENERATION_ENV]: '9',
+    })
+    expect(successor).toBe(9)
+    // Persisted, so the next plain boot cannot land back on an older number.
+    expect(claimSupervisorGeneration(loadSupervisorState(dir), dir, {})).toBe(10)
+  })
+
+  it('never goes backwards for a junk or stale inherited number', () => {
+    const dir = stateDir()
+    for (const value of ['', 'nonsense', '-2', '2.5']) {
+      const dirty = stateDir()
+      expect(claimSupervisorGeneration(loadSupervisorState(dirty), dirty, {
+        [PARENT_GENERATION_ENV]: value,
+      })).toBe(1)
+    }
+    saveSupervisorState(dir, { ...loadSupervisorState(dir), generation: 12 })
+    expect(
+      claimSupervisorGeneration(loadSupervisorState(dir), dir, { [PARENT_GENERATION_ENV]: '4' }),
+    ).toBe(13)
+  })
+
+  it('keeps the number across an unrelated state write', () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    claimSupervisorGeneration(state, dir, {})
+    saveSupervisorState(dir, { ...loadSupervisorState(dir), token: 'issued-later' })
+    expect(loadSupervisorState(dir).generation).toBe(1)
+  })
+})
+
+describe('supervisor refused as superseded', () => {
+  /**
+   * POD-3752. A server that has a NEWER parent incarnation attached closes this
+   * socket without answering the handshake. That refusal is temporary — the
+   * successor may still abort, and then this parent is the one that has to be
+   * there — so it must leave the dialer retrying, exactly as any dropped
+   * connection does, and never latch it shut the way a rejection frame does.
+   */
+  it('keeps dialing with backoff instead of giving up', () => {
+    vi.useFakeTimers()
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static all: Socket[] = []
+      readyState = 1
+      sent: Array<Record<string, any>> = []
+      constructor(readonly url: string) {
+        super()
+        Socket.all.push(this)
+      }
+      send(raw: string) {
+        this.sent.push(JSON.parse(raw))
+      }
+      close() {}
+      open() {
+        this.dispatchEvent(new Event('open'))
+      }
+      /** No peerHelloOk, no peerHelloRejected: the server just goes away. */
+      refuse() {
+        this.dispatchEvent(new Event('close'))
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir()
+    const service = {
+      policy: 'enabled' as const,
+      state: 'available' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      serverUrl: 'ws://coordinator.example',
+      bootstrapToken: () => 'secret',
+      stateDir: dir,
+      state: loadSupervisorState(dir),
+      build: {
+        appVersion: 'test',
+        wireSchemaDigest: wireSchemaDigest(),
+        supervisorGeneration: 4,
+      },
+      deliveryCaps: ['update.delivery.feed'],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      const first = Socket.all[0]!
+      first.open()
+      // The number this incarnation speaks for rides in every hello it sends.
+      expect(first.sent[0]!.build.supervisorGeneration).toBe(4)
+      first.refuse()
+      vi.advanceTimersByTime(600)
+      expect(Socket.all).toHaveLength(2)
+      const second = Socket.all[1]!
+      second.open()
+      expect(second.sent[0]!.build.supervisorGeneration).toBe(4)
+      second.refuse()
+      vi.advanceTimersByTime(10_000)
+      expect(Socket.all.length).toBeGreaterThan(2)
+      const connectivity = JSON.parse(readFileSync(join(dir, 'connectivity.json'), 'utf8'))
+      expect(connectivity).toMatchObject({ state: 'disconnected' })
+    } finally {
+      connection.close()
+    }
   })
 })
 
