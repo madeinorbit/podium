@@ -72,6 +72,36 @@ describe('machine build report over a live daemon socket', () => {
     })
   }
 
+  /**
+   * Resolve once the SERVER has observed a connection change — not once this
+   * client has.
+   *
+   * The two are different moments and the gap is real: `close()` above resolves
+   * on the client's own close event, which the client emits as soon as it has
+   * the peer's closing frame, while the server's handler is async and still has
+   * `detachSupervisor` and its store write ahead of it. Measured here, the row
+   * fell back ~7ms after the client called the socket closed, so an assertion
+   * placed directly after `close()` reads the pre-fallback row every time —
+   * deterministically, not flakily, which is why this looked like a broken
+   * fallback rather than a test running ahead of one.
+   *
+   * The bus event is the signal rather than a sleep because it is emitted at
+   * exactly the transition being waited for and nowhere else: `attachDaemon`
+   * emits `machine.connected` after the daemon is in the registry, and the
+   * supervisor close handler emits `machine.disconnected` only when
+   * `detachSupervisor` returned true — after the legacy build has been written
+   * and the machine cache invalidated. A timer would only be a guess about how
+   * long that takes on the day it runs.
+   */
+  function serverObserves(event: 'machine.connected' | 'machine.disconnected'): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const dispose = server.registry.bus.on(event, () => {
+        dispose()
+        resolve()
+      })
+    })
+  }
+
   it('accepts an old daemon hello and leaves its build unreported', async () => {
     const ws = await connect()
     const row = (await server.registry.modules.machines.listMachines())[0]
@@ -127,12 +157,16 @@ describe('machine build report over a live daemon socket', () => {
         },
       }),
     )
+    // The daemon attach lands AFTER the handshake reply this client waited for,
+    // and the fallback below only runs while a daemon is registered — so wait for
+    // the attach the server actually made, not for a turn of the event loop.
+    const legacyAttached = serverObserves('machine.connected')
     const legacy = await connect({
       appVersion: '0.4.1',
       wireSchemaDigest: 'old',
       installKind: 'installed',
     })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await legacyAttached
 
     expect((await server.registry.modules.machines.listMachines())[0]).toMatchObject({
       online: true,
@@ -142,7 +176,9 @@ describe('machine build report over a live daemon socket', () => {
       deliveryCaps: ['update.delivery.feed'],
     })
 
+    const supervisorDetached = serverObserves('machine.disconnected')
     await close(supervisor)
+    await supervisorDetached
     expect((await server.registry.modules.machines.listMachines())[0]).toMatchObject({
       online: true,
       presenceSource: 'legacy-daemon',
