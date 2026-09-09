@@ -154,6 +154,15 @@ export interface ParentProcessDeps {
   identity?: () => Partial<ParentIdentity>
   env?: NodeJS.ProcessEnv
   spawn?: SpawnChildFn
+  /**
+   * Test seam for the host OS; production reads `process.platform`. It decides
+   * one thing: whether a supervised child is spawned detached
+   * ({@link detachSupervisedChild}). A Windows-only spawn shape is otherwise
+   * unassertable from the POSIX hosts this suite runs on, and an attached spawn
+   * on Windows fails silently — no disconnect, no heartbeat — so a test that
+   * only watched for the signal could not tell it from a correct one.
+   */
+  platform?: string
   /** Probe used for boot readiness and handover health (disposition 24). */
   probeHealth?: HealthProbeFn
   /** Recovery-compatible GET /health probe used during server-role promotion. */
@@ -270,6 +279,36 @@ export function withLifecycleChannel(stdio: SpawnOptions['stdio']): SpawnOptions
   if (Array.isArray(stdio)) return [...stdio, 'ipc']
   const each = stdio ?? 'pipe'
   return [each, each, each, 'ipc']
+}
+
+/**
+ * Does a supervised child have to be DETACHED to outlive the supervisor?
+ *
+ * On Windows, yes. A child there dies within ~250 ms of the process that
+ * spawned it exiting unless the spawn asked for detachment. POD-3774 measured
+ * six arms on windows-latest: the channelled, the piped and the handle-LESS
+ * attached children all died at once, while every detached arm — and a
+ * shell-spawned orphan with no breakaway help — survived the whole window. So
+ * it is neither the lifecycle channel nor the runner's job object; it is the
+ * spawn flag, and the flag is ours to set. Without it a supervisor takes its
+ * server and daemon down with it: they never get to report `stopping` on their
+ * own line, and nothing is left to restart them, because the process that
+ * restarts them is the one that just died.
+ *
+ * On POSIX, no — and deliberately not. Children there already survive and
+ * already see `disconnect` within milliseconds. `detached` would put each in
+ * its own process group and session leader, which changes which signals a
+ * terminal delivers to a foreground `podium parent`'s children and what this
+ * process can assume as their crash owner. Nothing about POSIX is broken here,
+ * so nothing about POSIX changes.
+ *
+ * This answer and {@link connectLifecycleChannel}'s supervisor-death contract
+ * are the same fact seen from both ends (POD-3790): the child is told its
+ * supervisor died by the line closing, which it can only hear if it is still
+ * alive when the line closes.
+ */
+export function detachSupervisedChild(platform: string = process.platform): boolean {
+  return platform === 'win32'
 }
 
 function childArgs(child: SupervisedChild, localDaemon: boolean): string[] {
@@ -1108,6 +1147,10 @@ export class ParentProcess {
     const proc = this.deps.spawn(command, args, {
       env: childEnv,
       stdio: withLifecycleChannel(this.childStdio(child)),
+      // Windows only, and the reason is in `detachSupervisedChild`. NOT unref'd:
+      // detachment decides whether the child outlives us, and the exit handler
+      // below is how we supervise it for as long as we are here to do so.
+      detached: detachSupervisedChild(this.deps.platform),
     })
     this.childProcs.set(child, proc)
     if (proc.pid) {

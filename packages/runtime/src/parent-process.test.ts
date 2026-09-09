@@ -18,6 +18,7 @@ import { configureProcessLogging } from './logging'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
+  detachSupervisedChild,
   PARENT_HANDOVER_DEADLINE_ENV,
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
   PARENT_HAS_SERVER_ENV,
@@ -1543,47 +1544,50 @@ class ChannelChild extends FakeChild {
   }
 }
 
-describe('ParentProcess lifecycle channel (POD-3761)', () => {
-  function channelParent(
-    opts: {
-      children?: Array<'server' | 'daemon'>
-      identity?: () => { generation?: number; machineId?: string }
-      supervisorGeneration?: number
-    } = {},
-  ) {
-    const spawned: Array<{
-      role: string
-      child: ChannelChild
-      options: Parameters<SpawnChildFn>[2]
-    }> = []
-    let nextPid = 300
-    const parent = track(
-      new ParentProcess({
-        port: 19099,
-        installBinary: '/opt/podium/podium',
-        children: opts.children ?? ['server', 'daemon'],
-        env: { PODIUM_APP_VERSION: '1.0.0', NODE_CHANNEL_FD: '3' },
-        spawn: ((_cmd, args, options) => {
-          const child = new ChannelChild(nextPid++)
-          spawned.push({ role: args[0] as string, child, options })
-          return child as unknown as ReturnType<SpawnChildFn>
-        }) as SpawnChildFn,
-        probeHealth: async () => healthy('1.0.0'),
-        probeDaemonHealth: async () => daemonHealthy('1.0.0'),
-        probeServerReady: async () => true,
-        notify: () => {},
-        sleep: async () => {},
-        now: () => 1_000,
-        exit: () => {},
-        ...(opts.identity ? { identity: opts.identity } : {}),
-        ...(opts.supervisorGeneration !== undefined
-          ? { supervisorGeneration: opts.supervisorGeneration }
-          : {}),
-      }),
-    )
-    return { parent, spawned }
-  }
+/** A parent whose children each get a lifecycle line, plus the spawn options it used. */
+function channelParent(
+  opts: {
+    children?: Array<'server' | 'daemon'>
+    identity?: () => { generation?: number; machineId?: string }
+    supervisorGeneration?: number
+    platform?: string
+  } = {},
+) {
+  const spawned: Array<{
+    role: string
+    child: ChannelChild
+    options: Parameters<SpawnChildFn>[2]
+  }> = []
+  let nextPid = 300
+  const parent = track(
+    new ParentProcess({
+      port: 19099,
+      installBinary: '/opt/podium/podium',
+      children: opts.children ?? ['server', 'daemon'],
+      env: { PODIUM_APP_VERSION: '1.0.0', NODE_CHANNEL_FD: '3' },
+      spawn: ((_cmd, args, options) => {
+        const child = new ChannelChild(nextPid++)
+        spawned.push({ role: args[0] as string, child, options })
+        return child as unknown as ReturnType<SpawnChildFn>
+      }) as SpawnChildFn,
+      probeHealth: async () => healthy('1.0.0'),
+      probeDaemonHealth: async () => daemonHealthy('1.0.0'),
+      probeServerReady: async () => true,
+      notify: () => {},
+      sleep: async () => {},
+      now: () => 1_000,
+      exit: () => {},
+      ...(opts.identity ? { identity: opts.identity } : {}),
+      ...(opts.supervisorGeneration !== undefined
+        ? { supervisorGeneration: opts.supervisorGeneration }
+        : {}),
+      ...(opts.platform !== undefined ? { platform: opts.platform } : {}),
+    }),
+  )
+  return { parent, spawned }
+}
 
+describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('spawns every child with the ipc descriptor and without an inherited channel name', async () => {
     const { parent, spawned } = channelParent()
     await parent.start()
@@ -1665,5 +1669,67 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
     await parent.start()
     expect(parent.lifecycle('server')).toEqual({ channel: 'none' })
     await parent.reconcileTopology([], 'none')
+  })
+})
+
+/**
+ * POD-3790. On Windows a child dies within ~250 ms of the process that SPAWNED
+ * it exiting, unless the spawn asked for detachment: POD-3774 measured six arms
+ * on windows-latest and the handle-less attached child died exactly like the
+ * channelled one, while every detached arm survived. So a supervisor was taking
+ * its server and daemon down with it — no chance for them to report `stopping`
+ * on their own line, and nothing left to restart them, because the process that
+ * restarts them is the one that just died.
+ *
+ * These cases assert the SPAWN SHAPE rather than its consequence. The
+ * consequence is invisible from a POSIX host, and on Windows an attached spawn
+ * fails SILENTLY — no disconnect, no heartbeat, indistinguishable from a child
+ * that was never going to survive.
+ */
+describe('supervised child persistence (POD-3790)', () => {
+  it('detaches a supervised child on Windows and nowhere else', () => {
+    expect(detachSupervisedChild('win32')).toBe(true)
+    // POSIX children already outlive their supervisor and already get
+    // `disconnect`. Detaching them there would put each in its own process
+    // group, changing which signals a terminal delivers to them and what the
+    // parent's crash-owner role can assume. Nothing there is broken; nothing
+    // there changes.
+    expect(detachSupervisedChild('linux')).toBe(false)
+    expect(detachSupervisedChild('darwin')).toBe(false)
+    expect(detachSupervisedChild('freebsd')).toBe(false)
+  })
+
+  it('spawns every supervised child detached on Windows', async () => {
+    const { parent, spawned } = channelParent({ platform: 'win32' })
+    await parent.start()
+    expect(spawned.map((entry) => entry.role)).toEqual(['server', 'daemon'])
+    for (const { role, options } of spawned) {
+      expect(options.detached, `${role} must outlive the supervisor that spawned it`).toBe(true)
+    }
+  })
+
+  it('leaves supervised children attached on POSIX', async () => {
+    for (const platform of ['linux', 'darwin']) {
+      const { parent, spawned } = channelParent({ platform })
+      await parent.start()
+      expect(spawned).toHaveLength(2)
+      for (const { role, options } of spawned) {
+        expect(options.detached, `${role} on ${platform}`).toBe(false)
+      }
+    }
+  })
+
+  it('still hands a detached Windows child its lifecycle line', async () => {
+    // The flag and the line are one contract. `detached` is what keeps the
+    // child alive long enough for the line to close under it, and the closing
+    // line is what tells it the supervisor is gone. A detached child with no
+    // line would survive and never be told; an attached child with a line is
+    // already dead when the disconnect would have arrived.
+    const { parent, spawned } = channelParent({ platform: 'win32' })
+    await parent.start()
+    for (const { options } of spawned) {
+      expect((options.stdio as unknown[])[3]).toBe('ipc')
+      expect(options.detached).toBe(true)
+    }
   })
 })
