@@ -279,7 +279,11 @@ fn local_host_sidecar_command(
     command
 }
 
-fn remote_parent_command(runnable: &Path, _server_url: &str, shutdown_file: &Path) -> Command {
+/// The supervised parent for a machine whose server is elsewhere. It takes no server
+/// argument: `podium parent --takeover` reads the machine's own config and supervisor state
+/// and resolves its service assignment from those (docs/specs/supervisor-machine-presence.md
+/// §2). The shell starts it; it never tells it what to run.
+fn remote_parent_command(runnable: &Path, shutdown_file: &Path) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
     let mut command = Command::new(runnable);
     command
@@ -794,28 +798,35 @@ fn should_respawn_backend(exit_code: Option<i32>) -> bool {
 }
 
 /// Supervise the backend child. Ordinary exits retain the existing bounded-backoff respawn;
-/// only a durable, matching server-transfer transition retargets the existing webview and
-/// switches supervision to an explicit daemon child.
-fn spawn_respawn_monitor<F, S, D>(
+/// only a durable, matching server-transfer transition retargets the existing webview.
+///
+/// There is exactly ONE spawn command, before and after a transfer. The shell is a launcher
+/// and a crash owner — systemd's job — never a supervisor: what a machine runs after its
+/// server moves is the parent's own service assignment, resolved from the transferred config
+/// and supervisor state (docs/specs/supervisor-machine-presence.md §2). A shell that swapped
+/// in a daemon-shaped command of its own would be a second, disagreeing source of topology,
+/// and would permanently drop the port and web directories the server role needs if that
+/// assignment ever came back.
+fn spawn_respawn_monitor<F, R, B, D>(
     child_state: Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: Arc<AtomicBool>,
     successor: Arc<DesktopSuccessorState>,
     local_restart: Option<Arc<LocalRestartPause>>,
-    app_handle: AppHandle,
-    source_cookie_url: Option<Url>,
     spawn_fn: F,
-    spawn_daemon_fn: S,
+    retarget_window: R,
+    report_blocked_server: B,
     exit_decision: D,
     label: String,
 ) where
     F: Fn() -> std::io::Result<std::process::Child> + Send + 'static,
-    S: Fn(&str) -> std::io::Result<std::process::Child> + Send + 'static,
+    R: Fn(&str) -> Result<(), String> + Send + 'static,
+    B: Fn(&str) + Send + 'static,
     D: Fn() -> bootstrap::BackendExitDecision + Send + 'static,
 {
     std::thread::spawn(move || {
         log::info!("native backend monitor started; label={label}");
         let mut backoff_ms: u64 = 500;
-        let mut transferred_server_url: Option<String> = None;
+        let mut retargeted_to: Option<String> = None;
         let mut paused_exit_pid: Option<u32> = None;
         const BACKOFF_CAP_MS: u64 = 5_000;
 
@@ -878,7 +889,7 @@ fn spawn_respawn_monitor<F, S, D>(
                 log::warn!("supervised parent successor exited; restoring the payload parent");
             }
 
-            let decision = if transferred_server_url.is_some() {
+            let decision = if retargeted_to.is_some() {
                 bootstrap::BackendExitDecision::Respawn
             } else {
                 exit_decision()
@@ -893,18 +904,12 @@ fn spawn_respawn_monitor<F, S, D>(
                     log::info!(
                         "transfer {transfer_id} committed; retargeting shell to {server_url}"
                     );
-                    let result = source_cookie_url
-                        .as_ref()
-                        .ok_or_else(|| "source cookie origin is unavailable".to_string())
-                        .and_then(|source_url| {
-                            retarget_existing_window(&app_handle, source_url, &server_url)
-                        });
-                    if let Err(error) = result {
+                    if let Err(error) = retarget_window(&server_url) {
                         log::error!("committed transfer retarget failed: {error}");
                         let _ = child_state.lock().map(|mut child| child.take());
                         break;
                     }
-                    transferred_server_url = Some(server_url);
+                    retargeted_to = Some(server_url);
                     true
                 }
                 bootstrap::BackendExitDecision::Hold { reason } => {
@@ -918,11 +923,7 @@ fn spawn_respawn_monitor<F, S, D>(
                     log::error!(
                         "backend exited for a server blocked by desktop transport policy: {reason}"
                     );
-                    app_handle
-                        .dialog()
-                        .message(reason.clone())
-                        .title("Server connection blocked")
-                        .blocking_show();
+                    report_blocked_server(&reason);
                     let _ = child_state.lock().map(|mut child| child.take());
                     break;
                 }
@@ -947,20 +948,11 @@ fn spawn_respawn_monitor<F, S, D>(
                 break;
             }
 
-            let spawn_kind = if transferred_server_url.is_some() {
-                "daemon-after-transfer"
-            } else {
-                "original-topology"
-            };
             log::info!(
-                "native backend respawn attempt; label={label} kind={spawn_kind} target={:?} backoff_ms={backoff_ms}",
-                transferred_server_url.as_deref().unwrap_or("<local>"),
+                "native backend respawn attempt; label={label} retargeted_to={} backoff_ms={backoff_ms}",
+                retargeted_to.as_deref().unwrap_or("<none>"),
             );
-            let spawned = match transferred_server_url.as_deref() {
-                Some(server_url) => spawn_daemon_fn(server_url),
-                None => spawn_fn(),
-            };
-            match spawned {
+            match spawn_fn() {
                 Ok(mut new_child) => {
                     let spawned_details = child_details(&new_child);
                     log::info!(
@@ -979,9 +971,9 @@ fn spawn_respawn_monitor<F, S, D>(
                     log::info!("native backend child slot stored; label={label} {spawned_details}");
                     backoff_ms = 500;
                 }
-                Err(error) => log::error!(
-                    "native backend respawn failed; label={label} kind={spawn_kind} error={error}"
-                ),
+                Err(error) => {
+                    log::error!("native backend respawn failed; label={label} error={error}")
+                }
             }
         }
     });
@@ -1642,14 +1634,13 @@ fn main() {
                                         // Supervise only a child that actually started. A failed
                                         // first spawn is recovered by the baked repair window.
                                         let runnable2 = runnable.clone();
-                                        let runnable_daemon = runnable.clone();
                                         let web_dir2 = web_dir.clone();
                                         let mobile_web_dir2 = mobile_web_dir.clone();
                                         let sidecar_args2 = sidecar_args.clone();
                                         let shutdown_file2 = shutdown_file.clone();
-                                        let daemon_shutdown_file = shutdown_file.clone();
                                         let transition_action = initial_action.clone();
                                         let monitor_app = app.handle().clone();
+                                        let blocked_dialog_app = app.handle().clone();
                                         let source_cookie_url = Url::parse(
                                             &bootstrap::local_served_http_url(port),
                                         )
@@ -1659,8 +1650,6 @@ fn main() {
                                             shutting_down.clone(),
                                             successor.clone(),
                                             Some(local_restart.clone()),
-                                            monitor_app,
-                                            Some(source_cookie_url),
                                             move || {
                                                 local_host_sidecar_command(
                                                     &runnable2,
@@ -1673,12 +1662,18 @@ fn main() {
                                                 .spawn()
                                             },
                                             move |server_url| {
-                                                remote_parent_command(
-                                                    &runnable_daemon,
+                                                retarget_existing_window(
+                                                    &monitor_app,
+                                                    &source_cookie_url,
                                                     server_url,
-                                                    &daemon_shutdown_file,
                                                 )
-                                                .spawn()
+                                            },
+                                            move |reason| {
+                                                blocked_dialog_app
+                                                    .dialog()
+                                                    .message(reason.to_string())
+                                                    .title("Server connection blocked")
+                                                    .blocking_show();
                                             },
                                             move || {
                                                 bootstrap::backend_exit_decision(
@@ -1717,12 +1712,7 @@ fn main() {
                             }
                             Ok(runnable) => {
                                 log::info!("spawning machine parent {runnable:?} → {server_url}");
-                                match remote_parent_command(
-                                    &runnable,
-                                    &server_url,
-                                    &shutdown_file,
-                                )
-                                .spawn()
+                                match remote_parent_command(&runnable, &shutdown_file).spawn()
                                 {
                                     Err(error) => {
                                         let reason =
@@ -1734,32 +1724,27 @@ fn main() {
                                         log::info!("native backend initial daemon spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
                                         let runnable2 = runnable.clone();
-                                        let runnable_daemon = runnable.clone();
-                                        let respawn_server_url = server_url.clone();
                                         let shutdown_file2 = shutdown_file.clone();
-                                        let daemon_shutdown_file = shutdown_file.clone();
+                                        let blocked_dialog_app = app.handle().clone();
                                         spawn_respawn_monitor(
                                             child_state.clone(),
                                             shutting_down.clone(),
                                             successor.clone(),
                                             None,
-                                            app.handle().clone(),
-                                            None,
                                             move || {
-                                                remote_parent_command(
-                                                    &runnable2,
-                                                    &respawn_server_url,
-                                                    &shutdown_file2,
-                                                )
-                                                .spawn()
+                                                remote_parent_command(&runnable2, &shutdown_file2)
+                                                    .spawn()
                                             },
-                                            move |server_url| {
-                                                remote_parent_command(
-                                                    &runnable_daemon,
-                                                    server_url,
-                                                    &daemon_shutdown_file,
-                                                )
-                                                .spawn()
+                                            // This shell never served the UI itself, so it has no
+                                            // local origin to carry a session across; it also
+                                            // never classifies an exit as a transfer.
+                                            |_| Err("source cookie origin is unavailable".to_string()),
+                                            move |reason| {
+                                                blocked_dialog_app
+                                                    .dialog()
+                                                    .message(reason.to_string())
+                                                    .title("Server connection blocked")
+                                                    .blocking_show();
                                             },
                                             || bootstrap::BackendExitDecision::Respawn,
                                             format!("(daemon); executable={}", runnable.display()),
@@ -2662,11 +2647,7 @@ mod tests {
             Path::new("mobile"),
             Path::new("desktop.shutdown"),
         );
-        let remote = remote_parent_command(
-            Path::new("podium"),
-            "wss://new.example",
-            Path::new("desktop.shutdown"),
-        );
+        let remote = remote_parent_command(Path::new("podium"), Path::new("desktop.shutdown"));
 
         for (label, command) in [("local host sidecar", &host), ("remote parent", &remote)] {
             assert_eq!(
@@ -2730,11 +2711,7 @@ mod tests {
             Path::new("mobile"),
             Path::new("desktop.shutdown"),
         );
-        let daemon = remote_parent_command(
-            Path::new("podium"),
-            "wss://new.example",
-            Path::new("desktop.shutdown"),
-        );
+        let daemon = remote_parent_command(Path::new("podium"), Path::new("desktop.shutdown"));
         let expected = std::process::id().to_string();
 
         for (label, command) in [
@@ -2970,6 +2947,91 @@ mod tests {
             remote_capability_pattern(&same_origin),
             Ok("https://api.meetpodium.com/*".to_string())
         );
+    }
+
+    /// POD-3764. The shell is a launcher and a crash owner, never a supervisor. A committed
+    /// server transfer retargets the window and nothing else: the machine's new daemon-only
+    /// topology belongs to the parent's own service assignment, read from the transferred
+    /// config and supervisor state. So after a transfer the shell must keep starting the very
+    /// same `podium parent --takeover` command it started at launch — a shell that substituted
+    /// a daemon-shaped command of its own would be a second source of topology, and would
+    /// permanently drop the port and web directories a returning server role needs.
+    #[cfg(unix)]
+    #[test]
+    fn a_committed_transfer_keeps_starting_the_launcher_the_shell_launched() {
+        fn exiting_child() -> std::io::Result<std::process::Child> {
+            Command::new("/bin/sh").args(["-c", "exit 0"]).spawn()
+        }
+
+        let child_state = Arc::new(Mutex::new(Some(
+            exiting_child().expect("the test shell spawns"),
+        )));
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let spawns = Arc::new(Mutex::new(0_usize));
+        let retargets = Arc::new(Mutex::new(Vec::<String>::new()));
+        let classifications = Arc::new(Mutex::new(0_usize));
+
+        let spawn_shutting_down = shutting_down.clone();
+        let spawn_count = spawns.clone();
+        let seen_retargets = retargets.clone();
+        let classified = classifications.clone();
+        spawn_respawn_monitor(
+            child_state.clone(),
+            shutting_down.clone(),
+            Arc::new(DesktopSuccessorState::default()),
+            None,
+            move || {
+                let mut count = spawn_count.lock().unwrap();
+                *count += 1;
+                // Two respawns prove the loop keeps going through this one command; park a
+                // live child and stand the monitor down rather than supervising forever.
+                if *count >= 2 {
+                    spawn_shutting_down.store(true, Ordering::Release);
+                    return Command::new("/bin/sh").args(["-c", "sleep 30"]).spawn();
+                }
+                exiting_child()
+            },
+            move |server_url| {
+                seen_retargets.lock().unwrap().push(server_url.to_string());
+                Ok(())
+            },
+            |_| unreachable!("no exit in this test is a blocked server transport"),
+            move || {
+                let mut count = classified.lock().unwrap();
+                *count += 1;
+                bootstrap::BackendExitDecision::Retarget {
+                    transfer_id: "transfer-1".to_string(),
+                    server_url: "https://new.example".to_string(),
+                }
+            },
+            "test".to_string(),
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline && *spawns.lock().unwrap() < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        assert_eq!(
+            *spawns.lock().unwrap(),
+            2,
+            "the shell must keep respawning its own launcher after a committed transfer"
+        );
+        assert_eq!(
+            *retargets.lock().unwrap(),
+            vec!["https://new.example".to_string()],
+            "the window is retargeted once, by the commit that proved the transfer"
+        );
+        assert_eq!(
+            *classifications.lock().unwrap(),
+            1,
+            "a retargeted shell treats every later exit as an ordinary crash"
+        );
+        let parked = child_state.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(mut child) = parked {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
     #[test]
