@@ -1355,8 +1355,8 @@ async function runInProcess(
   const { watchSupervisor } = await import('@podium/runtime/supervisor')
   stopSupervisorWatch = watchSupervisor(() => shutdown('supervising shell exited'))
   // The parent's stop on the line is the same request a SIGTERM is; so is the
-  // line closing under us, where the platform seam says that means the parent
-  // died (POSIX today; Windows waits on POD-3774).
+  // line closing under us, which means the parent died — on every platform,
+  // now that a supervised child is spawned detached on Windows (POD-3790).
   lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
   lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
   if (stopRequested !== undefined) shutdown(`parent asked us to stop: ${stopRequested}`)

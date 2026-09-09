@@ -3,7 +3,7 @@
  *
  * The real descriptor is proved in lifecycle-channel.integration.test.ts with
  * real processes; these pin the protocol: what each end sends, what it ignores,
- * what it records, and the supervisor-death seam POD-3774 will fill in.
+ * what it records, and what it does when the supervisor's end goes away.
  */
 import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
@@ -16,9 +16,9 @@ import {
   LIFECYCLE_HEARTBEAT_MS,
   LIFECYCLE_PROTOCOL,
   NODE_CHANNEL_FD_ENV,
-  supervisorDeathSignal,
   withoutLifecycleChannel,
 } from './lifecycle-channel'
+import { detachSupervisedChild } from './parent-process'
 import type { IntervalScheduler } from './supervisor'
 
 /** One end of a channel: what it sent, and a way to deliver to it. */
@@ -298,31 +298,25 @@ describe('child end', () => {
     expect(client.ready()).toBe(false)
   })
 
-  describe('supervisor death seam', () => {
-    it('treats channel close as the supervisor dying on POSIX, and not on Windows', () => {
-      expect(supervisorDeathSignal('linux')).toBe('disconnect')
-      expect(supervisorDeathSignal('darwin')).toBe('disconnect')
-      // POD-3760 finding b / POD-3774: Windows fires no disconnect, and the CI
-      // evidence cannot say what a real desktop does. Off until it can.
-      expect(supervisorDeathSignal('win32')).toBe('none')
-    })
+  describe('supervisor death', () => {
+    it('reads a closed channel as the supervisor dying, on Windows too', () => {
+      // POD-3760 measured 9-23 ms on POSIX; POD-3774 measured +20/19 ms on
+      // windows-latest, on the arm where the child was spawned DETACHED. The
+      // seam that used to answer 'none' for win32 existed because an attached
+      // Windows child died before the disconnect could reach it — a fact about
+      // the SPAWN, not about the channel. `detachSupervisedChild` is what makes
+      // this assertion true on Windows; flip that back and this claims a signal
+      // that cannot arrive.
+      expect(detachSupervisedChild('win32')).toBe(true)
 
-    it("fires onSupervisorGone once on disconnect when the seam says 'disconnect'", () => {
       const transport = new FakePeer()
       const scheduler = manualScheduler()
       const client = connected(
-        connectLifecycleChannel({
-          role: 'server',
-          version: 'dev',
-          transport,
-          scheduler,
-          deathSignal: 'disconnect',
-        }),
+        connectLifecycleChannel({ role: 'server', version: 'dev', transport, scheduler }),
       )
       let gone = 0
       client.onSupervisorGone(() => gone++)
       transport.disconnect()
-      transport.emit('disconnect')
       expect(gone).toBe(1)
       // The heartbeat has nobody to reach; it must not keep firing into a closed pipe.
       scheduler.fire()
@@ -331,7 +325,7 @@ describe('child end', () => {
       ).toHaveLength(0)
     })
 
-    it("stays silent on disconnect when the seam says 'none'", () => {
+    it('fires onSupervisorGone at most once', () => {
       const transport = new FakePeer()
       const client = connected(
         connectLifecycleChannel({
@@ -339,13 +333,14 @@ describe('child end', () => {
           version: 'dev',
           transport,
           scheduler: manualScheduler(),
-          deathSignal: 'none',
         }),
       )
       let gone = 0
       client.onSupervisorGone(() => gone++)
       transport.disconnect()
-      expect(gone).toBe(0)
+      transport.emit('disconnect')
+      transport.emit('disconnect')
+      expect(gone).toBe(1)
     })
   })
 })

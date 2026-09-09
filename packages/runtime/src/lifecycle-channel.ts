@@ -26,12 +26,14 @@
  * {@link withoutLifecycleChannel} strips that too, the same way
  * `unsupervisedEnv` strips the desktop shell's pid.
  *
- * SUPERVISOR DEATH. On Linux and macOS the child's end sees `'disconnect'`
- * within milliseconds of the parent dying. On Windows it sees nothing, and the
- * CI evidence cannot separate "Windows tore the child down" from "the runner's
- * job object killed the orphan" (POD-3774). {@link supervisorDeathSignal} is the
- * seam that answer drops into: it decides whether channel close MEANS the
- * supervisor is gone, and nothing else in this module assumes either way.
+ * SUPERVISOR DEATH. Channel close means the supervisor is gone, on every
+ * platform: Linux and macOS see `'disconnect'` 9-23 ms after the parent dies
+ * (POD-3760), and Windows sees it at +20/19 ms (POD-3774) PROVIDED the child
+ * was spawned detached. It is the spawn flag, not the platform, that used to
+ * make Windows different — an attached Windows child is killed within ~250 ms
+ * of the process that spawned it exiting, so it was already dead when the
+ * disconnect would have arrived. `detachSupervisedChild` in parent-process.ts
+ * sets that flag (POD-3790), and this module's contract rests on it.
  */
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
@@ -244,20 +246,6 @@ export function attachChildChannel(
 // Child end
 // ---------------------------------------------------------------------------
 
-/**
- * Does the channel closing mean the supervisor is gone?
- *
- * POSIX: yes, and within milliseconds (POD-3760 measured 9–23 ms). Windows: the
- * channel fires no disconnect when the supervisor vanishes, and whether the child
- * survives at all is unknown outside CI (POD-3774). Until a real Windows desktop
- * answers, the child there is told nothing by this seam and keeps the pid-based
- * watch it already has.
- */
-export type SupervisorDeathSignal = 'disconnect' | 'none'
-export function supervisorDeathSignal(platform: string = process.platform): SupervisorDeathSignal {
-  return platform === 'win32' ? 'none' : 'disconnect'
-}
-
 export interface LifecycleClient {
   ready(extra?: { port?: number }): boolean
   degraded(reason: string): boolean
@@ -266,7 +254,7 @@ export interface LifecycleClient {
   identity(): ParentIdentity | undefined
   onIdentity(listener: (identity: ParentIdentity) => void): void
   onStop(listener: (reason: string) => void): void
-  /** Fires at most once, and only when {@link supervisorDeathSignal} allows. */
+  /** Fires at most once. */
   onSupervisorGone(listener: () => void): void
   /** Stop the heartbeat and listening. Safe to call twice. */
   close(): void
@@ -282,7 +270,6 @@ export interface LifecycleClientOptions {
   transport?: ChannelPeer
   heartbeatMs?: number
   scheduler?: IntervalScheduler
-  deathSignal?: SupervisorDeathSignal
 }
 
 const realScheduler: IntervalScheduler = {
@@ -305,7 +292,6 @@ export function connectLifecycleChannel(
   const transport: ChannelPeer = options.transport ?? (process as unknown as ChannelPeer)
   if (!hasChannel(transport)) return undefined
   const scheduler = options.scheduler ?? realScheduler
-  const deathSignal = options.deathSignal ?? supervisorDeathSignal()
   const pid = options.pid ?? process.pid
   let identity: ParentIdentity | undefined
   const identityListeners: Array<(identity: ParentIdentity) => void> = []
@@ -340,9 +326,9 @@ export function connectLifecycleChannel(
     transport.removeListener('disconnect', onDisconnect)
   }
   const onDisconnect = (): void => {
-    // Whatever the seam says, there is nobody left to heartbeat to.
+    // There is nobody left to heartbeat to.
     close()
-    if (deathSignal !== 'disconnect' || goneFired) return
+    if (goneFired) return
     goneFired = true
     log.warn('supervisor channel closed — treating the supervisor as gone', { role: options.role })
     for (const listener of goneListeners) listener()
