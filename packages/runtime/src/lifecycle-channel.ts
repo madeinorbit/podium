@@ -173,6 +173,14 @@ export interface ChildChannel {
   report(): ChildLifecycleReport
   /** Ask the child to shut down. `false` when there is no open channel to ask on. */
   stop(reason: string): boolean
+  /**
+   * Record that the line is gone, for a caller that learns it some other way.
+   * `disconnect` is NOT ordered against the child's `exit`: when `exit` wins,
+   * the owner detaches this channel before `disconnect` is ever delivered, and
+   * a report left saying `open` would outlive the child forever. Idempotent, so
+   * whichever of the two arrives first is the one that dates the close.
+   */
+  close(): void
   /** Stop listening. The pipe itself closes with the process. */
   detach(): void
 }
@@ -196,7 +204,7 @@ export function attachChildChannel(
   const now = options.now ?? Date.now
   if (!hasChannel(peer)) {
     const report: ChildLifecycleReport = { channel: 'none' }
-    return { report: () => report, stop: () => false, detach: () => {} }
+    return { report: () => report, stop: () => false, close: () => {}, detach: () => {} }
   }
   let report: ChildLifecycleReport = { channel: 'open' }
   const update = (next: ChildLifecycleReport): void => {
@@ -225,9 +233,11 @@ export function attachChildChannel(
     }
     options.onMessage?.(message)
   }
-  const onDisconnect = (): void => {
+  const close = (): void => {
+    if (report.channel !== 'open') return
     update({ ...report, channel: 'closed', closedAtMs: now() })
   }
+  const onDisconnect = (): void => close()
   peer.on('message', onMessage)
   peer.on('disconnect', onDisconnect)
   trySend(peer, encodeLifecycle({ type: 'identity', ...options.identity }))
@@ -235,6 +245,7 @@ export function attachChildChannel(
     report: () => report,
     stop: (reason) =>
       report.channel === 'open' && trySend(peer, encodeLifecycle({ type: 'stop', reason })),
+    close,
     detach: () => {
       peer.removeListener('message', onMessage)
       peer.removeListener('disconnect', onDisconnect)

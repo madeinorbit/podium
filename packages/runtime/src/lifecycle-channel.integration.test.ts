@@ -205,7 +205,12 @@ describe('the lifecycle line between a real parent and its real children', () =>
     const stopping = await until(() => parent.lifecycle('daemon')?.stopping, 'daemon stopping')
     expect(stopping.reason).toMatch(/asked to stop: .*topology|SIGTERM/)
     await until(() => (isAlive(daemonPid) ? undefined : true), 'daemon exit')
-    expect(parent.lifecycle('daemon')?.channel).toBe('closed')
+    // The pid being gone and the parent having PROCESSED the close are two
+    // independent observations; nothing orders them. Wait for the parent's own.
+    await until(
+      () => (parent.lifecycle('daemon')?.channel === 'closed' ? true : undefined),
+      'daemon channel closed',
+    )
     // The server was not asked anything.
     expect(readNote(root, 'server', 'stop')).toBeUndefined()
     expect(parent.snapshot().children.server.status).toBe('running')

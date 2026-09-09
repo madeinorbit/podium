@@ -1176,6 +1176,10 @@ export class ParentProcess {
     proc.once('exit', (code, signal) => {
       this.childProcs.delete(child)
       if (this.childChannels.get(child) === channel) {
+        // The child is gone, so the line is gone — say so before detaching.
+        // `exit` and `disconnect` are unordered, and detaching first would
+        // leave the report saying `open` on every run where `exit` won.
+        channel.close()
         channel.detach()
         this.childChannels.delete(child)
       }

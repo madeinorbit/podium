@@ -170,6 +170,23 @@ describe('parent end', () => {
     expect(peer.sent).toHaveLength(1)
   })
 
+  it('closes on an exit that beat disconnect, and lets the first close date it', () => {
+    // A child's `exit` is not ordered against its `disconnect`. When `exit`
+    // wins, the owner detaches this channel before `disconnect` is delivered,
+    // so an owner that cannot say "closed" itself would report `open` forever.
+    let clock = 5_000
+    const peer = new FakePeer()
+    const channel = attachChildChannel(peer, { identity: { generation: 1 }, now: () => clock })
+    channel.close()
+    expect(channel.report()).toEqual({ channel: 'closed', closedAtMs: 5_000 })
+    // Idempotent: a later disconnect must not re-date a close already recorded.
+    clock = 9_000
+    peer.disconnect()
+    channel.close()
+    expect(channel.report()).toEqual({ channel: 'closed', closedAtMs: 5_000 })
+    expect(channel.stop('topology')).toBe(false)
+  })
+
   it('sends stop with its reason', () => {
     const peer = new FakePeer()
     const channel = attachChildChannel(peer, { identity: { generation: 1 } })
