@@ -150,6 +150,46 @@ describe('machine supervisor socket, after the handshake', () => {
   })
 
   /**
+   * THE SLOT IS NOT YET TAKEN WHEN THE PEER IS TOLD IT MAY SPEAK. `helloOk` goes
+   * out BEFORE `attachSupervisor` lands (deliberately — see the ordering note on
+   * the daemon path), so a supervisor that answers promptly has its first frame
+   * read while the map is still empty. Fencing that on "does this socket hold the
+   * slot" without waiting for its own attach terminates the sender that is about
+   * to become the holder, and the machine then falls back to nothing.
+   */
+  it('admits a machineReport that arrives before its own attach has landed', async () => {
+    const { registry } = await registryWithMachine()
+    const machines = registry.modules.machines
+    const attachSupervisor = machines.attachSupervisor.bind(machines)
+    let attachReached!: () => void
+    const reached = new Promise<void>((resolve) => {
+      attachReached = resolve
+    })
+    let releaseAttach!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseAttach = resolve
+    })
+    vi.spyOn(machines, 'attachSupervisor').mockImplementation(async (...args) => {
+      attachReached()
+      await gate
+      return attachSupervisor(...args)
+    })
+    const ws = fakeWs()
+    wireMachineSocket(ws as never, registry)
+
+    const handshake = ws.emit('message', hello(SUCCESSOR))
+    await reached
+    // The peer already has its helloOk and answers, mid-attach.
+    const report = ws.emit('message', machineReport('successor'))
+    releaseAttach()
+    await handshake
+    await report
+
+    expect(ws.terminated).toBe(false)
+    expect(await reportedBy(registry)).toBe('successor')
+  })
+
+  /**
    * DO NOT REGRESS THE ABORT PATH (POD-3752). Once the newer socket closes the
    * map is empty and the predecessor has to be able to serve again — so the
    * refusal has to leave it dialling, not silently muted on a socket it still

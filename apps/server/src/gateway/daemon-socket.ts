@@ -458,6 +458,12 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
   const sendEncoded = (message: unknown): void =>
     safeSendEncoded(ws, JSON.stringify(message), DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
   let resolved: HandshakeAcceptor | undefined
+  // Settles once THIS socket's attach has landed in the supervisor map. The
+  // handshake reply goes out before the attach completes, so a peer that answers
+  // promptly has its first frame read while the map is still empty — and the
+  // fence below would then close the sender that is about to become the holder.
+  // Never rejects: the establish branch owns that failure.
+  let attached: Promise<void> = Promise.resolve()
   ws.on('message', async (raw) => {
     if (recoveryTransportOnly(registry)) return
     // Resolve the credential BEFORE the synchronous acceptor sees the frame.
@@ -495,12 +501,19 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded
-      await registry.modules.machines.attachSupervisor(
+      const attaching = registry.modules.machines.attachSupervisor(
         outcome.machineId,
         send,
         outcome.build ?? {},
         outcome.offeredCaps,
       )
+      // Published synchronously with the principal above, so a frame read during
+      // the attach cannot see one without the other.
+      attached = attaching.then(
+        () => undefined,
+        () => undefined,
+      )
+      await attaching
       await registry.modules.machines.broadcastMachines()
       // Supervisor-only desktops have no daemon attach to wake standing catch-up.
       // Publish only after the authenticated build and live sender are installed.
@@ -513,6 +526,9 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       return
     }
     if (outcome.kind !== 'deliver') return
+    // Wait for this socket's own attach before asking who holds the slot, so the
+    // question is never put while the answer is still being written.
+    await attached
     // POD-3782: RE-FENCE THE MESSAGE PATH. The attach fence (POD-3752) decides
     // which incarnation may establish and says nothing about a socket that
     // established while it WAS the newest and is still open when its successor
