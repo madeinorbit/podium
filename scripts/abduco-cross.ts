@@ -177,10 +177,22 @@ export function abducoCachePath(
   return join(abducoCacheDir(root), `${platform}-${sourceHash.slice(0, 16)}`)
 }
 
-function findTool(envName: string, binary: string, fallbacks: string[]): string {
+/**
+ * THE PROBE ARGS ARE THE CALLER'S TO SUPPLY [POD-3771], because `--version` is not universal.
+ * `zig --version` is not a zig command at all — it exits 1 with "unknown command: --version",
+ * so probing with it declared a zig sitting on PATH to be missing, and every headless release
+ * since has failed on a runner that had just installed zig successfully. The version this
+ * asks for is the one the pin check then reads, so the two cannot drift apart again.
+ */
+function findTool(
+  envName: string,
+  binary: string,
+  versionArgs: string[],
+  fallbacks: string[],
+): string {
   const configured = process.env[envName]?.trim()
   if (configured) return configured
-  if (spawnSync(binary, ['--version'], { stdio: 'ignore' }).status === 0) return binary
+  if (spawnSync(binary, versionArgs, { stdio: 'ignore' }).status === 0) return binary
   for (const candidate of fallbacks) {
     if (existsSync(candidate)) return candidate
   }
@@ -214,16 +226,30 @@ function assertPinnedVersion(tool: string, path: string, args: string[], pinned:
   return path
 }
 
+const ZIG_VERSION_ARGS = ['version']
+const RCODESIGN_VERSION_ARGS = ['--version']
+
 export function resolveZig(): string {
-  const zig = findTool('PODIUM_ZIG', 'zig', [join(homedir(), '.local/bin/zig')])
-  return assertPinnedVersion('zig', zig, ['version'], readToolPins().zig)
+  const zig = findTool('PODIUM_ZIG', 'zig', ZIG_VERSION_ARGS, [
+    join(homedir(), '.local/bin/zig'),
+    // Where mise puts its shims. CI adds this to PATH, but a `mise install` on a shell that
+    // has not been hooked does not, and the failure it produced was indistinguishable.
+    join(homedir(), '.local/share/mise/shims/zig'),
+  ])
+  return assertPinnedVersion('zig', zig, ZIG_VERSION_ARGS, readToolPins().zig)
 }
 
 export function resolveRcodesign(): string {
-  const rcodesign = findTool('PODIUM_RCODESIGN', 'rcodesign', [
+  const rcodesign = findTool('PODIUM_RCODESIGN', 'rcodesign', RCODESIGN_VERSION_ARGS, [
     join(homedir(), '.cargo/bin/rcodesign'),
+    join(homedir(), '.local/share/mise/shims/rcodesign'),
   ])
-  return assertPinnedVersion('rcodesign', rcodesign, ['--version'], readToolPins().rcodesign)
+  return assertPinnedVersion(
+    'rcodesign',
+    rcodesign,
+    RCODESIGN_VERSION_ARGS,
+    readToolPins().rcodesign,
+  )
 }
 
 /**
