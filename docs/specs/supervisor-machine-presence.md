@@ -328,3 +328,69 @@ Multi-instance lane with independent runtimes:
 
 Because this changes identity, endpoints, ownership and lifecycle, the implementation
 requires the multi-instance lane in addition to focused protocol/store tests.
+
+## 10a. What is proved on real instances (POD-3767, added 2026-09-09)
+
+Everything above had been proved on ONE plane at a time. §1a and §1b were proved against a
+real server with hand-driven sockets
+(`apps/server/src/gateway/build-report.integration.test.ts`); the handover gate, the cede
+and the abort were proved against real parent processes with no coordinator at all
+(`scripts/parent-lifecycle.integration.test.ts`). §9's migration path and §10's acceptance
+list span both, so neither suite could answer them.
+
+`scripts/fleet-upgrade.integration.test.ts` joins the two. A real coordinator —
+`startServer`, its real `/machine` socket, its real machines store — and real parent
+processes, each with its own state directory and its own credential, dialling it through the
+production `createMachineSupervisorConnection`. The parents are the parent-stack fixture,
+which is the real `ParentProcess` spawning real OS children; POD-3767 gave it the fleet
+plane, wired in the order `apps/cli/src/cli.ts` wires it: `loadSupervisorState`, then
+`claimSupervisorGeneration` before anything can speak for the machine, then the incarnation
+in both the hello and the successor's environment, then cede/resume around the handover.
+
+A pre-fence peer is built by ABSENCE, not by a hard-coded `supervisorGeneration: 0`. No
+shipped build ever sent that field as zero, so faking one would exercise a wire shape that
+does not exist; `FIXTURE_FLEET_LEGACY=1` neither claims an incarnation nor passes one on.
+
+| Arm | What it proves | Discharges |
+| --- | --- | --- |
+| A | A machine on the old stable — legacy `daemon.json`, no `supervisor.json`, no incarnation — imports its credential AND its pinned update key, keeps its machine id, attaches as generation 1, and does not appear as a second row. | §9 migration step 2; §10.7 |
+| B | A parent that sends no generation joins a stamped fleet; a stamped incarnation of its own machine displaces it; its reports are then refused on the message path and its redials at the attach fence; and when the stamped incarnation goes away it gets back in. | §1a in both directions, including "missing reads as 0" and "nothing is remembered about a refused peer"; §1b |
+| C | A self-update handover settles on the successor and the row NEVER returns to the old version. | §1a's motivating failure; §10.6 first half |
+| D | An aborted update: the successor attaches before it is healthy, the gate kills it, and the outgoing parent reattaches on its own incarnation with the row back on the version that is actually running. | §1a's forgetfulness; §10.6 second half |
+| E | A same-version handover advances the incarnation the coordinator holds, though the version cannot distinguish the two peers. | §1a on the one case where the version says nothing |
+
+WHAT THE ABORT ARM ACTUALLY RECORDS, because the four lines are the clearest statement of
+this design that exists. Measured on ludovico, times in ms from the handover request:
+
+```
+    4   1.0.0  gen 1   the outgoing parent holds the machine
+  111   1.0.0  gen -   the cede: its socket is closed, the slot is empty
+  229   2.0.0  gen 2   the successor, attached long before it is healthy
+ 8381   2.0.0  gen -   the gate expired and killed it
+ 8412   1.0.0  gen 1   the outgoing parent has the machine back
+```
+
+Line 3 is why §1a exists — the successor is on the coordinator's socket within a quarter of
+a second of being spawned, and stays there for the whole gate. Line 5 is why the fence
+remembers nothing.
+
+THREE MEASUREMENT RULES this file had to learn, each of which cost a run:
+
+- Wait on bus events the server emits AT the transition, never on a client-side event and
+  never on a sleep. The attach completes after the handshake reply (POD-3789).
+- Subscribe BEFORE the cause, not after the preceding await. `machine.connected` is an edge,
+  and a listener registered after a peer has been started waits out its budget for an event
+  that already happened — reporting a lockout, which is the one verdict this file must never
+  give falsely.
+- The coordinator's announcement is not evidence about the MACHINE's own durable state. The
+  server attaches and emits while the machine is still writing the token it was issued, so
+  a credential must be read from the machine's own file, not inferred from the attach.
+
+A freshly spawned parent's first attach is also budgeted separately from a transition
+between processes that are already up: the child is a cold `bun` that transpiles and imports
+the whole runtime before it can dial. Measured: 1.3s for the whole of arm A warm, over 30s
+for one attach cold.
+
+NOT PROVED HERE. How a swap or topology request is CARRIED (POD-3763 moves it onto the
+private line); the packaged installer path end to end, which is `bun run test:update-e2e`'s
+job (docs/docker-update-e2e.md); and Windows, which has no host in this lane.
