@@ -40,9 +40,20 @@ echo "PASS: the binary runs and agrees with the bundle's VERSION"
 # 2. The EMBEDDED abduco materializes and runs. This is the part cross-compilation
 #    actually changed, so a bundle that starts but cannot produce a working helper is
 #    the specific failure worth catching.
+#
+#    NOT `--version` [POD-3274]. Materialization is registered as the compiled entry's
+#    `afterInstanceStateClaim` callback (scripts/cli-compiled.ts), and since "keep
+#    diagnostics state-free" (d1f21b79, 2026-08-21) `--version` is answered by
+#    `resolveStateFreeInformationalPlan` BEFORE the state claim — deliberately, so asking
+#    a binary its version cannot create a state root. So it returns having touched
+#    nothing, and this step asserted that a command designed not to write had not
+#    written. `channel` with no argument is the cheapest invocation on the other side of
+#    the claim: it reads the configured update channel and prints it. The step is timed
+#    out because it must not depend on anything that could block, and its exit status is
+#    ignored on purpose — what is under test is the side effect, asserted below.
 STATE="$WORK/state"
 env -u PODIUM_ABDUCO -u PODIUM_AGENT_RELAY PODIUM_STATE_DIR="$STATE" PODIUM_HOME="$HOME_DIR" \
-  "$HOME_DIR/podium" --version >/dev/null 2>&1 || true
+  timeout 60 "$HOME_DIR/podium" channel >/dev/null 2>&1 || true
 HELPER="$STATE/bin/abduco"
 [ -x "$HELPER" ] || { echo "ABORT: the bundle did not materialize an executable abduco into $STATE/bin" >&2; exit 1; }
 BANNER="$("$HELPER" -v 2>&1 | head -1)" || { echo "ABORT: the embedded abduco does not run here" >&2; exit 1; }
