@@ -42,7 +42,15 @@
  * event or a sleep.
  */
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -142,6 +150,48 @@ async function freePort(): Promise<number> {
       server.close((error) => (error ? reject(error) : resolve(address.port)))
     })
   })
+}
+
+/** Raw JSON at a path, as text, for a failure message. Never throws. */
+function readJsonAt(path: string): string {
+  if (!existsSync(path)) return 'absent'
+  try {
+    return readFileSync(path, 'utf8').replace(/\s+/g, ' ')
+  } catch (error) {
+    return String(error)
+  }
+}
+
+/**
+ * The machine this state directory IS.
+ *
+ * A reused directory already has an identity — in `supervisor.json`, or in the
+ * `daemon.json` an old build left, or in `machine.id` — and the parent about to
+ * boot on it must come back as that same machine; reading it here rather than
+ * minting a second one is what makes the upgrade and takeover cases mean
+ * anything. A fresh directory gets `machine.id` written now, which is what
+ * `readOrCreateLocalMachineId` would do at boot anyway.
+ */
+function resolveOrMintMachineId(stateDir: string): MachineId {
+  for (const file of ['supervisor.json', 'daemon.json']) {
+    const path = join(stateDir, file)
+    if (!existsSync(path)) continue
+    try {
+      const id = (JSON.parse(readFileSync(path, 'utf8')) as { machineId?: string }).machineId
+      if (id) return id as MachineId
+    } catch {
+      /* fall through to the next candidate */
+    }
+  }
+  const idPath = join(stateDir, 'machine.id')
+  if (existsSync(idPath)) {
+    const existing = readFileSync(idPath, 'utf8').trim()
+    if (existing) return existing as MachineId
+  }
+  const minted = randomUUID()
+  mkdirSync(stateDir, { recursive: true })
+  writeFileSync(idPath, `${minted}\n`)
+  return minted as MachineId
 }
 
 async function temporaryRoot(tag: string): Promise<string> {
@@ -303,6 +353,20 @@ interface FleetParentOptions {
 interface FleetParent {
   process: ChildProcess
   pid: number
+  /**
+   * Resolves when the COORDINATOR has attached this machine's supervisor.
+   *
+   * Registered before the process that causes it is spawned, and that ordering
+   * is the whole point. `machine.connected` is an EDGE. A listener registered
+   * after the parent has been started is racing a process that dials within a
+   * second of booting, and the moment a case starts two parents in a row the
+   * first one's attach lands while the second is still being spawned — the
+   * listener then waits out its full budget for an event that already happened,
+   * and reports it as a machine that never attached. That is POD-3789's race
+   * from the other side: not asserting before the transition, but subscribing
+   * after it.
+   */
+  attached: Promise<MachineId>
   stateDir: string
   installDir: string
   port: number
@@ -316,6 +380,15 @@ interface FleetParent {
     updatePubkey?: string
     generation?: number
   }
+  /**
+   * THE DIALER'S OWN VERDICT, from `<stateDir>/connectivity.json`. The fixture
+   * never configures process logging, so the supervisor connection's log lines
+   * go nowhere — this file is the only record it keeps of `connected`,
+   * `disconnected`, `blocked` (with the reason) or `unauthorized`. Without it, a
+   * peer that dialled and was refused is indistinguishable from one that never
+   * dialled at all.
+   */
+  connectivity: () => Record<string, unknown> | undefined
   legacyState: () => { machineId: string; token?: string } | undefined
 }
 
@@ -334,9 +407,24 @@ async function startFleetParent(
   const version = options.version ?? '1.0.0'
   mkdirSync(join(stateDir, 'run'), { recursive: true })
   writeFileSync(join(installDir, 'VERSION'), `${version}\n`)
+  // THE MACHINE HAS ITS IDENTITY BEFORE ITS PARENT STARTS, which is true of
+  // every real install — `machine.id` is minted at setup, not at boot. Doing it
+  // here rather than reading it back afterwards is what lets the attach listener
+  // be registered before the process that causes the attach exists.
+  const machineId = resolveOrMintMachineId(stateDir)
   const inherited = { ...process.env }
   delete inherited.PODIUM_AGENT_RELAY
   delete inherited.NOTIFY_SOCKET
+  let output = ''
+  const context = (): string =>
+    `${output}\nconnectivity.json: ${readJsonAt(join(stateDir, 'connectivity.json'))}`
+  const attached = coordinator.observes('machine.connected', machineId, {
+    context,
+    ms: Coordinator.SPAWN_BUDGET_MS,
+  })
+  // Nothing is unhandled while a caller is still on its way to awaiting it; the
+  // caller's own await is what surfaces the rejection.
+  attached.catch(() => undefined)
   const child = spawn('bun', ['--conditions=@podium/source', FIXTURE, 'parent', '--takeover'], {
     cwd: ROOT,
     env: {
@@ -356,7 +444,6 @@ async function startFleetParent(
   started.push(child)
   const pid = child.pid as number
   observedPids.add(pid)
-  let output = ''
   child.stdout?.on('data', (c) => (output += String(c)))
   child.stderr?.on('data', (c) => (output += String(c)))
 
@@ -376,22 +463,15 @@ async function startFleetParent(
       updatePubkey?: string
       generation?: number
     }
-  // The parent writes `supervisor.json` before it says anything, so this is the
-  // machine's identity as the COORDINATOR will hear it, read from the same file
-  // the parent reads it from rather than guessed from the directory name.
-  const machineId = (await until(
-    () => supervisorState().machineId as MachineId | undefined,
-    `the parent to claim a machine identity; log:\n${output}`,
-  )) as MachineId
-
   return {
     process: child,
     pid,
+    attached,
     stateDir,
     installDir,
     port,
     machineId,
-    output: () => output,
+    output: context,
     spawns: (role) => {
       const path = join(stateDir, 'run', 'fixture-spawns.log')
       if (!existsSync(path)) return []
@@ -410,6 +490,7 @@ async function startFleetParent(
       return readFileSync(path, 'utf8').split('\n').filter(Boolean)
     },
     supervisorState,
+    connectivity: () => readJson('connectivity.json'),
     legacyState: () =>
       readJson('daemon.json') as { machineId: string; token?: string } | undefined,
   }
@@ -517,13 +598,36 @@ afterEach(async () => {
  * machine that comes back is the same machine to the server — which is the
  * thing being proved, not something being arranged.
  */
-function rewindToLegacyInstall(parent: FleetParent): {
+/**
+ * Wait for a machine that PAIRED to have written its issued token.
+ *
+ * The credential is durable state belonging to the machine, and the coordinator
+ * attaching is not evidence that it exists yet. The two are in different
+ * processes and in this order: the server sends the handshake reply, attaches,
+ * and emits `machine.connected`, while the machine is still on its way to
+ * handling that same reply and writing the token to `supervisor.json`. So an
+ * attach can be — and on a busy box is — observed before the file exists.
+ *
+ * Only pairing needs this. A machine that already had a credential loaded it
+ * before it dialled, so for every other case the file is older than the attach.
+ */
+async function awaitPersistedCredential(parent: FleetParent): Promise<void> {
+  await until(
+    () => parent.supervisorState().token,
+    `the machine to persist its coordinator-issued token; state dir holds ${readdirSync(
+      parent.stateDir,
+    ).join(', ')} | supervisor.json: ${readJsonAt(join(parent.stateDir, 'supervisor.json'))}`,
+    15_000,
+  )
+}
+
+async function rewindToLegacyInstall(parent: FleetParent): Promise<{
   machineId: string
   token: string
   updatePubkey: string
-} {
+}> {
+  await awaitPersistedCredential(parent)
   const current = parent.supervisorState()
-  expect(current.token, 'the machine paired and holds a coordinator-issued token').toBeTruthy()
   // THE UPDATE KEY IS PART OF THE CREDENTIAL, and the acceptance sentence names
   // it: a machine that pinned the coordinator's update key on the old build must
   // carry that pin across the upgrade. It is also the half that can lock a
@@ -565,10 +669,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '0.1.0',
     })
-    await coordinator.observes('machine.connected', beforeUpgrade.machineId, {
-      context: beforeUpgrade.output,
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    await beforeUpgrade.attached
     expect(await coordinator.row(beforeUpgrade.machineId)).toMatchObject({
       appVersion: '0.1.0',
       installKind: 'installed',
@@ -582,7 +683,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     await stopParent(beforeUpgrade)
     await detached
 
-    const legacy = rewindToLegacyInstall(beforeUpgrade)
+    const legacy = await rewindToLegacyInstall(beforeUpgrade)
     expect(existsSync(join(beforeUpgrade.stateDir, 'supervisor.json'))).toBe(false)
 
     // THE UPGRADE: the new payload, on the same state directory.
@@ -590,10 +691,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       stateDir: beforeUpgrade.stateDir,
       version: '0.2.0-new-supervisor',
     })
-    await coordinator.observes('machine.connected', upgraded.machineId, {
-      context: upgraded.output,
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    await upgraded.attached
 
     expect(upgraded.machineId, 'the upgrade is the SAME machine, not a new one').toBe(
       legacy.machineId,
@@ -662,12 +760,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '0.2.0',
     })
-    for (const machine of [unstamped, stampedOne, stampedTwo]) {
-      await coordinator.observes('machine.connected', machine.machineId, {
-        context: machine.output,
-        ms: Coordinator.SPAWN_BUDGET_MS,
-      })
-    }
+    for (const machine of [unstamped, stampedOne, stampedTwo]) await machine.attached
 
     // THE WAVE'S STARTING POSITION: every machine present, every row its own
     // version. The unstamped one is a peer, not a casualty.
@@ -686,6 +779,9 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // The unstamped machine takes its update: a stamped incarnation of THAT
     // machine arrives while the unstamped one is still dialling.
     const takeoverDir = await temporaryRoot('takeover')
+    // Copying the credential is copying a FILE, so it has to exist: the same
+    // cross-process ordering as the upgrade case.
+    await awaitPersistedCredential(unstamped)
     writeFileSync(
       join(takeoverDir, 'supervisor.json'),
       JSON.stringify(unstamped.supervisorState(), null, 2),
@@ -695,17 +791,14 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // parent's socket stays open until its next frame meets the message-path
     // re-fence — at which point `detachSupervisor` returns false, because it no
     // longer holds the slot, and no `machine.disconnected` is emitted. The
-    // transition to wait for is the winner's attach.
-    const stampedAttached = coordinator.observes('machine.connected', unstamped.machineId, {
-      context: () => 'the stamped incarnation had not attached yet',
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    // transition to wait for is the winner's attach, which `startFleetParent`
+    // subscribed to before it spawned anything.
     const stampedIncarnation = await startFleetParent(coordinator, {
       stateDir: takeoverDir,
       version: '0.2.0',
     })
     expect(stampedIncarnation.machineId).toBe(unstamped.machineId)
-    await stampedAttached
+    await stampedIncarnation.attached
 
     await until(
       async () =>
@@ -760,9 +853,15 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // about the peer that was refused, so the unstamped parent's next redial —
     // its own, on its own ladder, with no help from this test — is admitted.
     const stampedGone = coordinator.observes('machine.disconnected', unstamped.machineId)
+    // Registered before the stop, like every other listener here: the unstamped
+    // parent's ladder is capped at 5s but its floor is 500ms, and 500ms is more
+    // than enough to slip between one await resolving and the next subscribing.
+    const unstampedBack = coordinator.observes('machine.connected', unstamped.machineId, {
+      context: unstamped.output,
+    })
     await stopParent(stampedIncarnation)
     await stampedGone
-    await coordinator.observes('machine.connected', unstamped.machineId)
+    await unstampedBack
     expect(
       coordinator.machines.attachedSupervisorGeneration(unstamped.machineId),
       'the unstamped parent is back on the machine it owns',
@@ -803,10 +902,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '1.0.0',
     })
-    await coordinator.observes('machine.connected', machine.machineId, {
-      context: machine.output,
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    await machine.attached
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
@@ -904,10 +1000,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '1.0.0',
     })
-    await coordinator.observes('machine.connected', machine.machineId, {
-      context: machine.output,
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    await machine.attached
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
@@ -987,10 +1080,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       version: '1.0.0',
       env: { FIXTURE_HANDOVER_TIMEOUT_MS: '8000' },
     })
-    await coordinator.observes('machine.connected', machine.machineId, {
-      context: machine.output,
-      ms: Coordinator.SPAWN_BUDGET_MS,
-    })
+    await machine.attached
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
