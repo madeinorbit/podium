@@ -10,6 +10,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { channelEnv } from "./fixtures/probe.ts";
 
 const here = import.meta.dir;
 const outDir = process.env.EXPERIMENT_OUT ?? path.join(process.cwd(), "experiment-out");
@@ -19,7 +20,11 @@ const exe = process.platform === "win32" ? ".exe" : "";
 
 function sh(cmd: string, args: string[], cwd = here): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const p = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn(cmd, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, IPC_EXPERIMENT_DISCONNECT_FILE: path.join(outDir, "disconnect.json") },
+    });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (out += d));
@@ -53,7 +58,27 @@ for (const name of ["parent", "child", "grandchild"]) {
   console.log(`compiled ${name} -> ${outfile}`);
 }
 
+// Calibrate the env probe before trusting anything it says. An earlier version matched
+// the bare word CHANNEL and read GitHub's POWERSHELL_DISTRIBUTION_CHANNEL as a leak on
+// Linux and Windows. This runs on every platform so each report carries the proof that
+// its own probe both fires on a real channel variable and stays quiet on noise.
+const probeCalibration = (() => {
+  const cases: [string, Record<string, string>, boolean][] = [
+    ["node channel var", { NODE_CHANNEL_FD: "3" }, true],
+    ["bun channel var", { BUN_INTERNAL_IPC_FD: "4" }, true],
+    ["unknown name, fd-shaped value", { WEIRD_IPC_HANDLE: "7" }, true],
+    ["unknown name, windows pipe", { SOME_CHANNEL_FD: String.raw`\\.\pipe\podium-abc` }, true],
+    ["github runner noise", { POWERSHELL_DISTRIBUTION_CHANNEL: "GitHub-Actions-Linux" }, false],
+    ["unrelated CHANNEL name", { CHANNEL_NAME: "stable" }, false],
+  ];
+  const misclassified = cases
+    .filter(([, env, want]) => Object.keys(channelEnv(env as never)).length > 0 !== want)
+    .map(([name]) => name);
+  return { cases: cases.length, misclassified, armed: misclassified.length === 0 };
+})();
+
 const results: Record<string, unknown> = {
+  probeCalibration,
   experiment: "ipc-pipe",
   platform: process.platform,
   arch: process.arch,
@@ -72,6 +97,33 @@ for (const mode of ["node-ipc", "node-ipc-detached", "bun-ipc"]) {
     ? JSON.parse(line.slice("EXPERIMENT_RESULT ".length))
     : { ok: false, failedStage: "no-result-line", exitCode: r.code, tail: r.out.slice(-2000) };
   console.log(r.out);
+}
+
+// --- does the child notice its supervisor dying? --------------------------
+// The property a handover turns on. Run the parent in `orphan` mode: it starts one
+// child over a channel, then exits without killing it. The child writes a file from
+// its 'disconnect' handler, because the channel it would otherwise report over is the
+// thing that just died.
+{
+  const flag = path.join(outDir, "disconnect.json");
+  try {
+    fs.rmSync(flag, { force: true });
+  } catch {}
+  const r = await sh(bins.parent, ["orphan", bins.child, bins.grandchild], outDir);
+  const spoke = /"childSpoke":true/.test(r.out);
+  let detected: Record<string, unknown> | null = null;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(flag)) {
+      try {
+        detected = JSON.parse(fs.readFileSync(flag, "utf8"));
+      } catch {}
+      break;
+    }
+    await Bun.sleep(100);
+  }
+  results.supervisorDeath = { childSpoke: spoke, disconnectSeen: detected !== null, detail: detected };
+  console.log(`\n=== supervisor death === ${JSON.stringify(results.supervisorDeath)}`);
 }
 
 // --- verdicts -------------------------------------------------------------
@@ -115,6 +167,14 @@ fs.writeFileSync(path.join(outDir, "result.json"), `${JSON.stringify(results, nu
 
 const md = [
   `### ipc-pipe — \`${process.platform}/${process.arch}\` (bun ${Bun.version}, ${results.runner})`,
+  "",
+  `Env probe calibrated: **${probeCalibration.armed ? "yes" : `NO — misclassified ${probeCalibration.misclassified.join(", ")}`}**`,
+  "",
+  `Child sees its supervisor die: **${
+    (results.supervisorDeath as { disconnectSeen: boolean }).disconnectSeen
+      ? "yes, 'disconnect' fired"
+      : "NO"
+  }**`,
   "",
   "| mode | bidirectional JSON channel | grandchild containment | containment probe armed |",
   "| --- | --- | --- | --- |",

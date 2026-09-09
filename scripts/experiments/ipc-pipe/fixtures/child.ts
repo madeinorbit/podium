@@ -2,6 +2,7 @@
 // Compiled with `bun build --compile`, so it is a standalone binary with no bun on PATH
 // and no interpreter argv able to carry a channel flag.
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { probeFds, channelEnv } from "./probe.ts";
 
 const role = process.argv[2] ?? "child";
@@ -53,6 +54,24 @@ function run(
       clearTimeout(t);
       resolve({ code, out });
     });
+  });
+}
+
+// A supervisor handover turns on the child NOTICING that its supervisor is gone.
+// The channel gives that for free: the kernel closes the child's end when the parent
+// dies, and the runtime surfaces it as 'disconnect'. Record it to a file, because the
+// channel we would otherwise report over is precisely the thing that just died.
+const disconnectFile = process.env.IPC_EXPERIMENT_DISCONNECT_FILE;
+if (disconnectFile) {
+  const started = Date.now();
+  process.on("disconnect", () => {
+    try {
+      writeFileSync(
+        disconnectFile,
+        JSON.stringify({ role, pid: process.pid, afterMs: Date.now() - started }),
+      );
+    } catch {}
+    process.exit(0);
   });
 }
 

@@ -61,6 +61,28 @@ async function waitFor(role: Role, type: string, ms: number): Promise<Record<str
   }
 }
 
+// The orphan mode is a separate, tiny experiment: start ONE child, wait until it is
+// talking, then exit without killing it. Whether the child notices is read from the
+// file it writes, not from this channel.
+if (mode === "orphan") {
+  const p = spawn(childBin, ["server", grandchildBin], {
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  const seen = await new Promise<boolean>((r) => {
+    const t = setTimeout(() => r(false), 15_000);
+    p.on("message", () => {
+      clearTimeout(t);
+      r(true);
+    });
+  });
+  p.unref();
+  p.disconnect?.();
+  process.stdout.write(
+    `EXPERIMENT_RESULT ${JSON.stringify({ mode, childSpoke: seen, childPid: p.pid })}\n`,
+  );
+  process.exit(0);
+}
+
 const kids: Record<string, Handle> = {};
 try {
   const start: (r: Role) => Handle =
@@ -109,7 +131,15 @@ try {
     gc[role] = {
       bunGrandchildReport: String(m.bun ?? ""),
       controlGrandchildReport: String(m.control ?? ""),
-      leakedEnvVars: shell.split(/\r?\n/).filter((l) => /CHANNEL|_IPC_|^IPC_/i.test(l)),
+      // Same rule as channelEnv(), applied to the shell's raw KEY=VALUE dump.
+      leakedEnvVars: shell
+        .split(/\r?\n/)
+        .filter((l) => /^(NODE_CHANNEL_FD|BUN_INTERNAL_IPC_FD|ELECTRON_INTERNAL_CHANNEL_FD)=/.test(l))
+        .concat(
+          shell
+            .split(/\r?\n/)
+            .filter((l) => /^\w*(CHANNEL|IPC|_FD)\w*=(\d{1,4}|\\\\[.?]\\pipe\\\S+)$/i.test(l)),
+        ),
       // /dev/fd listing, posix only; windows has no equivalent and reports "".
       fdListing: shell.includes("---FDS---") ? (shell.split("---FDS---")[1] ?? "").trim() : "",
     };
