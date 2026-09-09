@@ -35,7 +35,11 @@ import {
   ParentProcess,
   type SpawnChildFn,
 } from './parent-process'
-import type { DaemonHandoverHealthProbe, HandoverHealthProbe } from './parent-supervisor'
+import {
+  type DaemonHandoverHealthProbe,
+  type HandoverHealthProbe,
+  spawnShapeFault,
+} from './parent-supervisor'
 
 /**
  * A supervised child, including the private lifecycle line `spawn` gives it
@@ -1796,6 +1800,26 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
       expect(stdio).toHaveLength(4)
       expect(stdio[3]).toBe('ipc')
       expect(options.env?.NODE_CHANNEL_FD).toBeUndefined()
+    }
+  })
+
+  /**
+   * THE SHAPE, NOT JUST THE SIGNAL (POD-3762 + POD-3774). The health gate refuses
+   * a child spawned in a shape that cannot deliver a ready frame, so this asserts
+   * that the shape the parent actually spawns is one the gate accepts — on both
+   * platforms, since on Windows an attached child dies silently and would look
+   * exactly like a healthy quiet one. It fails the moment either half goes: the
+   * `'ipc'` line, or `detached` on win32.
+   */
+  it('spawns children in a shape its own gate accepts, on POSIX and on Windows', async () => {
+    for (const platform of ['linux', 'win32']) {
+      const { parent, spawned } = channelParent({ platform })
+      await parent.start()
+      expect(spawned).toHaveLength(2)
+      for (const { options } of spawned) {
+        expect(spawnShapeFault(options, platform), `spawn shape on ${platform}`).toBeUndefined()
+      }
+      expect(parent.isBootHealthy(), `boot health on ${platform}`).toBe(true)
     }
   })
 

@@ -169,11 +169,12 @@ export interface ParentProcessDeps {
   spawn?: SpawnChildFn
   /**
    * Test seam for the host OS; production reads `process.platform`. It decides
-   * one thing: whether a supervised child is spawned detached
-   * ({@link detachSupervisedChild}). A Windows-only spawn shape is otherwise
-   * unassertable from the POSIX hosts this suite runs on, and an attached spawn
-   * on Windows fails silently — no disconnect, no heartbeat — so a test that
-   * only watched for the signal could not tell it from a correct one.
+   * whether a supervised child is spawned detached ({@link detachSupervisedChild})
+   * AND how the health gate grades that shape ({@link spawnShapeFault}). A
+   * Windows-only spawn shape is otherwise unassertable from the POSIX hosts this
+   * suite runs on, and an attached spawn on Windows fails silently — no
+   * disconnect, no heartbeat — so a test that only watched for the signal could
+   * not tell it from a correct one.
    */
   platform?: string
   /** Probe used for boot readiness and handover health (disposition 24). */
@@ -331,11 +332,12 @@ export function detachSupervisedChild(platform: string = process.platform): bool
  */
 function withSpawnFaultRecording(
   inner: SpawnChildFn,
+  platform: string | undefined,
   record: (proc: ChildProcess, fault: SpawnShapeFault) => void,
 ): SpawnChildFn {
   return (command, args, options) => {
     const proc = inner(command, args, options)
-    const fault = spawnShapeFault(options)
+    const fault = spawnShapeFault(options, platform)
     if (fault) record(proc, fault)
     return proc
   }
@@ -525,7 +527,7 @@ export class ParentProcess {
     this.deps = {
       ...deps,
       port: deps.port,
-      spawn: withSpawnFaultRecording(deps.spawn ?? spawn, (proc, fault) =>
+      spawn: withSpawnFaultRecording(deps.spawn ?? spawn, deps.platform, (proc, fault) =>
         this.spawnFaults.set(proc, fault),
       ),
       probeHealth: deps.probeHealth ?? defaultProbeHealth,
