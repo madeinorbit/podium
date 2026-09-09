@@ -22,7 +22,7 @@ vi.mock('@/lib/use-feature', () => ({
         id: 'runtime-drivers',
         name: 'Headless session drivers',
         description:
-          'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+          'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
         visibility: 'stable',
         listed: true,
         enabled: false,
@@ -59,7 +59,7 @@ describe('ExperimentalSection', () => {
     expect(screen.getByText('Headless session drivers')).toBeTruthy()
     expect(
       screen.getByText(
-        'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+        'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
       ),
     ).toBeTruthy()
 

@@ -35,7 +35,11 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
-import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
+import {
+  headlessRuntimeDrivers,
+  runtimeDriverLabel,
+  terminalRuntimeDriver,
+} from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
@@ -241,7 +245,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
-  const [driverChoice, setDriverChoice] = useState('headed')
+  const HEADED_DRIVER_CONTRACT = 'headed-contract'
+  const HEADED_LEGACY_PTY = 'headed-legacy'
+  const [driverChoice, setDriverChoice] = useState(HEADED_DRIVER_CONTRACT)
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
   // error; reading the subscribed draft lets that late value appear. Local
@@ -396,18 +402,31 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     agent,
   )
   const ready = activationAgentIsReady(readiness)
+  const availableHeadedDriver = runtimeDriversEnabled
+    ? terminalRuntimeDriver(selectedMachine, agent)
+    : undefined
   const availableHeadlessDrivers = headlessRuntimeDrivers(selectedMachine, agent).filter(
     (driver) =>
       selectedMachine !== undefined &&
       agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
   )
   const selectedHeadlessDriver =
-    runtimeDriversEnabled && driverChoice !== 'headed'
+    runtimeDriversEnabled &&
+    driverChoice !== HEADED_DRIVER_CONTRACT &&
+    driverChoice !== HEADED_LEGACY_PTY
       ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
       : undefined
   const driverUnavailable =
-    runtimeDriversEnabled && driverChoice !== 'headed' && selectedHeadlessDriver === undefined
-  const runtimeContract = selectedHeadlessDriver?.id
+    runtimeDriversEnabled &&
+    driverChoice !== HEADED_DRIVER_CONTRACT &&
+    driverChoice !== HEADED_LEGACY_PTY &&
+    selectedHeadlessDriver === undefined
+  const runtimeContract =
+    runtimeDriversEnabled
+      ? driverChoice === HEADED_DRIVER_CONTRACT
+        ? availableHeadedDriver?.id
+        : selectedHeadlessDriver?.id
+      : undefined
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -830,6 +849,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         agentKind: agent,
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+        ...(runtimeContract !== undefined ? { runtimeContract } : {}),
       })
       // Keep prompt, attachments and ids until the authority has accepted the
       // draft vessel and its first session. The mutation and client-minted ids
@@ -1116,7 +1136,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
-                    if (kind !== agent) setDriverChoice('headed')
+                    if (kind !== agent) setDriverChoice(HEADED_DRIVER_CONTRACT)
                     setDraft(
                       withoutCreateReservation({
                         ...draft,
@@ -1173,7 +1193,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 placeholder="Choose a machine…"
                 onSelect={selectMachine}
               />
-              {runtimeDriversEnabled && availableHeadlessDrivers.length > 0 ? (
+              {runtimeDriversEnabled &&
+              (availableHeadedDriver !== undefined || availableHeadlessDrivers.length > 0) ? (
                 <PropertyMenu
                   trigger={
                     <button
@@ -1182,12 +1203,21 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       aria-label="Driver"
                       className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {driverChoice === 'headed' ? 'Headed' : runtimeDriverLabel(driverChoice)}
+                      {driverChoice === HEADED_DRIVER_CONTRACT
+                        ? availableHeadedDriver !== undefined
+                          ? 'Headed (driver contract)'
+                          : 'Headed (legacy PTY)'
+                        : driverChoice === HEADED_LEGACY_PTY
+                          ? 'Headed (legacy PTY)'
+                          : runtimeDriverLabel(driverChoice)}
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
                   options={[
-                    { value: 'headed', label: 'Headed (default)' },
+                    ...(availableHeadedDriver
+                      ? [{ value: HEADED_DRIVER_CONTRACT, label: 'Headed (driver contract)' }]
+                      : []),
+                    { value: HEADED_LEGACY_PTY, label: 'Headed (legacy PTY)' },
                     ...availableHeadlessDrivers.map((driver) => ({
                       value: driver.id,
                       label: runtimeDriverLabel(driver.id),
