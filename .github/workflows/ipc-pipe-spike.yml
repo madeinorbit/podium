@@ -1,0 +1,23 @@
+# POD-3760 (epic POD-3758): thin dispatch wrapper around the reusable
+# platform-experiment harness. All this file decides is WHICH experiment runs; the
+# per-platform machinery lives in platform-experiment.yml.
+#
+# TEMPORARY `push:` TRIGGER — workflow_dispatch only resolves workflows that exist on
+# the DEFAULT branch, and this epic never lands on main. The push trigger below is
+# scoped to the spike branch so the run can be started at all. REMOVE IT before the
+# issue closes; once the harness is on main, dispatch platform-experiment.yml directly
+# with `experiment: ipc-pipe`.
+name: ipc-pipe-spike
+on:
+  workflow_dispatch:
+  push:
+    branches: ['issue/3760-spike-ipc-pipe-between-compiled-binaries']
+
+jobs:
+  ipc-pipe:
+    uses: ./.github/workflows/platform-experiment.yml
+    with:
+      experiment: ipc-pipe
+      # No workspace imports in the fixtures, so no install: the runner only needs bun
+      # itself to `bun build --compile` three standalone files.
+      install: false
