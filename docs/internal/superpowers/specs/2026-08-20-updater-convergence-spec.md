@@ -519,8 +519,19 @@ Resolved into the spec:
   display the short form "dev.5 (656f49b)". Schema declarations ship in every dev
   manifest (the publisher reads them from the checkout, as `release.ts` does).
 - **Health gate probe** (24): "healthy" = both children running, server serving
-  `/version` with the NEW version, daemon connected — not the bare `/health` listener
-  check. Port/lock contention during handover folds into the §9 choreography item.
+  the NEW version, daemon connected — not the bare `/health` listener check.
+  Port/lock contention during handover folds into the §9 choreography item.
+  REFINED 2026-09-09 (POD-3762): "both children running, on the new version" is
+  no longer read from `/version`. A port, a pidfile and a health file are names
+  two live incarnations share, so during a SAME-VERSION handover the predecessor
+  answered to all of them and the successor's gate passed against the outgoing
+  stack in 200 ms. Those facts now come from the `ready` frame each child sends
+  on the private line its own parent spawned it with (POD-3761), which carries
+  the child's pid, version and bound port. `/version` is still asked — but only
+  of the port our own server named, and only for the one fact the line cannot
+  carry: whether the LOCAL daemon reached that server. The gate also asserts the
+  spawn SHAPE, because a child with no line, or an attached one on Windows
+  (POD-3774), is indistinguishable from a healthy quiet child by signal alone.
 
 Need operator decisions:
 

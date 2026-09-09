@@ -115,7 +115,8 @@ async function startStack(
       FIXTURE_DIGEST: 'sha256-fixture',
       ...extraEnv,
     },
-    // The port probe stays in service until POD-3762; here it simply agrees.
+    // The gate reads the children's own lines (POD-3762); this probe answers the
+    // one question they cannot — whether the local daemon reached the server.
     probeHealth: async () => ({
       serverRunning: true,
       serverVersion: '9.9.9',

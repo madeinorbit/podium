@@ -1311,8 +1311,9 @@ async function runInProcess(
     console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
   // Every role this process was asked for is up: say so on the line, with the
-  // port when we bound one. The parent's port probe still runs beside this
-  // until POD-3762 makes the line the gate.
+  // port when we bound one. THIS FRAME IS THE GATE (POD-3762): the parent that
+  // spawned us will not call its stack healthy until it arrives, and the port it
+  // asks the daemon question on is the one named here.
   lifecycle?.ready(roles.server ? { port: serverPort } : {})
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
