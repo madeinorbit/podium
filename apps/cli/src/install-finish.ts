@@ -29,7 +29,12 @@ import {
 } from './install-supervision'
 import type { SetupIO } from './setup-ui'
 
-const CHANNELS = ['stable', 'edge'] as const
+// `dev` is a hand-cut build published onto the standing `dev` GitHub release, for trying an
+// installer or a daemon change end to end. It is a DOWNLOAD BASE. The machine still follows
+// the dev UPDATE channel afterwards, whose feed is a source server's own — so an installed
+// dev box takes no updates from GitHub. That split is deliberate (see release-target.ts) and
+// the closing report says it out loud rather than leaving the operator to find out.
+const CHANNELS = ['stable', 'edge', 'dev'] as const
 export type InstallChannel = (typeof CHANNELS)[number]
 
 export interface InstallFinishOptions {
@@ -101,7 +106,9 @@ export function parseInstallFinishArgs(
         const v = need(i, arg)
         if (v === undefined) return { error: 'install-finish: --channel requires a value' }
         if (!CHANNELS.includes(v as InstallChannel))
-          return { error: `install-finish: unknown channel '${v}' (use: stable | edge)` }
+          return {
+            error: `install-finish: unknown channel '${v}' (use: ${CHANNELS.join(' | ')})`,
+          }
         o.channel = v as InstallChannel
         i++
         break
@@ -294,6 +301,16 @@ function report(
   } else {
     io.success('Podium is installed.')
     io.command(opts.command, 'Run this to configure this machine and open the web UI:')
+  }
+  // SAID, not left to be discovered by waiting. A `dev` install is a hand-cut build, and the
+  // box now FOLLOWS dev — whose update feed is a source server's own rather than GitHub
+  // (release-target.ts). Nothing will ever offer this machine a newer build. That is right for
+  // a box installed to try something, and a silence an operator would read as "up to date".
+  if (opts.channel === 'dev') {
+    io.warn(
+      'This machine follows the dev channel: its builds are cut by hand, and its updates ' +
+        'come from a source server rather than from GitHub. It will not update itself.',
+    )
   }
   // Last, because it is the one thing left for the operator to do in THIS shell.
   if (hint) {

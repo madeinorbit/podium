@@ -267,10 +267,29 @@ function minRequiredArg(args: ReleaseArgs): MinRequiredShape | undefined {
   }
 }
 
-function releaseUrl(channel: 'stable' | 'edge', tag: string, asset: string): string {
-  return channel === 'stable'
-    ? `https://github.com/madeinorbit/podium/releases/download/${tag}/${asset}`
-    : `https://github.com/madeinorbit/podium/releases/download/edge/${asset}`
+/**
+ * Every channel publishes onto a tag and every asset hangs off it, so there is one URL
+ * shape. A stable cut's tag is its immutable version; a ROLLING channel's tag is the
+ * channel's own name (`edge`, `dev`), which is why those URLs stay constant across builds.
+ */
+/**
+ * THE CHANNELS THIS SCRIPT CAN PUBLISH [POD-3274].
+ *
+ * `dev` is a build cut by hand to be installed and tried — the headless half of the
+ * standing `dev` release the desktop shell has published onto since POD-2196. It shares
+ * that tag and nothing else: the filenames are disjoint, and a machine following the dev
+ * UPDATE channel still takes its headless target from its own source server's feed, never
+ * from here (see release-target.ts). This tag is a download base, not an update feed.
+ */
+export type PublishChannel = 'stable' | 'edge' | 'dev'
+
+/** Channels whose tag is a fixed name reused by every build, rather than one cut per version. */
+export function isRollingChannel(channel: PublishChannel): boolean {
+  return channel !== 'stable'
+}
+
+function releaseUrl(_channel: PublishChannel, tag: string, asset: string): string {
+  return `https://github.com/madeinorbit/podium/releases/download/${tag}/${asset}`
 }
 
 function descriptorName(asset: string): string {
@@ -611,11 +630,14 @@ export function readDefinedMigrations(dir: string = MIGRATIONS_DIR): string[] {
  * too rather than passing.
  */
 export function legacyPairingNotice(p: {
-  channel: 'stable' | 'edge'
+  channel: PublishChannel
   headlessVersion: string
   /** Absent when this run staged no desktop manifest at all. */
   desktopVersion?: string
 }): string | undefined {
+  // `dev` strands nobody: it is cut by hand and installed on purpose, so there is no
+  // population of pre-pairing installs following it to be left behind.
+  if (p.channel === 'dev') return undefined
   if (p.desktopVersion === p.headlessVersion) return undefined
   const found =
     p.desktopVersion === undefined
@@ -632,7 +654,7 @@ export function legacyPairingNotice(p: {
 }
 
 export function publishPreparedHeadless(p: {
-  channel: 'stable' | 'edge'
+  channel: PublishChannel
   tag: string
   dir: string
   requiredTargets?: readonly string[]
@@ -722,9 +744,12 @@ export function publishPreparedHeadless(p: {
   if (notice) console.log(notice)
 
   const assets = [...releaseFiles.map((file) => join(p.dir, file)), checksums, 'install.sh']
-  if (p.channel === 'edge') {
+  if (isRollingChannel(p.channel)) {
+    // The tag IS the channel name here, and every reference below goes through it so a
+    // rolling channel added later cannot half-publish onto `edge`.
+    const rollingTag = p.tag
     const releaseExists =
-      spawnSync('gh', ['release', 'view', 'edge'], { stdio: 'ignore' }).status === 0
+      spawnSync('gh', ['release', 'view', rollingTag], { stdio: 'ignore' }).status === 0
     const sha =
       process.env.GITHUB_SHA ??
       execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -734,7 +759,7 @@ export function publishPreparedHeadless(p: {
         'api',
         '--method',
         'PATCH',
-        `repos/${repo}/git/refs/tags/edge`,
+        `repos/${repo}/git/refs/tags/${rollingTag}`,
         '-f',
         `sha=${sha}`,
         '-F',
@@ -743,26 +768,26 @@ export function publishPreparedHeadless(p: {
       execFileSync('gh', [
         'release',
         'edit',
-        'edge',
+        rollingTag,
         '--prerelease',
         '--title',
-        `edge (${version})`,
+        `${rollingTag} (${version})`,
         '--notes',
-        `Rolling edge build ${version}`,
+        `Rolling ${p.channel} build ${version}`,
       ])
-      execFileSync('gh', ['release', 'upload', 'edge', ...assets, '--clobber'])
+      execFileSync('gh', ['release', 'upload', rollingTag, ...assets, '--clobber'])
     } else {
       execFileSync('gh', [
         'release',
         'create',
-        'edge',
+        rollingTag,
         '--target',
         sha,
         '--prerelease',
         '--title',
-        `edge (${version})`,
+        `${rollingTag} (${version})`,
         '--notes',
-        `Rolling edge build ${version}`,
+        `Rolling ${p.channel} build ${version}`,
         ...assets,
       ])
     }
@@ -777,9 +802,11 @@ async function main(): Promise<void> {
   // its own refusal instead of being reported as merely unknown.
   assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
   const args = parseReleaseArgs(process.argv.slice(2))
-  const channel = args.value('--channel') ?? 'edge'
-  if (channel !== 'stable' && channel !== 'edge') throw new Error(`unknown channel ${channel}`)
-  const tag = channel === 'stable' ? (args.value('--tag') ?? '') : 'edge'
+  const channel = (args.value('--channel') ?? 'edge') as PublishChannel
+  if (channel !== 'stable' && channel !== 'edge' && channel !== 'dev')
+    throw new Error(`unknown channel ${channel}`)
+  // A rolling channel publishes onto a tag named after itself; only stable is told its tag.
+  const tag = channel === 'stable' ? (args.value('--tag') ?? '') : channel
   const prepareArch = args.value('--prepare-arch')
   const publishDir = args.value('--publish-dir')
   const prepareCross = args.flag('--prepare-cross')

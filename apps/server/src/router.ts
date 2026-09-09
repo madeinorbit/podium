@@ -259,7 +259,8 @@ const fleet = fleetProcedures({
           publicUrl,
           pairCode,
           podiumManaged,
-          channel: resolveUpdateChannel(config) === 'stable' ? 'stable' : 'edge',
+          // Passed through rather than collapsed: a dev server hands out a dev join command.
+          channel: resolveUpdateChannel(config),
         })
       : null
   },

@@ -18,11 +18,16 @@ const BARE_LINUX_FETCH = [
   'sh "$tmp" "$@"',
 ].join('; ')
 
-/** Keep a new daemon on the same release train as the server that admitted it. */
-function installerUrl(channel: 'stable' | 'edge'): string {
-  return channel === 'edge'
-    ? RELEASE_BASE + '/download/edge/install.sh'
-    : RELEASE_BASE + '/latest/download/install.sh'
+/**
+ * Keep a new daemon on the same release train as the server that admitted it.
+ *
+ * A rolling channel (`edge`, `dev`) publishes onto a standing tag named after itself, so its
+ * installer URL is constant; only stable moves, and `releases/latest` is what tracks it.
+ */
+function installerUrl(channel: JoinReleaseChannel): string {
+  return channel === 'stable'
+    ? RELEASE_BASE + '/latest/download/install.sh'
+    : `${RELEASE_BASE}/download/${channel}/install.sh`
 }
 /**
  * Build the ready-to-paste join command for a new machine. The outer POSIX-sh
@@ -33,12 +38,20 @@ function installerUrl(channel: 'stable' | 'edge'): string {
  *
  * Throws when no `publicUrl` is configured yet (setup not finished).
  */
+/**
+ * The channels a join command can name. `dev` is here so a server running a hand-cut dev
+ * build hands out a command that installs THAT train rather than silently redirecting the
+ * new machine onto edge — the paste is the whole point, and a paste you have to edit is a
+ * paste that gets edited wrong.
+ */
+export type JoinReleaseChannel = 'stable' | 'edge' | 'dev'
+
 export function buildJoinCommand(p: {
   publicUrl?: string
   pairCode: string
   podiumManaged?: boolean
   name?: string
-  channel?: 'stable' | 'edge'
+  channel?: JoinReleaseChannel
 }): string {
   if (!p.publicUrl) {
     throw new Error('No public URL configured yet — finish setup (networking step) first.')

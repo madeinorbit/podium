@@ -183,6 +183,15 @@ describe('legacyPairingNotice', () => {
 })
 
 describe('the legacy pairing notice is actually wired into publishing', () => {
+  // `dev` is cut by hand and installed on purpose, so there is no population of pre-pairing
+  // installs following it to strand — the notice would be noise on every dev cut [POD-3274].
+  it('says nothing on the dev channel, with or without a staged desktop manifest', () => {
+    expect(legacyPairingNotice({ channel: 'dev', headlessVersion: '0.2.0' })).toBeUndefined()
+    expect(
+      legacyPairingNotice({ channel: 'dev', headlessVersion: '0.2.0', desktopVersion: '0.1.0' }),
+    ).toBeUndefined()
+  })
+
   // A notice nothing prints is not a notice. Driving `publishPreparedHeadless`
   // for real would need a full staged bundle set AND a GH_TOKEN, and would then
   // be one edit away from shelling out to `gh`, so the wiring is pinned

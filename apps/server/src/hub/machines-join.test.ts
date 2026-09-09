@@ -53,6 +53,20 @@ describe('buildJoinCommand', () => {
     )
   })
 
+  // The whole value of the join command is that it is PASTED. A server running a hand-cut dev
+  // build used to hand out an `edge` command, so the operator either installed the wrong train
+  // or edited the line by hand — and an edited paste is the one that goes wrong [POD-3274].
+  it('hands out the dev train when the server runs dev', () => {
+    const line = buildJoinCommand({
+      publicUrl: 'https://box.ts.net',
+      pairCode: 'AB12',
+      channel: 'dev',
+    })
+    expect(line).toContain(
+      'https://github.com/madeinorbit/podium/releases/download/dev/install.sh --channel dev --agents codex,claude-code,grok --managed --join ',
+    )
+  })
+
   it('produces valid POSIX shell syntax', () => {
     const line = buildJoinCommand({
       publicUrl: 'https://box.ts.net',

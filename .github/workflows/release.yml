@@ -2,7 +2,22 @@ name: release
 on:
   push:
     tags: ['v*']              # v0.2.0 → stable; v0.2.0-edge.1 → rolling edge
-  workflow_dispatch:          # → rolling edge headless assets only
+  workflow_dispatch:          # → rolling headless assets on the channel picked below
+    inputs:
+      channel:
+        description: Rolling channel to publish headless assets onto
+        required: true
+        default: edge
+        type: choice
+        options:
+          - edge
+          # A build cut by hand to be installed and tried, onto the standing `dev` release
+          # the desktop shell already publishes to [POD-3274]. It shares that tag and nothing
+          # else: the asset names are disjoint, and a machine following the dev UPDATE channel
+          # still takes its headless target from its own source server, never from here. So
+          # `dev` here is a DOWNLOAD BASE for testing an install end to end, and publishing it
+          # cannot move any machine that is already running.
+          - dev
 permissions:
   contents: write
 # An -edge. prerelease tag publishes to the rolling `edge` release rather than minting a stable
@@ -13,10 +28,13 @@ env:
   # `path`. The default is durable and outside the checkout (POD-3162), which is what a
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
   PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
-  PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}
-  PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
+  # `inputs.channel` is a required choice with a default, so it is never the empty string and
+  # cannot trip the Actions ternary bug the desktop workflow documents. A rolling channel's TAG
+  # is its own name; only stable is told a tag, and its tag is the ref that triggered it.
+  PODIUM_RELEASE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || 'stable') }}
+  PODIUM_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || github.ref_name) }}
 concurrency:
-  group: headless-release-${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
+  group: headless-release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || github.ref_name) }}
   cancel-in-progress: false
 jobs:
   # ONE LINUX JOB, FOUR PLATFORMS [spec:SP-6144 section 8b].
@@ -263,6 +281,13 @@ jobs:
   published-smoke:
     name: published headless update smoke
     needs: publish
+    # NOT RUN FOR `dev`, and that is the channel's semantics rather than a gap. The smoke
+    # drives a daemon at PODIUM_UPDATE_CHANNEL=dev, whose feed is a source server's own
+    # (release-target.ts) — there is no GitHub feed for it to find, so the check could only
+    # be waived, and a waived check reads as a pass. What dev publishes IS verified: the
+    # signature and asset checks in `publish` are channel-independent.
+    # `env` is not in scope for a job-level `if`, so this reads the input directly.
+    if: github.event_name != 'workflow_dispatch' || inputs.channel != 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
