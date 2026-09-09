@@ -58,6 +58,7 @@ import { startMachineUpdateControl } from '@podium/runtime/machine-update-contro
 import {
   createMachineSupervisorConnection,
   effectiveAssignment,
+  claimSupervisorGeneration,
   loadSupervisorState,
   reconcileSupervisorAssignment,
   targetTransferRecovery,
@@ -1584,6 +1585,14 @@ export async function main(
       let configuredAssignment = reconcileSupervisorAssignment(supervisorState, config)
       supervisorState.assignment = configuredAssignment
       saveSupervisorState(stateDir(), supervisorState)
+      /**
+       * WHICH INCARNATION OF THIS MACHINE'S PARENT THIS PROCESS IS (POD-3752).
+       * Claimed once, here, before anything can speak for the machine: it rides
+       * in the supervisor hello, and the server refuses one that is older than
+       * the incarnation already attached. Claimed even when this process never
+       * attaches (no server, no credential yet) so the counter cannot repeat.
+       */
+      const supervisorGeneration = claimSupervisorGeneration(supervisorState, stateDir())
       let runningAssignment = effectiveAssignment({
         configured: configuredAssignment,
         agentExecutionLockout: config.agentExecutionLockout,
@@ -1627,6 +1636,7 @@ export async function main(
           supervisorConnection?.reconfigure()
         },
         runningIdentity: { version: appVersion, digest: runningDigest },
+        supervisorGeneration,
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
           PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
@@ -1781,6 +1791,7 @@ export async function main(
           appVersion,
           wireSchemaDigest: wireSchemaDigest(),
           installKind: installedPayload ? 'installed' : 'source',
+          supervisorGeneration,
         },
         deliveryCaps,
         report: () =>

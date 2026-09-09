@@ -31,6 +31,42 @@ soaking on the new updater.
   build/version/update-delivery reporting, daemon-driven presence/last-seen writes, direct
   Desktop daemon spawning (Desktop supervises the parent instead).
 
+## 1a. Incarnation fence on the attach side (POD-3752, added 2026-09-09)
+
+The fence above ("old attachment cannot detach the successor") covered DETACH only.
+Attach stayed last-writer-wins, and on the coordinator that is not a theoretical gap: the
+server dies between the outgoing parent and its successor, so the outgoing parent's socket,
+the successor's and the new daemon's all reconnect on independent backoff. Which hello lands
+last is a lottery. When the outgoing parent's won it wrote the version it was about to stop
+running onto the row and took the map slot the successor held — and neither could be
+repaired, because §9 forbids the supervised daemon from writing the build and the successor
+had no reason to say hello again. Observed on ludovico 2026-09-09: the row stayed on the old
+version and the machine showed `restarting` for ever.
+
+- Every parent incarnation carries a **monotonic generation** in its supervisor hello
+  (`PeerBuild.supervisorGeneration`): a successor gets its predecessor's number plus one
+  through the handover env, a plain boot takes the number persisted in `supervisor.json`
+  plus one. Host-local, clock-free, never compared across machines, never authorization —
+  the machine identity still comes from the credential.
+- `attachSupervisor` **refuses** a hello whose generation is older than the LIVE attached
+  supervisor's: no row write, no map displacement, nothing broadcast. Equal (an ordinary
+  reconnect) or newer replaces, as before.
+- The refusal is **temporary by design** — the successor may still abort, and then the
+  predecessor is the one that has to be there — so the socket is closed WITHOUT a rejection
+  frame, and the peer's ordinary reconnect backoff carries it. Nothing is remembered about
+  a refused peer: once the newer socket closes, an older incarnation may attach again.
+- The refusal happens BEFORE the handshake is answered, so no frame from a superseded
+  incarnation is ever admitted — an outgoing parent still sends `updateStatus`, and one
+  accepted from the wrong incarnation is execution proof for a grant the successor is
+  running.
+- **Missing generation reads as 0** (§9 compatibility): a parent from a build that predates
+  the fence can attach when nothing newer is attached, and can never displace one that is.
+
+Two adjacent facts this does NOT cover, tracked separately: the outgoing parent keeps
+dialling at all between spawning its successor and exiting (it should cede), and the
+successor's health gate proves "a server on the port reports v1", not "MY server reports
+v1" — version is not identity either.
+
 ## 2. Service control: server-driven with a local lockout
 
 **Scope.** The "does this machine host agents / a server" assignment is **per-machine**.

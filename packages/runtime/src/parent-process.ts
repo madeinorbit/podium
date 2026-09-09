@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
 import { readDaemonHealth } from './daemon-health'
+import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -116,6 +117,12 @@ export interface ParentProcessDeps {
   installDir?: string
   /** Boot-captured supervisor identity, required by the machine updater. */
   runningIdentity?: { version: string; digest?: string }
+  /**
+   * This incarnation's number (POD-3752), claimed by the composition root. Only
+   * this process knows it for certain, so the successor is TOLD its own rather
+   * than left to work it out from a file two live parents share.
+   */
+  supervisorGeneration?: number
   /**
    * Where `run/` lives. Distinct from `installDir`: a rollback RENAMES the
    * install directory, so the control files must not be inside it. Defaults to
@@ -1003,6 +1010,7 @@ export class ParentProcess {
     delete childEnv.INVOCATION_ID
     // Nor the handover markers: a child is not a successor parent.
     delete childEnv[PARENT_SUCCESSOR_ENV]
+    delete childEnv[PARENT_GENERATION_ENV]
     delete childEnv[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     delete childEnv[PARENT_POST_UPDATE_ENV]
     delete childEnv[PARENT_RELEASE_MIGRATIONS_ENV]
@@ -1229,6 +1237,13 @@ export class ParentProcess {
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       [PARENT_SUCCESSOR_ENV]: '1',
+      // The successor is the NEXT incarnation of this machine's parent, and it
+      // has to be able to say so before it says anything else: from here until
+      // this parent exits both of them are dialling the same server, and the
+      // one on its way out must not be able to write the row (POD-3752).
+      ...(this.deps.supervisorGeneration !== undefined
+        ? { [PARENT_GENERATION_ENV]: String(this.deps.supervisorGeneration + 1) }
+        : {}),
       [PARENT_HANDOVER_DEADLINE_ENV]: String(deadline),
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',

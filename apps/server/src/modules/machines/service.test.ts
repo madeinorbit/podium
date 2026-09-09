@@ -309,6 +309,84 @@ describe('MachinesService supervisor presence', () => {
     expect(old).toHaveLength(1)
   })
 
+  /**
+   * POD-3752. The observed coordinator handover: the successor parent attaches,
+   * and 15 ms later the OUTGOING parent's own reconnect lands on the successor's
+   * server carrying the version it is about to stop running. Arrival order is not
+   * identity — the incarnation number is, and an older one may not write the row
+   * or take the map slot the successor holds.
+   */
+  test('refuses a superseded parent hello and leaves the successor owning the row', async () => {
+    const { svc } = await storedService()
+    const outgoing: MachineSupervisorControlMessage[] = []
+    const successor: MachineSupervisorControlMessage[] = []
+    const outgoingSend = (message: MachineSupervisorControlMessage) => outgoing.push(message)
+    const successorSend = (message: MachineSupervisorControlMessage) => successor.push(message)
+    const oldBuild = { ...build, appVersion: '0.5.0', supervisorGeneration: 7 }
+    const newBuild = { ...build, appVersion: '0.5.1', supervisorGeneration: 8 }
+
+    expect(await svc.attachSupervisor(MACHINE, outgoingSend, oldBuild, [])).toBe('attached')
+    expect(await svc.attachSupervisor(MACHINE, successorSend, newBuild, [])).toBe('attached')
+    // The late reconnect of the parent that is on its way out.
+    expect(await svc.attachSupervisor(MACHINE, outgoingSend, oldBuild, [])).toBe('superseded')
+
+    expect((await svc.listMachines())[0]).toMatchObject({
+      appVersion: '0.5.1',
+      presenceSource: 'supervisor',
+    })
+    // No map displacement either: the grant still reaches the successor.
+    svc.toMachine(MACHINE, grant)
+    expect(successor.at(-1)).toEqual(grant)
+    // ...and the outgoing parent's close cannot detach the successor.
+    expect(await svc.detachSupervisor(MACHINE, outgoingSend)).toBe(false)
+    expect((await svc.listMachines())[0]).toMatchObject({ appVersion: '0.5.1' })
+  })
+
+  /** Rollback: once the newer incarnation's socket is gone, an older one may serve again. */
+  test('lets an older incarnation attach again after the newer socket closes', async () => {
+    const { svc } = await storedService()
+    const outgoingSend = (_message: MachineSupervisorControlMessage) => {}
+    const successorSend = (_message: MachineSupervisorControlMessage) => {}
+    const oldBuild = { ...build, appVersion: '0.5.0', supervisorGeneration: 7 }
+    const newBuild = { ...build, appVersion: '0.5.1', supervisorGeneration: 8 }
+
+    await svc.attachSupervisor(MACHINE, successorSend, newBuild, [])
+    expect(await svc.detachSupervisor(MACHINE, successorSend)).toBe(true)
+    expect(await svc.attachSupervisor(MACHINE, outgoingSend, oldBuild, [])).toBe('attached')
+    expect((await svc.listMachines())[0]).toMatchObject({ appVersion: '0.5.0' })
+  })
+
+  /**
+   * Mixed fleet: a parent from a build that predates the fence sends no number at
+   * all. It reads as incarnation 0 — it can serve when nothing newer is attached,
+   * and can never displace one that is.
+   */
+  test('treats a hello without an incarnation number as the oldest one', async () => {
+    const { svc } = await storedService()
+    const unstamped = (_message: MachineSupervisorControlMessage) => {}
+    const stamped = (_message: MachineSupervisorControlMessage) => {}
+
+    const legacy = { ...build, appVersion: '0.5.0' }
+    const fenced = { ...build, appVersion: '0.5.1', supervisorGeneration: 1 }
+
+    expect(await svc.attachSupervisor(MACHINE, unstamped, legacy, [])).toBe('attached')
+    expect(await svc.attachSupervisor(MACHINE, stamped, fenced, [])).toBe('attached')
+    expect(await svc.attachSupervisor(MACHINE, unstamped, legacy, [])).toBe('superseded')
+    expect((await svc.listMachines())[0]).toMatchObject({ appVersion: '0.5.1' })
+  })
+
+  /** An ordinary reconnect of the SAME incarnation is not a supersession. */
+  test('lets the attached incarnation reconnect on a new socket', async () => {
+    const { svc } = await storedService()
+    const first = (_message: MachineSupervisorControlMessage) => {}
+    const second = (_message: MachineSupervisorControlMessage) => {}
+    const stamped = { ...build, supervisorGeneration: 3 }
+
+    await svc.attachSupervisor(MACHINE, first, stamped, [])
+    expect(await svc.attachSupervisor(MACHINE, second, stamped, [])).toBe('attached')
+    expect(await svc.detachSupervisor(MACHINE, first)).toBe(false)
+  })
+
   test('uses the same thirty-second grace before a detached supervisor becomes offline', async () => {
     vi.useFakeTimers()
     try {

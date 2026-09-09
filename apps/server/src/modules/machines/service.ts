@@ -38,6 +38,7 @@ import type {
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
+import { supervisorGenerationOf } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -108,6 +109,14 @@ export type MachineListing = MachineWire
 
 /** The machine's position relative to the version this server says it should run. */
 export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+/**
+ * What became of a supervisor hello. `superseded` is a REFUSAL, not a failure:
+ * the peer is a live parent that has already been replaced on this machine, and
+ * it must keep dialling (its successor may yet abort), so the socket is closed
+ * without a rejection frame and the ordinary reconnect backoff carries it.
+ */
+export type SupervisorAttachOutcome = 'attached' | 'superseded'
 
 export function deriveServerMoveEligibility(input: {
   currentServer: boolean
@@ -259,6 +268,8 @@ export class MachinesService {
       send: Send<MachineSupervisorControlMessage>
       build: PeerBuild
       caps: string[]
+      /** This attachment's incarnation — the half of the fence attach reads. */
+      generation: number
     }
   >()
   /** Compatibility-only server-local participant. A supervisor always wins. */
@@ -403,16 +414,59 @@ export class MachinesService {
     )
   }
 
+  /**
+   * Is this hello from an incarnation OLDER than the one currently attached?
+   *
+   * The gateway has to ask BEFORE it answers the handshake — a refusal must not
+   * establish, or the peer's frames would be admitted for the length of one
+   * round trip — while {@link MachineService.attachSupervisor} asks again as its
+   * own first act, for callers that reach it directly. One predicate, so the two
+   * cannot drift; no await between the two questions, so nothing can attach in
+   * between.
+   */
+  supervisorSuperseded(machineId: MachineId, build: PeerBuild): boolean {
+    const attached = this.attachedSupervisorGeneration(machineId)
+    return attached !== undefined && attached > supervisorGenerationOf(build)
+  }
+
+  /** The incarnation currently holding this machine's supervisor slot, for the
+   *  refusal log: "which one am I behind?" is the first question a human asks. */
+  attachedSupervisorGeneration(machineId: MachineId): number | undefined {
+    return this.supervisors.get(machineId)?.generation
+  }
+
+  /**
+   * Admit a parent's machine socket, or refuse it as an older incarnation.
+   *
+   * THE FENCE IS ON BOTH SIDES OF THE HANDOVER NOW (POD-3752). Detach was
+   * already fenced by socket identity, but attach was last-writer-wins, and on
+   * the coordinator the server dies between the outgoing parent and its
+   * successor: all three clients then reconnect on independent backoff, so
+   * which hello lands last is a lottery. When the outgoing parent's won, it
+   * wrote the version it was about to stop running onto the row and took the
+   * map slot the successor held — and nothing could repair either, because a
+   * supervised daemon does not report the build and the successor had no reason
+   * to say hello again. The row stayed on the old version, the update never
+   * settled, and the machine showed `restarting` for ever.
+   *
+   * So an incarnation OLDER than the one attached is refused outright: no row
+   * write, no map displacement, nothing broadcast. Equal (an ordinary
+   * reconnect) or newer replaces, as before. Nothing is remembered about the
+   * refused peer, which is what lets the abort path work: once the newer
+   * socket closes the map is empty, and the predecessor can serve again.
+   */
   async attachSupervisor(
     machineId: MachineId,
     send: Send<MachineSupervisorControlMessage>,
     build: PeerBuild,
     caps: string[],
-  ): Promise<void> {
+  ): Promise<SupervisorAttachOutcome> {
+    if (this.supervisorSuperseded(machineId, build)) return 'superseded'
+    const generation = supervisorGenerationOf(build)
     // Fenced replacement: the old socket may still close, but cannot detach this one.
-    this.supervisors.set(machineId, { send, build, caps: [...caps] })
+    this.supervisors.set(machineId, { send, build, caps: [...caps], generation })
     this.clearPresenceGrace(machineId)
-    if (this.presenceReadOnly) return
+    if (this.presenceReadOnly) return 'attached'
     await this.deps.store.machines.setMachineBuild(
       machineId,
       build,
@@ -422,6 +476,7 @@ export class MachinesService {
     )
     this.invalidateMachineCache()
     send({ type: 'serviceAssignment', assignment: await this.serviceAssignment(machineId) })
+    return 'attached'
   }
 
   async detachSupervisor(

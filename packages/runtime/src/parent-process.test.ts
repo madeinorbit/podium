@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveLoggingMode } from './config'
 import { configureProcessLogging } from './logging'
+import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
@@ -847,6 +848,54 @@ describe('ParentProcess', () => {
     await parent.handover('2.0.0')
 
     expect(successorEnv?.[PARENT_RELEASE_MIGRATIONS_ENV]).toBe('1')
+  })
+
+  /**
+   * POD-3752: the successor has to be able to say it is the NEXT incarnation of
+   * this machine's parent. Both parents dial the same server between the spawn
+   * and this one's exit, and the server keeps whichever incarnation is newer —
+   * so a successor that could not name its own would let the parent on its way
+   * out overwrite the machine's version with the one it is about to stop
+   * running. A child (server, daemon) is not an incarnation and must not
+   * inherit the number.
+   */
+  it('hands the successor the next incarnation number, and no child any', async () => {
+    const clock = fakeClock()
+    let successorEnv: NodeJS.ProcessEnv | undefined
+    const childEnvs = new Map<string, NodeJS.ProcessEnv>()
+    let nextPid = 820
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      if (args[0] === 'parent') successorEnv = options.env
+      else childEnvs.set(String(args[0]), options.env as NodeJS.ProcessEnv)
+      return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+    }
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        env: {
+          PODIUM_APP_VERSION: '1.0.0',
+          NOTIFY_SOCKET: '/dev/null',
+          // The predecessor's own marker: a successor's env carries one, and it
+          // must be REPLACED for the next one, never passed along unchanged.
+          [PARENT_GENERATION_ENV]: '11',
+        },
+        children: ['server'],
+        supervisorGeneration: 12,
+        spawn: spawnImpl,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: () => {},
+        sleep: async () => clock.advance(250),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(childEnvs.get('server')?.[PARENT_GENERATION_ENV]).toBeUndefined()
+    await parent.handover('2.0.0')
+
+    expect(successorEnv?.[PARENT_GENERATION_ENV]).toBe('13')
   })
 
   /**
