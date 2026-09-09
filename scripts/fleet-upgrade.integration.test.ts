@@ -60,6 +60,16 @@ const started: ChildProcess[] = []
 const servers: ServerHandle[] = []
 /** Every pid this file ever observed, so the reaper can prove the box is clean. */
 const observedPids = new Set<number>()
+/**
+ * Every state directory a fixture stack was pointed at. The reaper reads each
+ * one's `run/fixture-spawns.log`, which is the ONLY complete record of what this
+ * file started: `pgrep -P` finds a child only while its parent is still alive,
+ * and by the time a case ends its parents have often exited — on purpose, in
+ * every handover arm — leaving their server and daemon reparented to init and
+ * invisible to a walk from the top. A first run of this suite left eleven such
+ * orphans on the box for six minutes before the ledger was read instead.
+ */
+const machineStateDirs: string[] = []
 
 function alive(pid: number): boolean {
   try {
@@ -67,6 +77,24 @@ function alive(pid: number): boolean {
     return true
   } catch (error) {
     return (error as NodeJS.ErrnoException)?.code === 'EPERM'
+  }
+}
+
+/**
+ * Is this pid still one of OURS?
+ *
+ * The reaper works from a ledger of pids written minutes earlier, and a pid is
+ * a recycled number, not a handle. On a shared box — this suite's home is the
+ * machine that hosts the operator's own Podium — signalling a stale number is
+ * signalling whoever holds it now. So every pid is re-identified from its own
+ * command line immediately before it is signalled, and a pid that no longer
+ * names the fixture is left alone rather than assumed dead.
+ */
+function isFixtureProcess(pid: number): boolean {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('parent-stack-fixture')
+  } catch {
+    return false
   }
 }
 
@@ -202,11 +230,37 @@ class Coordinator {
    * The deadline NAMES the missing event on a regression and never runs on the
    * passing path — the events land in single-digit milliseconds.
    */
+  /**
+   * Deadline for a transition between processes that are ALREADY running. The
+   * events land in single-digit milliseconds, so this never runs on the passing
+   * path; it exists to name the missing event on a regression.
+   */
+  static readonly TRANSITION_BUDGET_MS = 30_000
+  /**
+   * Deadline for the first attach of a process that has just been SPAWNED. A
+   * different quantity, and it has to be: the child is a cold `bun` that
+   * transpiles and imports the whole runtime before it can dial, which on a
+   * loaded box with a cold module cache is tens of seconds. Measured here on
+   * ludovico: 2.8s for the whole of ARM A with a warm cache, and over 30s for
+   * one attach on the first run after `setup:worktree`. Sharing one budget
+   * between the two made a cold cache look exactly like a fence that refused
+   * the peer.
+   */
+  static readonly SPAWN_BUDGET_MS = 90_000
+
   observes(
     event: 'machine.connected' | 'machine.disconnected',
     match?: MachineId | ((machineId: MachineId) => boolean),
-    ms = 30_000,
+    /**
+     * `context` is read ONLY on the failing path, and it is what turns "the
+     * event never came" into a diagnosis: the peer that should have caused it
+     * is a separate process, so its own account of what it was doing is the
+     * only thing that can say whether it never dialled, dialled and was
+     * refused, or attached to something else.
+     */
+    opts: { ms?: number; context?: () => string } = {},
   ): Promise<MachineId> {
+    const ms = opts.ms ?? 30_000
     const wanted =
       match === undefined
         ? () => true
@@ -220,7 +274,7 @@ class Coordinator {
           new Error(
             `the coordinator never observed ${event}${
               typeof match === 'string' ? ` for ${match}` : ''
-            }`,
+            }${opts.context ? `\npeer log:\n${opts.context()}` : ''}`,
           ),
         )
       }, ms)
@@ -256,7 +310,12 @@ interface FleetParent {
   output: () => string
   spawns: (role: string) => number[]
   notifications: () => string[]
-  supervisorState: () => { machineId: string; token?: string; generation?: number }
+  supervisorState: () => {
+    machineId: string
+    token?: string
+    updatePubkey?: string
+    generation?: number
+  }
   legacyState: () => { machineId: string; token?: string } | undefined
 }
 
@@ -269,6 +328,7 @@ async function startFleetParent(
   options: FleetParentOptions = {},
 ): Promise<FleetParent> {
   const stateDir = options.stateDir ?? (await temporaryRoot('machine'))
+  if (!machineStateDirs.includes(stateDir)) machineStateDirs.push(stateDir)
   const installDir = stateDir
   const port = await freePort()
   const version = options.version ?? '1.0.0'
@@ -313,6 +373,7 @@ async function startFleetParent(
     (readJson('supervisor.json') ?? {}) as {
       machineId: string
       token?: string
+      updatePubkey?: string
       generation?: number
     }
   // The parent writes `supervisor.json` before it says anything, so this is the
@@ -409,11 +470,22 @@ afterEach(async () => {
   for (const child of started.splice(0)) {
     if (child.pid) observedPids.add(child.pid)
   }
+  // THE LEDGER FIRST, then the process tree. Every fixture role appends its pid
+  // to `run/fixture-spawns.log` as its first act, so this is the complete set
+  // regardless of who is still alive to be walked down from.
+  for (const stateDir of machineStateDirs.splice(0)) {
+    const ledger = join(stateDir, 'run', 'fixture-spawns.log')
+    if (!existsSync(ledger)) continue
+    for (const line of readFileSync(ledger, 'utf8').split('\n')) {
+      const pid = Number(line.split(' ')[1])
+      if (Number.isInteger(pid) && pid > 0) observedPids.add(pid)
+    }
+  }
   for (const pid of [...observedPids]) {
     if (alive(pid)) for (const kid of childrenOf(pid)) observedPids.add(kid)
   }
-  for (const pid of observedPids) {
-    if (!alive(pid)) continue
+  const ours = [...observedPids].filter((pid) => alive(pid) && isFixtureProcess(pid))
+  for (const pid of ours) {
     try {
       process.kill(pid, 'SIGTERM')
     } catch {
@@ -421,10 +493,10 @@ afterEach(async () => {
     }
   }
   const deadline = Date.now() + 8_000
-  while (Date.now() < deadline && [...observedPids].some(alive)) {
+  while (Date.now() < deadline && ours.some((pid) => alive(pid) && isFixtureProcess(pid))) {
     await new Promise((r) => setTimeout(r, 100))
   }
-  const stubborn = [...observedPids].filter(alive)
+  const stubborn = ours.filter((pid) => alive(pid) && isFixtureProcess(pid))
   for (const pid of stubborn) {
     try {
       process.kill(pid, 'SIGKILL')
@@ -445,10 +517,26 @@ afterEach(async () => {
  * machine that comes back is the same machine to the server — which is the
  * thing being proved, not something being arranged.
  */
-function rewindToLegacyInstall(parent: FleetParent): { machineId: string; token: string } {
+function rewindToLegacyInstall(parent: FleetParent): {
+  machineId: string
+  token: string
+  updatePubkey: string
+} {
   const current = parent.supervisorState()
   expect(current.token, 'the machine paired and holds a coordinator-issued token').toBeTruthy()
-  const legacy = { machineId: current.machineId, token: current.token as string }
+  // THE UPDATE KEY IS PART OF THE CREDENTIAL, and the acceptance sentence names
+  // it: a machine that pinned the coordinator's update key on the old build must
+  // carry that pin across the upgrade. It is also the half that can lock a
+  // machine out on its own — `persistHandshake` refuses the machine plane
+  // outright when a pinned key does not match what the server offers — so
+  // importing it is not merely tidy, it is the difference between an upgrade and
+  // a machine that can never speak again.
+  expect(current.updatePubkey, 'the coordinator pinned an update key at pairing').toBeTruthy()
+  const legacy = {
+    machineId: current.machineId,
+    token: current.token as string,
+    updatePubkey: current.updatePubkey as string,
+  }
   writeFileSync(join(parent.stateDir, 'daemon.json'), JSON.stringify(legacy, null, 2))
   unlinkSync(join(parent.stateDir, 'supervisor.json'))
   return legacy
@@ -477,7 +565,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '0.1.0',
     })
-    await coordinator.observes('machine.connected', beforeUpgrade.machineId)
+    await coordinator.observes('machine.connected', beforeUpgrade.machineId, {
+      context: beforeUpgrade.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     expect(await coordinator.row(beforeUpgrade.machineId)).toMatchObject({
       appVersion: '0.1.0',
       installKind: 'installed',
@@ -499,7 +590,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       stateDir: beforeUpgrade.stateDir,
       version: '0.2.0-new-supervisor',
     })
-    await coordinator.observes('machine.connected', upgraded.machineId)
+    await coordinator.observes('machine.connected', upgraded.machineId, {
+      context: upgraded.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
 
     expect(upgraded.machineId, 'the upgrade is the SAME machine, not a new one').toBe(
       legacy.machineId,
@@ -508,6 +602,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       upgraded.supervisorState().token,
       'the credential was imported out of the legacy file, not re-paired',
     ).toBe(legacy.token)
+    expect(
+      upgraded.supervisorState().updatePubkey,
+      'and so was the pinned update key, which the new build must honour rather than replace',
+    ).toBe(legacy.updatePubkey)
     expect(
       upgraded.legacyState(),
       'daemon.json is left in place, because an older build may still read it',
@@ -565,7 +663,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       version: '0.2.0',
     })
     for (const machine of [unstamped, stampedOne, stampedTwo]) {
-      await coordinator.observes('machine.connected', machine.machineId)
+      await coordinator.observes('machine.connected', machine.machineId, {
+        context: machine.output,
+        ms: Coordinator.SPAWN_BUDGET_MS,
+      })
     }
 
     // THE WAVE'S STARTING POSITION: every machine present, every row its own
@@ -595,7 +696,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // re-fence — at which point `detachSupervisor` returns false, because it no
     // longer holds the slot, and no `machine.disconnected` is emitted. The
     // transition to wait for is the winner's attach.
-    const stampedAttached = coordinator.observes('machine.connected', unstamped.machineId)
+    const stampedAttached = coordinator.observes('machine.connected', unstamped.machineId, {
+      context: () => 'the stamped incarnation had not attached yet',
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     const stampedIncarnation = await startFleetParent(coordinator, {
       stateDir: takeoverDir,
       version: '0.2.0',
@@ -615,15 +719,42 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       'the row belongs to the incarnation that is actually running',
     ).toBe('0.2.0')
 
-    // The unstamped parent is still alive and still redialling on its backoff
-    // ladder. Every one of those hellos is refused — the row must not flap back
-    // to 0.1.0 while a newer incarnation holds the machine.
-    await new Promise((r) => setTimeout(r, 3_000))
+    // NOW MAKE THE SUPERSEDED PARENT SPEAK, which is the half of this that a
+    // quiet peer would never reach. Displacement does not close its socket: it
+    // still believes it holds the machine, and on a mixed fleet its build has no
+    // cede (POD-3765) to keep it off the wire. So it goes on reporting the
+    // moment anything local happens to it — and a `machineReport` accepted from
+    // the wrong sender stamps ITS services onto the attached supervisor's build.
+    //
+    // Killing its daemon child is the smallest real local event: the parent
+    // notices, restarts the child, publishes a snapshot, and the report goes out
+    // over the socket it still holds open. A new daemon spawn in its own ledger
+    // is the evidence that it really did notice, so this waits for that rather
+    // than for a duration.
+    const daemonPid = Number(
+      readFileSync(join(unstamped.stateDir, 'run', 'fixture-daemon.alive'), 'utf8').trim(),
+    )
+    const daemonSpawnsBefore = unstamped.spawns('daemon').length
+    process.kill(daemonPid, 'SIGKILL')
+    await until(
+      () =>
+        unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined,
+      `the superseded parent to restart its daemon, and so to report; log:\n${unstamped.output()}`,
+      30_000,
+    )
+    // Its frame met the message-path re-fence, its socket was terminated, and
+    // its dialer has been redialling into the attach fence ever since. Long
+    // enough for several rungs of a ladder capped at 5s.
+    await new Promise((r) => setTimeout(r, 8_000))
     expect(
       (await coordinator.row(unstamped.machineId))?.appVersion,
-      'a superseded incarnation cannot write the row, however often it redials',
+      'a superseded incarnation cannot write the row, however often it speaks or redials',
     ).toBe('0.2.0')
-    expect(unstamped.process.exitCode, 'and it is refused by a close, not killed').toBeNull()
+    expect(
+      coordinator.machines.attachedSupervisorGeneration(unstamped.machineId),
+      'and the slot still belongs to the incarnation that is running the machine',
+    ).toBe(1)
+    expect(unstamped.process.exitCode, 'refusal is a close, not a kill').toBeNull()
 
     // THE LOCKOUT TEST. The stamped incarnation goes away. Nothing is remembered
     // about the peer that was refused, so the unstamped parent's next redial —
@@ -672,7 +803,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '1.0.0',
     })
-    await coordinator.observes('machine.connected', machine.machineId)
+    await coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
@@ -686,7 +820,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // hundreds of milliseconds away — but "probably later" is how the race in
     // POD-3789 was missed, and a listener costs nothing.
     const ceded = coordinator.observes('machine.disconnected', machine.machineId)
-    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
 
     // The "update": the new bundle is on disk, and the parent is asked to hand
     // over to it through the real request channel.
@@ -767,7 +904,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       pairCode: coordinator.pairCode(),
       version: '1.0.0',
     })
-    await coordinator.observes('machine.connected', machine.machineId)
+    await coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
@@ -776,7 +916,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     expect(coordinator.machines.attachedSupervisorGeneration(machine.machineId)).toBe(1)
 
     const ceded = coordinator.observes('machine.disconnected', machine.machineId)
-    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     // NOTHING ON DISK CHANGES. The bundle stays at 1.0.0, which is what makes
     // this the case where the version can distinguish nothing.
     const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
@@ -844,7 +987,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       version: '1.0.0',
       env: { FIXTURE_HANDOVER_TIMEOUT_MS: '8000' },
     })
-    await coordinator.observes('machine.connected', machine.machineId)
+    await coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     await until(
       () => (machine.notifications().includes('READY=1') ? true : undefined),
       `the outgoing parent to finish booting; log:\n${machine.output()}`,
@@ -861,7 +1007,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // The successor dials the coordinator from the moment it boots, long before
     // it is healthy — registered here, before the handover is asked for, so the
     // attach cannot land between the cede resolving and a listener appearing.
-    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId, {
+      context: machine.output,
+      ms: Coordinator.SPAWN_BUDGET_MS,
+    })
     writeFileSync(join(machine.installDir, 'VERSION'), '2.0.0\n')
     const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
     writeParentRequest(
