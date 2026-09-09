@@ -331,6 +331,69 @@ describe('parent lifecycle (real processes)', () => {
   }, 45_000)
 
   /**
+   * POD-3796. FINDING 2's case, moved one window earlier: the child crashes
+   * while `start()` is still inside its 60s health gate, before the supervision
+   * tick that restarts children exists.
+   *
+   * The daemon dies a second into the boot; the server's ready frame is held
+   * back so the gate cannot pass without it and the whole episode falls INSIDE
+   * the gate. Measured on ludovico before the fix: the crashed daemon was not
+   * respawned for 58.0s — the gate spent its entire budget waiting for a ready
+   * frame from a process that no longer existed, went degraded, and only the
+   * first supervision tick after that brought the daemon back. The stack did
+   * recover, a minute after a 1s backoff would have fixed it.
+   *
+   * So the assertion is a DURATION, not an end state: an end-state check passes
+   * on the broken code too, one minute late.
+   */
+  it('POD-3796 — a child that crashes DURING the boot gate is restarted by the gate', async () => {
+    const stack = await startStack({
+      // The gate cannot pass before this, so the crash and the restart it should
+      // provoke both happen while `start()` is still blocked in `waitForHealthy`.
+      FIXTURE_SERVER_READY_DELAY_MS: '6000',
+      FIXTURE_DAEMON_EXIT_AFTER_MS: '1000',
+      FIXTURE_DAEMON_EXIT_CODE: '1',
+    })
+    const firstDaemon = await until(
+      () => stack.spawns('daemon')[0],
+      `the first daemon; log:\n${stack.output()}`,
+    )
+    await until(() => (!alive(firstDaemon) ? true : undefined), 'the daemon to crash mid-gate')
+    const crashedAt = Date.now()
+    // The window this case is about: the gate is open, so the tick does not exist.
+    expect(stack.notifications(), 'the gate must still be running').not.toContain('READY=1')
+
+    // Generous budgets on purpose — the broken code DOES recover here, at ~60s,
+    // so these waits must not be the thing that fails. The durations below are.
+    const respawned = await until(
+      () => (stack.spawns('daemon').length >= 2 ? stack.spawns('daemon') : undefined),
+      `the daemon to be restarted; log:\n${stack.output()}`,
+      90_000,
+    )
+    const respawnGapMs = Date.now() - crashedAt
+    expect(respawned[1], 'a restart is a NEW process').not.toBe(respawned[0])
+
+    await until(
+      () => (stack.notifications().includes('READY=1') ? true : undefined),
+      `the boot gate to pass on the restarted daemon; log:\n${stack.output()}`,
+      90_000,
+    )
+    const readyGapMs = Date.now() - crashedAt
+
+    // One backoff rung is 1s. Ten seconds is far above every source of jitter on
+    // a loaded box and far below the 60s budget the broken code waited out.
+    expect(
+      respawnGapMs,
+      `the daemon was dead for ${respawnGapMs}ms before anything respawned it`,
+    ).toBeLessThan(10_000)
+    expect(
+      readyGapMs,
+      `READY came ${readyGapMs}ms after the crash (the server's frame is held 6s)`,
+    ).toBeLessThan(20_000)
+    expect(alive(stack.parentPid), 'the parent supervises throughout').toBe(true)
+  }, 120_000)
+
+  /**
    * FINDING 3, at the parent's layer: exit 78 is a REFUSAL. The child stays
    * stopped, the parent keeps running, and no restart ladder is climbed.
    */

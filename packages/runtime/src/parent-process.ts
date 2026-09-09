@@ -1090,6 +1090,14 @@ export class ParentProcess {
       last = result.detail
       if (!this.canCompleteBoot()) return settle(false, 'terminating')
       if (result.healthy) return settle(true, 'healthy')
+      // The gate SUPERVISES while it waits (POD-3796). Nothing else can: the
+      // tick is installed after `start()` returns from here. Without this a
+      // child that crashed mid-boot was never restarted, so the frame the gate
+      // is blocked on could not arrive and the budget was spent on a process
+      // that no longer existed. The gate's own verdict is unchanged — it still
+      // waits for THIS parent's child to prove itself on its private line, and
+      // still ends in the degraded path if the deadline passes.
+      await this.respawnDueChildren()
       await this.deps.sleep(200)
     }
     return settle(false, 'timed-out')
@@ -1316,6 +1324,23 @@ export class ParentProcess {
     // erase the distinction this boot gate establishes.
     if (this.bootHealthy) this.petWatchdog()
     if (this.snap.phase === 'handover_outgoing' || this.snap.phase === 'rolling_back') return
+    await this.respawnDueChildren()
+  }
+
+  /**
+   * Bring back every child whose crash backoff has come due.
+   *
+   * SHARED WITH THE BOOT GATE ON PURPOSE (POD-3796). This used to be inlined in
+   * `tick`, which meant it did not exist yet while `start()` was blocked in
+   * `waitForHealthy` — so a child that crashed DURING the boot gate stayed dead
+   * for the rest of the 60s budget. Measured on ludovico 2026-09-09: 59.6s,
+   * for a fault the first backoff rung would have cleared in 1s.
+   *
+   * The two callers are never live at the same time: `start()` awaits the gate
+   * and only then installs the tick, so exactly one of them is driving restarts
+   * at any moment and they cannot race each other onto the same child.
+   */
+  private async respawnDueChildren(): Promise<void> {
     const now = this.deps.now()
     for (const child of this.childOrder) {
       const state = this.snap.children[child]
