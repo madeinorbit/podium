@@ -1,0 +1,133 @@
+# Reusable harness for cross-platform SPIKES: run one throwaway experiment on linux,
+# macOS (arm64 + intel) and Windows, and collect what each platform actually did.
+#
+# It exists so a spike does not have to be hand-run on three machines, and so the NEXT
+# spike supplies only its own script. The workflow is the reusable artifact; the
+# experiment fixtures under scripts/experiments/<name>/ are throwaway.
+#
+# THE CONTRACT — an experiment is a directory scripts/experiments/<name>/ containing:
+#   run.ts    the entrypoint, invoked as `bun run.ts` on every runner.
+#             * writes result.json (and anything else) into $EXPERIMENT_OUT
+#             * appends a markdown summary to $GITHUB_STEP_SUMMARY if it is set
+#             * exits 0 whenever the experiment RAN — a negative finding is a result,
+#               not a CI failure. Exit non-zero only if the harness itself is broken
+#               (fixtures will not compile, a tool is missing).
+# Everything under $EXPERIMENT_OUT is uploaded as an artifact per runner.
+#
+# Because a spike branch never lands on main and workflow_dispatch only resolves
+# workflows that exist on the DEFAULT branch, drive this from a thin wrapper with a
+# temporary `push:` trigger scoped to your own branch (see ipc-pipe-spike.yml), and
+# read the results with `gh run view`.
+name: platform-experiment
+
+on:
+  workflow_call:
+    inputs:
+      experiment:
+        description: 'Directory name under scripts/experiments/'
+        required: true
+        type: string
+      runners:
+        description: 'JSON array of {runner,label} objects for the matrix'
+        required: false
+        type: string
+        default: >-
+          [{"runner":"ubuntu-latest","label":"linux-x64"},
+           {"runner":"macos-15","label":"darwin-arm64"},
+           {"runner":"macos-15-intel","label":"darwin-x64"},
+           {"runner":"windows-latest","label":"win32-x64"}]
+      bun-version:
+        description: 'Bun version to pin on every runner'
+        required: false
+        type: string
+        # Pinned, never a range: a '1.3' range has been seen resolving to 1.3.0
+        # (release.yml and windows-smoke.yml pin for the same reason).
+        default: '1.3.14'
+      install:
+        description: 'Run `bun install` first (only needed if the experiment imports workspace code)'
+        required: false
+        type: boolean
+        default: false
+      timeout-minutes:
+        required: false
+        type: number
+        default: 20
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: 'Directory name under scripts/experiments/'
+        required: true
+        type: string
+      bun-version:
+        required: false
+        type: string
+        default: '1.3.14'
+      install:
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: platform-experiment-${{ inputs.experiment }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  experiment:
+    name: ${{ inputs.experiment }} on ${{ matrix.label }}
+    # fail-fast is off on purpose: the whole point is the per-platform comparison, and
+    # one platform's failure must not hide another platform's answer.
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.runners || '[{"runner":"ubuntu-latest","label":"linux-x64"},{"runner":"macos-15","label":"darwin-arm64"},{"runner":"macos-15-intel","label":"darwin-x64"},{"runner":"windows-latest","label":"win32-x64"}]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes || 20 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun-version }}
+
+      # Bun's global virtual store is `links/` INSIDE the install cache, and every
+      # node_modules/.bun/<pkg> entry symlinks into it. On windows-latest the cache
+      # defaults to C:\ while the checkout is on D:, so those links would cross a
+      # volume. Put the cache — and so the store — on the checkout's own volume.
+      - name: Pin Bun's install cache to the checkout volume (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cache = Join-Path (Split-Path -Parent (Split-Path -Parent $env:GITHUB_WORKSPACE)) 'bun-install-cache'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "BUN_INSTALL_CACHE_DIR=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: bun install
+        if: inputs.install
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Record the runner
+        shell: bash
+        run: |
+          echo "runner=${{ matrix.runner }} label=${{ matrix.label }}"
+          echo "bun=$(bun --version)"
+          uname -a 2>/dev/null || ver
+
+      - name: Run experiment '${{ inputs.experiment }}'
+        shell: bash
+        env:
+          EXPERIMENT_OUT: ${{ github.workspace }}/experiment-out/${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          dir="scripts/experiments/${{ inputs.experiment }}"
+          test -f "$dir/run.ts" || { echo "no $dir/run.ts — see the contract at the top of platform-experiment.yml"; exit 1; }
+          mkdir -p "$EXPERIMENT_OUT"
+          bun "$dir/run.ts" 2>&1 | tee "$EXPERIMENT_OUT/run.log"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: experiment-${{ inputs.experiment }}-${{ matrix.label }}
+          path: |
+            experiment-out/${{ matrix.label }}/result.json
+            experiment-out/${{ matrix.label }}/run.log
+          retention-days: 30
+          if-no-files-found: warn
