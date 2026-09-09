@@ -1389,3 +1389,29 @@ describe('the mark a stopped turn leaves behind', () => {
     w.dispose()
   })
 })
+
+describe('durable inbox rows on the owning driver', () => {
+  it('refuses a raced busy attempt instead of nesting a queue, then cancels a held row', async () => {
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'open turn' }, { origin: 'human', delivery: 'when-ready' })
+      expect(await w.handle.send({ text: 'raced attempt' }, { origin: 'human', delivery: 'when-ready', deliveryAttempt: true })).toEqual({ outcome: 'refused', refusal: { reason: 'busy' } })
+      expect((await w.handle.send({ id: 'row-cancel', rowId: 'row-cancel', text: 'cancel me' }, { origin: 'human', delivery: 'when-ready' })).outcome).toBe('queued')
+      await w.handle.cancelDelivery!('row-cancel')
+      w.server.completeTurn()
+      await settle()
+      expect(w.server.turnStarts).toBe(1)
+      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-cancel', outcome: 'dropped' })])
+    } finally { w.dispose() }
+  })
+
+  it('emits delivery proof on the same runtime stream after immediate queue admission', async () => {
+    const w = await world()
+    try {
+      expect((await w.handle.send({ id: 'row-live', rowId: 'row-live', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })).outcome).toBe('queued')
+      await settle()
+      expect(w.server.turnStarts).toBe(1)
+      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' })])
+    } finally { w.dispose() }
+  })
+})

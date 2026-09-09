@@ -549,10 +549,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
+    contractCancel: (sessionId, rowId) => bag.runtimeGateway.cancelDelivery(sessionId, rowId),
     contractDeliver: (input) =>
       bag.runtimeGateway.send({
         sessionId: input.sessionId,
         turnId: input.turnId,
+        rowId: input.turnId,
         text: input.text,
         origin: input.origin,
         delivery: 'when-ready',
@@ -706,6 +708,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * stay on compatibility frames until their own vertical slices migrate.
    */
   runtimeEventGate = new RuntimeEventGate({
+    delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
     events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),
     persist: (sessionId, additionalWrite) => {

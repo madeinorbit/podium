@@ -1,3 +1,4 @@
+import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * Grok as a real server-family session over `grok agent stdio` (ACP).
  *
@@ -1417,7 +1418,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       refusal: { reason, ...(detail ? { detail } : {}) },
     })
 
-    return {
+    const handle: AgentSessionHandle = {
       get binding() {
         return session.binding
       },
@@ -1530,6 +1531,10 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
+          return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
+        }
         if (session.disposed || !session.endpoint.alive()) return refused('not_running')
         if (session.interactions.size > 0) return refused('needs_user')
         if (!input.text.trim()) return refused('unsupported', 'Grok ACP requires a text prompt')
@@ -1839,6 +1844,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         return session.usage
       },
     }
+    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
   }
 
   async function initializedConnection(

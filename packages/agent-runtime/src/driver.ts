@@ -55,6 +55,8 @@ export interface AgentSessionHandle {
 
   // ---- Turns and control (CORE) ----
   send(input: TurnInput, options: SendOptions): Promise<TurnReceipt>
+  /** Cancel a daemon-held row without interrupting an unrelated turn. */
+  cancelDelivery?(rowId: string): Promise<Refusal | { ok: true }>
   stageAttachment(source: AttachmentSource): Promise<AttachmentStageResult>
   /** REQUESTS a fence. The fence is emitted only on provider confirmation and is
    *  never manufactured — so this returns nothing to await. Watch the stream. */

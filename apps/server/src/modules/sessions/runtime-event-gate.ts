@@ -51,6 +51,7 @@ export interface RuntimeStateProjection {
 }
 
 export interface RuntimeEventGatePorts {
+  delivery?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'delivery' }>): Promise<void>
   events: Pick<
     EventsRepository,
     | 'appendEvent'
@@ -355,13 +356,14 @@ export class RuntimeEventGate {
     if (event.turnEpoch < current.turnEpoch) {
       return { kind: 'rejected', reason: 'turn-epoch-regressed' }
     }
-    // Process lifecycle is independent of the last turn. A child can die after
+    // Process and row delivery lifecycles are independent of the last turn. A child can die after
     // its final turn has closed, and that exit must remain an admissible causal
     // event rather than being mistaken for a late turn update.
     if (
       current.closedTurnEpoch !== null &&
       event.turnEpoch <= current.closedTurnEpoch &&
-      event.t !== 'process'
+      event.t !== 'process' &&
+      event.t !== 'delivery'
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
@@ -375,6 +377,7 @@ export class RuntimeEventGate {
 
   private async projectBoard(record: RuntimeEventLogRecord): Promise<void> {
     const { event, id: eventId, sessionId } = record
+    if (event.t === 'delivery') await this.ports.delivery?.(sessionId, event)
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
       await this.ports.board({
         kind: 'gitActivity',

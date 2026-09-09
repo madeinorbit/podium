@@ -283,6 +283,7 @@ export const GitActivity = z.object({
  * own boundary, where the import is legal.
  */
 export const RuntimeEventBody = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
   z.object({ t: z.literal('interaction'), ev: InteractionEvent }),
@@ -370,6 +371,7 @@ export function isRuntimeFineEvent(event: RuntimeEvent): event is RuntimeFineEve
 /** server → daemon: deliver one turn through the contract. */
 export const RuntimeSendRequestMessage = z.object({
   type: z.literal('runtimeSendRequest'),
+  rowId: z.string().min(1).optional(),
   requestId: z.string(),
   /**
    * Stable delivery identity, distinct from the one-shot RPC correlation id.
@@ -404,6 +406,7 @@ export type RuntimeStageAttachmentRequestMessage = z.infer<
  *  provider-confirmed terminal event on the causal stream. */
 export const RuntimeInterruptRequestMessage = z.object({
   type: z.literal('runtimeInterruptRequest'),
+  cancelRowId: z.string().min(1).optional(),
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
 })
