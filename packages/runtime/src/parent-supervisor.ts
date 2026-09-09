@@ -14,7 +14,7 @@ import type {
   MachineServiceReport,
   MachineServiceStatus,
 } from '@podium/model'
-import type { ChildLifecycleReport } from './lifecycle-channel'
+import type { ChildLifecycleReport, LifecycleRole } from './lifecycle-channel'
 
 /** Children the parent owns as OS processes. Janitor is a server worker, not a child. */
 export type SupervisedChild = 'server' | 'daemon'
@@ -72,8 +72,8 @@ export interface ParentSnapshot {
   /**
    * What each child has said on its private line to this parent (POD-3761):
    * ready with its version and port, degraded, stopping, and when it last
-   * heartbeat. Absent for a child spawned before its channel attached. The
-   * handover gate does not read this yet — POD-3762 replaces the port probe.
+   * heartbeat. Absent for a child spawned before its channel attached. This is
+   * the handover gate's evidence — see {@link proveOwnStack}.
    */
   lifecycle?: Partial<Record<SupervisedChild, ChildLifecycleReport>>
 }
@@ -241,9 +241,26 @@ export interface HandoverHealthProbe {
 }
 
 /**
- * Handover health (disposition 24): every supervised child up, the server
- * serving the NEW version over /version, and the local daemon connected —
- * never bare /health.
+ * Handover health, judged on evidence only THIS parent can have (POD-3762).
+ *
+ * WHY NOT THE PORT. The old gate asked `GET /version` on the loopback port and
+ * believed the answer. During a SAME-VERSION handover the predecessor's server
+ * is still there answering with the very version the successor is waiting for,
+ * so the gate passed in 200 ms against the outgoing stack (ludovico,
+ * 2026-09-09 07:08Z) — the successor declared itself fit to serve before its own
+ * server had bound anything. Any probe addressed by port, pidfile or shared
+ * health file has the same hole: it identifies a stack by a name two live
+ * incarnations share.
+ *
+ * WHAT REPLACES IT. {@link proveOwnStack} reads the ready frames this parent's
+ * OWN children sent on the private line `spawn` gave them (POD-3761). That line
+ * exists only between a process and the child it started; nobody else can write
+ * to it, so a frame on it is proof of identity rather than of coincidence. It
+ * also carries the pid and the port the child actually bound, which is how the
+ * one fact the line cannot carry — did the LOCAL daemon reach the server —
+ * stops being addressed by a guess: the caller probes the port its own server
+ * named. {@link isSuccessorObservedHealthy} is what an OUTGOING parent uses,
+ * which has no line to the successor's children.
  *
  * `shape.requiresDaemon` is the caller's child table, because disposition 11
  * includes daemonless machines: on a server-only parent no process will ever
@@ -253,6 +270,24 @@ export interface HandoverHealthProbe {
  * the supervised shape; this keeps the handover gate on the same rule.
  */
 export function isHandoverHealthy(
+  own: OwnStackVerdict,
+  connectivity: Pick<HandoverHealthProbe, 'daemonConnected'>,
+  shape: { requiresDaemon: boolean } = { requiresDaemon: true },
+): boolean {
+  return own.proved && (connectivity.daemonConnected || !shape.requiresDaemon)
+}
+
+/**
+ * What the OUTGOING parent can see of its successor, and no more.
+ *
+ * It has no line to the successor's children — the channel is strictly between a
+ * process and the children it spawned — so this stays an HTTP observation, with
+ * the ambiguity that implies. It is deliberately NOT the whole outgoing gate:
+ * the authoritative proof is `supervisor-ready.json`, which the successor writes
+ * only after its own {@link isHandoverHealthy} passed, and the caller checks
+ * both before it hands the machine over and exits.
+ */
+export function isSuccessorObservedHealthy(
   probe: HandoverHealthProbe,
   expectedVersion: string,
   shape: { requiresDaemon: boolean } = { requiresDaemon: true },
@@ -262,6 +297,120 @@ export function isHandoverHealthy(
     (probe.daemonConnected || !shape.requiresDaemon) &&
     probe.serverVersion === expectedVersion
   )
+}
+
+/**
+ * A spawn shape that makes a child's ready frame impossible or its life a lie.
+ *
+ * `no-lifecycle-channel`: spawned without `'ipc'`, so there is no line for a
+ * ready frame to arrive on and the gate would wait out its whole budget on a
+ * child that was never going to speak.
+ *
+ * `attached-on-windows`: POD-3774 measured that a Windows child dies when the
+ * process that spawned it exits, and that the channel reports nothing when it
+ * does — no disconnect, no missed heartbeat. An attached Windows child is
+ * therefore indistinguishable, from the signal alone, from a healthy quiet one,
+ * which is why the SHAPE is part of what the gate asserts and not just the
+ * signal. `detached: true` is what makes such a child survive; POD-3790 owns
+ * setting it, this only refuses to call a stack proved without it.
+ */
+export type SpawnShapeFault = 'no-lifecycle-channel' | 'attached-on-windows'
+
+export function spawnShapeFault(
+  options: { stdio?: unknown; detached?: boolean },
+  platform: string = process.platform,
+): SpawnShapeFault | undefined {
+  const stdio = options.stdio
+  const hasChannel = Array.isArray(stdio) ? stdio.includes('ipc') : stdio === 'ipc'
+  if (!hasChannel) return 'no-lifecycle-channel'
+  if (platform === 'win32' && options.detached !== true) return 'attached-on-windows'
+  return undefined
+}
+
+/** Why the parent will not call its own stack proved. */
+export type OwnStackRefusal = { child: SupervisedChild } & (
+  | { because: 'not-spawned' }
+  | { because: 'unspawnable'; fault: SpawnShapeFault }
+  | { because: 'channel-closed' }
+  | { because: 'silent' }
+  | { because: 'stopping'; reason: string }
+  | { because: 'wrong-role'; reported: LifecycleRole }
+  | { because: 'wrong-version'; reported: string; expected: string }
+  | { because: 'no-port' }
+)
+
+/** Where this parent's own children are, as they themselves reported it. */
+export interface OwnStack {
+  /** Present whenever `supervises` included the server; it named this port itself. */
+  server?: { pid: number; port: number }
+  daemon?: { pid: number }
+}
+
+export type OwnStackVerdict =
+  | { proved: true; stack: OwnStack }
+  | { proved: false; refusal: OwnStackRefusal }
+
+/**
+ * Has every child this parent supervises proved, on its own private line, that
+ * it is up and running the release the gate is waiting for?
+ *
+ * A version is only compared when there is one to compare: `dev` and an empty
+ * expectation mean an unversioned build, exactly as the boot gate has always
+ * read them. A server must also name the port it bound — an unaddressable
+ * server cannot be the one the caller then probes.
+ */
+export function proveOwnStack(input: {
+  lifecycle: Partial<Record<SupervisedChild, ChildLifecycleReport>> | undefined
+  supervises: readonly SupervisedChild[]
+  expectedVersion: string
+  spawnFaults?: Partial<Record<SupervisedChild, SpawnShapeFault | undefined>>
+}): OwnStackVerdict {
+  const versioned = input.expectedVersion !== '' && input.expectedVersion !== 'dev'
+  const stack: OwnStack = {}
+  for (const child of input.supervises) {
+    const fault = input.spawnFaults?.[child]
+    if (fault) return { proved: false, refusal: { child, because: 'unspawnable', fault } }
+    const report = input.lifecycle?.[child]
+    if (!report) return { proved: false, refusal: { child, because: 'not-spawned' } }
+    if (report.channel === 'none') {
+      return {
+        proved: false,
+        refusal: { child, because: 'unspawnable', fault: 'no-lifecycle-channel' },
+      }
+    }
+    if (report.channel === 'closed') {
+      return { proved: false, refusal: { child, because: 'channel-closed' } }
+    }
+    if (report.stopping) {
+      return {
+        proved: false,
+        refusal: { child, because: 'stopping', reason: report.stopping.reason },
+      }
+    }
+    const ready = report.ready
+    if (!ready) return { proved: false, refusal: { child, because: 'silent' } }
+    if (ready.role !== child) {
+      return { proved: false, refusal: { child, because: 'wrong-role', reported: ready.role } }
+    }
+    if (versioned && ready.version !== input.expectedVersion) {
+      return {
+        proved: false,
+        refusal: {
+          child,
+          because: 'wrong-version',
+          reported: ready.version,
+          expected: input.expectedVersion,
+        },
+      }
+    }
+    if (child === 'server') {
+      if (ready.port === undefined) return { proved: false, refusal: { child, because: 'no-port' } }
+      stack.server = { pid: ready.pid, port: ready.port }
+    } else {
+      stack.daemon = { pid: ready.pid }
+    }
+  }
+  return { proved: true, stack }
 }
 
 /**

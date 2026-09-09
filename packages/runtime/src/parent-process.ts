@@ -59,11 +59,16 @@ import {
   isDaemonHandoverHealthy,
   isHandoverHealthy,
   isPostUpdateCrashLoop,
+  isSuccessorObservedHealthy,
   markPostUpdate,
   markRollbackUnavailable,
+  type OwnStackVerdict,
   type ParentSnapshot,
+  proveOwnStack,
   rollbackDecision,
+  type SpawnShapeFault,
   type SupervisedChild,
+  spawnShapeFault,
   type WatchdogAdvance,
   watchdogPetDecision,
 } from './parent-supervisor'
@@ -117,7 +122,15 @@ export type SpawnChildFn = (
 ) => ChildProcess
 
 export type HealthProbeFn = (port: number) => Promise<HandoverHealthProbe>
-export type DaemonHealthProbeFn = () => Promise<DaemonHandoverHealthProbe>
+/**
+ * The daemon-only readiness proof. `own` is the daemon child THIS parent
+ * spawned, as it named itself on its private line: the connectivity record is a
+ * file two live daemons can both have written, so it is only evidence about our
+ * stack when it is addressed by our own child's pid. Omitted by the OUTGOING
+ * parent, which has no line to its successor's daemon and judges by
+ * `supervisor-ready.json` instead.
+ */
+export type DaemonHealthProbeFn = (own?: { pid: number }) => Promise<DaemonHandoverHealthProbe>
 export type ServerReadyProbeFn = (port: number) => Promise<boolean>
 
 export interface ParentProcessDeps {
@@ -311,6 +324,23 @@ export function detachSupervisedChild(platform: string = process.platform): bool
   return platform === 'win32'
 }
 
+/**
+ * Wrap a spawn so the shape it was given is remembered with the process it
+ * produced. Observation only: the options pass through untouched, and what the
+ * gate does with a fault is {@link proveOwnStack}'s business.
+ */
+function withSpawnFaultRecording(
+  inner: SpawnChildFn,
+  record: (proc: ChildProcess, fault: SpawnShapeFault) => void,
+): SpawnChildFn {
+  return (command, args, options) => {
+    const proc = inner(command, args, options)
+    const fault = spawnShapeFault(options)
+    if (fault) record(proc, fault)
+    return proc
+  }
+}
+
 function childArgs(child: SupervisedChild, localDaemon: boolean): string[] {
   if (child === 'server') return ['server', '--takeover']
   return ['daemon', ...(localDaemon ? ['--local'] : []), '--takeover']
@@ -402,11 +432,14 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
   }
 }
 
-async function defaultProbeDaemonHealth(): Promise<DaemonHandoverHealthProbe> {
+async function defaultProbeDaemonHealth(own?: { pid: number }): Promise<DaemonHandoverHealthProbe> {
   const connectivity = readDaemonHealth()
-  const daemon = liveRecord('daemon')
+  // Our own child when we have one, else whichever daemon holds the role — the
+  // run registry is a name two incarnations share, which is exactly why the
+  // caller that CAN name its own child does (POD-3762).
+  const expectedPid = own?.pid ?? liveRecord('daemon')?.pid
   const isCurrentProcess =
-    connectivity?.processId !== undefined && connectivity.processId === daemon?.pid
+    connectivity?.processId !== undefined && connectivity.processId === expectedPid
   return {
     connected: isCurrentProcess && connectivity?.state === 'connected',
     appVersion: isCurrentProcess ? (connectivity?.appVersion ?? null) : null,
@@ -428,6 +461,15 @@ export class ParentProcess {
    */
   private readonly bootGeneration: number
   private readonly topologyStops = new Set<SupervisedChild>()
+  /**
+   * The shape each live child was spawned in, keyed by the process itself
+   * (POD-3774). The gate asserts this beside the ready frame because a child
+   * that cannot report — no line at all, or attached on Windows, where it dies
+   * with its supervisor and the channel says nothing — is indistinguishable
+   * from a healthy quiet one by signal alone. Recorded at the seam rather than
+   * inside `spawnChild`, so the options themselves stay that method's business.
+   */
+  private readonly spawnFaults = new WeakMap<ChildProcess, SpawnShapeFault>()
   private childOrder: SupervisedChild[]
   private daemonLocal: boolean
   private readonly deps: Required<
@@ -483,7 +525,9 @@ export class ParentProcess {
     this.deps = {
       ...deps,
       port: deps.port,
-      spawn: deps.spawn ?? spawn,
+      spawn: withSpawnFaultRecording(deps.spawn ?? spawn, (proc, fault) =>
+        this.spawnFaults.set(proc, fault),
+      ),
       probeHealth: deps.probeHealth ?? defaultProbeHealth,
       probeServerReady: deps.probeServerReady ?? defaultProbeServerReady,
       probeDaemonHealth: deps.probeDaemonHealth ?? defaultProbeDaemonHealth,
@@ -1049,39 +1093,95 @@ export class ParentProcess {
     return settle(false, 'timed-out')
   }
 
+  /**
+   * The spawn shape of each child currently supervised, for the gate to assert.
+   */
+  private childSpawnFaults(): Partial<Record<SupervisedChild, SpawnShapeFault | undefined>> {
+    const faults: Partial<Record<SupervisedChild, SpawnShapeFault | undefined>> = {}
+    for (const child of this.childOrder) {
+      const proc = this.childProcs.get(child)
+      if (proc) faults[child] = this.spawnFaults.get(proc)
+    }
+    return faults
+  }
+
+  /**
+   * What THIS parent's own children have proved on their private lines
+   * (POD-3762). Every health question below is asked of that stack, and of no
+   * other: a port, a pidfile and a health file are all names two live
+   * incarnations share, and during a same-version handover the predecessor
+   * answers to all three.
+   */
+  private proveOwnChildren(expectedVersion: string): OwnStackVerdict {
+    return proveOwnStack({
+      lifecycle: this.snap.lifecycle,
+      supervises: this.childOrder,
+      expectedVersion,
+      spawnFaults: this.childSpawnFaults(),
+    })
+  }
+
+  /** The loopback port to ask questions on: the one our own server bound. */
+  private servingPort(): number {
+    return this.snap.lifecycle?.server?.ready?.port ?? this.deps.port
+  }
+
   /** Both initial and later checks use the same role-specific health proof. */
   private async probeBootHealth(expectedVersion: string): Promise<{
     healthy: boolean
     detail: Record<string, unknown>
   }> {
     const wantsDaemon = this.requiresDaemon()
+    const own = this.proveOwnChildren(expectedVersion)
+    if (!own.proved) {
+      // A shape fault can never resolve: no frame is coming, so say why now
+      // rather than let the whole budget expire looking like a slow boot.
+      if (own.refusal.because === 'unspawnable') {
+        log.error('a supervised child cannot report ready in the shape it was spawned', {
+          ...own.refusal,
+          expectedVersion,
+        })
+      }
+      return { healthy: false, detail: { refusedBy: own.refusal } }
+    }
     if (!this.childOrder.includes('server')) {
       if (!wantsDaemon) return { healthy: true, detail: {} }
-      const probe = await this.deps.probeDaemonHealth()
+      // The line proved WHICH daemon and WHAT VERSION. What it cannot carry is
+      // whether that daemon reached its remote server and confirmed the grant it
+      // booted with, so those still come from the connectivity record — now read
+      // against our own child's pid rather than whichever daemon holds the role.
+      const probe = await this.deps.probeDaemonHealth(own.stack.daemon)
+      // The version is checked on BOTH sources on purpose: the line carries the
+      // version the child was built as, the record carries the version it
+      // reports running. A disagreement between the two is not health.
       const versionOk =
         expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
       return {
-        // Phase becomes degraded at the first timeout. Successor ownership does not.
         healthy: this.isSuccessor()
           ? isDaemonHandoverHealthy(probe, expectedVersion)
           : probe.connected && versionOk,
-        detail: { connected: probe.connected, appVersion: probe.appVersion, versionOk },
+        detail: {
+          proved: own.stack,
+          connected: probe.connected,
+          appVersion: probe.appVersion,
+          convergedVersion: probe.convergedVersion,
+        },
       }
     }
-    const probe = await this.deps.probeHealth(this.deps.port)
-    const versionOk =
-      expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
+    // A daemonless stack is proved by its own server alone: no process on such a
+    // machine will ever set `daemonConnected` (POD-2732).
+    if (!wantsDaemon) return { healthy: true, detail: { proved: own.stack } }
+    // No fallback to the configured port: `proveOwnStack` only calls a server
+    // proved once it has said where it bound, and asking a port we merely
+    // assumed is the thing this gate exists to stop doing.
+    const server = own.stack.server
+    if (!server) {
+      return { healthy: false, detail: { refusedBy: { child: 'server', because: 'no-port' } } }
+    }
+    const probe = await this.deps.probeHealth(server.port)
     return {
-      healthy: wantsDaemon
-        ? isHandoverHealthy(probe, expectedVersion) ||
-          (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
-        : probe.serverRunning && versionOk,
-      detail: {
-        serverRunning: probe.serverRunning,
-        serverVersion: probe.serverVersion,
-        daemonConnected: probe.daemonConnected,
-        versionOk,
-      },
+      healthy: isHandoverHealthy(own, probe, { requiresDaemon: true }),
+      detail: { proved: own.stack, port: server.port, daemonConnected: probe.daemonConnected },
     }
   }
 
@@ -1266,7 +1366,7 @@ export class ParentProcess {
     const now = this.deps.now()
     if (now - this.lastComponentPollMs < 15_000) return
     this.lastComponentPollMs = now
-    const probe = await this.deps.probeHealth(this.deps.port)
+    const probe = await this.deps.probeHealth(this.servingPort())
     this.lastProbeJanitor = probe.janitor
   }
 
@@ -1451,10 +1551,16 @@ export class ParentProcess {
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
+        // The successor's own children are on ITS lines, not ours, so this stays
+        // an outside observation. It is corroboration, not the proof: the proof
+        // is `successorReady` below, which the successor writes only once its
+        // own channel gate passed (POD-3762).
         const healthy = wantsServer
-          ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion, {
-              requiresDaemon: wantsDaemon,
-            })
+          ? isSuccessorObservedHealthy(
+              await this.deps.probeHealth(this.deps.port),
+              expectedVersion,
+              { requiresDaemon: wantsDaemon },
+            )
           : wantsDaemon
             ? isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
             : liveRecord('parent')?.pid === successorPid

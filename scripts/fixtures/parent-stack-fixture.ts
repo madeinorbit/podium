@@ -21,6 +21,8 @@
  *   FIXTURE_EXIT_AFTER_MS / FIXTURE_EXIT_CODE   — die on cue: crash (1) or refuse (78)
  *   FIXTURE_SERVER_NEVER_HEALTHY=1              — bind, but never report the daemon connected
  *   FIXTURE_SERVER_HEALTH_DELAY_MS               — delay the connected health bit after bind
+ *   FIXTURE_SERVER_READY_DELAY_MS                — bind, but delay the ready frame on the line
+ *   FIXTURE_SERVER_NEVER_READY=1                 — bind and serve, but never report ready
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
  *   FIXTURE_HANDOVER_TIMEOUT_MS                 — shorten the 90s successor gate
  *   FIXTURE_RELEASE_HAD_MIGRATIONS=1|0          — what the swap would have reported
@@ -101,6 +103,37 @@ async function takeoverPort(): Promise<void> {
   }
 }
 
+/**
+ * This process's end of the private line to the parent that spawned it, opened
+ * exactly as apps/cli/src/cli.ts opens it. The parent's health gate waits for
+ * the `ready` frame on this line (POD-3762), so a fixture role that did not
+ * open one would be a child that never comes up.
+ */
+async function openLifecycleLine(lifecycleRole: 'server' | 'daemon') {
+  const { connectLifecycleChannel } = await import('../../packages/runtime/src/lifecycle-channel')
+  return connectLifecycleChannel({ role: lifecycleRole, version: installedVersion() })
+}
+
+/** Report ready on the line, honouring the delay/never knobs a test may have set. */
+function reportReady(
+  lifecycle: { ready: (extra?: { port?: number }) => boolean } | undefined,
+  extra: { port?: number },
+): void {
+  if (envForRole('NEVER_READY') === '1') {
+    console.error(`[fixture:${role}] never reporting ready`)
+    return
+  }
+  const delay = Number(envForRole('READY_DELAY_MS') ?? 0)
+  if (!delay) {
+    lifecycle?.ready(extra)
+    return
+  }
+  setTimeout(() => {
+    console.error(`[fixture:${role}] reporting ready after ${delay}ms`)
+    lifecycle?.ready(extra)
+  }, delay).unref?.()
+}
+
 function installedVersion(): string {
   try {
     return readFileSync(join(installDir, 'VERSION'), 'utf8').trim()
@@ -111,8 +144,10 @@ function installedVersion(): string {
 
 async function runServer(): Promise<void> {
   recordSpawn()
+  const lifecycle = await openLifecycleLine('server')
   if (process.env.FIXTURE_SERVER_REFUSE_START === '1') {
     console.error('[fixture:server] refusing to start')
+    lifecycle?.stopping('refusing to start')
     process.exit(78)
   }
   await takeoverPort()
@@ -152,7 +187,10 @@ async function runServer(): Promise<void> {
   })
   writeFileSync(serverMarker, String(process.pid))
   console.error(`[fixture:server] pid ${process.pid} version ${version} port ${server.port}`)
+  // Bound and serving: only now is this server's own line worth anything.
+  reportReady(lifecycle, { port: server.port })
   const bye = (): void => {
+    lifecycle?.stopping('signal')
     try {
       if (readFileSync(serverMarker, 'utf8').trim() === String(process.pid)) rmSync(serverMarker)
     } catch {
@@ -165,11 +203,14 @@ async function runServer(): Promise<void> {
   armScheduledExit()
 }
 
-function runDaemon(): void {
+async function runDaemon(): Promise<void> {
   recordSpawn()
+  const lifecycle = await openLifecycleLine('daemon')
   writeFileSync(daemonMarker, String(process.pid))
   console.error(`[fixture:daemon] pid ${process.pid}`)
+  reportReady(lifecycle, {})
   const bye = (): void => {
+    lifecycle?.stopping('signal')
     try {
       if (readFileSync(daemonMarker, 'utf8').trim() === String(process.pid)) rmSync(daemonMarker)
     } catch {
@@ -242,7 +283,7 @@ async function runParent(): Promise<void> {
 }
 
 if (role === 'server') await runServer()
-else if (role === 'daemon') runDaemon()
+else if (role === 'daemon') await runDaemon()
 else if (role === 'parent') await runParent()
 else {
   console.error(`parent-stack-fixture: unknown role ${role}`)

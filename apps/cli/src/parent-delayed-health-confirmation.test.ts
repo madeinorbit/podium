@@ -14,9 +14,31 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startParentWithUpdateConfirmation } from './parent-boot-confirmation'
 
+/**
+ * A supervised child, including the lifecycle line it is spawned with. The line
+ * matters because the boot gate's evidence is the `ready` frame on it
+ * (POD-3762): without one this child would never be part of a proved stack, and
+ * these cases are about what happens AFTER the stack comes up.
+ */
 class Child extends EventEmitter {
   pid = process.pid
   exitCode: number | null = null
+  connected = true
+  constructor(private readonly role: 'server' | 'daemon') {
+    super()
+  }
+  send(frame: object): boolean {
+    if ((frame as { type?: string }).type !== 'identity') return true
+    this.emit('message', {
+      podium: 'podium-lifecycle/1',
+      type: 'ready',
+      role: this.role,
+      pid: this.pid,
+      version: '2.0.0',
+      ...(this.role === 'server' ? { port: 19099 } : {}),
+    })
+    return true
+  }
   kill(): boolean {
     this.exitCode = 0
     this.emit('exit', 0, null)
@@ -89,7 +111,10 @@ async function boot(overrides: Partial<ParentProcessDeps> = {}, digest = 'target
     env: { PODIUM_APP_VERSION: '2.0.0' },
     children: ['daemon'],
     runningIdentity: { version: '2.0.0', digest },
-    spawn: (() => new Child() as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+    spawn: ((_cmd, args) =>
+      new Child(args[0] === 'server' ? 'server' : 'daemon') as unknown as ReturnType<
+        SpawnChildFn
+      >) as SpawnChildFn,
     probeHealth: async () => ({
       serverRunning: false,
       serverVersion: null,

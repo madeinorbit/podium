@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ChildLifecycleReport, LifecycleRole } from './lifecycle-channel'
 import {
   applyChildExit,
   applyChildRunning,
@@ -14,11 +15,15 @@ import {
   emptyParentSnapshot,
   isHandoverHealthy,
   isPostUpdateCrashLoop,
+  isSuccessorObservedHealthy,
+  machineServiceReport,
   markPostUpdate,
   markRollbackUnavailable,
-  machineServiceReport,
   POST_UPDATE_CRASH_LOOP_THRESHOLD,
+  proveOwnStack,
   rollbackDecision,
+  type SupervisedChild,
+  spawnShapeFault,
   watchdogPetDecision,
 } from './parent-supervisor'
 
@@ -151,34 +156,67 @@ describe('janitor refusal projection', () => {
 })
 
 describe('handover health gate', () => {
-  it('requires both children, new /version, and daemon connected — not bare /health', () => {
+  const proved = {
+    proved: true as const,
+    stack: { server: { pid: 41, port: 4173 }, daemon: { pid: 42 } },
+  }
+  const unproved = {
+    proved: false as const,
+    refusal: { child: 'server' as const, because: 'silent' as const },
+  }
+
+  it("needs this parent's OWN children proved and the local daemon connected", () => {
+    expect(isHandoverHealthy(proved, { daemonConnected: true })).toBe(true)
+    expect(isHandoverHealthy(proved, { daemonConnected: false })).toBe(false)
+  })
+
+  /**
+   * The whole point of POD-3762: a server answering /version with the target
+   * version, and a daemon connected to it, prove nothing about WHOSE stack that
+   * is. Only the successor's own children can, and here they have not.
+   */
+  it('a serving port and a connected daemon cannot stand in for our own children', () => {
+    expect(isHandoverHealthy(unproved, { daemonConnected: true })).toBe(false)
+  })
+
+  it('a daemonless shape is judged on its own children alone (POD-2732)', () => {
     expect(
       isHandoverHealthy(
+        { proved: true, stack: { server: { pid: 41, port: 4173 } } },
+        { daemonConnected: false },
         {
-          serverRunning: true,
-          serverVersion: '1.2.3',
-          daemonConnected: true,
+          requiresDaemon: false,
         },
+      ),
+    ).toBe(true)
+    expect(isHandoverHealthy(unproved, { daemonConnected: false }, { requiresDaemon: false })).toBe(
+      false,
+    )
+  })
+})
+
+/**
+ * What the OUTGOING parent can see: it has no line to the successor's children,
+ * so it corroborates over HTTP and trusts the successor's own gate, which is
+ * what writes supervisor-ready.json.
+ */
+describe('isSuccessorObservedHealthy', () => {
+  it('requires the new version and, on a daemon-bearing shape, a connected daemon', () => {
+    expect(
+      isSuccessorObservedHealthy(
+        { serverRunning: true, serverVersion: '1.2.3', daemonConnected: true },
         '1.2.3',
       ),
     ).toBe(true)
     expect(
-      isHandoverHealthy(
-        {
-          serverRunning: true,
-          serverVersion: '1.2.3',
-          daemonConnected: false,
-        },
+      isSuccessorObservedHealthy(
+        { serverRunning: true, serverVersion: '1.2.3', daemonConnected: false },
         '1.2.3',
       ),
     ).toBe(false)
     expect(
-      isHandoverHealthy(
-        {
-          serverRunning: true,
-          serverVersion: '1.2.2',
-          daemonConnected: true,
-        },
+      isSuccessorObservedHealthy(
+        { serverRunning: true, serverVersion: '1.2.2', daemonConnected: true },
         '1.2.3',
       ),
     ).toBe(false)
@@ -186,18 +224,195 @@ describe('handover health gate', () => {
 
   it('a server with no daemon down is not healthy just because the port answers', () => {
     expect(
-      isHandoverHealthy(
+      isSuccessorObservedHealthy(
         { serverRunning: false, serverVersion: '1.2.3', daemonConnected: true },
         '1.2.3',
       ),
     ).toBe(false)
   })
+})
 
+describe('handover phases', () => {
   it('marks outgoing handover with the expected version', () => {
     const snap = beginHandoverOutgoing(emptyParentSnapshot('running'), '9.9.9')
     expect(snap.phase).toBe('handover_outgoing')
     expect(snap.expectedVersion).toBe('9.9.9')
     expect(componentsProjection(snap).parent).toBe('handover')
+  })
+})
+
+/**
+ * POD-3762. The gate's evidence is now what THIS parent's own children said on
+ * their private lines. Every case here is one way a stack can look serving from
+ * outside while the successor's own children have proved nothing.
+ */
+describe('proveOwnStack', () => {
+  const ready = (
+    role: LifecycleRole,
+    version: string,
+    extra: { port?: number } = {},
+  ): ChildLifecycleReport => ({
+    channel: 'open',
+    ready: { role, pid: role === 'server' ? 41 : 42, version, atMs: 1_000, ...extra },
+  })
+  const both = (version: string): Partial<Record<SupervisedChild, ChildLifecycleReport>> => ({
+    server: ready('server', version, { port: 4173 }),
+    daemon: ready('daemon', version),
+  })
+
+  it('proves the stack from ready frames, and carries the pid and port they named', () => {
+    const verdict = proveOwnStack({
+      lifecycle: both('2.0.0'),
+      supervises: ['server', 'daemon'],
+      expectedVersion: '2.0.0',
+    })
+    expect(verdict).toEqual({
+      proved: true,
+      stack: { server: { pid: 41, port: 4173 }, daemon: { pid: 42 } },
+    })
+  })
+
+  /** The defect this issue exists for: the port answers, our own server has said nothing. */
+  it('refuses while a supervised child has not reported ready', () => {
+    const verdict = proveOwnStack({
+      lifecycle: { server: { channel: 'open' }, daemon: ready('daemon', '2.0.0') },
+      supervises: ['server', 'daemon'],
+      expectedVersion: '2.0.0',
+    })
+    expect(verdict).toEqual({ proved: false, refusal: { child: 'server', because: 'silent' } })
+  })
+
+  it('refuses a child that has not been spawned at all', () => {
+    expect(
+      proveOwnStack({ lifecycle: {}, supervises: ['server'], expectedVersion: '2.0.0' }),
+    ).toEqual({ proved: false, refusal: { child: 'server', because: 'not-spawned' } })
+  })
+
+  it('refuses a ready frame from the wrong version — the predecessor is not our child', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: both('1.0.0'),
+        supervises: ['server', 'daemon'],
+        expectedVersion: '2.0.0',
+      }),
+    ).toEqual({
+      proved: false,
+      refusal: { child: 'server', because: 'wrong-version', reported: '1.0.0', expected: '2.0.0' },
+    })
+  })
+
+  it('accepts any version when the expected one is a dev build', () => {
+    expect(
+      proveOwnStack({ lifecycle: both('9.9.9'), supervises: ['server'], expectedVersion: 'dev' })
+        .proved,
+    ).toBe(true)
+  })
+
+  it('refuses a child whose line has closed since it reported ready', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: { server: { ...ready('server', '2.0.0', { port: 4173 }), channel: 'closed' } },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+      }),
+    ).toEqual({ proved: false, refusal: { child: 'server', because: 'channel-closed' } })
+  })
+
+  it('refuses a child that is on its way out, however ready it once was', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: {
+          server: {
+            ...ready('server', '2.0.0', { port: 4173 }),
+            stopping: { reason: 'asked', atMs: 2 },
+          },
+        },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+      }),
+    ).toEqual({
+      proved: false,
+      refusal: { child: 'server', because: 'stopping', reason: 'asked' },
+    })
+  })
+
+  it('refuses a server that reported ready without naming the port it bound', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: { server: ready('server', '2.0.0') },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+      }),
+    ).toEqual({ proved: false, refusal: { child: 'server', because: 'no-port' } })
+  })
+
+  it('ignores a child this parent does not supervise', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: { server: ready('server', '2.0.0', { port: 4173 }) },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+      }).proved,
+    ).toBe(true)
+  })
+
+  /**
+   * POD-3774: a child spawned in a shape that cannot deliver a ready frame looks
+   * exactly like a healthy-but-quiet one. The gate must say so at once rather
+   * than spend its whole budget waiting for a frame that can never arrive.
+   */
+  it('names the spawn shape when the line could never have carried a frame', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: { server: { channel: 'none' } },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+        spawnFaults: { server: 'no-lifecycle-channel' },
+      }),
+    ).toEqual({
+      proved: false,
+      refusal: { child: 'server', because: 'unspawnable', fault: 'no-lifecycle-channel' },
+    })
+  })
+
+  it('refuses a Windows child spawned attached, which dies with its supervisor unannounced', () => {
+    expect(
+      proveOwnStack({
+        lifecycle: { server: ready('server', '2.0.0', { port: 4173 }) },
+        supervises: ['server'],
+        expectedVersion: '2.0.0',
+        spawnFaults: { server: 'attached-on-windows' },
+      }),
+    ).toEqual({
+      proved: false,
+      refusal: { child: 'server', because: 'unspawnable', fault: 'attached-on-windows' },
+    })
+  })
+})
+
+describe('spawnShapeFault', () => {
+  it('passes a child given the lifecycle line', () => {
+    expect(spawnShapeFault({ stdio: ['ignore', 1, 1, 'ipc'] }, 'linux')).toBeUndefined()
+    expect(spawnShapeFault({ stdio: 'ipc' }, 'linux')).toBeUndefined()
+  })
+
+  it('names a spawn with no line at all', () => {
+    expect(spawnShapeFault({ stdio: 'inherit' }, 'linux')).toBe('no-lifecycle-channel')
+    expect(spawnShapeFault({}, 'linux')).toBe('no-lifecycle-channel')
+  })
+
+  /** POD-3774: on Windows an attached child dies with the process that spawned it. */
+  it('names an attached Windows spawn even when the line is there', () => {
+    expect(spawnShapeFault({ stdio: ['ignore', 1, 1, 'ipc'] }, 'win32')).toBe('attached-on-windows')
+    expect(
+      spawnShapeFault({ stdio: ['ignore', 1, 1, 'ipc'], detached: true }, 'win32'),
+    ).toBeUndefined()
+  })
+
+  it('does not ask a POSIX child to be detached', () => {
+    expect(
+      spawnShapeFault({ stdio: ['ignore', 1, 1, 'ipc'], detached: false }, 'darwin'),
+    ).toBeUndefined()
   })
 })
 

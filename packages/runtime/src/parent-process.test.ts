@@ -8,12 +8,19 @@
  * real-process proofs live in scripts/parent-lifecycle.integration.test.ts;
  * these are the fast ones that pin the wiring.
  */
+import type { SpawnOptions } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveLoggingMode } from './config'
+import {
+  decodeParentMessage,
+  encodeLifecycle,
+  type LifecycleRole,
+  type ParentIdentity,
+} from './lifecycle-channel'
 import { configureProcessLogging } from './logging'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
@@ -30,13 +37,57 @@ import {
 } from './parent-process'
 import type { DaemonHandoverHealthProbe, HandoverHealthProbe } from './parent-supervisor'
 
+/**
+ * A supervised child, including the private lifecycle line `spawn` gives it
+ * (POD-3761). The line matters here because the health gate's evidence is the
+ * `ready` frame that travels on it (POD-3762): a fake that never sends one is a
+ * child that never came up, which is exactly the state the old port probe could
+ * not see.
+ */
 class FakeChild extends EventEmitter {
   pid: number
   exitCode: number | null = null
   signalsReceived: string[] = []
+  /** The parent end tests `send`/`connected` to decide whether a line exists. */
+  connected = true
+  readonly identities: ParentIdentity[] = []
+  readonly stopsRequested: string[] = []
+  /** Every frame the parent put on the line, raw. */
+  readonly sent: unknown[] = []
+  private announce: { role: LifecycleRole; version: string; port?: number } | undefined
   constructor(pid: number) {
     super()
     this.pid = pid
+  }
+  send(frame: object): boolean {
+    if (!this.connected) return false
+    this.sent.push(frame)
+    const message = decodeParentMessage(frame)
+    if (message?.type === 'identity') {
+      const { type: _type, ...identity } = message
+      this.identities.push(identity)
+      // A real child reports ready on the line it now knows it has, not before.
+      const announce = this.announce
+      this.announce = undefined
+      if (announce) this.reportReady(announce)
+    }
+    if (message?.type === 'stop') this.stopsRequested.push(message.reason)
+    return true
+  }
+  /** Report ready the moment the parent introduces itself, like a child that boots clean. */
+  readyOnIdentity(announce: { role: LifecycleRole; version: string; port?: number }): this {
+    this.announce = announce
+    return this
+  }
+  reportReady(announce: { role: LifecycleRole; version: string; port?: number }): void {
+    this.emit('message', encodeLifecycle({ type: 'ready', pid: this.pid, ...announce }))
+  }
+  /** Put a raw frame on the line, as a child that speaks for itself would. */
+  deliver(message: unknown): void {
+    this.emit('message', message)
+  }
+  reportStopping(reason: string): void {
+    this.emit('message', encodeLifecycle({ type: 'stopping', reason }))
   }
   kill(signal?: string): boolean {
     this.signalsReceived.push(signal ?? 'SIGTERM')
@@ -51,6 +102,51 @@ class FakeChild extends EventEmitter {
   }
   unref(): void {}
 }
+
+/** A child spawned with no line at all — what a wrong stdio shape produces. */
+class MuteChild extends FakeChild {
+  override connected = false
+}
+
+/**
+ * The version a child reports: the one baked into the binary the parent
+ * invoked, which is the install's VERSION (scripts/build-bun.ts `--define`).
+ */
+function spawnedVersion(env: NodeJS.ProcessEnv | undefined): string {
+  if (env?.PODIUM_APP_VERSION) return env.PODIUM_APP_VERSION
+  const home = env?.PODIUM_HOME
+  if (home) {
+    try {
+      return readFileSync(join(home, 'VERSION'), 'utf8').trim()
+    } catch {
+      /* no installed bundle in this test */
+    }
+  }
+  return 'dev'
+}
+
+/**
+ * A child that comes up: it takes the line and reports ready on it with the
+ * version of the binary it is and the port it was told to bind. Successor
+ * parents (`args[0] === 'parent'`) get no line — they are not children.
+ */
+function channelChild(
+  pid: number,
+  args: readonly string[],
+  options: SpawnOptions | undefined,
+): FakeChild {
+  const child = new FakeChild(pid)
+  const role = args[0]
+  if (role !== 'server' && role !== 'daemon') return child
+  const env = options?.env
+  const port = Number(env?.PODIUM_PORT)
+  return child.readyOnIdentity({
+    role,
+    version: spawnedVersion(env),
+    ...(role === 'server' && Number.isFinite(port) && port > 0 ? { port } : {}),
+  })
+}
+
 
 const healthy = (version: string): HandoverHealthProbe => ({
   serverRunning: true,
@@ -123,9 +219,9 @@ describe('ParentProcess', () => {
   it('spawns server before daemon from the install invocation', async () => {
     const spawned: Array<{ cmd: string; args: readonly string[] }> = []
     let nextPid = 100
-    const spawnImpl: SpawnChildFn = (cmd, args) => {
+    const spawnImpl: SpawnChildFn = (cmd, args, options) => {
       spawned.push({ cmd, args })
-      return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+      return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
     }
     const notifications: string[] = []
     const parent = track(
@@ -161,8 +257,8 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         children: ['daemon'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
-        spawn: ((_cmd, args) => {
-          const child = new FakeChild(nextPid++)
+        spawn: ((_cmd, args, options) => {
+          const child = channelChild(nextPid++, args, options)
           spawned.push({ role: args[0] as string, child })
           return child as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
@@ -198,7 +294,7 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         env: { PODIUM_APP_VERSION: '1.0.0' },
         spawn: ((_cmd, args, options) => {
-          const child = new FakeChild(nextPid++)
+          const child = channelChild(nextPid++, args, options)
           spawned.push({ role: args[0] as string, args, child, env: options.env })
           return child as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
@@ -223,22 +319,39 @@ describe('ParentProcess', () => {
     expect(replacement?.env?.[PARENT_HAS_SERVER_ENV]).toBe('0')
   })
 
-  it('AUDIT NEGATIVE CONTROL: failed boot health must not claim ready ownership', async () => {
+  /**
+   * POD-3762, the defect this gate exists for. A SAME-VERSION handover: the
+   * predecessor is still serving on the port, answering `/version` with the very
+   * version the successor is waiting for and with its daemon connected. Nothing
+   * in that answer says whose stack it is — on ludovico (2026-09-09 07:08Z) the
+   * successor passed its gate in 200 ms against the outgoing server. The
+   * successor's own children are the only witnesses it can trust.
+   */
+  it('a successor never passes its gate on a server it did not spawn', async () => {
     const clock = fakeClock()
+    let probes = 0
     const notifications: string[] = []
     let claimed = false
-    let probeCount = 0
     const parent = track(
       new ParentProcess({
         port: 19099,
         installDir: '/opt/podium',
         installBinary: '/opt/podium/podium',
-        env: { PODIUM_APP_VERSION: '1.0.0', [PARENT_SUCCESSOR_ENV]: '1' },
-        children: ['server'],
-        spawn: (() => new FakeChild(125) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        children: ['server', 'daemon'],
+        env: {
+          PODIUM_APP_VERSION: '2.0.0',
+          [PARENT_SUCCESSOR_ENV]: '1',
+          [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: '2.0.0',
+        },
+        // Its own children start but never come up — no ready frame, ever.
+        spawn: ((_cmd, args) =>
+          new FakeChild(args[0] === 'server' ? 801 : 802) as unknown as ReturnType<
+            SpawnChildFn
+          >) as SpawnChildFn,
+        // The predecessor's stack, indistinguishable over HTTP from a successful one.
         probeHealth: async () => {
-          probeCount++
-          return { serverRunning: false, serverVersion: null, daemonConnected: false }
+          probes++
+          return healthy('2.0.0')
         },
         claimRole: () => {
           claimed = true
@@ -252,7 +365,92 @@ describe('ParentProcess', () => {
 
     await parent.start()
 
-    expect(probeCount).toBeGreaterThan(0)
+    expect({
+      bootHealthy: parent.isBootHealthy(),
+      phase: parent.snapshot().phase,
+      claimed,
+      ready: notifications.includes('READY=1'),
+    }).toEqual({ bootHealthy: false, phase: 'degraded', claimed: false, ready: false })
+    expect(probes, 'a server nobody proved is ours is not worth asking').toBe(0)
+  })
+
+  it('passes once its own server and daemon report ready on their own lines', async () => {
+    const clock = fakeClock()
+    const probedPorts: number[] = []
+    const notifications: string[] = []
+    let nextPid = 810
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        children: ['server', 'daemon'],
+        env: {
+          PODIUM_APP_VERSION: '2.0.0',
+          [PARENT_SUCCESSOR_ENV]: '1',
+          [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: '2.0.0',
+        },
+        spawn: ((_cmd, args) => {
+          const child = new FakeChild(nextPid++)
+          // The port this server actually bound, which is the one worth asking.
+          if (args[0] === 'server')
+            child.readyOnIdentity({ role: 'server', version: '2.0.0', port: 4173 })
+          if (args[0] === 'daemon') child.readyOnIdentity({ role: 'daemon', version: '2.0.0' })
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async (port) => {
+          probedPorts.push(port)
+          return healthy('2.0.0')
+        },
+        notify: (state) => notifications.push(state),
+        sleep: async (ms) => clock.advance(ms),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    expect(parent.isBootHealthy()).toBe(true)
+    expect(notifications).toContain('READY=1')
+    expect(probedPorts, 'the daemon question goes to the port our own server named').toEqual([4173])
+  })
+
+  it('AUDIT NEGATIVE CONTROL: failed boot health must not claim ready ownership', async () => {
+    const clock = fakeClock()
+    const notifications: string[] = []
+    let claimed = false
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: '/opt/podium',
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '1.0.0', [PARENT_SUCCESSOR_ENV]: '1' },
+        children: ['server'],
+        // Spawned with its line, but it never comes up on it.
+        spawn: (() => new FakeChild(125) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeHealth: async () => ({
+          serverRunning: false,
+          serverVersion: null,
+          daemonConnected: false,
+        }),
+        claimRole: () => {
+          claimed = true
+        },
+        notify: (state) => notifications.push(state),
+        sleep: async (ms) => clock.advance(ms),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    // The control is ARMED by its positive twin above: the identical parent whose
+    // server reports ready on this same line does reach READY=1.
+    expect(parent.lifecycle('server'), 'the line was there; nothing came up on it').toEqual({
+      channel: 'open',
+    })
     expect({
       bootHealthy: parent.isBootHealthy(),
       phase: parent.snapshot().phase,
@@ -280,7 +478,7 @@ describe('ParentProcess', () => {
         env: { PODIUM_APP_VERSION: '2.0.0' },
         spawn: ((_cmd, args, options) => {
           if (args[0] === 'daemon') daemonEnv = options.env
-          return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+          return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
         probeHealth: async () => {
           probeCount++
@@ -319,7 +517,7 @@ describe('ParentProcess', () => {
         env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/run/systemd/notify' },
         spawn: ((_cmd, args, options) => {
           childEnvs.set(String(args[0]), options.env as NodeJS.ProcessEnv)
-          return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+          return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
         probeHealth: async () => healthy('2.0.0'),
         notify: () => {},
@@ -354,9 +552,9 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         children: ['daemon'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
-        spawn: ((cmd, args) => {
+        spawn: ((cmd, args, options) => {
           spawned.push({ cmd, args })
-          return new FakeChild(200) as unknown as ReturnType<SpawnChildFn>
+          return channelChild(200, args, options) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
         probeHealth: async () => healthy('1.0.0'),
         probeDaemonHealth: async () => daemonHealthy('1.0.0'),
@@ -387,8 +585,8 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         children: ['daemon'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
-        spawn: (() =>
-          new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        spawn: ((_cmd, args, options) =>
+          channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         // A daemon-only host has no local server. Reaching this probe would
         // recreate the production timeout this regression guards.
         probeHealth: async () => {
@@ -420,8 +618,8 @@ describe('ParentProcess', () => {
     const clock = fakeClock()
     const serverKids: FakeChild[] = []
     let nextPid = 300
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] === 'server') serverKids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
     }
@@ -459,8 +657,8 @@ describe('ParentProcess', () => {
     const clock = fakeClock()
     const serverKids: FakeChild[] = []
     let nextPid = 400
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] === 'server') serverKids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
     }
@@ -493,8 +691,8 @@ describe('ParentProcess', () => {
     const clock = fakeClock()
     let nextPid = 200
     const kids: FakeChild[] = []
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] !== 'parent') kids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
     }
@@ -543,8 +741,8 @@ describe('ParentProcess', () => {
   it('daemonless handover passes on server health alone — no daemon will ever connect', async () => {
     const clock = fakeClock()
     let nextPid = 700
-    const spawnImpl: SpawnChildFn = () =>
-      new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) =>
+      channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
     let successorUp = false
     let waits = 0
     const notifications: string[] = []
@@ -587,8 +785,8 @@ describe('ParentProcess', () => {
     let nextPid = 750
     let successor: FakeChild | undefined
     const kids: FakeChild[] = []
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] === 'parent') successor = child
       else kids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
@@ -628,8 +826,8 @@ describe('ParentProcess', () => {
     let nextPid = 500
     let successor: FakeChild | undefined
     const kids: FakeChild[] = []
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] === 'parent') successor = child
       else kids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
@@ -681,8 +879,8 @@ describe('ParentProcess', () => {
     let successor: FakeChild | undefined
     let nextPid = 600
     let sleeps = 0
-    const spawnImpl: SpawnChildFn = (_cmd, args) => {
-      const child = new FakeChild(nextPid++)
+    const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+      const child = channelChild(nextPid++, args, options)
       if (args[0] === 'parent') successor = child
       else kids.push(child)
       return child as unknown as ReturnType<SpawnChildFn>
@@ -749,8 +947,8 @@ describe('ParentProcess', () => {
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 700
-      const spawnImpl: SpawnChildFn = (_cmd, args) => {
-        const child = new FakeChild(nextPid++)
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+        const child = channelChild(nextPid++, args, options)
         if (args[0] === 'server') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
@@ -827,7 +1025,7 @@ describe('ParentProcess', () => {
     let nextPid = 800
     const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
       if (args[0] === 'parent') successorEnv = options.env
-      return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+      return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
     }
     const parent = track(
       new ParentProcess({
@@ -868,7 +1066,7 @@ describe('ParentProcess', () => {
     const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
       if (args[0] === 'parent') successorEnv = options.env
       else childEnvs.set(String(args[0]), options.env as NodeJS.ProcessEnv)
-      return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+      return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
     }
     const parent = track(
       new ParentProcess({
@@ -917,8 +1115,8 @@ describe('ParentProcess', () => {
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
-      const spawnImpl: SpawnChildFn = (_cmd, args) => {
-        const child = new FakeChild(nextPid++)
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+        const child = channelChild(nextPid++, args, options)
         if (args[0] === 'server') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
@@ -1010,8 +1208,8 @@ describe('ParentProcess', () => {
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
-      const spawnImpl: SpawnChildFn = (_cmd, args) => {
-        const child = new FakeChild(nextPid++)
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+        const child = channelChild(nextPid++, args, options)
         if (args[0] === 'server') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
@@ -1057,8 +1255,8 @@ describe('ParentProcess', () => {
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
-      const spawnImpl: SpawnChildFn = (_cmd, args) => {
-        const child = new FakeChild(nextPid++)
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+        const child = channelChild(nextPid++, args, options)
         if (args[0] === 'server') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
@@ -1098,8 +1296,8 @@ describe('ParentProcess', () => {
       const claims: string[] = []
       const clock = fakeClock()
       let nextPid = 500
-      const spawnImpl: SpawnChildFn = () =>
-        new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) =>
+        channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
       const exits: number[] = []
       const parent = track(
         new ParentProcess({
@@ -1131,8 +1329,8 @@ describe('ParentProcess', () => {
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
-      const spawnImpl: SpawnChildFn = (_cmd, args) => {
-        const child = new FakeChild(nextPid++)
+      const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
+        const child = channelChild(nextPid++, args, options)
         if (args[0] === 'server') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
@@ -1201,6 +1399,8 @@ describe('delayed successor boot ownership', () => {
     const confirmed = vi.fn()
     const claims = vi.fn()
     const successorProcess = new FakeChild(process.pid)
+    /** The successor's own server, which binds and reports ready at `readyAt`. */
+    let successorServer: FakeChild | undefined
     const probe = async () => healthy(updating && clock.now() >= readyAt ? '2.0.0' : '1.0.0')
     const outgoing = track(
       new ParentProcess({
@@ -1212,7 +1412,7 @@ describe('delayed successor boot ownership', () => {
         env: { PODIUM_APP_VERSION: '1.0.0' },
         runningIdentity: { version: '1.0.0', digest: 'old' },
         spawn: ((_cmd, args, options) => {
-          if (args[0] !== 'parent') return new FakeChild(111) as unknown as ReturnType<SpawnChildFn>
+          if (args[0] !== 'parent') return channelChild(111, args, options) as unknown as ReturnType<SpawnChildFn>
           expect(Number(options.env?.[PARENT_HANDOVER_DEADLINE_ENV])).toBe(91_000)
           incoming = track(
             new ParentProcess({
@@ -1223,8 +1423,10 @@ describe('delayed successor boot ownership', () => {
               children: ['server'],
               env: options.env,
               runningIdentity: { version: '2.0.0', digest: 'new' },
-              spawn: (() =>
-                new FakeChild(222) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+              spawn: (() => {
+                successorServer = new FakeChild(222)
+                return successorServer as unknown as ReturnType<SpawnChildFn>
+              }) as SpawnChildFn,
               probeHealth: probe,
               now: clock.now,
               sleep: async (ms) => clock.advance(ms),
@@ -1241,6 +1443,13 @@ describe('delayed successor boot ownership', () => {
         sleep: async (ms) => {
           await incomingStart
           clock.advance(ms)
+          // 61 seconds in, the successor's server finally binds and says so on
+          // its own line — the only thing that can make its gate pass.
+          if (clock.now() >= readyAt && successorServer) {
+            const server = successorServer
+            successorServer = undefined
+            server.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+          }
           await vi.advanceTimersByTimeAsync(ms)
         },
         notify: () => {},
@@ -1284,7 +1493,8 @@ describe('delayed successor boot ownership', () => {
           [PARENT_HANDOVER_DEADLINE_ENV]: '91000',
         },
         runningIdentity: { version: '2.0.0', digest: 'new' },
-        spawn: (() => new FakeChild(123) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        spawn: ((_cmd, args, options) =>
+          channelChild(123, args, options) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         probeDaemonHealth: async () => ({
           connected,
           appVersion: '2.0.0',
@@ -1367,8 +1577,8 @@ describe('delayed successor boot ownership', () => {
         children: ['server'],
         env: { PODIUM_APP_VERSION: '2.0.0' },
         runningIdentity: { version: '2.0.0', digest: 'new' },
-        spawn: ((_cmd, args) => {
-          const child = new FakeChild(123)
+        spawn: ((_cmd, args, options) => {
+          const child = channelChild(123, args, options)
           if (args[0] === 'parent') {
             spawned = child
             writeFileSync(
@@ -1453,8 +1663,8 @@ describe('ceding the fleet socket across a handover', () => {
         installBinary: join(install, 'podium'),
         children: ['server'],
         env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
-        spawn: ((_cmd, args) => {
-          if (args[0] !== 'parent') return new FakeChild(701) as unknown as ReturnType<SpawnChildFn>
+        spawn: ((_cmd, args, options) => {
+          if (args[0] !== 'parent') return channelChild(701, args, options) as unknown as ReturnType<SpawnChildFn>
           opts.onSpawnParent?.()
           return new FakeChild(opts.successorPid) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
@@ -1530,19 +1740,6 @@ describe('ceding the fleet socket across a handover', () => {
   })
 })
 
-/** A child spawned WITH its lifecycle line: what the parent sent it, and a way to answer. */
-class ChannelChild extends FakeChild {
-  connected = true
-  sent: unknown[] = []
-  send(message: unknown): boolean {
-    if (!this.connected) throw new Error('channel closed')
-    this.sent.push(message)
-    return true
-  }
-  deliver(message: unknown): void {
-    this.emit('message', message)
-  }
-}
 
 /** A parent whose children each get a lifecycle line, plus the spawn options it used. */
 function channelParent(
@@ -1555,7 +1752,7 @@ function channelParent(
 ) {
   const spawned: Array<{
     role: string
-    child: ChannelChild
+    child: FakeChild
     options: Parameters<SpawnChildFn>[2]
   }> = []
   let nextPid = 300
@@ -1566,7 +1763,7 @@ function channelParent(
       children: opts.children ?? ['server', 'daemon'],
       env: { PODIUM_APP_VERSION: '1.0.0', NODE_CHANNEL_FD: '3' },
       spawn: ((_cmd, args, options) => {
-        const child = new ChannelChild(nextPid++)
+        const child = channelChild(nextPid++, args, options)
         spawned.push({ role: args[0] as string, child, options })
         return child as unknown as ReturnType<SpawnChildFn>
       }) as SpawnChildFn,
@@ -1621,15 +1818,10 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('records what a child reports on its line in the snapshot', async () => {
     const { parent, spawned } = channelParent({ children: ['server'] })
     await parent.start()
-    const server = spawned[0]?.child as ChannelChild
-    expect(parent.lifecycle('server')).toEqual({ channel: 'open' })
-    server.deliver({
-      podium: 'podium-lifecycle/1',
-      type: 'ready',
-      role: 'server',
-      pid: server.pid,
-      version: '1.0.0',
-      port: 19099,
+    const server = spawned[0]?.child as FakeChild
+    expect(parent.lifecycle('server')).toEqual({
+      channel: 'open',
+      ready: { role: 'server', pid: server.pid, version: '1.0.0', port: 19099, atMs: 1_000 },
     })
     server.deliver({ podium: 'podium-lifecycle/1', type: 'degraded', reason: 'recovery-only' })
     expect(parent.lifecycle('server')).toEqual({
@@ -1643,14 +1835,21 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('asks a retired child to stop on its line before signalling it', async () => {
     const { parent, spawned } = channelParent()
     await parent.start()
-    const daemon = spawned.find((s) => s.role === 'daemon')?.child as ChannelChild
+    const daemon = spawned.find((s) => s.role === 'daemon')?.child as FakeChild
     await parent.reconcileTopology(['server'], 'none')
     expect(daemon.sent[1]).toMatchObject({ type: 'stop' })
     expect(daemon.signalsReceived).toEqual(['SIGTERM'])
   })
 
-  it('records a child spawned without a line as having none, and does not fail on it', async () => {
+  /**
+   * A child with no line cannot report ready, so under POD-3762 it can never
+   * prove the stack — the parent records the missing line and refuses, rather
+   * than falling back to whatever the port says.
+   */
+  it('records a child spawned without a line as having none, and refuses to call it healthy', async () => {
+    const clock = fakeClock()
     let nextPid = 400
+    const notifications: string[] = []
     const parent = track(
       new ParentProcess({
         port: 19099,
@@ -1658,16 +1857,18 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
         children: ['server'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
         spawn: (() =>
-          new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+          new MuteChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         probeHealth: async () => healthy('1.0.0'),
-        notify: () => {},
-        sleep: async () => {},
-        now: () => 1_000,
+        notify: (state) => notifications.push(state),
+        sleep: async (ms) => clock.advance(ms),
+        now: clock.now,
         exit: () => {},
       }),
     )
     await parent.start()
     expect(parent.lifecycle('server')).toEqual({ channel: 'none' })
+    expect(parent.isBootHealthy()).toBe(false)
+    expect(notifications).not.toContain('READY=1')
     await parent.reconcileTopology([], 'none')
   })
 })

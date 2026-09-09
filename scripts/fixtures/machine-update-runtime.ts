@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { asMachineId } from '@podium/model'
 import type { UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
+import { connectLifecycleChannel } from '../../packages/runtime/src/lifecycle-channel'
 import { ParentProcess, PARENT_SUCCESSOR_ENV } from '../../packages/runtime/src/parent-process'
 import { registerProcess } from '../../packages/runtime/src/run-registry'
 import {
@@ -413,7 +414,20 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       }
     })
     await new Promise<void>((resolve) => server.listen(socket, resolve))
+    // Listening: report ready on the private line to the parent that spawned us,
+    // the way apps/cli/src/cli.ts does. The parent's health gate waits for this
+    // frame from its OWN children rather than probing a shared endpoint
+    // (POD-3762), so a role that never sent one would never come up.
+    const lifecycle = connectLifecycleChannel({
+      role: role === 'server' ? 'server' : 'daemon',
+      version,
+    })
+    // A server names the port it bound; the gate will not call a server that
+    // cannot be addressed proved. This fixture serves over a unix socket, so the
+    // port is the one its parent configured.
+    lifecycle?.ready(role === 'server' ? { port: Number(process.env.PODIUM_PORT ?? 1) || 1 } : {})
     const stop = () => {
+      lifecycle?.stopping('signal')
       event('stop')
       engine?.stop()
       verifier?.close()
