@@ -377,19 +377,23 @@ function recordVersions(
 ): { stop: () => Array<{ at: number; appVersion: string | null }> } {
   const timeline: Array<{ at: number; appVersion: string | null }> = []
   let running = true
-  const started = Date.now()
+  const origin = Date.now()
   const tick = async (): Promise<void> => {
     while (running) {
       try {
         const row = await coordinator.row(machineId)
         const appVersion = row?.appVersion ?? null
         if (timeline.at(-1)?.appVersion !== appVersion) {
-          timeline.push({ at: Date.now() - started, appVersion })
+          timeline.push({ at: Date.now() - origin, appVersion })
         }
       } catch {
         /* the row is briefly unreadable during a store write; the next tick sees it */
       }
-      await new Promise((r) => setTimeout(r, 25))
+      // 100ms, against a regression whose smallest window is the dialer's
+      // 500ms minimum backoff: fast enough to catch the shortest flap the
+      // reconnect ladder can produce, slow enough that reading the fleet on a
+      // loop is not itself what perturbs the handover being measured.
+      await new Promise((r) => setTimeout(r, 100))
     }
   }
   void tick()
@@ -585,13 +589,19 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       join(takeoverDir, 'supervisor.json'),
       JSON.stringify(unstamped.supervisorState(), null, 2),
     )
-    const displacedByStamped = coordinator.observes('machine.disconnected', unstamped.machineId)
+    // NOT waited on as a disconnect: displacement does not close the loser's
+    // socket. `attachSupervisor` replaces the map entry, and the unstamped
+    // parent's socket stays open until its next frame meets the message-path
+    // re-fence — at which point `detachSupervisor` returns false, because it no
+    // longer holds the slot, and no `machine.disconnected` is emitted. The
+    // transition to wait for is the winner's attach.
+    const stampedAttached = coordinator.observes('machine.connected', unstamped.machineId)
     const stampedIncarnation = await startFleetParent(coordinator, {
       stateDir: takeoverDir,
       version: '0.2.0',
     })
     expect(stampedIncarnation.machineId).toBe(unstamped.machineId)
-    await coordinator.observes('machine.connected', unstamped.machineId)
+    await stampedAttached
 
     await until(
       async () =>
@@ -671,9 +681,12 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     expect(coordinator.machines.attachedSupervisorGeneration(machine.machineId)).toBe(1)
 
     const versions = recordVersions(coordinator, machine.machineId)
-    // The outgoing parent cedes the fleet socket BEFORE it spawns anyone, so the
-    // coordinator sees the machine leave before it sees the successor arrive.
+    // BOTH listeners registered before the handover is asked for. The successor
+    // is a fresh process that has to boot before it dials, so its attach is
+    // hundreds of milliseconds away — but "probably later" is how the race in
+    // POD-3789 was missed, and a listener costs nothing.
     const ceded = coordinator.observes('machine.disconnected', machine.machineId)
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
 
     // The "update": the new bundle is on disk, and the parent is asked to hand
     // over to it through the real request channel.
@@ -691,7 +704,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     process.kill(machine.pid, 'SIGUSR1')
 
     await ceded
-    await coordinator.observes('machine.connected', machine.machineId)
+    await successorAttached
     await until(
       () => (machine.process.exitCode !== null ? true : undefined),
       `the outgoing parent to exit after the handover; log:\n${machine.output()}`,
@@ -733,6 +746,82 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   }, 180_000)
 
   /**
+   * ARM E — A SAME-VERSION HANDOVER, SEEN FROM THE COORDINATOR.
+   *
+   * The version is the field everything else reaches for, and in this case it
+   * says nothing: the machine hands over to a parent running the identical
+   * bundle, so the row before and the row after are the same row. POD-3762
+   * proved the process plane copes — the outgoing parent waits for its
+   * successor's OWN children rather than for whatever answers the port. What
+   * nobody has asked is whether the COORDINATOR can tell the two apart, and it
+   * has to be able to: the fence is what stops the outgoing parent's last hello
+   * from taking the slot back, and on a same-version handover the fence's input
+   * is the only thing that differs between the two peers.
+   *
+   * So the assertion is the incarnation, not the version. 1 hands over to 2,
+   * the version never moves, and the machine ends up attached as 2.
+   */
+  it('ARM E — a same-version handover advances the incarnation the coordinator holds, though the version cannot', async () => {
+    const coordinator = await Coordinator.start()
+    const machine = await startFleetParent(coordinator, {
+      pairCode: coordinator.pairCode(),
+      version: '1.0.0',
+    })
+    await coordinator.observes('machine.connected', machine.machineId)
+    await until(
+      () => (machine.notifications().includes('READY=1') ? true : undefined),
+      `the outgoing parent to finish booting; log:\n${machine.output()}`,
+      60_000,
+    )
+    expect(coordinator.machines.attachedSupervisorGeneration(machine.machineId)).toBe(1)
+
+    const ceded = coordinator.observes('machine.disconnected', machine.machineId)
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
+    // NOTHING ON DISK CHANGES. The bundle stays at 1.0.0, which is what makes
+    // this the case where the version can distinguish nothing.
+    const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
+    writeParentRequest(
+      {
+        requestId: 'fleet-upgrade-arm-e',
+        kind: 'handover',
+        expectedVersion: '1.0.0',
+        requestedAt: new Date().toISOString(),
+      },
+      machine.stateDir,
+    )
+    process.kill(machine.pid, 'SIGUSR1')
+
+    await ceded
+    await successorAttached
+    await until(
+      () => (machine.process.exitCode !== null ? true : undefined),
+      `the outgoing parent to exit after the same-version handover; log:\n${machine.output()}`,
+      60_000,
+    )
+    expect(machine.process.exitCode, 'a clean handover exit').toBe(0)
+
+    await until(
+      () =>
+        coordinator.machines.attachedSupervisorGeneration(machine.machineId) === 2
+          ? true
+          : undefined,
+      'the coordinator to hold the successor as incarnation 2',
+    )
+    expect(
+      machine.supervisorState().generation,
+      'and the successor persisted it, so a reboot resumes past it',
+    ).toBe(2)
+    expect(
+      (await coordinator.row(machine.machineId))?.appVersion,
+      'the version is the same on both sides of the handover, which is the point',
+    ).toBe('1.0.0')
+    expect(
+      (await coordinator.fleet()).length,
+      'still one machine, one slot, one incarnation holding it',
+    ).toBe(1)
+  }, 180_000)
+
+  /**
    * ARM D — THE ABORT PATH, WITH THE COORDINATOR WATCHING.
    *
    * A successor spawns, dials the coordinator IMMEDIATELY — before it is healthy,
@@ -769,6 +858,10 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     const versions = recordVersions(coordinator, machine.machineId)
     const ceded = coordinator.observes('machine.disconnected', machine.machineId)
+    // The successor dials the coordinator from the moment it boots, long before
+    // it is healthy — registered here, before the handover is asked for, so the
+    // attach cannot land between the cede resolving and a listener appearing.
+    const successorAttached = coordinator.observes('machine.connected', machine.machineId)
     writeFileSync(join(machine.installDir, 'VERSION'), '2.0.0\n')
     const { writeParentRequest } = await import('../packages/runtime/src/parent-control')
     writeParentRequest(
@@ -791,7 +884,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     // The successor reaches the coordinator before it is healthy — that is the
     // window the fence exists for, and it really is open.
-    await coordinator.observes('machine.connected', machine.machineId)
+    await successorAttached
     await until(
       () =>
         coordinator.machines.attachedSupervisorGeneration(machine.machineId) === 2
@@ -803,13 +896,14 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // The gate expires. The successor is killed and the machine comes back to
     // the parent that never stopped running it.
     const successorGone = coordinator.observes('machine.disconnected', machine.machineId)
+    const parentReattached = coordinator.observes('machine.connected', machine.machineId)
     await until(
       () => (alive(successorPid) ? undefined : true),
       `the doomed successor to be killed; log:\n${machine.output()}`,
       40_000,
     )
     await successorGone
-    await coordinator.observes('machine.connected', machine.machineId)
+    await parentReattached
 
     expect(machine.process.exitCode, 'the outgoing parent must still be here').toBeNull()
     expect(
