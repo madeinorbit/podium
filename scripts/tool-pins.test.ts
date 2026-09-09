@@ -70,6 +70,37 @@ describe('resolveZig pin enforcement', () => {
     expect(resolveZig()).toBe(bin)
   })
 
+  /**
+   * A fake that behaves like the REAL zig: `zig version` prints, `zig --version` is not a
+   * command and exits 1. Every test above sets PODIUM_ZIG, which skips the PATH probe
+   * entirely — which is exactly why the probe could ask for `--version` and go unnoticed
+   * through every headless release [POD-3771].
+   */
+  function fakeZigOnPath(version: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-zig-path-'))
+    const bin = join(dir, 'zig')
+    writeFileSync(
+      bin,
+      `#!/bin/sh\ncase "$1" in\n  version) echo ${version} ;;\n  *) echo "error: unknown command: $1" >&2; exit 1 ;;\nesac\n`,
+    )
+    chmodSync(bin, 0o755)
+    return dir
+  }
+
+  it('finds a zig that is only on PATH, which answers `version` and not `--version`', () => {
+    delete process.env.PODIUM_ZIG
+    delete process.env.PODIUM_SKIP_TOOL_PIN_CHECK
+    const dir = fakeZigOnPath(readToolPins().zig)
+    const priorPath = process.env.PATH
+    process.env.PATH = `${dir}:${priorPath ?? ''}`
+    try {
+      expect(resolveZig()).toBe('zig')
+    } finally {
+      if (priorPath === undefined) delete process.env.PATH
+      else process.env.PATH = priorPath
+    }
+  })
+
   it('waives the check under PODIUM_SKIP_TOOL_PIN_CHECK=1', () => {
     process.env.PODIUM_SKIP_TOOL_PIN_CHECK = '1'
     const bin = fakeZig('0.0.1-definitely-wrong')
