@@ -187,6 +187,36 @@ export interface ParentProcessDeps {
    * simply writes the truth back.
    */
   reclaimRole?: () => Promise<void> | void
+  /**
+   * STOP SPEAKING FOR THIS MACHINE; START AGAIN (POD-3765).
+   *
+   * Wired by the composition root to the machine-supervisor connection —
+   * `close()` and `reconfigure()`. Belt-and-braces over the incarnation fence
+   * (POD-3752), which decides who WINS the supervisor slot; this decides that
+   * the parent on its way out does not enter the contest at all.
+   *
+   * The fence acts on the hello, so two windows survive it. A server that has
+   * just restarted holds an empty supervisor map and cannot tell the two
+   * incarnations apart: whichever hello lands first is admitted, and if that is
+   * the outgoing parent's, the version it is about to stop running sits on the
+   * machine row until the successor's arrives. And nothing is re-fenced after
+   * the handshake — a socket that established while it was still the newest
+   * goes on writing `machineReport` and `updateStatus` for the whole gate,
+   * so the outgoing parent's service report is recorded against the
+   * successor's build.
+   *
+   * Neither window exists if the process being replaced simply goes quiet. It
+   * has nothing left to say: the update journal on disk is the durable record,
+   * the successor replays it on connect, and a status raised while the socket
+   * is down is journaled first and replayed on the way back.
+   *
+   * NOT A FENCE, and must never be relied on as one — an outgoing parent that
+   * crashes mid-handover never runs it. The fence is what makes the outcome
+   * correct; this only keeps the two of them off the same wire.
+   */
+  cedeFleetSocket?: () => void
+  /** @see {@link ParentProcessDeps.cedeFleetSocket} */
+  resumeFleetSocket?: () => void
   /** Called on the way out so the composition root can flush its own logging. */
   onExit?: (code: number) => Promise<void> | void
   /** Test seam; production terminates the process. */
@@ -1224,6 +1254,10 @@ export class ParentProcess {
     this.bootAbort.abort()
     const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS)
     const priorPhase = this.snap.phase
+    // BEFORE the phase change, so `handover_outgoing` is never announced, and
+    // before the spawn below, so there is no instant at which both incarnations
+    // are dialling the coordinator (POD-3765).
+    this.cedeFleetSocket()
     this.snap = beginHandoverOutgoing(markPostUpdate(this.snap, this.deps.now()), expectedVersion)
     this.publish()
 
@@ -1458,7 +1492,39 @@ export class ParentProcess {
           : priorPhase
     const next = { ...this.snap, phase }
     this.snap = opts.keepPostUpdate ? next : clearPostUpdate(next)
+    // The handover is off, so this parent speaks for the machine again — from
+    // HERE, after the phase is restored, so the first thing the coordinator
+    // hears is what this parent came back to and not the handover it abandoned.
+    // Every abort path funnels through this method, including the one where the
+    // successor never got a pid, which is why the resume lives here (POD-3765).
+    this.resumeFleetSocket()
     this.publish()
+  }
+
+  /**
+   * Hand the machine's supervisor socket over, and take it back.
+   *
+   * NEVER FATAL, on the same reasoning as `reclaimRole` in `abortHandover`: a
+   * connection that will not close is a reporting problem, and one that will
+   * not redial is a discovery problem, but a throw from either would abandon a
+   * handover mid-flight or derail the rollback that is putting the machine back
+   * on a version that works. The dialer retries on its own; the update journal
+   * is on disk either way.
+   */
+  private cedeFleetSocket(): void {
+    try {
+      this.deps.cedeFleetSocket?.()
+    } catch (error) {
+      log.warn('could not cede the machine supervisor socket for the handover', { err: error })
+    }
+  }
+
+  private resumeFleetSocket(): void {
+    try {
+      this.deps.resumeFleetSocket?.()
+    } catch (error) {
+      log.error('could not take the machine supervisor socket back', { err: error })
+    }
   }
 
   private async stopChildren(): Promise<void> {
