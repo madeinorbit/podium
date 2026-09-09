@@ -6,12 +6,12 @@
 # decides is WHICH experiment runs. workflow_dispatch only resolves workflows that
 # exist on the DEFAULT branch, so until platform-experiment.yml lands on main the
 # `push:` trigger below, scoped to this spike's own branch, is what starts a run.
-# Comment it out again once the report is written.
+# It has been commented out again now the report is written (run 34360796392).
 name: ipc-exec-spike
 on:
   workflow_dispatch:
-  push:
-    branches: ['issue/3772-ipc-channel-survival-across-supervisor-e']
+  # push:
+  #   branches: ['issue/3772-ipc-channel-survival-across-supervisor-e']
 
 jobs:
   ipc-exec:
