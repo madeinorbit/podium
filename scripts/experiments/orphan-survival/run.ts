@@ -17,6 +17,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { probeJob } from "./fixtures/jobprobe.ts";
 
 const here = import.meta.dir;
 const outDir = process.env.EXPERIMENT_OUT ?? path.join(process.cwd(), "experiment-out");
@@ -183,15 +184,26 @@ function discriminate(): { code: string; reading: string } {
     };
   }
   const ch = view("channelled");
+  const det = view("ignored-detached");
+  const attached = (["channelled", "piped", "ignored"] as const).map(view);
   const plain = (["piped", "ignored", "ignored-detached"] as const).map(view);
   const allPlainLived = plain.every((p) => p.outlivedParent);
-  const allPlainDied = plain.every((p) => !p.outlivedParent);
+  const allAttachedDied = attached.every((p) => !p.outlivedParent);
 
-  if (!ch.outlivedParent && allPlainDied) {
+  // The arm that separates "the machine kills orphans" from "the SPAWN kills
+  // them": same runner, same step, same outer job, one different spawn flag.
+  if (allAttachedDied && det.outlivedParent) {
+    return {
+      code: "spawn-scoped-kill-job",
+      reading:
+        "neither reading (a) nor (b): every ATTACHED orphan died — channel or not, so the channel is not implicated — but the DETACHED one lived through the whole window in the same step. The kill follows the spawn flag, not the machine, so it is a property of how the runtime spawns on Windows and will reproduce off CI.",
+    };
+  }
+  if (!ch.outlivedParent && plain.every((p) => !p.outlivedParent)) {
     return {
       code: "environment-kills-orphans",
       reading:
-        "reading (b): EVERY orphan died, channel or not. The environment kills orphans; the IPC channel is not implicated.",
+        "reading (b): EVERY orphan died, channel or not, detached included. The environment kills orphans; the IPC channel is not implicated.",
     };
   }
   if (!ch.outlivedParent && allPlainLived) {
@@ -226,6 +238,10 @@ const results = {
   runner: process.env.RUNNER_NAME ?? "local",
   runnerOs: process.env.ImageOS ?? "",
   observeMs: OBSERVE_MS,
+  // The top of the chain: this process was started by the step's shell, not by
+  // a runtime spawn. Comparing it with the parent's and the child's job is what
+  // separates "the machine put us all in a kill job" from "the spawn did".
+  harnessJob: probeJob(),
   childLifetimeMs: CHILD_LIFETIME_MS,
   arms: armResults,
   discrimination: discriminate(),
@@ -234,12 +250,23 @@ const results = {
 
 fs.writeFileSync(path.join(outDir, "result.json"), `${JSON.stringify(results, null, 2)}\n`);
 
-const jobLine = (() => {
-  const j = (armResults.channelled as { job?: Record<string, unknown> | null })?.job;
-  if (!j || j.available !== true) return `Job object: n/a (${j?.error ?? "not probed"})`;
-  if (j.inJob !== true) return "Job object: process is **not in a job**";
-  return `Job object: **in a job**, KILL_ON_JOB_CLOSE=${j.killOnJobClose ?? "unreadable"}, BREAKAWAY_OK=${j.breakawayOk ?? "?"}, SILENT_BREAKAWAY_OK=${j.silentBreakawayOk ?? "?"}${j.queryError ? ` (query error ${j.queryError})` : ""}`;
-})();
+function describeJob(j: Record<string, unknown> | null | undefined): string {
+  if (!j || j.available !== true) return `n/a (${j?.error ?? "not probed"})`;
+  if (j.inJob !== true) return "not in a job";
+  const flags = j.limitFlags == null ? "unreadable" : `0x${Number(j.limitFlags).toString(16)}`;
+  return `in a job, LimitFlags=${flags}, KILL_ON_JOB_CLOSE=${j.killOnJobClose ?? "?"}`;
+}
+
+// The chain, top to bottom. The harness was started by the step's shell; the
+// parent and child by a runtime spawn. Where the flags CHANGE is where the job
+// was attached.
+const jobLine = [
+  `Job chain — harness (started by the step shell): **${describeJob(results.harnessJob)}**`,
+  ...ARMS.map((a) => {
+    const r = armResults[a] as { parentSays?: { job?: Record<string, unknown> }; job?: Record<string, unknown> | null };
+    return `- \`${a}\` parent: ${describeJob(r.parentSays?.job)} · child: ${describeJob(r.job)}`;
+  }),
+].join("\n");
 
 const md = [
   `### orphan-survival — \`${process.platform}/${process.arch}\` (bun ${Bun.version}, ${results.runner})`,

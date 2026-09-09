@@ -6,6 +6,7 @@
 // argv: <arm> <childBin> <heartbeatFile> <lifetimeMs>
 import { spawn, type StdioOptions } from "node:child_process";
 import { existsSync } from "node:fs";
+import { probeJob } from "./jobprobe.ts";
 
 const arm = process.argv[2] ?? "channelled";
 const childBin = process.argv[3];
@@ -69,6 +70,9 @@ process.stdout.write(
     armed,
     spawnError,
     childPid: p.pid,
+    // The parent's OWN job, so the report can show the whole chain. If this
+    // differs from the child's, the job was attached by the spawn itself.
+    job: probeJob(),
     detached: shape.detached,
     exitedAt: Date.now(),
   })}\n`,
