@@ -13,8 +13,8 @@
 name: orphan-survival-spike
 on:
   workflow_dispatch:
-  push:
-    branches: ['issue/3774-windows-supervisor-death-signal-on-a-rea']
+  # push:
+  #   branches: ['issue/3774-windows-supervisor-death-signal-on-a-rea']
 
 jobs:
   orphan-survival:
