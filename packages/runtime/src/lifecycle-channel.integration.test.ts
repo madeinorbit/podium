@@ -246,14 +246,22 @@ describe('the lifecycle line between a real parent and its real children', () =>
           stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
           env: { ...process.env, PODIUM_STATE_DIR: ${JSON.stringify(root)}, PODIUM_PORT: '1' },
         })
-        child.once('message', () => { child.unref(); process.exit(0) })
+        // Leave once the child is talking — or after a moment regardless, so a
+        // stand-in that somehow never hears the child still models a crash.
+        const leave = () => { child.unref(); setImmediate(() => process.exit(0)) }
+        child.once('message', leave)
+        setTimeout(leave, 3_000)
       `
       const parent = spawn(process.execPath, ['-e', shell], { stdio: 'inherit', cwd: ROOT })
       const channel = await until(() => readNote(root, 'server', 'channel'), 'child channel note')
       const childPid = channel.pid as number
       observedPids.add(childPid)
       expect(channel.present).toBe(true)
-      await new Promise<void>((r) => parent.on('exit', () => r()))
+      await until(
+        () => (parent.exitCode !== null ? true : undefined),
+        'stand-in parent exit',
+        10_000,
+      )
       const gone = await until(() => readNote(root, 'server', 'gone'), 'gone note', 10_000)
       expect(typeof gone.atMs).toBe('number')
       await until(() => (isAlive(childPid) ? undefined : true), 'orphan exit', 10_000)
