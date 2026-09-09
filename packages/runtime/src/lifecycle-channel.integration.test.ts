@@ -16,6 +16,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { ParentIdentity } from './lifecycle-channel'
 import { ParentProcess } from './parent-process'
 import { isAlive } from './run-registry'
 
@@ -158,12 +159,18 @@ describe('the lifecycle line between a real parent and its real children', () =>
     expect(daemon.port).toBeUndefined()
 
     // The child heard who spawned it, without asking.
-    const identity = await until(() => readNote(root, 'server', 'identity'), 'server identity')
+    const identity = await until(
+      () => readNote<ParentIdentity>(root, 'server', 'identity'),
+      'server identity',
+    )
+    // `satisfies` makes the wire shape the source of truth: the dep is named
+    // `supervisorGeneration`, the field a child hears is `generation`, and
+    // spelling the dep here is a typecheck failure rather than a red run.
     expect(identity).toEqual({
-      supervisorGeneration: 42,
+      generation: 42,
       machineId: 'machine-under-test',
       assignment: { server: true, agentExecution: true },
-    })
+    } satisfies ParentIdentity)
     expect(readNote(root, 'server', 'channel')).toMatchObject({ present: true })
   }, 40_000)
 
