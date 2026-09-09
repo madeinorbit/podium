@@ -260,7 +260,13 @@ const fleet = fleetProcedures({
           pairCode,
           podiumManaged,
           ...(workspaceId ? { workspaceId } : {}),
-          channel: channel === 'stable' ? 'stable' : 'edge',
+          // PASSED THROUGH, not collapsed [POD-3274]. `fleetDefaultChannel()` already returns
+          // the full channel, and folding everything non-stable into `edge` here made a server
+          // running a hand-cut dev build hand out a command that installs a DIFFERENT train.
+          // The value of that command is that it is pasted; a paste you have to edit is a paste
+          // that gets edited wrong. Absent only in the port's type, never in production, so the
+          // fallback is left to `buildJoinCommand`'s own default rather than restated here.
+          ...(channel ? { channel } : {}),
         })
       : null
   },

@@ -80,9 +80,15 @@ describe('parseInstallFinishArgs', () => {
     })
   })
 
-  it('rejects a channel that is not stable or edge', () => {
+  it('rejects a channel that is not stable, edge or dev', () => {
     expect(parseInstallFinishArgs([...req, '--channel', 'nightly'], {})).toEqual({
       error: expect.stringContaining('nightly'),
+    })
+  })
+
+  it('accepts the dev channel [POD-3274]', () => {
+    expect(parseInstallFinishArgs([...req, '--channel', 'dev'], {})).toMatchObject({
+      channel: 'dev',
     })
   })
 })
@@ -149,6 +155,20 @@ describe('runInstallFinish', () => {
     await runInstallFinish(io, opts({ interactive: false }), d)
     expect(order[0]).toBe('channel')
     expect(d.applyChannel).toHaveBeenCalledWith('stable')
+  })
+
+  // A dev box takes its updates from a source server's feed, not from GitHub, so nothing will
+  // ever offer it a newer build. Left unsaid, that silence reads as "up to date" [POD-3274].
+  it('says a dev install will not update itself', async () => {
+    const { io, output } = scriptedIO([])
+    await runInstallFinish(io, opts({ channel: 'dev', interactive: false }), deps())
+    expect(output.join('\n')).toContain('It will not update itself.')
+  })
+
+  it('says nothing about updates on the channels that do update themselves', async () => {
+    const { io, output } = scriptedIO([])
+    await runInstallFinish(io, opts({ channel: 'edge', interactive: false }), deps())
+    expect(output.join('\n')).not.toContain('It will not update itself.')
   })
 
   it('pairs without prompting when a join token is present [R6]', async () => {

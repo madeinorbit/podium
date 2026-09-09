@@ -1,11 +1,15 @@
-export type VpsReleaseChannel = 'stable' | 'edge'
+export type VpsReleaseChannel = 'stable' | 'edge' | 'dev'
 
 const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
 
+/**
+ * A rolling channel (`edge`, `dev`) publishes onto a standing tag named after itself, so its
+ * installer URL is constant across builds; only stable moves, and `releases/latest` tracks it.
+ */
 function installerUrl(channel: VpsReleaseChannel): string {
-  return channel === 'edge'
-    ? `${RELEASE_BASE}/download/edge/install.sh`
-    : `${RELEASE_BASE}/latest/download/install.sh`
+  return channel === 'stable'
+    ? `${RELEASE_BASE}/latest/download/install.sh`
+    : `${RELEASE_BASE}/download/${channel}/install.sh`
 }
 
 /**

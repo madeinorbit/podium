@@ -47,13 +47,14 @@ for command in gh jq curl cp grep mktemp python3 tar tee seq bun rcodesign sha25
 done
 
 if [ -z "$RELEASE" ]; then
-  echo "ABORT: pass the published release, for example v0.4.2 or edge" >&2
+  echo "ABORT: pass the published release, for example v0.4.2, edge or dev" >&2
   exit 1
 fi
 case "$RELEASE" in
   edge) CHANNEL="edge" ;;
+  dev) CHANNEL="dev" ;;
   v*) CHANNEL="stable" ;;
-  *) echo "ABORT: published smoke only accepts edge or a v* stable release tag (got '$RELEASE')" >&2; exit 1 ;;
+  *) echo "ABORT: published smoke only accepts edge, dev or a v* stable release tag (got '$RELEASE')" >&2; exit 1 ;;
 esac
 
 RELEASE_DIR="$WORK/release"

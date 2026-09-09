@@ -162,12 +162,20 @@ if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
 fi
 
 # --- resolve download base ---
+# A rolling channel (`edge`, `dev`) publishes onto a standing tag named after itself, so its
+# URL is constant across builds. Only stable moves, and `releases/latest` is what tracks it.
+# `dev` is a build cut by hand to be installed and tried; it shares the standing `dev` tag with
+# the desktop shell and carries no promise that anything is published there right now.
+case "$CHANNEL" in
+  stable|edge|dev) ;;
+  *) echo "podium install: unknown channel '$CHANNEL' (use: stable | edge | dev)" >&2; exit 2 ;;
+esac
 if [ -n "${PODIUM_INSTALL_BASE:-}" ]; then
   BASE="$PODIUM_INSTALL_BASE"                                   # tests / mirrors
-elif [ "$CHANNEL" = "edge" ]; then
-  BASE="https://github.com/$REPO/releases/download/edge"
-else
+elif [ "$CHANNEL" = "stable" ]; then
   BASE="https://github.com/$REPO/releases/latest/download"
+else
+  BASE="https://github.com/$REPO/releases/download/$CHANNEL"
 fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT

@@ -85,7 +85,7 @@ export const CARRIED_ASSETS = ['latest.json', 'desktop-shell-input.sha256'] as c
 /** Named in every refusal, so a failed release says which step failed. */
 export const CARRY_FORWARD_STEP = 'carry forward the standing desktop shell reference'
 
-export type ReleaseChannel = 'stable' | 'edge'
+export type ReleaseChannel = 'stable' | 'edge' | 'dev'
 
 /**
  * Where a channel's standing reference is read from — the SAME release the
@@ -96,7 +96,7 @@ export type ReleaseChannel = 'stable' | 'edge'
  * place onto the fixed `edge` tag.
  */
 export function sourceReleaseEndpoint(channel: ReleaseChannel): string {
-  return channel === 'stable' ? 'releases/latest' : 'releases/tags/edge'
+  return channel === 'stable' ? 'releases/latest' : `releases/tags/${channel}`
 }
 
 export type SourceRelease =
@@ -209,8 +209,8 @@ function arg(name: string): string | undefined {
 
 function main(): void {
   const channel = arg('--channel')
-  if (channel !== 'stable' && channel !== 'edge') {
-    throw new Error(`--channel must be stable or edge, got ${channel ?? '(nothing)'}`)
+  if (channel !== 'stable' && channel !== 'edge' && channel !== 'dev') {
+    throw new Error(`--channel must be stable, edge or dev, got ${channel ?? '(nothing)'}`)
   }
   const dir = arg('--dir')
   if (!dir) throw new Error('--dir is required — where the release assets are staged')
