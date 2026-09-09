@@ -2,16 +2,17 @@
 # platform-experiment harness. All this file decides is WHICH experiment runs; the
 # per-platform machinery lives in platform-experiment.yml.
 #
-# TEMPORARY `push:` TRIGGER — workflow_dispatch only resolves workflows that exist on
-# the DEFAULT branch, and this epic never lands on main. The push trigger below is
-# scoped to the spike branch so the run can be started at all. REMOVE IT before the
-# issue closes; once the harness is on main, dispatch platform-experiment.yml directly
-# with `experiment: ipc-pipe`.
+# The four runs behind the POD-3760 report were driven by the `push:` trigger below,
+# now commented out as that issue promised. workflow_dispatch only resolves workflows
+# that exist on the DEFAULT branch, so until platform-experiment.yml lands on main,
+# re-enabling this block scoped to your own branch is how you start a run. Once it is
+# on main, dispatch platform-experiment.yml directly with `experiment: ipc-pipe` and
+# this wrapper is not needed at all.
 name: ipc-pipe-spike
 on:
   workflow_dispatch:
-  push:
-    branches: ['issue/3760-spike-ipc-pipe-between-compiled-binaries']
+  # push:
+  #   branches: ['issue/3760-spike-ipc-pipe-between-compiled-binaries']
 
 jobs:
   ipc-pipe:
