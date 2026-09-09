@@ -99,7 +99,7 @@ async function startStack(
     children,
     installDir: root,
     stateDir: root,
-    generation: 42,
+    supervisorGeneration: 42,
     identity: () => ({
       machineId: 'machine-under-test',
       assignment: { server: true, agentExecution: true },
@@ -160,7 +160,7 @@ describe('the lifecycle line between a real parent and its real children', () =>
     // The child heard who spawned it, without asking.
     const identity = await until(() => readNote(root, 'server', 'identity'), 'server identity')
     expect(identity).toEqual({
-      generation: 42,
+      supervisorGeneration: 42,
       machineId: 'machine-under-test',
       assignment: { server: true, agentExecution: true },
     })

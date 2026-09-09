@@ -29,7 +29,6 @@ import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
 import { readDaemonHealth } from './daemon-health'
-import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   attachChildChannel,
   type ChildChannel,
@@ -37,6 +36,7 @@ import {
   NODE_CHANNEL_FD_ENV,
   type ParentIdentity,
 } from './lifecycle-channel'
+import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
@@ -148,15 +148,10 @@ export interface ParentProcessDeps {
   /**
    * Who this parent is, sent to every child the moment it is spawned
    * (POD-3761). Evaluated per spawn so a topology change reaches the next
-   * child. `generation` may be omitted: the parent then uses {@link generation}.
+   * child. The generation is {@link supervisorGeneration}; a caller need not
+   * repeat it here.
    */
   identity?: () => Partial<ParentIdentity>
-  /**
-   * This supervisor's incarnation number. Default: the parent's boot time on
-   * its own clock, which orders incarnations on one machine; POD-3752's fence
-   * supplies the real one through this dep once it exists.
-   */
-  generation?: number
   env?: NodeJS.ProcessEnv
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
@@ -387,7 +382,12 @@ export class ParentProcess {
   private readonly childProcs = new Map<SupervisedChild, ChildProcess>()
   /** The parent's end of each live child's lifecycle line (POD-3761). */
   private readonly childChannels = new Map<SupervisedChild, ChildChannel>()
-  private readonly generation: number
+  /**
+   * What a child hears as its parent's generation when no incarnation was
+   * claimed (a test, a bare boot with no supervisor state): this parent's boot
+   * time on its own clock, which still orders incarnations on one machine.
+   */
+  private readonly bootGeneration: number
   private readonly topologyStops = new Set<SupervisedChild>()
   private childOrder: SupervisedChild[]
   private daemonLocal: boolean
@@ -453,7 +453,7 @@ export class ParentProcess {
       sleep: deps.sleep ?? sleep,
     }
     this.petIntervalMs = deps.watchdogPetMs ?? watchdogPetIntervalMs(this.env.WATCHDOG_USEC)
-    this.generation = deps.generation ?? this.deps.now()
+    this.bootGeneration = this.deps.now()
     // Inherited from the predecessor that ran the swap. An explicit dep wins:
     // the composition root may know better, and a test must be able to say so.
     if (deps.releaseHadMigrations === undefined) {
@@ -518,10 +518,17 @@ export class ParentProcess {
     return this.snap.lifecycle?.[child]
   }
 
-  /** The identity every child is told at spawn. */
+  /**
+   * The identity every child is told at spawn. The generation is the
+   * incarnation number POD-3752's fence claimed for this process, so a child
+   * can later tell an outgoing parent's word from its successor's.
+   */
   private childIdentity(): ParentIdentity {
     const { generation, ...rest } = this.deps.identity?.() ?? {}
-    return { generation: generation ?? this.generation, ...rest }
+    return {
+      generation: generation ?? this.deps.supervisorGeneration ?? this.bootGeneration,
+      ...rest,
+    }
   }
 
   /** True when the boot health gate (disposition 24) passed. */

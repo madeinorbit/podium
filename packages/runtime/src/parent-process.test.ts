@@ -1526,7 +1526,8 @@ describe('ceding the fleet socket across a handover', () => {
 
     expect(openWhenSuccessorSpawned).toBe(false)
     expect(fleet.open, 'nothing was handed over, so nothing was given up').toBe(true)
-||||||| parent of d60ce4b18 (Give each supervised child a private lifecycle line to its parent)
+  })
+})
 
 /** A child spawned WITH its lifecycle line: what the parent sent it, and a way to answer. */
 class ChannelChild extends FakeChild {
@@ -1547,7 +1548,7 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
     opts: {
       children?: Array<'server' | 'daemon'>
       identity?: () => { generation?: number; machineId?: string }
-      generation?: number
+      supervisorGeneration?: number
     } = {},
   ) {
     const spawned: Array<{
@@ -1575,7 +1576,9 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
         now: () => 1_000,
         exit: () => {},
         ...(opts.identity ? { identity: opts.identity } : {}),
-        ...(opts.generation !== undefined ? { generation: opts.generation } : {}),
+        ...(opts.supervisorGeneration !== undefined
+          ? { supervisorGeneration: opts.supervisorGeneration }
+          : {}),
       }),
     )
     return { parent, spawned }
@@ -1598,7 +1601,7 @@ describe('ParentProcess lifecycle channel (POD-3761)', () => {
   it('tells each child who its parent is the moment it is spawned', async () => {
     const { parent, spawned } = channelParent({
       identity: () => ({ machineId: 'machine-a' }),
-      generation: 42,
+      supervisorGeneration: 42,
     })
     await parent.start()
     for (const { child } of spawned) {

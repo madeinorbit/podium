@@ -44,8 +44,17 @@ import {
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { finalizePendingGrant } from '@podium/runtime/update-pending'
+import {
+  claimSupervisorGeneration,
+  createMachineSupervisorConnection,
+  effectiveAssignment,
+  loadSupervisorState,
+  reconcileSupervisorAssignment,
+  saveSupervisorState,
+  targetTransferRecovery,
+} from '@podium/runtime/machine-supervisor'
 import { MachineUpdateExecutor, readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { startMachineUpdateControl } from '@podium/runtime/machine-update-control'
 import {
   createHeadlessMachineUpdateAdapter,
   installedArtifactDigest,
@@ -54,18 +63,9 @@ import {
   NativeMachineUpdateAdapter,
   withNativeMachineUpdates,
 } from '@podium/runtime/machine-update-native'
-import { startMachineUpdateControl } from '@podium/runtime/machine-update-control'
-import {
-  createMachineSupervisorConnection,
-  effectiveAssignment,
-  claimSupervisorGeneration,
-  loadSupervisorState,
-  reconcileSupervisorAssignment,
-  targetTransferRecovery,
-  saveSupervisorState,
-} from '@podium/runtime/machine-supervisor'
 import { machineServiceReport } from '@podium/runtime/parent-supervisor'
 import { consumePairCode } from '@podium/runtime/setup'
+import { finalizePendingGrant } from '@podium/runtime/update-pending'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
