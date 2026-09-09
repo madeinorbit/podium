@@ -763,7 +763,9 @@ describe('named-instance development releases', () => {
           return {}
         },
         writePending: () => {},
-        restart: (expectedVersion) => restarts.push(expectedVersion),
+        restart: (expectedVersion) => {
+          restarts.push(expectedVersion)
+        },
       })
 
       // 3. Boot resolves what was just published. Still nobody has clicked.
