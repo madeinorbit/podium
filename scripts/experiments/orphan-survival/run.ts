@@ -25,7 +25,14 @@ const binDir = path.join(outDir, "bin");
 fs.mkdirSync(binDir, { recursive: true });
 const exe = process.platform === "win32" ? ".exe" : "";
 
-const ARMS = ["channelled", "piped", "ignored", "ignored-detached"] as const;
+const ARMS = [
+  "channelled",
+  "piped",
+  "ignored",
+  "ignored-detached",
+  "channelled-detached",
+  "shell-spawned",
+] as const;
 type Arm = (typeof ARMS)[number];
 const OBSERVE_MS = 12_000; // the window POD-3760 used, so the numbers compare
 const CHILD_LIFETIME_MS = 40_000; // comfortably past the window: no self-exit inside it
@@ -184,50 +191,59 @@ function discriminate(): { code: string; reading: string } {
     };
   }
   const ch = view("channelled");
-  const det = view("ignored-detached");
+  // Spawned by THIS runtime, attached: the shape POD-3760 measured.
   const attached = (["channelled", "piped", "ignored"] as const).map(view);
-  const plain = (["piped", "ignored", "ignored-detached"] as const).map(view);
-  const allPlainLived = plain.every((p) => p.outlivedParent);
+  const detached = (["ignored-detached", "channelled-detached"] as const).map(view);
+  const shell = view("shell-spawned");
   const allAttachedDied = attached.every((p) => !p.outlivedParent);
+  const allDetachedLived = detached.every((p) => p.outlivedParent);
+  const nonChannelled = (["piped", "ignored", "ignored-detached"] as const).map(view);
 
-  // The arm that separates "the machine kills orphans" from "the SPAWN kills
-  // them": same runner, same step, same outer job, one different spawn flag.
-  if (allAttachedDied && det.outlivedParent) {
+  if (allAttachedDied && allDetachedLived && shell.outlivedParent) {
     return {
-      code: "spawn-scoped-kill-job",
+      code: "runtime-kills-attached-children",
       reading:
-        "neither reading (a) nor (b): every ATTACHED orphan died — channel or not, so the channel is not implicated — but the DETACHED one lived through the whole window in the same step. The kill follows the spawn flag, not the machine, so it is a property of how the runtime spawns on Windows and will reproduce off CI.",
+        "neither reading (a) nor (b). Not (a): three channel-less arms died exactly like the channelled one, so the channel is not implicated. Not (b): a child the SHELL started outlived its parent in the same job on the same runner, and so did both detached arms — the machine does not kill orphans. What kills a child is this runtime's own attached spawn, which travels off CI. Detaching is the fix, and it is ours to set.",
     };
   }
-  if (!ch.outlivedParent && plain.every((p) => !p.outlivedParent)) {
+  if (allAttachedDied && allDetachedLived && !shell.outlivedParent) {
+    return {
+      code: "environment-kills-orphans-except-breakaway",
+      reading:
+        "reading (b), refined: every orphan the machine could reach died — including one the shell started, so the IPC channel is not implicated — and only the arms that broke away from the job survived. This is a property of the runner, and whether it holds on a desktop needs a desktop.",
+    };
+  }
+  if (attached.every((p) => !p.outlivedParent) && detached.every((p) => !p.outlivedParent)) {
     return {
       code: "environment-kills-orphans",
       reading:
         "reading (b): EVERY orphan died, channel or not, detached included. The environment kills orphans; the IPC channel is not implicated.",
     };
   }
-  if (!ch.outlivedParent && allPlainLived) {
+  if (!ch.outlivedParent && nonChannelled.every((p) => p.outlivedParent)) {
     return {
       code: "channel-kills-child",
       reading:
-        "reading (a): only the CHANNELLED child died while every plain orphan lived. The channel itself tears the child down, so a supervisor cannot hand live children to a successor over it.",
+        "reading (a): only the CHANNELLED child died while every channel-less orphan lived. The channel itself tears the child down, so a supervisor cannot hand live children to a successor over it.",
     };
   }
-  if (ch.outlivedParent && ch.disconnectSeen) {
-    return {
-      code: "orphans-survive-told",
-      reading:
-        "the child outlived its supervisor AND was told: 'disconnect' is a complete death signal here.",
-    };
+  if (ARMS.every((a) => view(a).outlivedParent)) {
+    return ch.disconnectSeen
+      ? {
+          code: "orphans-survive-told",
+          reading:
+            "every orphan outlived its supervisor AND the channelled one was told: 'disconnect' is a complete death signal here.",
+        }
+      : {
+          code: "orphans-survive-untold",
+          reading:
+            "every orphan outlived its supervisor and none was told. Silence is not a death signal: this leg needs a positive parent-liveness check.",
+        };
   }
-  if (ch.outlivedParent && !ch.disconnectSeen) {
-    return {
-      code: "orphans-survive-untold",
-      reading:
-        "the child outlived its supervisor and was NEVER told. Silence is not a death signal: this leg needs a positive parent-liveness check.",
-    };
-  }
-  return { code: "mixed", reading: "arms disagree in a way neither reading predicts — read the table." };
+  return {
+    code: "mixed",
+    reading: "arms disagree in a way none of the readings predicts — read the table.",
+  };
 }
 
 const results = {
@@ -245,6 +261,21 @@ const results = {
   childLifetimeMs: CHILD_LIFETIME_MS,
   arms: armResults,
   discrimination: discriminate(),
+  // The line POD-3761 and POD-3767 actually need: with the only spawn shape
+  // that lets a child outlive its supervisor, does the runtime still tell it?
+  deathSignalOnSurvivingChild: (() => {
+    const d = armResults["channelled-detached"] as {
+      instrumentArmed?: boolean;
+      outlivedParent?: boolean;
+      disconnectSeen?: boolean;
+      disconnectAtMs?: number | null;
+    };
+    if (!d?.instrumentArmed) return "n/a — arm not armed";
+    if (!d.outlivedParent) return "n/a — the child did not outlive its supervisor";
+    return d.disconnectSeen
+      ? `'disconnect' fired ${d.disconnectAtMs}ms in: silence IS a usable death signal`
+      : "NO 'disconnect': a surviving child is never told, so this leg needs a positive parent-liveness check";
+  })(),
   finishedAt: new Date().toISOString(),
 };
 
@@ -272,6 +303,8 @@ const md = [
   `### orphan-survival — \`${process.platform}/${process.arch}\` (bun ${Bun.version}, ${results.runner})`,
   "",
   `**${results.discrimination.reading}**`,
+  "",
+  `Surviving child told its supervisor died: **${results.deathSignalOnSurvivingChild}**`,
   "",
   jobLine,
   "",
