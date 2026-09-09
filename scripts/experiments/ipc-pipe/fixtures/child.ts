@@ -73,6 +73,29 @@ if (disconnectFile) {
     } catch {}
     process.exit(0);
   });
+
+  // A heartbeat, so "no disconnect" can be told apart from "the child was killed".
+  // Without it, a silent child and a dead child look identical, and the difference
+  // is the whole finding.
+  const beatFile = `${disconnectFile}.heartbeat`;
+  let n = 0;
+  const writeBeat = () => {
+    n += 1;
+    try {
+      writeFileSync(beatFile, JSON.stringify({ role, pid: process.pid, n, at: Date.now() }));
+    } catch {}
+  };
+  // The first beat is synchronous, so a live child ALWAYS has at least one. Without
+  // that, a child killed instantly and a heartbeat that never worked both read as
+  // zero, and the whole point of the heartbeat is telling those two apart.
+  writeBeat();
+  const beat = setInterval(() => {
+    writeBeat();
+    if (n >= 60) {
+      clearInterval(beat);
+      process.exit(0);
+    }
+  }, 250);
 }
 
 process.on("message", async (msg: Record<string, unknown>) => {
