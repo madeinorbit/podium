@@ -23,7 +23,15 @@ export const DEV_DESKTOP_CHANNEL_HEADER = 'x-podium-desktop-channel'
 export const DEV_FEED_ARTIFACT_SEGMENT = 'artifact'
 
 export interface OpenedDevBundle {
-  stream: ReadableStream
+  /**
+   * The response body for the artifact. On Bun this is a `BunFile`, which the
+   * server hands to `Bun.serve` unread: the bytes go from the file descriptor
+   * to the socket inside the runtime, so a 264 MB download no longer competes
+   * with tRPC calls for the main thread. A `ReadableStream` is the fallback
+   * (and what tests supply); it is pumped chunk by chunk through JS, which is
+   * exactly the cost this route stopped paying (POD-3731).
+   */
+  body: ReadableStream | Blob
   size: number
 }
 
@@ -56,28 +64,51 @@ export interface DevFeedRouteDeps {
   desktopManifestPath?(): string | undefined
   /** Machine authentication is mandatory, even when the human UI is open-mode. */
   authenticate(request: Request, context: Context): boolean | Promise<boolean>
-  /** Seam for tests; defaults to a read stream over the published path. */
+  /** Seam for tests; defaults to a native file body over the published path. */
   open?(path: string): Promise<OpenedDevBundle | null>
   /** Seam for tests; defaults to reading the file. */
   readManifest?(path: string): Promise<string | null>
 }
 
 /**
- * Open the published artifact as a stream, or nothing.
+ * `Bun.file`, or nothing off Bun.
+ *
+ * Typed off `globalThis` the way the gateway types `Bun.serve`
+ * (gateway/ws-server.ts): this package deliberately carries no Bun type
+ * definitions, and one narrow declaration at the single point of use is cheaper
+ * than adopting them for a two-line call.
+ */
+function nativeFile(path: string): Blob | undefined {
+  const runtime = globalThis as typeof globalThis & { Bun?: { file(path: string): Blob } }
+  return runtime.Bun?.file(path)
+}
+
+/**
+ * Open the published artifact as a response body, or nothing.
+ *
+ * Exported so a test can name what kind of body this is: the difference
+ * between a native file and a JS stream is invisible in a response and is the
+ * whole point of the route (POD-3731).
  *
  * Nothing is a normal outcome, not an error: retention may have reclaimed the
  * file, or the checkout may have been cleaned, between publication and this
  * request. Either way the honest answer to the daemon is "not here", so it can
  * ask again and get the current target.
  */
-async function openDevBundle(path: string): Promise<OpenedDevBundle | null> {
+export async function openDevBundle(path: string): Promise<OpenedDevBundle | null> {
   try {
     const info = await stat(path)
     if (!info.isFile()) return null
+    // THE FILE ITSELF, NOT A STREAM OVER IT, wherever the runtime can send one.
+    // `Bun.file` is a lazily opened handle the HTTP layer sends off the
+    // descriptor; nothing about the body crosses JS. The stat above still
+    // decides absence and size, so the checks around this call are unchanged.
+    const file = nativeFile(path)
+    if (file) return { body: file, size: info.size }
     // node:stream/web's ReadableStream and the global one are the same object at
     // runtime and separate declarations to the compiler.
     const stream = Readable.toWeb(createReadStream(path)) as unknown as ReadableStream
-    return { stream, size: info.size }
+    return { body: stream, size: info.size }
   } catch {
     return null
   }
@@ -184,10 +215,15 @@ export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
       'cache-control': 'no-store',
     }
     if (c.req.method === 'HEAD') {
-      await opened.stream.cancel()
+      // A stream holds an open descriptor until someone drains or cancels it; a
+      // file body holds nothing until it is sent, so there is nothing to release.
+      if (opened.body instanceof ReadableStream) await opened.body.cancel()
       return c.body(null, 200, headers)
     }
-    return c.body(opened.stream, 200, headers)
+    // BUILT HERE RATHER THAN THROUGH `c.body`, whose body type is a stream: a
+    // file body must reach the server as the file it is, or the runtime cannot
+    // take the native path and every chunk is back on the event loop.
+    return new Response(opened.body, { status: 200, headers })
   }
 
   app.get(DEV_FEED_ROUTE + '/' + DEV_DESKTOP_MANIFEST, async (c) => {

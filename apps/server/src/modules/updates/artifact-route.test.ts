@@ -14,7 +14,7 @@ import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } fro
 import { timeReleaseBuildTask } from '@podium/runtime/release-build-timing'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
-import { DEV_DESKTOP_CHANNEL_HEADER, registerDevFeedRoutes } from './artifact-route'
+import { DEV_DESKTOP_CHANNEL_HEADER, openDevBundle, registerDevFeedRoutes } from './artifact-route'
 import { buildRecordDir, buildTimingPath, releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
@@ -790,6 +790,32 @@ describe('development artifact route', () => {
     })
   })
 
+  it('hands the runtime the file itself, not a stream to pump through JS', async () => {
+    // THE INCIDENT THIS ROUTE CAUSED. `Readable.toWeb(createReadStream(path))`
+    // moves every chunk of a 53 MB bundle through the main thread, so download
+    // throughput became a function of how busy the loop was: ~110 KB/s on a
+    // coordinator at 85% busy against 3.8 MB/s on an idle one, and the daemon's
+    // 300 s deadline fired on both remote machines (POD-3731).
+    //
+    // A file body is the fix and it is INVISIBLE in the response — both shapes
+    // read back as the same bytes with the same headers — so the assertion has
+    // to be about the body's kind, here, or nothing stops the next edit
+    // reintroducing the stream.
+    const opened = await openDevBundle(artifact)
+    expect(opened).not.toBeNull()
+    expect(opened?.body).toBeInstanceOf(Blob)
+    expect(opened?.body).not.toBeInstanceOf(ReadableStream)
+    expect(opened?.size).toBe(bytes.length)
+    expect(Array.from(new Uint8Array(await (opened?.body as Blob).arrayBuffer()))).toEqual(
+      Array.from(bytes),
+    )
+  })
+
+  it('has nothing to open when the file is gone', async () => {
+    expect(await openDevBundle(join(stage, 'never-written.tar.gz'))).toBeNull()
+    expect(await openDevBundle(stage)).toBeNull()
+  })
+
   it('streams the exact signed bytes to an authenticated machine', async () => {
     const app = appFor()
     const response = await app.request('/updates/feed/dev/artifact/dev%2Babc1234', {
@@ -900,7 +926,7 @@ describe('development artifact route', () => {
         request.headers.get('authorization') === 'Bearer machine-token',
       open: async (path: string) => {
         opened.push(path)
-        return { stream: new Blob([bytes]).stream(), size: bytes.length }
+        return { body: new Blob([bytes]).stream(), size: bytes.length }
       },
     })
 
