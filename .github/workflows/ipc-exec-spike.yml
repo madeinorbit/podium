@@ -1,0 +1,23 @@
+# POD-3772 (epic POD-3758): does the SUPERVISOR's end of an ipc channel survive the
+# supervisor exec'ing its own new binary in place? POD-3760 settled the child end;
+# this is the parent end, and POD-3767 depends on the answer.
+#
+# Thin dispatch wrapper around the reusable platform-experiment harness — all it
+# decides is WHICH experiment runs. workflow_dispatch only resolves workflows that
+# exist on the DEFAULT branch, so until platform-experiment.yml lands on main the
+# `push:` trigger below, scoped to this spike's own branch, is what starts a run.
+# Comment it out again once the report is written.
+name: ipc-exec-spike
+on:
+  workflow_dispatch:
+  push:
+    branches: ['issue/3772-ipc-channel-survival-across-supervisor-e']
+
+jobs:
+  ipc-exec:
+    uses: ./.github/workflows/platform-experiment.yml
+    with:
+      experiment: ipc-exec
+      # The fixtures import bun:ffi and nothing from the workspace, so the runner
+      # needs bun itself and no install.
+      install: false
