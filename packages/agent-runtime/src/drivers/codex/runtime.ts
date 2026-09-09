@@ -1,3 +1,4 @@
+import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
  *
@@ -1424,6 +1425,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
+          return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
+        }
         if (session.disposed) return refuse('not_running')
         // ORDER MATTERS AND IS NOT ARBITRARY. An open ask blocks EVERY delivery,
         // including a queue, because the session is stopped waiting for a human
@@ -1919,7 +1924,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
     }
 
-    return handle
+    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure

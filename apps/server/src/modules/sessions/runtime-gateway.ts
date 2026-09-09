@@ -116,6 +116,7 @@ export interface RuntimeDaemonRpcPort {
   runtimeSend(
     input: {
       sessionId: SessionId
+      rowId?: string
       turnId?: string
       text: string
       origin: ObservationInputOrigin
@@ -134,6 +135,7 @@ export interface RuntimeDaemonRpcPort {
   runtimeInterrupt(
     sessionId: SessionId,
     machineId: MachineId,
+    cancelRowId?: string,
   ): Promise<{ result: { ok: true } | Refusal }>
   runtimeAnswer(
     input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
@@ -203,6 +205,7 @@ export class SessionRuntimeGateway {
    */
   async send(input: {
     sessionId: SessionId
+    rowId?: string
     turnId?: string
     text: string
     origin: ObservationInputOrigin
@@ -285,6 +288,12 @@ export class SessionRuntimeGateway {
     const machineId = this.ports.machineOf(sessionId)
     if (!machineId) return { reason: 'not_running', detail: 'no machine' }
     return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId)).result
+  }
+
+  async cancelDelivery(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal> {
+    const machineId = this.ports.machineOf(sessionId)
+    if (!machineId) return { reason: 'not_running' }
+    return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId, rowId)).result
   }
 
   async answer(input: {

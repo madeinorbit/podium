@@ -1,3 +1,4 @@
+import { withDeliveryQueue } from '../../delivery-queue.js'
 import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
 import {
   type AgentRuntimeState,
@@ -834,6 +835,10 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         }
       },
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.deliveryAttempt && (core.turnOpen || core.lease?.kind === 'human-controller')) {
+          return { outcome: 'refused', refusal: { reason: core.turnOpen ? 'busy' : 'lease_held' } }
+        }
         assertCurrent()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
         if (input.attachments?.length) {
@@ -1071,7 +1076,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       },
     }
     handles.set(core.sessionId, handle)
-    return handle
+    return withDeliveryQueue(handle, (event) => push(core, event), undefined, () => core.alive)
   }
 
   function newCore(

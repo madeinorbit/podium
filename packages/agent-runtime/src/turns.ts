@@ -20,6 +20,8 @@ export type TurnDelivery = 'when-ready' | 'queue' | 'interrupt' | 'steer'
 export type InputOrigin = ObservationInputOrigin
 
 export interface TurnInput {
+  /** Durable inbox row; asks the owning daemon to deliver asynchronously. */
+  rowId?: string
   /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
@@ -122,6 +124,9 @@ export interface ActingPrincipal {
 }
 
 export interface SendOptions {
+  /** Driver-local attempt: refuse busy/lease races instead of nesting queues. */
+  deliveryAttempt?: boolean
+  signal?: AbortSignal
   origin: InputOrigin
   delivery: TurnDelivery
   /**

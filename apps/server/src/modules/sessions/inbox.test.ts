@@ -83,6 +83,7 @@ function harness(
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const contractCalls: unknown[] = []
+  const contractCancel = vi.fn(async (_sessionId: SessionId, _rowId: string) => ({ ok: true as const }))
   const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
   const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
@@ -272,6 +273,7 @@ function harness(
           },
         }
       : {}),
+    contractCancel,
     ...(options.contractReceipts || options.contractPending
       ? {
           contractDeliver: (input: unknown) => {
@@ -301,6 +303,7 @@ function harness(
     rows,
     sent,
     contractCalls,
+    contractCancel,
     contractResolvers,
     contractInterrupts,
     contractConfigures,
@@ -693,7 +696,7 @@ describe('SessionInbox authorization and identity', () => {
     resolve({ ok: true })
     await vi.advanceTimersByTimeAsync(1)
     expect(h.contractCalls).toHaveLength(1)
-    expect(h.rows).toEqual([])
+    expect(h.rows).toHaveLength(1)
     expect(h.rejected).toEqual([])
   })
 
@@ -2605,12 +2608,17 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.contractCalls).toEqual([
       expect.objectContaining({
         sessionId: SID,
-        turnId: 'msg_srv_1',
+        turnId: 'srv-1',
         text: 'first prompt',
       }),
     ])
     // NOTHING typed toward the PTY: those bytes have nowhere to go.
     expect(h.sent).toEqual([])
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.rows).toHaveLength(1)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-1', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-1', outcome: 'delivered' })
+    expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
   })
@@ -2628,6 +2636,8 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(h.contractCalls).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-native', outcome: 'delivered' })
     expect(h.applied).toHaveBeenCalledWith({
       sourceMessageId: 'msg_srv_native',
       sessionId: SID,
@@ -2676,7 +2686,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(await queueOne(h, 'srv-exit-bind', 'msg_srv_exit_bind')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
-    expect(h.inbox.isDraining(SID)).toBe(true)
+    expect(h.inbox.isDraining(SID)).toBe(false)
 
     // The first delivery is still awaiting its runtime reply when the child dies.
     h.setStatus('exited')
@@ -2687,7 +2697,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(h.contractCalls).toHaveLength(2)
-    expect(h.inbox.isDraining(SID)).toBe(true)
+    expect(h.inbox.isDraining(SID)).toBe(false)
 
     // The stale receipt must not remove the row or stop the replacement drain.
     h.contractResolvers[0]!(accepted)
@@ -2695,51 +2705,102 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.rows).toHaveLength(1)
     expect(h.session.queuedMessageCount).toBe(1)
     expect(h.applied).not.toHaveBeenCalled()
-    expect(h.inbox.isDraining(SID)).toBe(true)
+    expect(h.inbox.isDraining(SID)).toBe(false)
 
-    // The replacement receipt owns the row exactly once.
+    // Custody replies never own settlement; the replacement stream does.
     h.contractResolvers[1]!(accepted)
     await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(1)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-exit-bind', outcome: 'delivered' })
     expect(h.rows).toEqual([])
     expect(h.session.queuedMessageCount).toBe(0)
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.inbox.isDraining(SID)).toBe(false)
   })
 
-  it('waits out a busy turn — past the PTY drain deadline — and delivers at the boundary', async () => {
+  it('forwards during a busy turn without any server readiness polling', async () => {
     vi.useFakeTimers()
     const h = harness({ serverDriven: true, contractReceipts: [], phase: 'working' })
-
-    expect(await queueOne(h, 'srv-3', 'msg_srv_3')).toEqual({ ok: true, queued: true })
-    // Well past the 25s never-live deadline: a busy server session is making
-    // progress, so the drain must keep polling rather than strand the row.
-    await vi.advanceTimersByTimeAsync(40_000)
-    expect(h.contractCalls).toEqual([])
-    expect(h.rows).toHaveLength(1)
-
-    Object.assign(h.session, { agentState: { phase: 'idle' } })
-    await vi.advanceTimersByTimeAsync(1_000)
-
+    await queueOne(h, 'srv-3', 'msg_srv_3')
+    await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
+    expect(h.rows).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(40000)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-3', outcome: 'delivered' })
     expect(h.rows).toEqual([])
-    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_3', sessionId: SID })
   })
 
-  it('re-polls after a busy refusal (the turn opened between the check and the send)', async () => {
+  it('does not poll or settle after a busy refusal', async () => {
     vi.useFakeTimers()
-    const h = harness({
-      serverDriven: true,
-      contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }],
+    const h = harness({ serverDriven: true, contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }] })
+    await queueOne(h, 'srv-4', 'msg_srv_4')
+    await vi.advanceTimersByTimeAsync(30000)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('honors a server hold acquired while authorization is pending', async () => {
+    vi.useFakeTimers()
+    let authorize!: (decision: { ok: true }) => void
+    const permission = new Promise<{ ok: true }>((resolve) => { authorize = resolve })
+    const h = harness({ serverDriven: true, contractReceipts: [], authorizeAtDrain: () => permission })
+    await queueOne(h, 'held-during-admission')
+    h.setNativeView(true)
+    authorize({ ok: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    h.setNativeView(false)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(1)
+  })
+
+  it('forwards the next row without waiting for the first RPC reply', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractPending: true })
+    await queueOne(h, 'first')
+    await queueOne(h, 'second')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(2)
+    expect(h.rows).toHaveLength(2)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancels by row id without double-decrementing when the event beats the reply', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractReceipts: [] })
+    await queueOne(h, 'cancel-row', 'cancel-source')
+    await queueOne(h, 'keep-row', 'keep-source')
+    await vi.advanceTimersByTimeAsync(0)
+    h.contractCancel.mockImplementation(async (sessionId, rowId) => {
+      await h.inbox.deliveryOutcome(sessionId, { rowId, outcome: 'dropped' })
+      return { ok: true }
     })
+    expect(await h.inbox.cancelQueuedMessage(SID, 'cancel-source')).toBe(true)
+    expect(h.contractCancel).toHaveBeenCalledWith(SID, 'cancel-row')
+    expect(h.rows.map((row) => row.id)).toEqual(['keep-row'])
+    expect(h.session.queuedMessageCount).toBe(1)
+  })
 
-    expect(await queueOne(h, 'srv-4', 'msg_srv_4')).toEqual({ ok: true, queued: true })
-    await vi.advanceTimersByTimeAsync(2_000)
-
-    // First receipt refused busy; the drain kept polling and the default
-    // accepted receipt then confirmed the row.
-    expect(h.contractCalls.length).toBeGreaterThanOrEqual(2)
+  it('settles failed and dropped outcomes visibly by durable row identity', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractReceipts: [] })
+    await queueOne(h, 'failed', 'source-failed')
+    await queueOne(h, 'dropped', 'source-dropped')
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'failed', outcome: 'failed', reason: 'confirmation exhausted' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'dropped', outcome: 'dropped' })
     expect(h.rows).toEqual([])
-    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_4', sessionId: SID })
+    expect(h.rejected).toEqual([expect.objectContaining({ queueId: 'failed', reason: 'confirmation exhausted' })])
+    expect(h.applied).not.toHaveBeenCalled()
   })
 
   it('keeps the row visibly queued on an unverified receipt (the RPC timeout answer)', async () => {

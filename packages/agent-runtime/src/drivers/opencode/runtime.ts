@@ -1,3 +1,4 @@
+import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
  *
@@ -1466,6 +1467,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
+          return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
+        }
         if (session.disposed) return refuse('not_running')
         // The server is gone and the queue that would have held this has already
         // been reported abandoned (POD-2297 review, 3). Answering `queued` here
@@ -1882,7 +1887,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       },
     }
 
-    return handle
+    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
   }
 
   /**

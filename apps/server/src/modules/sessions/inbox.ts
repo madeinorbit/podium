@@ -380,6 +380,7 @@ export interface SessionInboxDeps {
    * session without it leaves rows visibly queued rather than typing them into
    * the void.
    */
+  contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
   contractDeliver?(input: {
     sessionId: SessionId
     turnId: string
@@ -643,6 +644,7 @@ export class SessionInbox {
     this.disposed = true
     this.activeDrains.clear()
     this.unobservedServerBinds.clear()
+    this.forwardedRows.clear()
   }
 
   isDraining(sessionId: SessionId): boolean {
@@ -694,6 +696,7 @@ export class SessionInbox {
    *  drain can tell a composer that has had an hour to mount from one that has
    *  had a second (POD-2836). */
   markSessionBound(sessionId: SessionId): void {
+    this.forwardedRows.delete(sessionId)
     this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
@@ -916,6 +919,8 @@ export class SessionInbox {
       return { ok: false, reason: 'session not running' }
     }
     if (this.deps.serverDriven?.(session) === true) {
+      const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
+      if (cancelled && session.agentState?.phase !== 'working') return { ok: true, requested: 'retraction' }
       if (session.agentState?.phase !== 'working') {
         return {
           ok: false,
@@ -1085,10 +1090,15 @@ export class SessionInbox {
       }
       return verification
     }
+    if (this.deps.serverDriven?.(session)) {
+      const result = await this.deps.contractCancel?.(sessionId, head.id)
+      if (!result || !('ok' in result)) return false
+    }
     const deletion: Promise<void> = this.deps.queue.delete(head.id)
     await deletion
+    const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
-      draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
+      draft.queuedMessageCount = remaining.length
     })
     await persistence
     this.deps.broadcast()
@@ -1228,11 +1238,16 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) {
+      if (this.deps.serverDriven?.(session)) {
+        const result = await this.deps.contractCancel?.(sessionId, row.id)
+        if (!result || !('ok' in result)) return false
+      }
       const deletion: Promise<void> = this.deps.queue.delete(row.id)
       await deletion
     }
+    const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
-      draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - matches.length)
+      draft.queuedMessageCount = remaining.length
       // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
       // until the commit returns the live session still carries the old one.
       if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
@@ -1304,7 +1319,91 @@ export class SessionInbox {
    * surface a recoverable failure; never settle it or arm later sends from a
    * harness state report.
    */
+  private readonly forwardedRows = new Map<SessionId, { session: Session; machineId: string; ids: Set<string> }>()
+  private readonly forwarding = new Map<SessionId, Promise<void>>()
+
+  /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
+  private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
+    const sessionId = session.sessionId
+    if (justBound) this.forwardedRows.delete(sessionId)
+    const pending = this.forwarding.get(sessionId)
+    if (pending) { await pending; return this.forwardContractRows(session, false) }
+    const run = async () => {
+      let forwarded = this.forwardedRows.get(sessionId)
+      if (!forwarded || forwarded.session !== session || forwarded.machineId !== session.machineId) {
+        forwarded = { session, machineId: session.machineId, ids: new Set() }
+        this.forwardedRows.set(sessionId, forwarded)
+      }
+      const binding = forwarded
+      const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
+        session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
+        session.status === 'live' && this.deps.nativeViewActive?.(sessionId) !== true &&
+        !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
+      const rows = await this.deps.queue.list(sessionId)
+      for (const row of rows) {
+        if (!current() || this.deps.nativeViewActive?.(sessionId) || session.status !== 'live') return
+        if (binding.ids.has(row.id)) continue
+        if (!this.deps.contractDeliver) return
+        const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
+        if (!current()) return
+        // A cancel can race asynchronous admission. The durable row remains the authority.
+        if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+        if (!current()) return
+        if (!allowed.ok) {
+          await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason: allowed.reason })
+          await this.deps.queue.delete(row.id)
+          continue
+        }
+        binding.ids.add(row.id)
+        // Awaiting this RPC would put subsequent rows behind a slow transport reply.
+        // Receipts acknowledge custody only; the event stream owns settlement.
+        void this.deps.contractDeliver({ sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).catch((error) => {
+          log.warn('contract queue forwarding failed', { sessionId, err: error })
+        })
+      }
+      if (current()) {
+        const remaining = await this.deps.queue.list(sessionId)
+        await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
+        this.deps.broadcast()
+      }
+    }
+    const operation = run()
+    this.forwarding.set(sessionId, operation)
+    try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
+  }
+
+  /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
+  async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+    const session = this.deps.getSession(sessionId)
+    if (!session) return
+    const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
+    if (!row) return
+    if (event.outcome === 'delivered') {
+      if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
+      if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+    } else if (event.outcome === 'dropped') {
+      await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
+    } else {
+      const reason = event.reason ?? 'daemon could not confirm delivery'
+      await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason })
+      const ownerUserId = await this.deps.ownerOf(sessionId)
+      await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
+    }
+    await this.deps.queue.delete(row.id)
+    const remaining = await this.deps.queue.list(sessionId)
+    await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
+    this.deps.broadcast()
+  }
+
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
+    const contractSession = this.deps.getSession(sessionId)
+    if (contractSession && this.deps.serverDriven?.(contractSession)) {
+      if (this.deps.nativeViewActive?.(sessionId) === true) return
+      void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
+        log.warn('contract admission failed', { sessionId, err: error })
+      })
+      return
+    }
     if (this.deps.nativeViewActive?.(sessionId) === true) return
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
@@ -1827,114 +1926,9 @@ export class SessionInbox {
         await afterHead()
         return
       }
-      if (this.deps.serverDriven?.(current) === true) {
-        /**
-         * NO PTY TO TYPE INTO — the row goes through the runtime contract, and
-         * the driver's receipt decides what happens to it (POD-2291).
-         *
-         * This branch exists because the alternative was measured, not
-         * imagined: a chat prompt sent while a codex app-server session was
-         * still `starting` rode this queue, and the PTY path below "delivered"
-         * it into a bridge that does not exist — the daemon discarded the
-         * bytes, this side marked the ledger row delivered, and the operator's
-         * message vanished without a transcript entry, an error, or a
-         * dead-letter. Accepted input must never vanish: it delivers, stays
-         * visibly queued, or dead-letters visibly.
-         */
-        const contractDeliver = this.deps.contractDeliver
-        if (!contractDeliver) {
-          // No contract port wired (bare fixtures). The row STAYS queued and
-          // visible — the one thing this path must never do is claim delivery.
-          stop()
-          return
-        }
-        void contractDeliver({
-          sessionId,
-          turnId: head.sourceMessageId ?? head.id,
-          text: head.text,
-          origin: head.inputOrigin,
-          principal: head.principal,
-        }).then(
-          async (receipt) => {
-            if (!isCurrent()) return
-            const after = this.deps.getSession(sessionId)
-            if (!after) {
-              stop()
-              return
-            }
-            if (receipt.outcome === 'refused') {
-              // `busy` / `needs_user`: a turn opened (or an ask arrived)
-              // between the idle check and the delivery — an ordinary race, so
-              // keep polling for the next boundary. Anything else ends this
-              // drain; the row stays visibly queued and the next bind,
-              // reconnect or enqueue re-drains it.
-              if (receipt.refusal.reason === 'busy' || receipt.refusal.reason === 'needs_user') {
-                setTimeout(tick, READY_POLL_MS).unref?.()
-              } else stop()
-              return
-            }
-            if (receipt.outcome === 'unverified') {
-              // Server drivers never legitimately emit `unverified` (the
-              // conformance suite pins it terminal-only) — here it is the
-              // RPC layer's synthesized answer for a send whose 12s window
-              // closed with no daemon reply. That frame may never have
-              // reached any daemon, so confirming would be the vanish-shape
-              // again through a different door. The row STAYS visibly
-              // queued; the next bind, reconnect or enqueue re-drains it.
-              //
-              // POD-2327 widened this branch's reachable senders: an UNKNOWN
-              // driver id also arrives here, and one of those could be a
-              // terminal driver from a newer daemon, for which `unverified`
-              // IS honest ("typed it, could not prove it"). Keeping the row
-              // queued is still the right answer — an unproven send is not a
-              // delivered one.
-              //
-              // NAME THE COST, WHICH IS NOT MERELY "A RE-DRAIN" (POD-2297).
-              // `unverified` means UNKNOWN, not "did not arrive": the send may
-              // genuinely have been typed. The re-drain re-sends the SAME
-              // `turnId`, so a proven-but-unverified prompt is delivered TWICE
-              // and the agent sees it twice. THIS PATH IS THEREFORE
-              // AT-LEAST-ONCE, DELIBERATELY — of the two ways to be wrong under
-              // a two-generals gap, a duplicate prompt is recoverable by a
-              // reader and a vanished one is not, which is the same ordering
-              // POD-2132/POD-2202 and POD-2297 chose everywhere else. Driver-
-              // local dedupe by `turnId` would close the common window (a
-              // re-drain inside one driver lifetime) but not the one that
-              // matters most (across a daemon restart the driver's memory is
-              // gone), so it narrows this and never removes it.
-              stop()
-              return
-            }
-            // `accepted` (protocol-acked) or `queued` (the driver's own FIFO
-            // now holds it). The row crossed to the driver: confirm it and
-            // move on. Busy/needs_user is not an acknowledgment of the fresh bind.
-            this.unobservedServerBinds.delete(sessionId)
-            if (head.sourceMessageId) {
-              // A retraction that raced the in-flight send is a no-op here:
-              // `onQueuedInputApplied` only moves rows still `queued`.
-              const completion: Promise<void> = this.deps.authorization.applied({
-                sourceMessageId: head.sourceMessageId,
-                sessionId,
-              })
-              await completion
-            }
-            // The delivery was ASYNC, so the row may have been retracted while
-            // it was in flight — removeHead on an already-deleted row would
-            // decrement `queuedMessageCount` a second time.
-            const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-            if ((await queuedRows).some((row) => row.id === head.id)) {
-              await removeHead(after, head.id)
-            }
-            if (after.queuedMessageCount > 0) {
-              setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
-            } else stop()
-          },
-          () => {
-            if (isCurrent()) stop()
-          },
-        )
-        // The receipt continuation above owns pacing and stop; falling through
-        // to the synchronous tail would drive the queue twice.
+      if (this.deps.serverDriven?.(current)) {
+        stop()
+        await this.forwardContractRows(current, false)
         return
       }
       // ATTEMPTS ARE THE ROW'S, NOT THE PASS'S (POD-1242). The cap used to reset
@@ -2005,23 +1999,8 @@ export class SessionInbox {
       const serverDriven = this.deps.serverDriven?.(current) === true
       if (current.status === 'live') {
         if (serverDriven) {
-          /**
-           * A server-family session has no terminal output to watch settle and
-           * no composer to protect — the DRIVER owns readiness, and `when-ready`
-           * is how the drain asks it (POD-2291). Deliver at turn boundaries:
-           * idle (or no phase reported yet) delivers now; a session mid-turn
-           * keeps polling PAST the drain deadline, because the deadline exists
-           * to abandon typing into a PTY that never became ready, and applying
-           * it here stranded rows behind any turn longer than 25 seconds.
-           */
-          const phase = this.unobservedServerBinds.has(sessionId)
-            ? undefined
-            : current.agentState?.phase
-          if (phase === undefined || phase === 'idle') {
-            await deliverNext()
-            return
-          }
-          setTimeout(tick, READY_POLL_MS).unref?.()
+          stop()
+          await this.forwardContractRows(current, false)
           return
         }
         // Keep ownership of chat messages while the harness is working. Once a

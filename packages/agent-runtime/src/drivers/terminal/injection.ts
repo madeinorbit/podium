@@ -252,6 +252,7 @@ export type QueueDrainAbandonedReason = Extract<
 >
 
 export interface DeliverOptions {
+  signal?: AbortSignal
   origin: InputOrigin
   /** `when-ready` and `interrupt` reach here; `queue` is the queue below and
    *  `steer` has already been downgraded to it by the caller. */
@@ -339,6 +340,7 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
   async function awaitProof(
     baselineUserTurns: number,
     hookWatch: HookAcceptWatch | undefined,
+    signal?: AbortSignal,
   ): Promise<'hook' | 'transcript-echo' | null> {
     let hookFired = false
     void hookWatch?.accepted.then((ok) => {
@@ -353,6 +355,7 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
       // a 1.6s poll it already answered.
       const tick = sleep(SUBMIT_VERIFY_DELAY_MS)
       await (hookWatch ? Promise.race([hookWatch.accepted, tick]) : tick)
+      if (signal?.aborted) return null
       if (hookFired) return 'hook'
       if (ports.userTurnCount() > baselineUserTurns) return 'transcript-echo'
       // A dead session cannot echo and cannot be nudged. Stop; the caller gets
@@ -372,7 +375,7 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
   }
 
   async function deliver(text: string, options: DeliverOptions): Promise<TurnReceipt> {
-    if (!ports.running()) {
+    if (options.signal?.aborted || !ports.running()) {
       return { outcome: 'refused', refusal: { reason: 'not_running' } }
     }
     // ONE OF EXACTLY TWO REFUSALS THE TERMINAL PATH HAS TODAY (inbox.ts ~713).
@@ -407,10 +410,10 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
     try {
       ports.write(payload.bytes)
       setTimer(() => {
-        if (ports.running()) ports.write('\r')
+        if (!options.signal?.aborted && ports.running()) ports.write('\r')
       }, SUBMIT_CR_DELAY_MS)
 
-      const proof = await awaitProof(baseline, hookWatch)
+      const proof = await awaitProof(baseline, hookWatch, options.signal)
       if (!proof) {
         return {
           outcome: 'unverified',

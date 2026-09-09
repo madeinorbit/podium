@@ -1,4 +1,4 @@
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import {
@@ -886,7 +886,7 @@ describe('durable runtime observation gate', () => {
     await store.close()
   })
 
-  it('accepts a process exit after the final turn epoch is closed', async () => {
+  it('accepts delivery outcomes and process exits after the final turn epoch is closed', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
@@ -917,6 +917,17 @@ describe('durable runtime observation gate', () => {
     await exitTurnCompleteCompletion
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.closedTurnEpoch).toBe(1)
 
+    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent', deliveryId: 'delivery-after-turn', sessionId,
+      event: {
+        t: 'delivery', rowId: 'already-cancelled-row', outcome: 'dropped',
+        at: '2026-08-23T00:00:01.500Z', provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+        observerGeneration: 1, turnEpoch: 1,
+      },
+    })
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+
     const exitAfterTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'exit-after-turn',
@@ -926,14 +937,14 @@ describe('durable runtime observation gate', () => {
         ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
         at: '2026-08-23T00:00:02.000Z',
         provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
         observerGeneration: 1,
         turnEpoch: 1,
       },
     })
     await exitAfterTurnCompletion
 
-    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
     expect((await registry.modules.sessions.sessionById(sessionId))?.status).toBe('exited')
 
     // The relay's interaction cleanup is intentionally fire-and-forget. Let
@@ -1172,5 +1183,36 @@ describe('causal failure ownership', () => {
     expect(await store.events.hasCausalTurnFailure(sessionId, checkpoint?.turnEpoch ?? 0)).toBe(
       false,
     )
+  })
+})
+
+describe('durable delivery outcome projection', () => {
+  it('replays a row outcome after projection fails and advances only after settlement', async () => {
+    const sessionId = asSessionId('delivery-replay')
+    const event = {
+      ...stateEvent({ at: '2026-09-09T00:00:00.000Z', seq: 1, observerGeneration: 1 }),
+      t: 'delivery' as const, rowId: 'row-one', outcome: 'delivered' as const,
+    }
+    let cursor = 0
+    let fail = true
+    const settled: string[] = []
+    const ports = {
+      events: {
+        runtimeEventProjectionCursor: async () => cursor,
+        saveRuntimeEventProjectionCursor: async (_projector: string, id: number) => { cursor = id },
+        listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
+      } as unknown as RuntimeEventGatePorts['events'],
+      session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+      delivery: async (_sessionId: SessionId, outcome: Extract<RuntimeEvent, { t: 'delivery' }>) => {
+        if (fail) throw new Error('settlement unavailable')
+        settled.push(outcome.rowId)
+      },
+    }
+    await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow('settlement unavailable')
+    expect(cursor).toBe(0)
+    fail = false
+    await new RuntimeEventGate(ports).replayBoardProjection()
+    expect(cursor).toBe(1)
+    expect(settled).toEqual(['row-one'])
   })
 })

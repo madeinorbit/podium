@@ -180,7 +180,7 @@ export const runtimeHandlers: Pick<
     driverTiming.promptRequested(handle.binding, msg.turnId)
     void handle
       .send(
-        { id: msg.turnId, text: msg.text, attachments: msg.attachments },
+        { id: msg.turnId, rowId: msg.rowId, text: msg.text, attachments: msg.attachments },
         { origin: msg.origin, delivery: msg.delivery },
       )
       .then((receipt) => {
@@ -228,6 +228,13 @@ export const runtimeHandlers: Pick<
     }
     if (!handle) {
       answer({ reason: 'not_running' })
+      return
+    }
+    if (msg.cancelRowId) {
+      if (!handle.cancelDelivery) { answer({ reason: 'not_running' }); return }
+      void handle.cancelDelivery(msg.cancelRowId).then((result) => {
+        ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+      }).catch(() => answer({ reason: 'not_running' }))
       return
     }
     void handle

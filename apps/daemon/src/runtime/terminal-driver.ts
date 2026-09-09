@@ -1,3 +1,4 @@
+import { withDeliveryQueue } from '@podium/agent-runtime'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
  * (POD-1761 W3; spec §3, §9 phase 2 daemon half).
@@ -1461,6 +1462,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           session.lease?.kind === 'human-controller' &&
           (options.origin !== 'human' || options.principal?.ref !== session.lease.holder)
         if (leaseBlocks) {
+          if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('lease_held') }
           return enqueue()
         }
 
@@ -1487,6 +1489,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         return session.injection.deliver(text, {
           origin: options.origin,
           delivery: 'when-ready',
+          signal: options.signal,
         })
       },
 
@@ -1703,7 +1706,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       },
     }
 
-    return handle
+    let liveAt: number | undefined
+    let baseOutput = 0
+    return withDeliveryQueue(handle, (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'), () => {
+      if (!session.live || !session.alive) { liveAt = undefined; return false }
+      const now = host.now()
+      if (liveAt === undefined) { liveAt = now; baseOutput = session.lastOutputAtMs }
+      return now - liveAt >= 6000 || (session.lastOutputAtMs > baseOutput && now - liveAt >= 800 && now - session.lastOutputAtMs >= 600)
+    }, () => !session.disposed)
   }
 
   // -- registration + drivers ----------------------------------------------

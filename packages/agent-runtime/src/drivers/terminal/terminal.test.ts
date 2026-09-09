@@ -425,3 +425,18 @@ describe('the paste boundary', () => {
     }
   })
 })
+
+describe('row cancellation at the terminal submit boundary', () => {
+  it('fences the delayed Enter and confirmation nudges after cancellation', async () => {
+    const abort = new AbortController()
+    const { ports, written } = terminal({ needsSubmitVerification: () => true, userTurnCount: () => 0 })
+    const delivery = createTerminalInjection(ports).deliver('cancelled row', {
+      origin: 'human', delivery: 'when-ready', signal: abort.signal,
+    })
+    expect(written).toHaveLength(1)
+    abort.abort()
+    expect((await delivery).outcome).toBe('unverified')
+    expect(written).toHaveLength(1)
+    expect(written).not.toContain('\r')
+  })
+})

@@ -60,6 +60,7 @@ export type RuntimeEvent = CausalEnvelope & RuntimeEventBody
  * here instead of re-derived (incorrectly) at each producer.
  */
 export type RuntimeEventBody =
+  | { t: 'delivery'; rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }
   | {
       /** The existing normalized state vocabulary, INCLUDING compaction — which
        *  is the re-prime boundary for `SessionSpec.instructions`. */

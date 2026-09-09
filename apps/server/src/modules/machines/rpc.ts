@@ -812,6 +812,7 @@ export class DaemonRpcService {
   async runtimeSend(
     input: {
       sessionId: SessionId
+      rowId?: string
       turnId?: string
       text: string
       origin: ObservationInputOrigin
@@ -831,6 +832,7 @@ export class DaemonRpcService {
       }),
       (requestId) => ({
         type: 'runtimeSendRequest',
+        rowId: input.rowId,
         requestId,
         turnId: input.turnId ?? requestId,
         sessionId: input.sessionId,
@@ -873,12 +875,13 @@ export class DaemonRpcService {
   async runtimeInterrupt(
     sessionId: SessionId,
     machineId: MachineId,
+    cancelRowId?: string,
   ): Promise<Payload<RuntimeLifecycleResultMessage>> {
     return await this.request(
       RUNTIME_LIFECYCLE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
-      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId }),
+      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId, cancelRowId }),
       machineId,
     )
   }
