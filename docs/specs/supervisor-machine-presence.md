@@ -67,6 +67,37 @@ dialling at all between spawning its successor and exiting (it should cede), and
 successor's health gate proves "a server on the port reports v1", not "MY server reports
 v1" — version is not identity either.
 
+## 1b. Incarnation fence on the message path (POD-3782, added 2026-09-09)
+
+§1a decides which incarnation may ESTABLISH. Read literally, its last-but-one bullet claims
+more than it delivers: no frame from an incarnation that is superseded *at handshake time*
+is admitted, but a socket that established while it WAS the newest keeps writing for as long
+as it stays open, and nothing re-asked the question after the handshake. On a coordinator
+handover that window is the whole update gate.
+
+It is reached two ways that no client-side change closes. The outgoing parent now cedes its
+fleet socket for the length of the handover (POD-3765), but a parent from a build that
+predates that cede does not go quiet, and a parent that dies mid-handover never runs it at
+all — so on a mixed fleet the outgoing incarnation feeding the successor's row is the
+default case, not the edge case. The cede keeps the two of them off the same wire; this is
+what makes the outcome correct when it is absent.
+
+- Every post-handshake frame is fenced on **sender identity**: this socket's own send fn
+  against the one in the supervisor map. That is the same question `detachSupervisor` asks,
+  deliberately — one notion of "holds the slot", not two that can drift. An entry belonging
+  to someone else and no entry at all both answer no.
+- Both frames on this path are wrong from the wrong sender. `recordSupervisorReport` stamps
+  the caller's services onto the ATTACHED supervisor's build (it reads the build from the
+  map, not from the sender), and an accepted `updateStatus` is execution proof for a grant
+  the successor is running.
+- A refused sender is **closed, not dropped**, for the same reason §1a closes rather than
+  answering with a rejection frame. The refusal is temporary by design, and a predecessor
+  whose successor aborts is the one that has to be there. A dropped frame would leave that
+  parent reporting into a void on a socket it still believes in, with nothing to tell it
+  otherwise — the machine goes stale and stays stale, which is the failure §1a exists to
+  remove. A close is what every dialer already retries, and the redial re-asks the attach
+  fence: refused again while the successor holds the slot, admitted once it is gone.
+
 ## 2. Service control: server-driven with a local lockout
 
 **Scope.** The "does this machine host agents / a server" assignment is **per-machine**.

@@ -479,11 +479,26 @@ export class MachinesService {
     return 'attached'
   }
 
+  /**
+   * Does THIS socket still hold the machine's supervisor slot?
+   *
+   * SOCKET IDENTITY, not the incarnation number, and deliberately the same
+   * question detach has always asked: the map entry IS what "is the supervisor"
+   * means everywhere else, so the close fence and the message-path fence
+   * (POD-3782) cannot drift into two notions of holding the slot. An entry that
+   * belongs to someone else and no entry at all both answer no — a socket whose
+   * successor has gone away does not silently inherit the slot back, it has to
+   * say hello again.
+   */
+  supervisorHolds(machineId: MachineId, send: Send<MachineSupervisorControlMessage>): boolean {
+    return this.supervisors.get(machineId)?.send === send
+  }
+
   async detachSupervisor(
     machineId: MachineId,
     send: Send<MachineSupervisorControlMessage>,
   ): Promise<boolean> {
-    if (this.supervisors.get(machineId)?.send !== send) return false
+    if (!this.supervisorHolds(machineId, send)) return false
     this.supervisors.delete(machineId)
     if (this.presenceReadOnly) {
       this.invalidateMachineCache()

@@ -513,6 +513,37 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       return
     }
     if (outcome.kind !== 'deliver') return
+    // POD-3782: RE-FENCE THE MESSAGE PATH. The attach fence (POD-3752) decides
+    // which incarnation may establish and says nothing about a socket that
+    // established while it WAS the newest and is still open when its successor
+    // takes the slot. That happens by construction on a mixed fleet, where the
+    // outgoing parent's build has no cede (POD-3765) to keep it off the wire,
+    // and whenever a parent dies mid-handover. Both frames below are wrong from
+    // the wrong sender: `recordSupervisorReport` stamps the caller's services
+    // onto the ATTACHED supervisor's build, and an accepted `updateStatus` is
+    // execution proof for a grant the successor is running.
+    //
+    // Asked as socket identity against the map, which is the one question
+    // `detachSupervisor` already asks, so there is a single notion of holding
+    // the slot rather than two that can drift.
+    //
+    // CLOSED, NOT DROPPED, and for the reason POD-3752 chose a close over a
+    // rejection frame: the refusal is temporary by design, and a predecessor
+    // whose successor aborts is the one that has to be there. A dropped frame
+    // leaves that parent reporting into a void on a socket it still believes
+    // in, with nothing to tell it otherwise — the machine goes stale and stays
+    // stale, which is the failure this epic exists to remove. A close is what
+    // every dialer already retries, and a redial re-asks the attach fence:
+    // refused again while the successor holds the slot, admitted once it is
+    // gone. Terminated rather than closed politely for the same reason the
+    // superseded hello is: this sender must not go on speaking meanwhile.
+    if (!send || !registry.modules.machines.supervisorHolds(principal.machine, send)) {
+      log.warn('closed a supervisor socket that no longer holds the machine slot', {
+        machine: principal.machine,
+      })
+      ws.terminate()
+      return
+    }
     try {
       const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
       if (message.type === 'machineReport') {
