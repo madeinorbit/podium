@@ -3,11 +3,11 @@
 // question is whether two independent channels coexist, not whether one works.
 //
 // argv: <mode: node-ipc|node-ipc-detached|bun-ipc> <child binary> <grandchild binary>
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 
 const mode = process.argv[2] ?? "node-ipc";
-const childBin = process.argv[3];
-const grandchildBin = process.argv[4];
+const childBin = process.argv[3] ?? "";
+const grandchildBin = process.argv[4] ?? "";
 const ROLES = ["server", "daemon"] as const;
 type Role = (typeof ROLES)[number];
 
@@ -19,10 +19,12 @@ const BIG = "x".repeat(256 * 1024); // 256 KiB — well past any single pipe wri
 type Handle = { send: (m: unknown) => void; kill: () => void; exited: Promise<number | null> };
 
 function startNodeIpc(role: Role, detached: boolean): Handle {
-  const p = spawn(childBin, [role, grandchildBin], {
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-    detached,
-  });
+  // Annotated as plain SpawnOptions on purpose. A bare array literal leaves the
+  // compiler picking between spawn()'s stdio-tuple overloads, whose result it then
+  // reduces to `never`; the four-slot 'ipc' stdio belongs to the SpawnOptions
+  // overload, which is the one that returns a ChildProcess with .send()/.on().
+  const opts: SpawnOptions = { stdio: ["ignore", "pipe", "pipe", "ipc"], detached };
+  const p = spawn(childBin, [role, grandchildBin], opts);
   p.on("message", (m) => inbox[role].push(m as Record<string, unknown>));
   p.stderr?.on("data", (d) => process.stderr.write(`[${role}] ${d}`));
   return {
@@ -65,9 +67,8 @@ async function waitFor(role: Role, type: string, ms: number): Promise<Record<str
 // talking, then exit without killing it. Whether the child notices is read from the
 // file it writes, not from this channel.
 if (mode === "orphan") {
-  const p = spawn(childBin, ["server", grandchildBin], {
-    stdio: ["ignore", "ignore", "ignore", "ipc"],
-  });
+  const opts: SpawnOptions = { stdio: ["ignore", "ignore", "ignore", "ipc"] };
+  const p = spawn(childBin, ["server", grandchildBin], opts);
   const seen = await new Promise<boolean>((r) => {
     const t = setTimeout(() => r(false), 15_000);
     p.on("message", () => {
@@ -85,7 +86,9 @@ if (mode === "orphan") {
   process.exit(0);
 }
 
-const kids: Record<string, Handle> = {};
+// Keyed by Role: both roles are always started below, and every read here is by
+// role name, so a string-indexed record would only add impossible undefined checks.
+const kids = {} as Record<Role, Handle>;
 try {
   const start: (r: Role) => Handle =
     mode === "bun-ipc"

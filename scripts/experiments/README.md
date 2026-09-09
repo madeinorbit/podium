@@ -33,6 +33,29 @@ that exist on the default branch; a `push:` trigger resolves on the pushed branc
 Read results with `gh run list --workflow <wrapper>.yml` and `gh run view <id>`, or from
 the run's step summary, which carries each platform's table.
 
+## Typechecking
+
+Everything here is inside `@podium/scripts`, whose `tsconfig.json` includes `.`. So an
+experiment — `run.ts` and its fixtures alike — is checked by the real
+`@podium/scripts#typecheck` turbo task, under the repo's usual `strict` +
+`noUncheckedIndexedAccess`. Nothing under `experiments/` is excluded, and it should stay
+that way: a spike that no longer compiles is a record nobody can re-run.
+
+Two things that trip up a new experiment, both settled here already:
+
+- **Import fixtures with the `.ts` extension**, the way Bun resolves them at runtime.
+  `scripts/tsconfig.json` sets `allowImportingTsExtensions`, which is safe because the
+  package is `noEmit` and every file in it is run by Bun rather than built.
+- **Annotate a `spawn()` that passes a 4-slot `'ipc'` stdio as `SpawnOptions`.** Left as
+  a bare object literal, the compiler tries the stdio-tuple overloads and reduces the
+  result to `never`, so every `.on`/`.send` on the child reports an error.
+
+Before pushing an experiment, run:
+
+```
+bun run typecheck --filter @podium/scripts --concurrency=1
+```
+
 ## Keeping them
 
 The **workflow** is the reusable artifact and should stay. The fixtures under an

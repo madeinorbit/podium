@@ -227,7 +227,13 @@ const env: Record<string, string | undefined> = {
 
 const argv = [process.execPath, mode, childBin];
 if (mode === "bun-execve") {
-  process.execve(process.execPath, argv, env as NodeJS.ProcessEnv);
+  // Typed optional because the runtime need not provide it. Its absence is a real
+  // answer for this mode, not a broken harness, so it is reported the same way every
+  // other negative finding is — run.ts reads `skipped` and leaves the mode unarmed.
+  const execve = process.execve;
+  if (typeof execve !== "function")
+    emit({ generation: 1, skipped: "process.execve is not available on this runtime", gen1 });
+  execve(process.execPath, argv, env as NodeJS.ProcessEnv);
 } else {
   libc.rawExecve(process.execPath, argv, env);
 }

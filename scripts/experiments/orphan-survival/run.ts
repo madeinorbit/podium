@@ -55,8 +55,11 @@ function sh(cmd: string, args: string[], cwd = here): Promise<{ code: number | n
   });
 }
 
-const bins: Record<string, string> = {};
-for (const name of ["parent", "child"]) {
+const BINS = ["parent", "child"] as const;
+// Keyed by the literal fixture names rather than a string index, so `bins.parent`
+// is a `string` — what spawn() takes — instead of `string | undefined`.
+const bins = {} as Record<(typeof BINS)[number], string>;
+for (const name of BINS) {
   const outfile = path.join(binDir, name + exe);
   const r = await sh(process.execPath, [
     "build",

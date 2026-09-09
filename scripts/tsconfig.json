@@ -8,8 +8,13 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // 51 scripts use `Bun.*` / `import.meta.dir`, and a handful import
     // `bun:sqlite` / `bun:test`.
-    "types": ["node", "bun"]
+    "types": ["node", "bun"],
+    "allowImportingTsExtensions": true
   },
+  // Every file here is run by Bun, never emitted (`noEmit` in the base config), and
+  // the experiment fixtures under experiments/ import each other by the path Bun
+  // actually resolves at runtime — `./probe.ts`. Allowing the extension typechecks
+  // what Bun runs instead of a path that only the compiler would accept.
   "include": ["."],
   "exclude": ["node_modules", "fixtures/**/*.ts.txt"]
 }

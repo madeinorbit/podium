@@ -47,8 +47,11 @@ function sh(
   });
 }
 
-const bins: Record<string, string> = {};
-for (const name of ["parent", "child"]) {
+const BINS = ["parent", "child"] as const;
+// Keyed by the literal fixture names rather than a string index, so `bins.parent`
+// is a `string` — what spawn() takes — instead of `string | undefined`.
+const bins = {} as Record<(typeof BINS)[number], string>;
+for (const name of BINS) {
   const outfile = path.join(binDir, name + exe);
   const r = await sh(process.execPath, [
     "build",
@@ -155,9 +158,11 @@ function verdict(m: Record<string, unknown> | undefined): Verdict {
   };
 }
 
-const verdicts: Record<string, Verdict> = Object.fromEntries(
+// Keyed by MODES, not by `string`: every mode below is looked up by name, and a
+// `Record<string, Verdict>` would make each of those reads possibly-undefined.
+const verdicts = Object.fromEntries(
   MODES.map((m) => [m, verdict((results.modes as Record<string, Record<string, unknown>>)[m])]),
-);
+) as Record<(typeof MODES)[number], Verdict>;
 results.verdicts = verdicts;
 results.finishedAt = new Date().toISOString();
 
