@@ -74,6 +74,7 @@ import {
   resolveClientCredential,
 } from './auth-route'
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
+import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
@@ -977,23 +978,21 @@ export async function startServer(
    * process listing and a pidfile to explain.
    *
    * A packaged coordinator declining is the surprising case and the one worth a
-   * warning; a source checkout, and a deployment that has DECLARED it owns this
-   * binary (`updateScope: 'fleet-only'`), are documented shapes and stay quiet.
+   * warning; a source checkout, and the two deployments that have DECLARED they
+   * own this binary (`updateScope: 'fleet-only'`, or a supervising daemon that
+   * applies our grants), are documented shapes and stay quiet. Which reason gets
+   * named is `updateParticipantSkip`, tested there.
    */
   if (localUpdateParticipant === undefined) {
-    const why = fleetOnly
-      ? 'this deployment owns the server binary (updateScope=fleet-only)'
-      : developmentRuntime.runningFromSource
-        ? 'this coordinator runs from source'
-        : recoveryOnly
-          ? 'the coordinator is fenced in recovery-only mode'
-          : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
-            ? 'the local participant is disabled for this run'
-            : 'no supervising parent is discoverable in the run registry'
-    const note = `this machine will not report its build or appear online in its own fleet: ${why}`
-    if (fleetOnly) log.info(note)
-    else if (developmentRuntime.runningFromSource) log.debug(note)
-    else log.warn(note)
+    const { why, level } = updateParticipantSkip({
+      fleetOnly,
+      supervisorOwnsUpdates: process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor',
+      runningFromSource: developmentRuntime.runningFromSource,
+      recoveryOnly,
+      participantDisabledForRun:
+        process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1',
+    })
+    log[level](updateParticipantSkipNote(why))
   }
 
   /**
