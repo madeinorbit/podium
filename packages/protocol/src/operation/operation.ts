@@ -142,6 +142,13 @@ export const OperationStep = z
      * rather than erased when progress resumes (§3.3).
      */
     stalls: z.number().optional(),
+    /**
+     * Total silence, in milliseconds, ALREADY SURVIVED by this step — the sum of
+     * the windows that earlier stalls measured, before each retry restarted the
+     * clock. Without it the failure sentence can only see the last window and
+     * reports half the wait the user actually sat through (POD-3769).
+     */
+    stalledMs: z.number().optional(),
     detail: z.string().optional(),
     error: OperationError.nullable().optional(),
   })

@@ -7,6 +7,7 @@ import {
   inFlightStep,
   nextStep,
   restartPlaceClocks,
+  stalledSilenceMessage,
   withPersistenceFacts,
 } from './transitions'
 
@@ -220,5 +221,53 @@ describe('restartPlaceClocks', () => {
 
   it('has nothing to say about a step with no places', () => {
     expect(restartPlaceClocks(undefined, 900)).toBeUndefined()
+  })
+})
+
+/**
+ * The sentence a stalled step fails with. The bug it exists for (POD-3769) was
+ * arithmetic, not phrasing: after one retry the copy reported the LAST silent
+ * window as though it were the whole wait, so a user who watched for fourteen
+ * minutes was told Podium gave up after seven.
+ */
+describe('stalledSilenceMessage', () => {
+  const firstWindow = 420_000
+  const secondWindow = 420_000
+
+  it('reports the one window when nothing has been retried', () => {
+    const message = stalledSilenceMessage({
+      silentMs: firstWindow,
+      attempts: 1,
+      operationMs: 500_000,
+    })
+    expect(message).toContain(`${Math.round(firstWindow / 1000)}s`)
+    expect(message).not.toContain('attempts')
+    expect(message).toContain('8m20s')
+  })
+
+  it('reports the SUM of every window, and how many attempts it is spread over', () => {
+    const message = stalledSilenceMessage({
+      silentMs: firstWindow + secondWindow,
+      attempts: 2,
+      operationMs: 1_003_783,
+    })
+    expect(message).toContain(`${Math.round((firstWindow + secondWindow) / 1000)}s`)
+    expect(message).toContain('2 attempts')
+    // The whole point: it must not be readable as a single window.
+    expect(message).not.toContain(`No progress for ${Math.round(firstWindow / 1000)}s`)
+  })
+
+  it('says the retry was spent, so the number is not read as one uninterrupted wait', () => {
+    const message = stalledSilenceMessage({ silentMs: 840_000, attempts: 2, operationMs: 900_000 })
+    expect(message).toMatch(/retry/i)
+  })
+
+  it('renders the operation age as a clock a watching user can check', () => {
+    expect(
+      stalledSilenceMessage({ silentMs: 840_000, attempts: 2, operationMs: 1_003_783 }),
+    ).toContain('operation running 16m43s')
+    expect(stalledSilenceMessage({ silentMs: 1_000, attempts: 1, operationMs: 9_000 })).toContain(
+      'operation running 9s',
+    )
   })
 })
