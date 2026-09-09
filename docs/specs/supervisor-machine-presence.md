@@ -90,6 +90,11 @@ what makes the outcome correct when it is absent.
   the caller's services onto the ATTACHED supervisor's build (it reads the build from the
   map, not from the sender), and an accepted `updateStatus` is execution proof for a grant
   the successor is running.
+- The question is put only after THIS socket's own attach has landed. The handshake reply
+  goes out before `attachSupervisor` completes, so a supervisor that answers promptly is
+  read while the map is still empty; fencing on "holds the slot" without that wait closes
+  the sender that is one await away from becoming the holder. A frame arriving before the
+  handshake has even resolved is a different window, still open, tracked as POD-3788.
 - A refused sender is **closed, not dropped**, for the same reason §1a closes rather than
   answering with a rejection frame. The refusal is temporary by design, and a predecessor
   whose successor aborts is the one that has to be there. A dropped frame would leave that
